@@ -1,0 +1,61 @@
+# Binaries
+/shepherd
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude Code context (personal per-developer)
+CLAUDE.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config (may contain API keys)
+# config.yaml is in ~/.shepherd/, not in repo
+
+# Database
+*.db
+*.db-journal
+
+# Plan files (development notes)
+plan-step*.md
+shepherd-design.md
+shepherd-tasks.md
+
+# Screenshots and test images
+*.png
+!assets/*.png
+*.deb
+
+# Internal docs, prompts, and infra config (not needed for open-source)
+docs/
+k8s/
+prompts/
+
+# Legacy build output
+webui/
+
+# Web build outputs
+web/build/
+web/node_modules/
+web/.svelte-kit/
+internal/server/web_dist/*
+!internal/server/web_dist/.gitkeep

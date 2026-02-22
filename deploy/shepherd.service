@@ -1,0 +1,22 @@
+[Unit]
+Description=Shepherd AI Orchestration Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/shepherd serve
+Restart=on-failure
+RestartSec=5
+Environment=HOME=%h
+
+# 로그
+StandardOutput=journal
+StandardError=journal
+
+# 프로세스 관리
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

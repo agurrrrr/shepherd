@@ -1,0 +1,313 @@
+package server
+
+import (
+	"context"
+	"strconv"
+
+	"github.com/gofiber/fiber/v2"
+
+	"github.com/agurrrrr/shepherd/ent"
+	entProject "github.com/agurrrrr/shepherd/ent/project"
+	entSheep "github.com/agurrrrr/shepherd/ent/sheep"
+	entTask "github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/manager"
+	"github.com/agurrrrr/shepherd/internal/queue"
+	"github.com/agurrrrr/shepherd/internal/worker"
+)
+
+// GET /api/tasks
+func (s *Server) handleListTasks(c *fiber.Ctx) error {
+	ctx := context.Background()
+	client := db.Client()
+
+	query := client.Task.Query()
+
+	// Filters
+	if status := c.Query("status"); status != "" {
+		query = query.Where(entTask.StatusEQ(entTask.Status(status)))
+	}
+	if projectName := c.Query("project"); projectName != "" {
+		query = query.Where(entTask.HasProjectWith(entProject.Name(projectName)))
+	}
+	if sheepName := c.Query("sheep"); sheepName != "" {
+		query = query.Where(entTask.HasSheepWith(entSheep.Name(sheepName)))
+	}
+	if q := c.Query("q"); q != "" {
+		query = query.Where(
+			entTask.Or(
+				entTask.PromptContains(q),
+				entTask.SummaryContains(q),
+			),
+		)
+	}
+
+	// Count total
+	total, err := query.Clone().Count(ctx)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// Pagination
+	page := c.QueryInt("page", 1)
+	limit := c.QueryInt("limit", 20)
+	if limit > 100 {
+		limit = 100
+	}
+	if page < 1 {
+		page = 1
+	}
+
+	// Sort order
+	orderFunc := ent.Desc(entTask.FieldCreatedAt)
+	if c.Query("sort") == "asc" {
+		orderFunc = ent.Asc(entTask.FieldCreatedAt)
+	}
+
+	tasks, err := query.
+		Order(orderFunc).
+		Offset((page - 1) * limit).
+		Limit(limit).
+		WithProject().
+		WithSheep().
+		All(ctx)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	type taskItem struct {
+		ID        int    `json:"id"`
+		Prompt    string `json:"prompt"`
+		Status    string `json:"status"`
+		Summary   string `json:"summary,omitempty"`
+		Error     string `json:"error,omitempty"`
+		Sheep     string `json:"sheep,omitempty"`
+		Project   string `json:"project,omitempty"`
+		CreatedAt string `json:"created_at"`
+	}
+
+	var items []taskItem
+	for _, t := range tasks {
+		item := taskItem{
+			ID:        t.ID,
+			Prompt:    t.Prompt,
+			Status:    string(t.Status),
+			Summary:   t.Summary,
+			Error:     t.Error,
+			CreatedAt: t.CreatedAt.Format("2006-01-02 15:04:05"),
+		}
+		if t.Edges.Sheep != nil {
+			item.Sheep = t.Edges.Sheep.Name
+		}
+		if t.Edges.Project != nil {
+			item.Project = t.Edges.Project.Name
+		}
+		items = append(items, item)
+	}
+
+	totalPages := (total + limit - 1) / limit
+
+	return c.JSON(fiber.Map{
+		"success":     true,
+		"data":        items,
+		"total":       total,
+		"page":        page,
+		"limit":       limit,
+		"total_pages": totalPages,
+	})
+}
+
+// POST /api/tasks
+func (s *Server) handleCreateTask(c *fiber.Ctx) error {
+	var body struct {
+		Prompt      string `json:"prompt"`
+		SheepName   string `json:"sheep_name"`
+		ProjectName string `json:"project_name"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+
+	if body.Prompt == "" {
+		return fail(c, fiber.StatusBadRequest, "prompt is required")
+	}
+
+	// Look up sheep and project
+	sheep, err := worker.Get(body.SheepName)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, "sheep not found: "+err.Error())
+	}
+
+	var projectID int
+	if body.ProjectName != "" {
+		ctx := context.Background()
+		p, err := db.Client().Project.Query().
+			Where(entProject.Name(body.ProjectName)).
+			Only(ctx)
+		if err != nil {
+			return fail(c, fiber.StatusNotFound, "project not found")
+		}
+		projectID = p.ID
+	} else if sheep.Edges.Project != nil {
+		projectID = sheep.Edges.Project.ID
+	}
+
+	var t *ent.Task
+	if projectID > 0 {
+		t, err = queue.CreateTask(body.Prompt, sheep.ID, projectID)
+	} else {
+		t, err = queue.CreateManagerTask(body.Prompt, sheep.ID)
+	}
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// Trigger immediate processing
+	if s.processor != nil {
+		s.processor.ProcessPendingNow()
+	}
+
+	return success(c, map[string]interface{}{
+		"task_id":      t.ID,
+		"sheep_name":   body.SheepName,
+		"project_name": body.ProjectName,
+	})
+}
+
+// GET /api/tasks/:id
+func (s *Server) handleGetTask(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid task ID")
+	}
+
+	t, err := queue.GetTask(id)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, err.Error())
+	}
+
+	result := map[string]interface{}{
+		"id":             t.ID,
+		"prompt":         t.Prompt,
+		"status":         string(t.Status),
+		"summary":        t.Summary,
+		"error":          t.Error,
+		"files_modified": t.FilesModified,
+		"output":         t.Output,
+		"created_at":     t.CreatedAt.Format("2006-01-02 15:04:05"),
+	}
+	if !t.StartedAt.IsZero() {
+		result["started_at"] = t.StartedAt.Format("2006-01-02 15:04:05")
+	}
+	if !t.CompletedAt.IsZero() {
+		result["completed_at"] = t.CompletedAt.Format("2006-01-02 15:04:05")
+	}
+	if t.Edges.Sheep != nil {
+		result["sheep"] = t.Edges.Sheep.Name
+	}
+	if t.Edges.Project != nil {
+		result["project"] = t.Edges.Project.Name
+	}
+
+	return success(c, result)
+}
+
+// POST /api/tasks/:id/stop
+func (s *Server) handleStopTask(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid task ID")
+	}
+
+	// Get the task to find which sheep is running it
+	t, err := queue.GetTask(id)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, err.Error())
+	}
+
+	if t.Status != entTask.StatusRunning {
+		return fail(c, fiber.StatusBadRequest, "task is not running")
+	}
+
+	if t.Edges.Sheep == nil {
+		return fail(c, fiber.StatusInternalServerError, "task has no assigned sheep")
+	}
+
+	// Stop the running task
+	result, err := worker.StopTask(t.Edges.Sheep.Name)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// Mark task as failed
+	_ = queue.FailTaskWithOutput(id, "stopped by user", result.OutputLines)
+
+	return success(c, map[string]interface{}{
+		"task_id": id,
+		"stopped": true,
+	})
+}
+
+// POST /api/command
+func (s *Server) handleCommand(c *fiber.Ctx) error {
+	var body struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+
+	if body.Prompt == "" {
+		return fail(c, fiber.StatusBadRequest, "prompt is required")
+	}
+
+	// Analyze the prompt to determine project and sheep
+	decision, err := manager.Analyze(body.Prompt)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "analysis failed: "+err.Error())
+	}
+
+	// Look up sheep
+	sheep, err := worker.Get(decision.SheepName)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, "sheep not found: "+err.Error())
+	}
+
+	// Look up project
+	var projectID int
+	if decision.ProjectName != "" {
+		ctx := context.Background()
+		p, err := db.Client().Project.Query().
+			Where(entProject.Name(decision.ProjectName)).
+			Only(ctx)
+		if err == nil {
+			projectID = p.ID
+		}
+	}
+	if projectID == 0 && sheep.Edges.Project != nil {
+		projectID = sheep.Edges.Project.ID
+	}
+
+	// Create task
+	var t *ent.Task
+	if projectID > 0 {
+		t, err = queue.CreateTask(body.Prompt, sheep.ID, projectID)
+	} else {
+		t, err = queue.CreateManagerTask(body.Prompt, sheep.ID)
+	}
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// Trigger immediate processing
+	if s.processor != nil {
+		s.processor.ProcessPendingNow()
+	}
+
+	return success(c, map[string]interface{}{
+		"task_id":      t.ID,
+		"sheep_name":   decision.SheepName,
+		"project_name": decision.ProjectName,
+		"reason":       decision.Reason,
+	})
+}
