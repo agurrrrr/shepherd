@@ -356,6 +356,241 @@ var projectAssignCmd = &cobra.Command{
 	},
 }
 
+// skill commands
+var (
+	skillAddFile    string
+	skillAddProject string
+	skillAddDesc    string
+	skillAddTags    string
+	skillListProject string
+)
+
+var skillCmd = &cobra.Command{
+	Use:   "skill",
+	Short: "Manage skills",
+	Long:  "Create, list, show, enable, disable, or remove skills.",
+}
+
+var skillListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List skills",
+	Run: func(cmd *cobra.Command, args []string) {
+		var skills []*ent.Skill
+		var err error
+
+		if skillListProject != "" {
+			skills, err = skill.ListByProject(skillListProject)
+		} else {
+			skills, err = skill.ListAll()
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to list skills: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(skills) == 0 {
+			fmt.Println("No skills found.")
+			return
+		}
+
+		fmt.Printf("%-4s %-25s %-8s %-8s %-8s %s\n", "ID", "NAME", "SCOPE", "ENABLED", "BUNDLED", "TAGS")
+		fmt.Println(strings.Repeat("-", 80))
+		for _, s := range skills {
+			enabled := "yes"
+			if !s.Enabled {
+				enabled = "no"
+			}
+			bundled := ""
+			if s.Bundled {
+				bundled = "bundled"
+			}
+			tags := ""
+			if len(s.Tags) > 0 {
+				tags = strings.Join(s.Tags, ", ")
+			}
+			fmt.Printf("%-4d %-25s %-8s %-8s %-8s %s\n", s.ID, s.Name, s.Scope, enabled, bundled, tags)
+		}
+	},
+}
+
+var skillAddCmd = &cobra.Command{
+	Use:   "add <name> --file <path>",
+	Short: "Add a skill from a markdown file",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+
+		if skillAddFile == "" {
+			fmt.Fprintf(os.Stderr, "Error: --file flag is required\n")
+			os.Exit(1)
+		}
+
+		content, err := os.ReadFile(skillAddFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to read file: %v\n", err)
+			os.Exit(1)
+		}
+
+		fm, body, err := skill.ParseSkillFile(string(content))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to parse skill file: %v\n", err)
+			os.Exit(1)
+		}
+
+		// CLI args override frontmatter
+		description := skillAddDesc
+		scope := "global"
+		var tags []string
+		var projectID *int
+
+		if fm != nil {
+			if description == "" {
+				description = fm.Description
+			}
+			if fm.Tags != nil && skillAddTags == "" {
+				tags = fm.Tags
+			}
+			if fm.Scope != "" {
+				scope = fm.Scope
+			}
+		}
+
+		if skillAddTags != "" {
+			tags = strings.Split(skillAddTags, ",")
+			for i := range tags {
+				tags[i] = strings.TrimSpace(tags[i])
+			}
+		}
+
+		if skillAddProject != "" {
+			scope = "project"
+			p, err := project.Get(skillAddProject)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to find project '%s': %v\n", skillAddProject, err)
+				os.Exit(1)
+			}
+			pid := p.ID
+			projectID = &pid
+		}
+
+		if body == "" {
+			body = string(content)
+		}
+
+		sk, err := skill.CreateSkill(projectID, name, description, body, scope, tags)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create skill: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Skill '%s' created (ID: %d, scope: %s)\n", sk.Name, sk.ID, sk.Scope)
+	},
+}
+
+var skillRemoveCmd = &cobra.Command{
+	Use:   "remove <name>",
+	Short: "Remove a skill by name",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+		sk, err := findSkillByName(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		if sk.Bundled {
+			fmt.Fprintf(os.Stderr, "Cannot remove bundled skill '%s'\n", name)
+			os.Exit(1)
+		}
+		if err := skill.DeleteSkill(sk.ID); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to remove skill: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Skill '%s' removed\n", name)
+	},
+}
+
+var skillShowCmd = &cobra.Command{
+	Use:   "show <name>",
+	Short: "Show skill details",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+		sk, err := findSkillByName(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Name:        %s\n", sk.Name)
+		fmt.Printf("ID:          %d\n", sk.ID)
+		fmt.Printf("Scope:       %s\n", sk.Scope)
+		fmt.Printf("Enabled:     %v\n", sk.Enabled)
+		fmt.Printf("Bundled:     %v\n", sk.Bundled)
+		if sk.Description != "" {
+			fmt.Printf("Description: %s\n", sk.Description)
+		}
+		if len(sk.Tags) > 0 {
+			fmt.Printf("Tags:        %s\n", strings.Join(sk.Tags, ", "))
+		}
+		if sk.Edges.Project != nil {
+			fmt.Printf("Project:     %s\n", sk.Edges.Project.Name)
+		}
+		fmt.Printf("\n--- Content ---\n%s\n", sk.Content)
+	},
+}
+
+var skillEnableCmd = &cobra.Command{
+	Use:   "enable <name>",
+	Short: "Enable a skill",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+		sk, err := findSkillByName(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		if _, err := skill.ToggleEnabled(sk.ID, true); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to enable skill: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Skill '%s' enabled\n", name)
+	},
+}
+
+var skillDisableCmd = &cobra.Command{
+	Use:   "disable <name>",
+	Short: "Disable a skill",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+		sk, err := findSkillByName(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		if _, err := skill.ToggleEnabled(sk.ID, false); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to disable skill: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Skill '%s' disabled\n", name)
+	},
+}
+
+// findSkillByName finds a skill by name from all skills.
+func findSkillByName(name string) (*ent.Skill, error) {
+	skills, err := skill.ListAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list skills: %w", err)
+	}
+	for _, s := range skills {
+		if s.Name == name {
+			return s, nil
+		}
+	}
+	return nil, fmt.Errorf("skill '%s' not found", name)
+}
+
 // task command
 var taskCmd = &cobra.Command{
 	Use:   "task <prompt>",
@@ -2508,6 +2743,20 @@ func init() {
 	projectCmd.AddCommand(projectRemoveCmd)
 	projectCmd.AddCommand(projectAssignCmd)
 	rootCmd.AddCommand(projectCmd)
+
+	// Register skill command
+	skillAddCmd.Flags().StringVarP(&skillAddFile, "file", "f", "", "Path to markdown skill file (required)")
+	skillAddCmd.Flags().StringVarP(&skillAddProject, "project", "p", "", "Associate with a project (sets scope to project)")
+	skillAddCmd.Flags().StringVarP(&skillAddDesc, "desc", "d", "", "Skill description")
+	skillAddCmd.Flags().StringVarP(&skillAddTags, "tags", "t", "", "Comma-separated tags")
+	skillListCmd.Flags().StringVarP(&skillListProject, "project", "p", "", "Filter by project name")
+	skillCmd.AddCommand(skillListCmd)
+	skillCmd.AddCommand(skillAddCmd)
+	skillCmd.AddCommand(skillRemoveCmd)
+	skillCmd.AddCommand(skillShowCmd)
+	skillCmd.AddCommand(skillEnableCmd)
+	skillCmd.AddCommand(skillDisableCmd)
+	rootCmd.AddCommand(skillCmd)
 
 	// Register task command
 	rootCmd.AddCommand(taskCmd)
