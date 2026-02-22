@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Git integration: branch, commit history, and diff viewing in WebUI
 - Browser automation: Rod-based browser control with 20+ MCP tools
 - MCP server mode for integration with Claude Desktop and other MCP clients
-- Multi-provider support: Claude Code, Mistral Vibe, and auto-select
+- Multi-provider support: Claude Code, OpenCode, and auto-select
 - CONTRIBUTING.md and CHANGELOG.md for open-source readiness
 
 ### Changed

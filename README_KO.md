@@ -210,7 +210,7 @@ GET /api/events?token=<access_token>
 ```bash
 shepherd spawn                    # 양 생성 (자동 이름)
 shepherd spawn -n dolly           # 특정 이름으로 생성
-shepherd spawn -p vibe            # Vibe 프로바이더로 생성
+shepherd spawn -p opencode        # OpenCode 프로바이더로 생성
 shepherd flock                    # 전체 양 목록
 shepherd recall <name>            # 양 해제
 shepherd recall --all             # 전체 양 해제
@@ -330,7 +330,7 @@ GET  /api/skills/:id/export         # 파일로 내보내기
 
 ```yaml
 language: ko               # en, ko
-default_provider: claude   # claude, vibe, auto
+default_provider: claude   # claude, opencode, auto
 max_sheep: 12              # 최대 양 수
 db_path: ~/.shepherd/shepherd.db
 log_level: info            # debug, info, warn, error
@@ -365,7 +365,7 @@ auth_jwt_secret: "자동 생성"
 | 프로바이더 | CLI | 용도 |
 |-----------|-----|------|
 | `claude` | Claude Code | 기본 — 코드 작성, 복잡한 작업 |
-| `vibe` | Mistral Vibe | 리뷰, 웹 검색, 단순 작업 |
+| `opencode` | OpenCode | 리뷰, 웹 검색, 단순 작업 |
 | `auto` | 자동 선택 | 프롬프트 분석 후 최적 프로바이더 선택 |
 
 ### 프로젝트 구조
@@ -375,7 +375,7 @@ shepherd/
 ├── cmd/shepherd/          # CLI 진입점 (~2000줄, 전체 명령어)
 ├── ent/schema/            # Ent ORM 엔티티 (Sheep, Project, Task, Skill, Schedule)
 ├── internal/
-│   ├── agent/             # AI 프로바이더 추상화 (Claude, Vibe)
+│   ├── agent/             # AI 프로바이더 추상화 (Claude, OpenCode)
 │   ├── browser/           # 브라우저 자동화 (Rod)
 │   ├── config/            # Viper 기반 YAML 설정
 │   ├── daemon/            # PID 파일, 시그널 처리, 생명주기

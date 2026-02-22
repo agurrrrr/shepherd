@@ -214,7 +214,7 @@ For HTTPS access outside your network, use a reverse proxy (e.g., Nginx, Caddy) 
 ```bash
 shepherd spawn                    # Create sheep (auto-named)
 shepherd spawn -n dolly           # Create with specific name
-shepherd spawn -p vibe            # Create with Vibe provider
+shepherd spawn -p opencode        # Create with OpenCode provider
 shepherd flock                    # List all sheep
 shepherd recall <name>            # Terminate a sheep
 shepherd recall --all             # Terminate all sheep
@@ -334,7 +334,7 @@ Config file: `~/.shepherd/config.yaml`
 
 ```yaml
 language: en               # en, ko
-default_provider: claude   # claude, vibe, auto
+default_provider: claude   # claude, opencode, auto
 max_sheep: 12              # Maximum concurrent sheep
 db_path: ~/.shepherd/shepherd.db
 log_level: info            # debug, info, warn, error
@@ -367,7 +367,7 @@ User Input → Interactive CLI / Web UI / MCP Client
 | Provider | CLI | Use Case |
 |----------|-----|----------|
 | `claude` | Claude Code | Default — code writing, complex tasks |
-| `vibe` | Mistral Vibe | Reviews, web search, simple tasks |
+| `opencode` | OpenCode | Reviews, web search, simple tasks |
 | `auto` | Auto-select | Analyzes prompt and picks the best provider |
 
 ### Project Structure
@@ -377,7 +377,7 @@ shepherd/
 ├── cmd/shepherd/          # CLI entrypoint (~2000 lines, all commands)
 ├── ent/schema/            # Ent ORM entities (Sheep, Project, Task, Skill, Schedule)
 ├── internal/
-│   ├── agent/             # AI provider abstraction (Claude, Vibe)
+│   ├── agent/             # AI provider abstraction (Claude, OpenCode)
 │   ├── browser/           # Browser automation (Rod)
 │   ├── config/            # Viper-based YAML config
 │   ├── daemon/            # PID file, signal handling, lifecycle

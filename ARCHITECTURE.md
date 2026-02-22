@@ -58,7 +58,7 @@
 
 4. Worker executes
    ├── Claude Code CLI: claude --print --resume <session_id> -p <prompt>
-   ├── Or Vibe CLI:     vibe --resume <session_id> -p <prompt>
+   ├── Or OpenCode CLI: opencode --resume <session_id> -p <prompt>
    └── Output is streamed in real-time via SSE
 
 5. Results recorded
@@ -100,7 +100,7 @@ internal/
 ├── agent/               # AI provider abstraction
 │   ├── provider.go      # AgentProvider interface
 │   ├── claude.go        # Claude Code CLI wrapper
-│   ├── vibe.go          # Mistral Vibe CLI wrapper
+│   ├── opencode.go      # OpenCode CLI wrapper
 │   └── router.go        # Auto-select logic based on prompt analysis
 │
 ├── browser/             # Browser automation (Rod)
@@ -215,12 +215,12 @@ Project 0:N Skill       # A project can have project-scoped skills
 ```
 AgentProvider (interface)
 ├── ClaudeProvider    # claude --print --output-format json
-├── VibeProvider      # vibe -p <prompt> --resume <session>
+├── OpenCodeProvider  # opencode -p <prompt> --resume <session>
 └── AutoRouter        # Analyzes prompt → selects best provider
                       # Falls back on rate limit
 ```
 
-Provider selection per sheep: `claude` (default), `vibe`, or `auto`.
+Provider selection per sheep: `claude` (default), `opencode`, or `auto`.
 
 ## Security Model
 
