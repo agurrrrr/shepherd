@@ -20,8 +20,10 @@ func (s *Server) registerTools() {
 	s.tools["get_history"] = handleGetHistory
 	s.tools["get_status"] = handleGetStatus
 
-	// 브라우저 도구 등록
-	s.registerBrowserTools()
+	// 브라우저 도구 등록 (minimal 모드에서는 제외)
+	if !s.minimal {
+		s.registerBrowserTools()
+	}
 }
 
 // InitForTools initializes config and DB for tool handlers
@@ -40,18 +42,25 @@ func handleTaskStart(args map[string]interface{}) (string, error) {
 	projectName, _ := args["project_name"].(string)
 	prompt, _ := args["prompt"].(string)
 
-	if sheepName == "" || projectName == "" || prompt == "" {
-		return "", fmt.Errorf("sheep_name, project_name, prompt 모두 필요합니다")
-	}
-
-	// 양 조회
-	sheep, err := worker.Get(sheepName)
-	if err != nil {
-		return "", err
+	if projectName == "" || prompt == "" {
+		return "", fmt.Errorf("project_name, prompt 모두 필요합니다")
 	}
 
 	// 프로젝트 조회
 	proj, err := project.Get(projectName)
+	if err != nil {
+		return "", err
+	}
+
+	// 양 조회: sheep_name이 없으면 프로젝트에 할당된 양을 자동 사용
+	if sheepName == "" {
+		if proj.Edges.Sheep == nil {
+			return "", fmt.Errorf("프로젝트 '%s'에 할당된 양이 없습니다. sheep_name을 지정해주세요", projectName)
+		}
+		sheepName = proj.Edges.Sheep.Name
+	}
+
+	sheep, err := worker.Get(sheepName)
 	if err != nil {
 		return "", err
 	}

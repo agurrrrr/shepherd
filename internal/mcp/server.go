@@ -93,20 +93,23 @@ type ContentBlock struct {
 
 // Server represents the MCP server
 type Server struct {
-	reader *bufio.Reader
-	writer io.Writer
-	tools  map[string]ToolHandler
+	reader  *bufio.Reader
+	writer  io.Writer
+	tools   map[string]ToolHandler
+	minimal bool
 }
 
 // ToolHandler is a function that handles a tool call
 type ToolHandler func(args map[string]interface{}) (string, error)
 
-// NewServer creates a new MCP server
-func NewServer() *Server {
+// NewServer creates a new MCP server.
+// If minimal is true, only core task tools are registered (no browser tools).
+func NewServer(minimal bool) *Server {
 	s := &Server{
-		reader: bufio.NewReader(os.Stdin),
-		writer: os.Stdout,
-		tools:  make(map[string]ToolHandler),
+		reader:  bufio.NewReader(os.Stdin),
+		writer:  os.Stdout,
+		tools:   make(map[string]ToolHandler),
+		minimal: minimal,
 	}
 	s.registerTools()
 	return s
@@ -172,11 +175,11 @@ func (s *Server) handleToolsList(req *Request) {
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
-					"sheep_name":   {Type: "string", Description: "양 이름 (작업을 수행할 워커)"},
+					"sheep_name":   {Type: "string", Description: "양 이름 (생략 시 프로젝트에 할당된 양 자동 사용)"},
 					"project_name": {Type: "string", Description: "프로젝트 이름"},
 					"prompt":       {Type: "string", Description: "작업 내용 (Claude에게 전달할 프롬프트)"},
 				},
-				Required: []string{"sheep_name", "project_name", "prompt"},
+				Required: []string{"project_name", "prompt"},
 			},
 		},
 		{
@@ -226,8 +229,10 @@ func (s *Server) handleToolsList(req *Request) {
 		},
 	}
 
-	// 브라우저 도구 추가
-	tools = append(tools, getBrowserToolsList()...)
+	// 브라우저 도구 추가 (minimal 모드에서는 제외)
+	if !s.minimal {
+		tools = append(tools, getBrowserToolsList()...)
+	}
 
 	s.sendResult(req.ID, ToolsListResult{Tools: tools})
 }

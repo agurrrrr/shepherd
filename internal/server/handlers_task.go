@@ -133,9 +133,15 @@ func (s *Server) handleCreateTask(c *fiber.Ctx) error {
 	}
 
 	// Look up sheep and project
-	sheep, err := worker.Get(body.SheepName)
-	if err != nil {
-		return fail(c, fiber.StatusNotFound, "sheep not found: "+err.Error())
+	// If sheep_name is omitted but project_name is given, auto-resolve the assigned sheep
+	var sheep *ent.Sheep
+	var err error
+
+	if body.SheepName != "" {
+		sheep, err = worker.Get(body.SheepName)
+		if err != nil {
+			return fail(c, fiber.StatusNotFound, "sheep not found: "+err.Error())
+		}
 	}
 
 	var projectID int
@@ -143,13 +149,30 @@ func (s *Server) handleCreateTask(c *fiber.Ctx) error {
 		ctx := context.Background()
 		p, err := db.Client().Project.Query().
 			Where(entProject.Name(body.ProjectName)).
+			WithSheep().
 			Only(ctx)
 		if err != nil {
 			return fail(c, fiber.StatusNotFound, "project not found")
 		}
 		projectID = p.ID
-	} else if sheep.Edges.Project != nil {
+
+		// Auto-resolve sheep from project if not explicitly provided
+		if sheep == nil {
+			if p.Edges.Sheep == nil {
+				return fail(c, fiber.StatusBadRequest, "no sheep assigned to project '"+body.ProjectName+"', specify sheep_name explicitly")
+			}
+			sheep, err = worker.Get(p.Edges.Sheep.Name)
+			if err != nil {
+				return fail(c, fiber.StatusNotFound, "assigned sheep not found: "+err.Error())
+			}
+			body.SheepName = sheep.Name
+		}
+	} else if sheep != nil && sheep.Edges.Project != nil {
 		projectID = sheep.Edges.Project.ID
+	}
+
+	if sheep == nil {
+		return fail(c, fiber.StatusBadRequest, "sheep_name or project_name is required")
 	}
 
 	var t *ent.Task

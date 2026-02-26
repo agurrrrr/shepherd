@@ -402,3 +402,39 @@ func RecoverStuckTasks() (int, error) {
 
 	return count, nil
 }
+
+// CancelPendingTasks marks all pending tasks as failed (cancelled).
+func CancelPendingTasks() (int, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	count, err := client.Task.Update().
+		Where(task.StatusEQ(task.StatusPending)).
+		SetStatus(task.StatusFailed).
+		SetError("cancelled by user").
+		SetCompletedAt(time.Now()).
+		Save(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to cancel pending tasks: %w", err)
+	}
+
+	return count, nil
+}
+
+// CancelRunningTasks marks all running tasks as failed (cancelled).
+func CancelRunningTasks() (int, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	count, err := client.Task.Update().
+		Where(task.StatusEQ(task.StatusRunning)).
+		SetStatus(task.StatusFailed).
+		SetError("cancelled by user").
+		SetCompletedAt(time.Now()).
+		Save(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to cancel running tasks: %w", err)
+	}
+
+	return count, nil
+}

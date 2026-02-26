@@ -348,9 +348,22 @@ var projectAssignCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		projectName := args[0]
 		sheepName := args[1]
-		if err := project.AssignSheep(projectName, sheepName); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to assign sheep: %v\n", err)
-			os.Exit(1)
+		err := project.AssignSheep(projectName, sheepName)
+		if err != nil {
+			// If UNIQUE constraint fails, unassign existing sheep and retry
+			if strings.Contains(err.Error(), "UNIQUE constraint") || strings.Contains(err.Error(), "constraint failed") {
+				if unErr := project.UnassignSheep(projectName); unErr != nil {
+					fmt.Fprintf(os.Stderr, "Failed to unassign existing sheep: %v\n", unErr)
+					os.Exit(1)
+				}
+				if err = project.AssignSheep(projectName, sheepName); err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to assign sheep: %v\n", err)
+					os.Exit(1)
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "Failed to assign sheep: %v\n", err)
+				os.Exit(1)
+			}
 		}
 		fmt.Printf("📁 🐏 %s assigned to %s\n", sheepName, projectName)
 	},
@@ -593,11 +606,23 @@ func findSkillByName(name string) (*ent.Skill, error) {
 
 // task command
 var taskCmd = &cobra.Command{
-	Use:   "task <prompt>",
-	Short: "Request a task",
-	Long:  "Requests a task from the shepherd. The shepherd assigns an appropriate sheep to carry out the work.",
-	Args:  cobra.MinimumNArgs(1),
+	Use:   "task [prompt]",
+	Short: "Request a task or manage tasks",
+	Long: `Requests a task from the shepherd, or manage tasks with subcommands.
+
+Subcommands:
+  stop <id>       Stop a running task
+  cancel-all      Cancel all running and pending tasks
+
+Examples:
+  shepherd task "Fix the bug"
+  shepherd task stop 123
+  shepherd task cancel-all`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if len(args) == 0 {
+			cmd.Help()
+			return
+		}
 		prompt := strings.Join(args, " ")
 		executeTask(prompt)
 	},
@@ -757,6 +782,138 @@ Report the list of fetched issues and how many tasks were added.`, youtrackProje
 		// Check pending task count
 		pendingCount, _ := queue.CountPendingTasksBySheep(sheepID)
 		fmt.Printf("\n📋 Sheep '%s' pending tasks: %d\n", sheepName, pendingCount)
+	},
+}
+
+var queueCancelCmd = &cobra.Command{
+	Use:   "cancel <id>",
+	Short: "Cancel a pending task",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		id, err := strconv.Atoi(args[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid task ID: %s\n", args[0])
+			os.Exit(1)
+		}
+
+		t, err := queue.GetTask(id)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Task not found: %v\n", err)
+			os.Exit(1)
+		}
+
+		if t.Status != task.StatusPending {
+			fmt.Fprintf(os.Stderr, "Task #%d is not pending (status: %s). Use 'shepherd task stop %d' for running tasks.\n", id, t.Status, id)
+			os.Exit(1)
+		}
+
+		if err := queue.FailTask(id, "cancelled by user"); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to cancel task: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("📋 Task #%d cancelled.\n", id)
+	},
+}
+
+var queueClearCmd = &cobra.Command{
+	Use:   "clear",
+	Short: "Cancel all pending tasks",
+	Run: func(cmd *cobra.Command, args []string) {
+		count, err := queue.CancelPendingTasks()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to clear queue: %v\n", err)
+			os.Exit(1)
+		}
+
+		if count == 0 {
+			fmt.Println("No pending tasks to cancel.")
+		} else {
+			fmt.Printf("📋 %d pending task(s) cancelled.\n", count)
+		}
+	},
+}
+
+var taskStopCmd = &cobra.Command{
+	Use:   "stop <id>",
+	Short: "Stop a running task",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		id, err := strconv.Atoi(args[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid task ID: %s\n", args[0])
+			os.Exit(1)
+		}
+
+		t, err := queue.GetTask(id)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Task not found: %v\n", err)
+			os.Exit(1)
+		}
+
+		if t.Status != task.StatusRunning {
+			fmt.Fprintf(os.Stderr, "Task #%d is not running (status: %s).\n", id, t.Status)
+			os.Exit(1)
+		}
+
+		if t.Edges.Sheep == nil {
+			fmt.Fprintf(os.Stderr, "Task #%d has no assigned sheep.\n", id)
+			os.Exit(1)
+		}
+
+		result, err := worker.StopTask(t.Edges.Sheep.Name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to stop task: %v\n", err)
+			os.Exit(1)
+		}
+
+		_ = queue.FailTaskWithOutput(id, "stopped by user", result.OutputLines)
+		fmt.Printf("🛑 Task #%d stopped.\n", id)
+	},
+}
+
+var taskCancelAllCmd = &cobra.Command{
+	Use:   "cancel-all",
+	Short: "Cancel all running and pending tasks",
+	Run: func(cmd *cobra.Command, args []string) {
+		// Stop running tasks' processes first
+		runningTasks, _ := queue.ListTasksByStatus(task.StatusRunning)
+		for _, t := range runningTasks {
+			if t.Edges.Sheep != nil {
+				_, _ = worker.StopTask(t.Edges.Sheep.Name)
+			}
+		}
+
+		runningCount, err := queue.CancelRunningTasks()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to cancel running tasks: %v\n", err)
+		}
+
+		pendingCount, err := queue.CancelPendingTasks()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to cancel pending tasks: %v\n", err)
+		}
+
+		total := runningCount + pendingCount
+		if total == 0 {
+			fmt.Println("No active tasks to cancel.")
+		} else {
+			fmt.Printf("🛑 Cancelled %d task(s) (running: %d, pending: %d).\n", total, runningCount, pendingCount)
+		}
+	},
+}
+
+var projectUnassignCmd = &cobra.Command{
+	Use:   "unassign <project>",
+	Short: "Remove sheep assignment from a project",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		projectName := args[0]
+		if err := project.UnassignSheep(projectName); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to unassign sheep: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("📁 Sheep unassigned from %s\n", projectName)
 	},
 }
 
@@ -2023,8 +2180,10 @@ Configuration example (~/.claude/claude_desktop_config.json):
 		}
 		defer db.Close()
 
+		minimal, _ := cmd.Flags().GetBool("minimal")
+
 		// Run MCP server
-		server := mcp.NewServer()
+		server := mcp.NewServer(minimal)
 		if err := server.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 			os.Exit(1)
@@ -2742,6 +2901,7 @@ func init() {
 	projectCmd.AddCommand(projectListCmd)
 	projectCmd.AddCommand(projectRemoveCmd)
 	projectCmd.AddCommand(projectAssignCmd)
+	projectCmd.AddCommand(projectUnassignCmd)
 	rootCmd.AddCommand(projectCmd)
 
 	// Register skill command
@@ -2759,11 +2919,15 @@ func init() {
 	rootCmd.AddCommand(skillCmd)
 
 	// Register task command
+	taskCmd.AddCommand(taskStopCmd)
+	taskCmd.AddCommand(taskCancelAllCmd)
 	rootCmd.AddCommand(taskCmd)
 
 	// Register queue command
 	queueCmd.AddCommand(queueAddCmd)
 	queueCmd.AddCommand(queueListCmd)
+	queueCmd.AddCommand(queueCancelCmd)
+	queueCmd.AddCommand(queueClearCmd)
 	queueCmd.AddCommand(queueImportIssuesCmd)
 	rootCmd.AddCommand(queueCmd)
 
@@ -2778,6 +2942,7 @@ func init() {
 	rootCmd.AddCommand(historyCmd)
 
 	// Register mcp command
+	mcpCmd.Flags().Bool("minimal", false, "Expose only core task tools (no browser tools), for LLMs with small context windows")
 	rootCmd.AddCommand(mcpCmd)
 
 	// Register browser command

@@ -224,12 +224,14 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 
 	switch s.Provider {
 	case sheep.ProviderOpencode:
-		result, execErr = executeWithOpenCode(ctx, sheepName, proj.Path, s.SessionID, prompt, opts, cancel)
+		// OpenCode: always start fresh session (local LLMs have small context windows,
+		// reusing sessions causes token count to grow unboundedly)
+		result, execErr = executeWithOpenCode(ctx, sheepName, proj.Path, "", prompt, opts, cancel)
 	case sheep.ProviderAuto:
 		// auto mode: default Claude, fallback to OpenCode on failure
 		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, s.SessionID, prompt, opts, cancel)
 		if execErr != nil && IsRateLimitError(execErr) {
-			result, execErr = executeWithOpenCode(ctx, sheepName, proj.Path, s.SessionID, prompt, opts, cancel)
+			result, execErr = executeWithOpenCode(ctx, sheepName, proj.Path, "", prompt, opts, cancel)
 		}
 	default: // claude
 		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, s.SessionID, prompt, opts, cancel)
@@ -280,8 +282,8 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		args = append(args, "-s", sessionID)
 	}
 
-	// Add prompt
-	args = append(args, buildPromptWithContext(sheepName, prompt))
+	// Add prompt (compact for local LLMs with limited context)
+	args = append(args, buildPromptCompact(sheepName, prompt))
 
 	cmd := exec.CommandContext(ctx, config.GetOpenCodeBinary(), args...)
 	cmd.Dir = projectPath
@@ -533,6 +535,31 @@ func buildPromptWithGuide(prompt string) string {
 	return buildPromptWithContext("", prompt)
 }
 
+// buildPromptCompact builds a lightweight prompt for small-context models (e.g. local LLMs via OpenCode).
+// Skips skills injection and uses a shorter system guide to stay within context limits.
+func buildPromptCompact(sheepName, prompt string) string {
+	var sb strings.Builder
+
+	sb.WriteString(`[System Instructions]
+Use shepherd MCP tools for task management.
+Key tools: task_complete (task_id, summary), task_error (task_id, error), get_history (project_name, limit).
+For web tasks, use curl directly.
+
+`)
+
+	// Add minimal recent task context (last 1 only)
+	if sheepName != "" {
+		if ctx := getRecentTaskContextCompact(sheepName); ctx != "" {
+			sb.WriteString(ctx)
+			sb.WriteString("\n")
+		}
+	}
+
+	sb.WriteString("[User Request]\n")
+	sb.WriteString(prompt)
+	return sb.String()
+}
+
 // buildPromptWithContext adds MCP guide and recent task context for a specific sheep.
 func buildPromptWithContext(sheepName, prompt string) string {
 	var sb strings.Builder
@@ -664,6 +691,49 @@ func getRecentTaskContext(sheepName string) string {
 		if t.Error != "" {
 			sb.WriteString(fmt.Sprintf("  Error: %s\n", truncateStr(t.Error, 200)))
 		}
+	}
+	return sb.String()
+}
+
+// getRecentTaskContextCompact returns minimal recent task history (last 1 only) for compact prompts.
+func getRecentTaskContextCompact(sheepName string) string {
+	bgCtx := context.Background()
+	client := db.Client()
+
+	s, err := client.Sheep.Query().
+		Where(sheep.Name(sheepName)).
+		WithProject().
+		Only(bgCtx)
+	if err != nil {
+		return ""
+	}
+
+	var tasks []*ent.Task
+	if s.Edges.Project != nil {
+		tasks, _ = client.Task.Query().
+			Where(
+				task.HasProjectWith(entProject.ID(s.Edges.Project.ID)),
+				task.StatusIn(task.StatusCompleted, task.StatusFailed),
+			).
+			Order(ent.Desc(task.FieldCompletedAt)).
+			Limit(1).
+			All(bgCtx)
+	}
+
+	if len(tasks) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[Recent Task]\n")
+	t := tasks[0]
+	status := "completed"
+	if t.Status == task.StatusFailed {
+		status = "failed"
+	}
+	sb.WriteString(fmt.Sprintf("- #%d [%s] %s\n", t.ID, status, truncateStr(t.Prompt, 60)))
+	if t.Summary != "" {
+		sb.WriteString(fmt.Sprintf("  Result: %s\n", truncateStr(t.Summary, 100)))
 	}
 	return sb.String()
 }
