@@ -11,6 +11,10 @@ import (
 // ManagerName is the special name for the shepherd manager.
 const ManagerName = "shepherd"
 
+// ReservedNames are names that cannot be assigned to projects.
+// These represent the shepherd manager itself.
+var ReservedNames = []string{ManagerName, "목자"}
+
 // DefaultNames is the initial pool of sheep names (used for seeding DB).
 var DefaultNames = []string{
 	"양동이", "양말이", "양철이", "양순이",
@@ -28,6 +32,16 @@ func SetClient(c *ent.Client) {
 // IsManager checks if the given name is the manager name.
 func IsManager(name string) bool {
 	return name == ManagerName
+}
+
+// IsReserved checks if the given name is reserved (cannot be assigned to projects).
+func IsReserved(name string) bool {
+	for _, n := range ReservedNames {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
 
 // InitializeDefaults seeds the default names into the database if empty.

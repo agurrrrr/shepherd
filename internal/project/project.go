@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/agurrrrr/shepherd/ent"
+	"github.com/agurrrrr/shepherd/ent/predicate"
 	entProject "github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/internal/db"
@@ -76,12 +77,13 @@ func AddWithResult(name, path, description string) *AddResult {
 // autoAssignSheep finds an available sheep or creates a new one and assigns it to the project.
 // Returns (sheep, created, error) where created is true if a new sheep was created.
 func autoAssignSheep(ctx context.Context, client *ent.Client, p *ent.Project) (*ent.Sheep, bool, error) {
-	// 1. Find unassigned sheep (excluding manager)
+	// 1. Find unassigned sheep (excluding reserved names like shepherd/목자)
+	reservedPredicate := []predicate.Sheep{sheep.Not(sheep.HasProject())}
+	for _, reserved := range names.ReservedNames {
+		reservedPredicate = append(reservedPredicate, sheep.NameNEQ(reserved))
+	}
 	idleSheep, err := client.Sheep.Query().
-		Where(
-			sheep.NameNEQ(names.ManagerName),
-			sheep.Not(sheep.HasProject()),
-		).
+		Where(reservedPredicate...).
 		First(ctx)
 
 	if err == nil {
@@ -204,6 +206,10 @@ func Get(name string) (*ent.Project, error) {
 // AssignSheep assigns a sheep to a project.
 // If the sheep is already assigned to another project, returns an error.
 func AssignSheep(projectName, sheepName string) error {
+	if names.IsReserved(sheepName) {
+		return fmt.Errorf("'%s' is reserved and cannot be assigned to projects", sheepName)
+	}
+
 	ctx := context.Background()
 	client := db.Client()
 
