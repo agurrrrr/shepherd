@@ -58,6 +58,7 @@ jobs:
       - name: Copy Web UI to embed directory
         shell: bash
         run: |
+          mkdir -p internal/server/web_dist
           rm -rf internal/server/web_dist/*
           cp -r web/build/* internal/server/web_dist/
 
