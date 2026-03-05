@@ -541,30 +541,93 @@ func buildPromptWithGuide(prompt string) string {
 
 // buildPromptCompact builds a lightweight prompt for small-context models (e.g. local LLMs via OpenCode).
 // Skips skills injection and uses a shorter system guide to stay within context limits.
+// User prompt comes FIRST to ensure the model focuses on the actual request,
+// with system context appended as supplementary information.
 func buildPromptCompact(sheepName, prompt string) string {
 	var sb strings.Builder
 
-	if config.GetBool("include_mcp_guide") {
-		sb.WriteString(`[System Instructions]
-Use shepherd MCP tools for task management.
-Key tools: task_complete (task_id, summary), task_error (task_id, error), get_history (project_name, limit).
-For web tasks, use curl directly.
+	// User request first — prevents system instructions from overwhelming the actual request
+	sb.WriteString(prompt)
 
-`)
+	// Append system context as supplementary info
+	var hasSuffix bool
+
+	if config.GetBool("include_mcp_guide") {
+		sb.WriteString("\n\n---\nAvailable tools: task_complete (task_id, summary), task_error (task_id, error), get_history (project_name, limit).\n")
+		hasSuffix = true
 	}
 
-	// Add minimal recent task context (last 1 only)
 	if config.GetBool("include_task_history") {
 		if sheepName != "" {
 			if ctx := getRecentTaskContextCompact(sheepName); ctx != "" {
+				if !hasSuffix {
+					sb.WriteString("\n\n---\n")
+				}
+				sb.WriteString(ctx)
+			}
+		}
+	}
+
+	return sb.String()
+}
+
+// buildSystemContext returns the system-level context (MCP guide, task history, skills)
+// separated from the user prompt. Used by streaming mode to pass via --append-system-prompt.
+func buildSystemContext(sheepName string) string {
+	var sb strings.Builder
+
+	if config.GetBool("include_mcp_guide") {
+		sb.WriteString(`For browser automation tasks, always use shepherd MCP tools:
+- browser_session_start: Start browser session (sheep_name required)
+- browser_open: Open URL
+- browser_click, browser_type: Element interaction
+- browser_get_text, browser_get_html: Information extraction
+- browser_screenshot: Capture screenshot
+- browser_session_stop: End session
+
+[Available Shepherd MCP Tools]
+Task management:
+- task_start: Queue a task (sheep_name, project_name, prompt)
+- task_complete: Record task completion (task_id, summary)
+- task_error: Record task error (task_id, error)
+- get_history: Query project task history (project_name, limit)
+- get_status: Get overall system status
+
+Browser automation (PREFERRED over WebFetch for web tasks):
+- browser_session_start, browser_session_stop, browser_open, browser_close
+- browser_click, browser_type, browser_select, browser_check, browser_hover
+- browser_scroll, browser_get_text, browser_get_html, browser_get_attribute
+- browser_get_url, browser_get_title, browser_eval, browser_screenshot, browser_pdf
+- browser_wait_selector, browser_wait_hidden, browser_wait_load, browser_wait_idle
+- browser_navigate, browser_reload, browser_back, browser_forward, browser_list_pages
+
+For web search/crawling tasks, use browser tools instead of WebFetch.
+`)
+	}
+
+	if config.GetBool("include_task_history") {
+		if sheepName != "" {
+			if ctx := getRecentTaskContext(sheepName); ctx != "" {
 				sb.WriteString(ctx)
 				sb.WriteString("\n")
 			}
 		}
 	}
 
-	sb.WriteString("[User Request]\n")
-	sb.WriteString(prompt)
+	if sheepName != "" {
+		if skillsText := getProjectSkills(sheepName); skillsText != "" {
+			sb.WriteString(skillsText)
+			sb.WriteString("\n")
+		}
+	}
+
+	if config.GetBool("include_mcp_guide") {
+		sb.WriteString(`If you need details of previous tasks, use shepherd MCP tools:
+- get_history: Query project task history (project_name required, limit optional)
+Only query when needed. If the summary above is sufficient, start working immediately.
+`)
+	}
+
 	return sb.String()
 }
 
@@ -850,6 +913,12 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		"--mcp-config", GetMCPConfigJSON(),
 	}
 
+	// Separate system context from user prompt to prevent
+	// system instructions from overwhelming the user's actual request.
+	if sysCtx := buildSystemContext(sheepName); sysCtx != "" {
+		args = append(args, "--append-system-prompt", sysCtx)
+	}
+
 	// Resume session (with specific session ID)
 	if sessionID != "" {
 		args = append(args, "--resume", sessionID)
@@ -857,7 +926,7 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = projectPath
-	cmd.Stdin = strings.NewReader(buildPromptWithContext(sheepName, prompt))
+	cmd.Stdin = strings.NewReader(prompt)
 	envutil.SetCleanEnv(cmd)
 
 	// Register running task
