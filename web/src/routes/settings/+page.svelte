@@ -21,7 +21,10 @@
 			language: configData.language,
 			default_provider: configData.default_provider,
 			max_sheep: parseInt(configData.max_sheep) || 12,
-			auto_approve: configData.auto_approve
+			auto_approve: configData.auto_approve,
+			session_reuse: configData.session_reuse,
+			include_task_history: configData.include_task_history,
+			include_mcp_guide: configData.include_mcp_guide
 		});
 		if (res?.success) {
 			saveMsg = 'Saved';
@@ -84,6 +87,32 @@
 				</label>
 			</div>
 
+			<div class="setting-section">Prompt Injection</div>
+
+			<div class="setting-row">
+				<label>Session Reuse</label>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={configData.session_reuse} />
+					<span>{configData.session_reuse ? 'Reuse' : 'Fresh'}</span>
+				</label>
+			</div>
+
+			<div class="setting-row">
+				<label>Task History</label>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={configData.include_task_history} />
+					<span>{configData.include_task_history ? 'Enabled' : 'Disabled'}</span>
+				</label>
+			</div>
+
+			<div class="setting-row">
+				<label>MCP Guide</label>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={configData.include_mcp_guide} />
+					<span>{configData.include_mcp_guide ? 'Enabled' : 'Disabled'}</span>
+				</label>
+			</div>
+
 			<div class="setting-row readonly">
 				<label>Server Host</label>
 				<span class="mono">{configData.server_host}:{configData.server_port}</span>
@@ -140,6 +169,16 @@
 
 	.setting-row.readonly {
 		color: var(--text-secondary);
+	}
+
+	.setting-section {
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		padding-top: 12px;
+		border-top: 1px solid var(--border);
 	}
 
 	.toggle {

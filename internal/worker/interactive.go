@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -21,7 +20,6 @@ import (
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/skill"
-	"github.com/creack/pty"
 )
 
 // InputHandler is a function that gets user input when Claude asks a question.
@@ -222,6 +220,12 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		opts.OnOutput(fmt.Sprintf("%s %s\n", emoji, s.Name))
 	}
 
+	// Check session reuse config
+	sessionID := s.SessionID
+	if !config.GetBool("session_reuse") {
+		sessionID = ""
+	}
+
 	switch s.Provider {
 	case sheep.ProviderOpencode:
 		// OpenCode: always start fresh session (local LLMs have small context windows,
@@ -229,12 +233,12 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		result, execErr = executeWithOpenCode(ctx, sheepName, proj.Path, "", prompt, opts, cancel)
 	case sheep.ProviderAuto:
 		// auto mode: default Claude, fallback to OpenCode on failure
-		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, s.SessionID, prompt, opts, cancel)
+		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
 		if execErr != nil && IsRateLimitError(execErr) {
 			result, execErr = executeWithOpenCode(ctx, sheepName, proj.Path, "", prompt, opts, cancel)
 		}
 	default: // claude
-		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, s.SessionID, prompt, opts, cancel)
+		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
 	}
 
 	// Restore status
@@ -540,18 +544,22 @@ func buildPromptWithGuide(prompt string) string {
 func buildPromptCompact(sheepName, prompt string) string {
 	var sb strings.Builder
 
-	sb.WriteString(`[System Instructions]
+	if config.GetBool("include_mcp_guide") {
+		sb.WriteString(`[System Instructions]
 Use shepherd MCP tools for task management.
 Key tools: task_complete (task_id, summary), task_error (task_id, error), get_history (project_name, limit).
 For web tasks, use curl directly.
 
 `)
+	}
 
 	// Add minimal recent task context (last 1 only)
-	if sheepName != "" {
-		if ctx := getRecentTaskContextCompact(sheepName); ctx != "" {
-			sb.WriteString(ctx)
-			sb.WriteString("\n")
+	if config.GetBool("include_task_history") {
+		if sheepName != "" {
+			if ctx := getRecentTaskContextCompact(sheepName); ctx != "" {
+				sb.WriteString(ctx)
+				sb.WriteString("\n")
+			}
 		}
 	}
 
@@ -564,7 +572,8 @@ For web tasks, use curl directly.
 func buildPromptWithContext(sheepName, prompt string) string {
 	var sb strings.Builder
 
-	sb.WriteString(`[System Instructions]
+	if config.GetBool("include_mcp_guide") {
+		sb.WriteString(`[System Instructions]
 For browser automation tasks, always use shepherd MCP tools:
 - browser_session_start: Start browser session (sheep_name required)
 - browser_open: Open URL
@@ -617,12 +626,15 @@ Browser automation (PREFERRED over WebFetch for web tasks):
 IMPORTANT: For web search/crawling tasks, use browser tools instead of WebFetch.
 
 `)
+	}
 
-	// Always add recent task context
-	if sheepName != "" {
-		if ctx := getRecentTaskContext(sheepName); ctx != "" {
-			sb.WriteString(ctx)
-			sb.WriteString("\n")
+	// Add recent task context
+	if config.GetBool("include_task_history") {
+		if sheepName != "" {
+			if ctx := getRecentTaskContext(sheepName); ctx != "" {
+				sb.WriteString(ctx)
+				sb.WriteString("\n")
+			}
 		}
 	}
 
@@ -634,12 +646,15 @@ IMPORTANT: For web search/crawling tasks, use browser tools instead of WebFetch.
 		}
 	}
 
-	sb.WriteString(`[Task Detail Lookup]
+	if config.GetBool("include_mcp_guide") {
+		sb.WriteString(`[Task Detail Lookup]
 If you need details of previous tasks, use shepherd MCP tools:
 - get_history: Query project task history (project_name required, limit optional)
 Only query when needed. If the summary above is sufficient, start working immediately.
 
 `)
+	}
+
 	sb.WriteString("[User Request]\n")
 	sb.WriteString(prompt)
 	return sb.String()
@@ -1121,173 +1136,7 @@ func parseStreamOutput(output string) *ExecuteResult {
 	return result
 }
 
-// executeInteractiveWithPty runs Claude Code using a pseudo-terminal.
-func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sessionID, prompt string, opts InteractiveOptions, cancel context.CancelFunc) (*ExecuteResult, error) {
-	args := []string{
-		"--mcp-config", GetMCPConfigJSON(),
-	}
-
-	// Auto-approve mode
-	if config.GetBool("auto_approve") {
-		args = append(args, "--dangerously-skip-permissions")
-	}
-
-	// Resume session (with specific session ID)
-	if sessionID != "" {
-		args = append(args, "--resume", sessionID)
-	}
-
-	cmd := exec.CommandContext(ctx, "claude", args...)
-	cmd.Dir = projectPath
-	cmd.Env = append(envutil.CleanEnv(),
-		"TERM=xterm-256color",
-		"LANG=en_US.UTF-8",
-		"LC_ALL=en_US.UTF-8",
-	)
-
-	// Start PTY
-	ptmx, err := pty.Start(cmd)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start PTY: %w", err)
-	}
-	defer ptmx.Close()
-
-	// Register running task
-	registerRunningTask(sheepName, cancel, cmd)
-
-	// Send prompt
-	_, err = ptmx.WriteString(buildPromptWithContext(sheepName, prompt) + "\n")
-	if err != nil {
-		return nil, fmt.Errorf("failed to send prompt: %w", err)
-	}
-
-	// Collect output
-	var outputBuilder strings.Builder
-	var recentOutput strings.Builder // Recent output buffer (for menu detection)
-	var mu sync.Mutex
-	done := make(chan struct{})
-	bypassAccepted := false // Whether Bypass menu has already been handled
-
-	// Output reading goroutine
-	go func() {
-		defer close(done)
-		reader := bufio.NewReader(ptmx)
-		var lineBuffer strings.Builder
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			// Read rune by rune (supports UTF-8 multi-byte characters)
-			r, _, err := reader.ReadRune()
-			if err != nil {
-				if err != io.EOF {
-					// PTY closed
-				}
-				return
-			}
-
-			char := string(r)
-			lineBuffer.WriteString(char)
-
-			mu.Lock()
-			outputBuilder.WriteString(char)
-			recentOutput.WriteString(char)
-			// Limit recent output buffer to 2000 chars
-			if recentOutput.Len() > 2000 {
-				recent := recentOutput.String()
-				recentOutput.Reset()
-				recentOutput.WriteString(recent[1000:])
-			}
-			recentText := recentOutput.String()
-			mu.Unlock()
-
-			// Output on newline
-			if r == '\n' {
-				line := lineBuffer.String()
-				lineBuffer.Reset()
-
-				// Output after stripping ANSI codes
-				cleanLine := stripAnsi(line)
-				if opts.OnOutput != nil && strings.TrimSpace(cleanLine) != "" {
-					opts.OnOutput(cleanLine)
-				}
-			}
-
-			// Detect and auto-approve Bypass Permissions menu
-			cleanRecent := stripAnsi(recentText)
-			if !bypassAccepted &&
-			   strings.Contains(cleanRecent, "Bypass Permissions mode") &&
-			   strings.Contains(cleanRecent, "Yes, I accept") {
-				bypassAccepted = true
-				time.Sleep(100 * time.Millisecond) // Wait for menu rendering
-				ptmx.WriteString("2\n") // Select "Yes, I accept"
-				mu.Lock()
-				recentOutput.Reset()
-				mu.Unlock()
-				lineBuffer.Reset()
-				continue
-			}
-
-			// Auto-handle Enter to confirm prompt
-			if strings.Contains(cleanRecent, "Enter to confirm") ||
-			   strings.Contains(cleanRecent, "to confirm · Esc") {
-				time.Sleep(50 * time.Millisecond)
-				ptmx.WriteString("\n")
-				mu.Lock()
-				recentOutput.Reset()
-				mu.Unlock()
-				lineBuffer.Reset()
-				continue
-			}
-
-			// Detect regular input prompts (when Claude asks a question)
-			currentLine := lineBuffer.String()
-			if isInputPrompt(currentLine) && !strings.Contains(cleanRecent, "Bypass Permissions") {
-				cleanLine := stripAnsi(currentLine)
-
-				if opts.OnOutput != nil {
-					opts.OnOutput(cleanLine)
-				}
-
-				// Request user input
-				if opts.OnInput != nil {
-					userInput, err := opts.OnInput(currentLine)
-					if err != nil {
-						return
-					}
-					ptmx.WriteString(userInput + "\n")
-					lineBuffer.Reset()
-				}
-			}
-		}
-	}()
-
-	// Wait for completion
-	select {
-	case <-done:
-	case <-ctx.Done():
-		return nil, fmt.Errorf("execution timeout")
-	}
-
-	// Wait for process to exit
-	cmd.Wait()
-
-	mu.Lock()
-	fullOutput := outputBuilder.String()
-	mu.Unlock()
-
-	// Parse result (simple result only in interactive mode)
-	result := &ExecuteResult{
-		Result:        extractResultFromOutput(fullOutput),
-		FilesModified: extractFilesFromOutput(fullOutput),
-	}
-
-	return result, nil
-}
+// executeInteractiveWithPty is defined in pty_unix.go / pty_windows.go
 
 // isInputPrompt checks if the current line looks like an input prompt.
 func isInputPrompt(line string) bool {

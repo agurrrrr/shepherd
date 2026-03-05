@@ -40,6 +40,11 @@ func Init() error {
 	viper.SetDefault("default_provider", "claude")
 	viper.SetDefault("workspace_path", "")
 
+	// 프롬프트 주입 설정
+	viper.SetDefault("session_reuse", true)
+	viper.SetDefault("include_task_history", true)
+	viper.SetDefault("include_mcp_guide", true)
+
 	// 서버 설정
 	viper.SetDefault("server_port", 8585)
 	viper.SetDefault("server_host", "0.0.0.0")
