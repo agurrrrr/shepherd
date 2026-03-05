@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/agurrrrr/shepherd/ent"
@@ -1489,7 +1488,7 @@ func runChatMode() {
 	// Configure readline
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          fmt.Sprintf("\033[36m%s\033[0m 🐏 > ", cwdName),
-		HistoryFile:     filepath.Join(os.Getenv("HOME"), ".shepherd", "history"),
+		HistoryFile:     filepath.Join(config.GetConfigDir(), "history"),
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
 	})
@@ -2697,7 +2696,7 @@ Use --daemon / -d to run in background.`,
 			child.Stdout = nil
 			child.Stderr = nil
 			child.Stdin = nil
-			child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+			detachProcess(child)
 			envutil.SetCleanEnv(child)
 			// Forward --cors-origin flag as env var to daemon process
 			if serveCORSOrigin != "" {
@@ -2795,7 +2794,7 @@ func runServeForeground() {
 
 	// Wait for signal
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, shutdownSignals()...)
 	sig := <-sigCh
 
 	fmt.Printf("\n🛑 Signal received (%v), shutting down...\n", sig)
@@ -3279,7 +3278,7 @@ func recoverFromAbnormalTermination() {
 // setupGracefulShutdown sets up signal handlers for graceful shutdown.
 func setupGracefulShutdown() {
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, shutdownSignals()...)
 
 	go func() {
 		sig := <-sigChan

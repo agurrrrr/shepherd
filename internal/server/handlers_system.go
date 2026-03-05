@@ -3,7 +3,6 @@ package server
 import (
 	"os"
 	"os/exec"
-	"syscall"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -76,7 +75,10 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"server_port":      config.GetInt("server_port"),
 		"server_host":      config.GetString("server_host"),
 		"max_sheep":        config.GetInt("max_sheep"),
-		"auto_approve":     config.GetBool("auto_approve"),
+		"auto_approve":      config.GetBool("auto_approve"),
+		"session_reuse":      config.GetBool("session_reuse"),
+		"include_task_history": config.GetBool("include_task_history"),
+		"include_mcp_guide":   config.GetBool("include_mcp_guide"),
 	})
 }
 
@@ -93,7 +95,10 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"default_provider": true,
 		"workspace_path":   true,
 		"max_sheep":        true,
-		"auto_approve":     true,
+		"auto_approve":      true,
+		"session_reuse":      true,
+		"include_task_history": true,
+		"include_mcp_guide":   true,
 	}
 
 	for key, value := range body {
@@ -143,7 +148,7 @@ func (s *Server) handleRestart(c *fiber.Ctx) error {
 		child.Stdout = nil
 		child.Stderr = nil
 		child.Stdin = nil
-		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		detachProcess(child)
 		if startErr := child.Start(); startErr != nil {
 			// If start fails, exit anyway (user can restart manually)
 			os.Exit(1)

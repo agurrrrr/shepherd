@@ -1,0 +1,78 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            binary: shepherd
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            binary: shepherd
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            binary: shepherd
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            binary: shepherd.exe
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Copy Web UI to embed directory
+        shell: bash
+        run: |
+          rm -rf internal/server/web_dist/*
+          cp -r web/build/* internal/server/web_dist/
+
+      - name: Build binary
+        shell: bash
+        env:
+          CGO_ENABLED: "1"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -trimpath -ldflags="-s -w -X main.version=$(git describe --tags --always) -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ${{ matrix.binary }} ./cmd/shepherd
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shepherd-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ matrix.binary }}
+          retention-days: 30
