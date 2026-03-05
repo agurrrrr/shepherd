@@ -1,6 +1,8 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { apiGet, apiPost, apiDelete } from '$lib/api.js';
+	import { sheep } from '$lib/stores.js';
+	import { onSSE } from '$lib/sse.js';
 
 	let projects = [];
 	let loaded = false;
@@ -9,13 +11,34 @@
 	let newPath = '';
 	let newDesc = '';
 	let adding = false;
+	let unsubs = [];
 
-	onMount(() => loadProjects());
+	onMount(async () => {
+		await loadProjects();
+		unsubs.push(onSSE('status_change', refreshSheep));
+	});
+
+	onDestroy(() => unsubs.forEach(fn => fn?.()));
 
 	async function loadProjects() {
-		const res = await apiGet('/api/projects');
-		if (res?.data) projects = res.data;
+		const [projRes, sheepRes] = await Promise.all([
+			apiGet('/api/projects'),
+			apiGet('/api/sheep')
+		]);
+		if (projRes?.data) projects = projRes.data;
+		if (sheepRes?.data) sheep.set(sheepRes.data);
 		loaded = true;
+	}
+
+	async function refreshSheep() {
+		const res = await apiGet('/api/sheep');
+		if (res?.data) sheep.set(res.data);
+	}
+
+	function getSheepStatus(projectName) {
+		const list = $sheep || [];
+		const s = list.find(s => s.project === projectName);
+		return s?.status || 'idle';
 	}
 
 	async function addProject() {
@@ -45,9 +68,12 @@
 
 <div class="page">
 	<div class="page-header">
-		<h1>Projects</h1>
+		<div class="page-header-left">
+			<h1>Projects</h1>
+			<span class="count-badge">{projects.length}</span>
+		</div>
 		<button class="btn btn-primary" onclick={() => showAdd = !showAdd}>
-			{showAdd ? 'Cancel' : '+ Add Project'}
+			{showAdd ? 'Cancel' : '+ Add'}
 		</button>
 	</div>
 
@@ -68,7 +94,7 @@
 				<input class="input" bind:value={newDesc} placeholder="Optional description" />
 			</div>
 			<button class="btn btn-primary" onclick={addProject} disabled={adding || !newName || !newPath}>
-				{adding ? 'Adding...' : 'Add'}
+				{adding ? 'Adding...' : 'Create Project'}
 			</button>
 		</div>
 	{/if}
@@ -81,57 +107,76 @@
 			<p class="text-muted">Add a project to get started.</p>
 		</div>
 	{:else}
-		<div class="project-list">
+		<div class="project-grid">
 			{#each projects as p}
-				<div class="card project-item">
-					<div class="project-header">
-						<div>
-							<a href="/projects/{encodeURIComponent(p.name)}" class="project-name-link">{p.name}</a>
-							{#if p.sheep}
-								<span class="badge badge-idle">{p.sheep}</span>
-							{/if}
+				{@const status = getSheepStatus(p.name)}
+				<a href="/projects/{encodeURIComponent(p.name)}" class="project-card card" class:working={status === 'working'}>
+					<div class="card-top">
+						<div class="card-name-row">
+							<span class="status-dot {status}"></span>
+							<span class="project-name">{p.name}</span>
 						</div>
-						<div class="project-actions">
-							<a href="/projects/{encodeURIComponent(p.name)}" class="btn btn-sm">Open</a>
-							<button class="btn btn-danger btn-sm" onclick={() => removeProject(p.name)}>Remove</button>
-						</div>
+						<button
+							class="btn-remove"
+							title="Remove"
+							onclick={(e) => { e.preventDefault(); e.stopPropagation(); removeProject(p.name); }}
+						>&times;</button>
 					</div>
-					<div class="project-path mono">{p.path}</div>
-					{#if p.description}
-						<div class="project-desc">{p.description}</div>
+					{#if p.sheep}
+						<span class="sheep-tag">{p.sheep}</span>
+					{:else}
+						<span class="sheep-tag unassigned">no sheep</span>
 					{/if}
-				</div>
+					{#if p.description}
+						<p class="project-desc">{p.description}</p>
+					{/if}
+					<span class="project-path">{p.path}</span>
+				</a>
 			{/each}
 		</div>
 	{/if}
 </div>
 
 <style>
+	.page { max-width: 1200px; }
+
 	.page-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		margin-bottom: 20px;
+		margin-bottom: 16px;
 	}
 
-	.page-header h1 {
-		font-size: 24px;
-		font-weight: 600;
+	.page-header-left {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.page-header h1 { font-size: 20px; font-weight: 600; }
+
+	.count-badge {
+		font-size: 12px;
+		font-family: var(--font-mono);
+		background: var(--bg-tertiary);
+		padding: 2px 8px;
+		border-radius: 10px;
+		color: var(--text-secondary);
 	}
 
 	.text-muted { color: var(--text-secondary); }
 
 	.add-form {
-		margin-bottom: 20px;
+		margin-bottom: 16px;
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: 10px;
 	}
 
 	.form-row {
 		display: grid;
 		grid-template-columns: 1fr 2fr;
-		gap: 12px;
+		gap: 10px;
 	}
 
 	.form-group {
@@ -143,56 +188,121 @@
 	.form-group label {
 		font-size: 12px;
 		color: var(--text-secondary);
-		font-weight: 500;
 	}
 
 	.form-group .input { width: 100%; }
 
-	.project-list {
+	/* Project Grid */
+	.project-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+		gap: 10px;
+	}
+
+	.project-card {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 4px;
+		padding: 12px 14px;
+		text-decoration: none;
+		color: inherit;
+		transition: border-color 0.15s;
 	}
 
-	.project-header {
+	.project-card:hover {
+		border-color: var(--accent);
+		text-decoration: none;
+		color: inherit;
+	}
+
+	.project-card.working {
+		border-color: var(--accent);
+	}
+
+	.card-top {
 		display: flex;
-		align-items: center;
 		justify-content: space-between;
-	}
-
-	.project-name-link {
-		font-weight: 600;
-		margin-right: 8px;
-		color: var(--text-primary);
-		text-decoration: none;
-	}
-
-	.project-name-link:hover {
-		color: var(--accent);
-		text-decoration: none;
-	}
-
-	.project-actions {
-		display: flex;
-		gap: 6px;
 		align-items: center;
 	}
 
-	.project-path {
-		font-size: 12px;
+	.card-name-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.project-name {
+		font-weight: 600;
+		font-size: 14px;
+	}
+
+	/* Status dot */
+	.status-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.status-dot.idle { background: var(--text-secondary); }
+	.status-dot.working {
+		background: var(--accent);
+		animation: pulse 1.5s ease-in-out infinite;
+	}
+	.status-dot.error { background: var(--danger); }
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.4; }
+	}
+
+	.btn-remove {
+		background: none;
+		border: none;
 		color: var(--text-secondary);
-		margin-top: 4px;
+		font-size: 16px;
+		cursor: pointer;
+		padding: 0 4px;
+		opacity: 0;
+		transition: opacity 0.15s, color 0.15s;
+	}
+
+	.project-card:hover .btn-remove {
+		opacity: 1;
+	}
+
+	.btn-remove:hover {
+		color: var(--danger);
+	}
+
+	.sheep-tag {
+		font-size: 11px;
+		color: var(--accent);
+		font-family: var(--font-mono);
+	}
+
+	.sheep-tag.unassigned {
+		color: var(--text-secondary);
+		font-style: italic;
 	}
 
 	.project-desc {
-		font-size: 13px;
+		font-size: 12px;
 		color: var(--text-secondary);
-		margin-top: 2px;
+		margin: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
-	.btn-sm {
-		padding: 2px 10px;
-		font-size: 12px;
+	.project-path {
+		font-size: 11px;
+		color: var(--text-secondary);
+		font-family: var(--font-mono);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		opacity: 0.6;
 	}
 
 	.empty-state {
@@ -205,22 +315,12 @@
 			grid-template-columns: 1fr;
 		}
 
-		.project-header {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 8px;
+		.project-grid {
+			grid-template-columns: 1fr;
 		}
 
-		.project-actions {
-			width: 100%;
-		}
-
-		.project-actions .btn-sm {
-			padding: 6px 12px;
-		}
-
-		.page-header h1 {
-			font-size: 20px;
+		.btn-remove {
+			opacity: 1;
 		}
 	}
 </style>

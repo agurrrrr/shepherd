@@ -604,6 +604,243 @@ func findSkillByName(name string) (*ent.Skill, error) {
 	return nil, fmt.Errorf("skill '%s' not found", name)
 }
 
+// schedule commands
+var (
+	schedAddProject  string
+	schedAddCron     string
+	schedAddInterval int
+	schedAddPrompt   string
+	schedListProject string
+)
+
+var schedCmd = &cobra.Command{
+	Use:   "schedule",
+	Short: "Manage schedules",
+	Long:  "Create, list, show, enable, disable, remove, or run schedules.",
+}
+
+var schedListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List schedules",
+	Run: func(cmd *cobra.Command, args []string) {
+		var schedules []*ent.Schedule
+		var err error
+
+		if schedListProject != "" {
+			schedules, err = scheduler.ListByProject(schedListProject)
+		} else {
+			schedules, err = scheduler.ListAll()
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to list schedules: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(schedules) == 0 {
+			fmt.Println("No schedules found.")
+			return
+		}
+
+		fmt.Printf("%-4s %-20s %-8s %-20s %-8s %-15s %s\n", "ID", "NAME", "TYPE", "SCHEDULE", "ENABLED", "PROJECT", "NEXT_RUN")
+		fmt.Println(strings.Repeat("-", 100))
+		for _, s := range schedules {
+			enabled := "yes"
+			if !s.Enabled {
+				enabled = "no"
+			}
+			proj := ""
+			if s.Edges.Project != nil {
+				proj = s.Edges.Project.Name
+			}
+			schedExpr := s.CronExpr
+			if s.ScheduleType.String() == "interval" {
+				schedExpr = fmt.Sprintf("every %ds", s.IntervalSeconds)
+			}
+			nextRun := "-"
+			if s.NextRun != nil {
+				nextRun = s.NextRun.Format("2006-01-02 15:04")
+			}
+			fmt.Printf("%-4d %-20s %-8s %-20s %-8s %-15s %s\n", s.ID, s.Name, s.ScheduleType, schedExpr, enabled, proj, nextRun)
+		}
+	},
+}
+
+var schedAddCmd = &cobra.Command{
+	Use:   "add <name>",
+	Short: "Add a schedule",
+	Long: `Add a schedule for a project.
+
+Examples:
+  shepherd schedule add daily-review --project myapp --cron "0 9 * * *" --prompt "Review open issues"
+  shepherd schedule add health-check --project myapp --interval 3600 --prompt "Check app health"`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+
+		if schedAddProject == "" {
+			fmt.Fprintf(os.Stderr, "Error: --project flag is required\n")
+			os.Exit(1)
+		}
+		if schedAddPrompt == "" {
+			fmt.Fprintf(os.Stderr, "Error: --prompt flag is required\n")
+			os.Exit(1)
+		}
+		if schedAddCron == "" && schedAddInterval == 0 {
+			fmt.Fprintf(os.Stderr, "Error: --cron or --interval flag is required\n")
+			os.Exit(1)
+		}
+
+		proj, err := project.Get(schedAddProject)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to find project '%s': %v\n", schedAddProject, err)
+			os.Exit(1)
+		}
+
+		schedType := "cron"
+		if schedAddInterval > 0 {
+			schedType = "interval"
+		}
+
+		s, err := scheduler.CreateSchedule(proj.ID, name, schedAddPrompt, schedType, schedAddCron, schedAddInterval)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create schedule: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Schedule '%s' created (ID: %d, type: %s, project: %s)\n", s.Name, s.ID, s.ScheduleType, schedAddProject)
+	},
+}
+
+var schedRemoveCmd = &cobra.Command{
+	Use:   "remove <name>",
+	Short: "Remove a schedule by name",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+		s, err := findScheduleByName(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		if err := scheduler.DeleteSchedule(s.ID); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to remove schedule: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Schedule '%s' removed\n", name)
+	},
+}
+
+var schedShowCmd = &cobra.Command{
+	Use:   "show <name>",
+	Short: "Show schedule details",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+		s, err := findScheduleByName(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Name:        %s\n", s.Name)
+		fmt.Printf("ID:          %d\n", s.ID)
+		fmt.Printf("Type:        %s\n", s.ScheduleType)
+		if s.CronExpr != "" {
+			fmt.Printf("Cron:        %s\n", s.CronExpr)
+		}
+		if s.IntervalSeconds > 0 {
+			fmt.Printf("Interval:    %ds\n", s.IntervalSeconds)
+		}
+		fmt.Printf("Enabled:     %v\n", s.Enabled)
+		if s.Edges.Project != nil {
+			fmt.Printf("Project:     %s\n", s.Edges.Project.Name)
+		}
+		if s.LastRun != nil {
+			fmt.Printf("Last Run:    %s\n", s.LastRun.Format("2006-01-02 15:04:05"))
+		}
+		if s.NextRun != nil {
+			fmt.Printf("Next Run:    %s\n", s.NextRun.Format("2006-01-02 15:04:05"))
+		}
+		fmt.Printf("Created:     %s\n", s.CreatedAt.Format("2006-01-02 15:04:05"))
+		fmt.Printf("\n--- Prompt ---\n%s\n", s.Prompt)
+	},
+}
+
+var schedEnableCmd = &cobra.Command{
+	Use:   "enable <name>",
+	Short: "Enable a schedule",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+		s, err := findScheduleByName(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		if _, err := scheduler.ToggleEnabled(s.ID, true); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to enable schedule: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Schedule '%s' enabled\n", name)
+	},
+}
+
+var schedDisableCmd = &cobra.Command{
+	Use:   "disable <name>",
+	Short: "Disable a schedule",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+		s, err := findScheduleByName(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		if _, err := scheduler.ToggleEnabled(s.ID, false); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to disable schedule: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Schedule '%s' disabled\n", name)
+	},
+}
+
+var schedRunCmd = &cobra.Command{
+	Use:   "run <name>",
+	Short: "Run a schedule immediately",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+		s, err := findScheduleByName(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		t, err := scheduler.RunNow(s.ID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to run schedule: %v\n", err)
+			os.Exit(1)
+		}
+		if t == nil {
+			fmt.Println("Schedule triggered but no task was created (no sheep assigned?)")
+			return
+		}
+		fmt.Printf("Schedule '%s' triggered, task #%d created\n", name, t.ID)
+	},
+}
+
+// findScheduleByName finds a schedule by name from all schedules.
+func findScheduleByName(name string) (*ent.Schedule, error) {
+	schedules, err := scheduler.ListAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list schedules: %w", err)
+	}
+	for _, s := range schedules {
+		if s.Name == name {
+			return s, nil
+		}
+	}
+	return nil, fmt.Errorf("schedule '%s' not found", name)
+}
+
 // task command
 var taskCmd = &cobra.Command{
 	Use:   "task [prompt]",
@@ -2917,6 +3154,21 @@ func init() {
 	skillCmd.AddCommand(skillEnableCmd)
 	skillCmd.AddCommand(skillDisableCmd)
 	rootCmd.AddCommand(skillCmd)
+
+	// Register schedule command
+	schedAddCmd.Flags().StringVarP(&schedAddProject, "project", "p", "", "Project name (required)")
+	schedAddCmd.Flags().StringVarP(&schedAddCron, "cron", "c", "", "Cron expression (e.g., \"0 9 * * *\")")
+	schedAddCmd.Flags().IntVarP(&schedAddInterval, "interval", "i", 0, "Interval in seconds")
+	schedAddCmd.Flags().StringVar(&schedAddPrompt, "prompt", "", "Prompt to execute (required)")
+	schedListCmd.Flags().StringVarP(&schedListProject, "project", "p", "", "Filter by project name")
+	schedCmd.AddCommand(schedListCmd)
+	schedCmd.AddCommand(schedAddCmd)
+	schedCmd.AddCommand(schedRemoveCmd)
+	schedCmd.AddCommand(schedShowCmd)
+	schedCmd.AddCommand(schedEnableCmd)
+	schedCmd.AddCommand(schedDisableCmd)
+	schedCmd.AddCommand(schedRunCmd)
+	rootCmd.AddCommand(schedCmd)
 
 	// Register task command
 	taskCmd.AddCommand(taskStopCmd)

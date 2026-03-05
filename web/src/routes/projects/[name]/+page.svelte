@@ -5,6 +5,7 @@
 	import { onSSE } from '$lib/sse.js';
 	import { Carta } from 'carta-md';
 	import DOMPurify from 'isomorphic-dompurify';
+	import html2canvas from 'html2canvas';
 	import '$lib/style/github-markdown.css';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
@@ -266,6 +267,68 @@
 		docRendered = '';
 	}
 
+	async function downloadDoc(doc) {
+		const res = await apiGet(`/api/projects/${encodeURIComponent(projectName)}/docs/${doc.path}`);
+		if (res?.data?.content) {
+			const blob = new Blob([res.data.content], { type: 'text/markdown; charset=utf-8' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = doc.name || doc.path.split('/').pop();
+			a.click();
+			URL.revokeObjectURL(url);
+		}
+	}
+
+	let imgExporting = $state(false);
+
+	async function downloadDocAsImage() {
+		const el = document.querySelector('.doc-content .markdown-body');
+		if (!el) return;
+		imgExporting = true;
+
+		try {
+			// 임시 컨테이너에 복제하여 고정 너비로 캡처
+			const wrapper = document.createElement('div');
+			wrapper.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;padding:40px;background:#0d1117;color:#c9d1d9;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;';
+			wrapper.innerHTML = '<div class="markdown-body">' + el.innerHTML + '</div>';
+			document.body.appendChild(wrapper);
+
+			// github-markdown.css 스타일 주입
+			const styles = document.querySelectorAll('style, link[rel="stylesheet"]');
+			const clonedStyles = [];
+			styles.forEach(s => {
+				const c = s.cloneNode(true);
+				wrapper.prepend(c);
+				clonedStyles.push(c);
+			});
+
+			const canvas = await html2canvas(wrapper, {
+				backgroundColor: '#0d1117',
+				scale: 2,
+				useCORS: true,
+				logging: false,
+			});
+
+			document.body.removeChild(wrapper);
+
+			canvas.toBlob((blob) => {
+				if (!blob) return;
+				const url = URL.createObjectURL(blob);
+				const a = document.createElement('a');
+				a.href = url;
+				const baseName = (selectedDoc?.name || 'document').replace(/\.md$/i, '');
+				a.download = baseName + '.png';
+				a.click();
+				URL.revokeObjectURL(url);
+			}, 'image/png');
+		} catch (e) {
+			console.error('Image export failed:', e);
+		} finally {
+			imgExporting = false;
+		}
+	}
+
 	function onTaskPageChange(p) {
 		taskPage = p;
 		loadTasks();
@@ -515,6 +578,18 @@
 							<div class="doc-header">
 								<button class="btn-doc-back" onclick={closeDoc}>&larr; Back</button>
 								<span class="doc-title">{selectedDoc.path}</span>
+								<div class="doc-header-actions">
+									<button class="btn-doc-action" onclick={() => downloadDoc(selectedDoc)} title="Download .md">
+										<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75z"/><path d="M7.25 7.689V2a.75.75 0 011.5 0v5.689l1.97-1.969a.749.749 0 111.06 1.06l-3.25 3.25a.749.749 0 01-1.06 0L4.22 6.78a.749.749 0 111.06-1.06l1.97 1.969z"/></svg>
+									</button>
+									<button class="btn-doc-action" onclick={downloadDocAsImage} disabled={imgExporting} title="Download as Image">
+										{#if imgExporting}
+											<span class="img-export-spinner"></span>
+										{:else}
+											<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M16 13.25A1.75 1.75 0 0114.25 15H1.75A1.75 1.75 0 010 13.25V2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75zM1.75 2.5a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h.94l3.88-5.17a.75.75 0 011.2 0l1.62 2.16 1.22-1.408a.75.75 0 011.127-.045l2.1 2.1V2.75a.25.25 0 00-.25-.25zM5.5 6a1.5 1.5 0 11-3.001-.001A1.5 1.5 0 015.5 6z"/></svg>
+										{/if}
+									</button>
+								</div>
 							</div>
 							<div class="doc-content">
 								{#if docLoading}
@@ -558,6 +633,10 @@
 													<span class="doc-size">{formatFileSize(d.size)}</span>
 												{/if}
 											</div>
+											<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+											<span class="btn-doc-action doc-dl-btn" onclick={(e) => { e.stopPropagation(); downloadDoc(d); }} title="Download">
+												<svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75z"/><path d="M7.25 7.689V2a.75.75 0 011.5 0v5.689l1.97-1.969a.749.749 0 111.06 1.06l-3.25 3.25a.749.749 0 01-1.06 0L4.22 6.78a.749.749 0 111.06-1.06l1.97 1.969z"/></svg>
+											</span>
 										</div>
 									{/each}
 								</div>
@@ -1064,6 +1143,25 @@
 		flex-shrink: 0;
 	}
 
+	.doc-header-actions {
+		display: flex;
+		gap: 4px;
+		margin-left: auto;
+	}
+
+	.img-export-spinner {
+		width: 14px;
+		height: 14px;
+		border: 2px solid var(--border);
+		border-top-color: var(--accent);
+		border-radius: 50%;
+		animation: spin 0.6s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
 	.btn-doc-back {
 		background: none;
 		border: 1px solid var(--border);
@@ -1077,6 +1175,34 @@
 	.btn-doc-back:hover {
 		color: var(--accent);
 		border-color: var(--accent);
+	}
+
+	.btn-doc-action {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: none;
+		border: 1px solid var(--border);
+		color: var(--text-secondary);
+		padding: 4px;
+		border-radius: 4px;
+		cursor: pointer;
+		flex-shrink: 0;
+		transition: color 0.15s, border-color 0.15s;
+	}
+
+	.btn-doc-action:hover {
+		color: var(--accent);
+		border-color: var(--accent);
+	}
+
+	.doc-dl-btn {
+		opacity: 0;
+		transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+	}
+
+	.doc-item:hover .doc-dl-btn {
+		opacity: 1;
 	}
 
 	.doc-title {

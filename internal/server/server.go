@@ -58,6 +58,9 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	// SSE event stream
 	api.Get("/events", s.handleSSE)
 
+	// Dashboard (aggregated data for home page)
+	api.Get("/dashboard", s.handleDashboard)
+
 	// System
 	api.Get("/system/status", s.handleSystemStatus)
 	api.Post("/system/restart", s.handleRestart)
@@ -78,6 +81,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Delete("/projects/:name", s.handleDeleteProject)
 	api.Post("/projects/:name/assign", s.handleAssignSheep)
 	api.Get("/projects/:name/docs", s.handleListDocs)
+	api.Get("/projects/:name/docs-download/*", s.handleDownloadDoc)
 	api.Get("/projects/:name/docs/*", s.handleGetDoc)
 
 	// Git (read-only)

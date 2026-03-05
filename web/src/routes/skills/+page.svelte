@@ -167,7 +167,7 @@
 					{#if sk.description}
 						<div class="skill-desc">{sk.description}</div>
 					{/if}
-					<div class="skill-content-preview">{truncate(sk.content, 150)}</div>
+					<div class="skill-content-preview">{truncate(sk.content, 80)}</div>
 					<div class="skill-meta">
 						{#if sk.project}
 							<span class="meta-project">{sk.project}</span>
@@ -255,8 +255,8 @@
 	}
 
 	.skill-list {
-		display: flex;
-		flex-direction: column;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
 		gap: 8px;
 	}
 

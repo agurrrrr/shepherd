@@ -93,3 +93,30 @@ func (s *Server) handleGetDoc(c *fiber.Ctx) error {
 		"content": string(content),
 	})
 }
+
+// GET /api/projects/:name/docs-download/*
+func (s *Server) handleDownloadDoc(c *fiber.Ctx) error {
+	name := paramDecoded(c, "name")
+	p, err := project.Get(name)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, "project not found")
+	}
+
+	docPath := c.Params("*")
+	if docPath == "" {
+		return fail(c, fiber.StatusBadRequest, "doc path required")
+	}
+
+	fullPath := filepath.Join(p.Path, docPath)
+	fullPath = filepath.Clean(fullPath)
+	if !strings.HasPrefix(fullPath, filepath.Clean(p.Path)) {
+		return fail(c, fiber.StatusBadRequest, "invalid path")
+	}
+
+	if !strings.HasSuffix(strings.ToLower(fullPath), ".md") {
+		return fail(c, fiber.StatusBadRequest, "only .md files allowed")
+	}
+
+	c.Set("Content-Disposition", "attachment; filename=\""+filepath.Base(fullPath)+"\"")
+	return c.SendFile(fullPath)
+}
