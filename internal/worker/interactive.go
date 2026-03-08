@@ -432,7 +432,8 @@ func extractOpenCodeError(output string) string {
 	return ""
 }
 
-// parseOpenCodeLine parses a single OpenCode JSON output line
+// parseOpenCodeLine parses a single OpenCode JSON output line.
+// OpenCode event types: step_start, tool_use, text, step_finish, error
 func parseOpenCodeLine(line string) (text string, sessionID string) {
 	if !strings.HasPrefix(line, "{") {
 		return line, ""
@@ -442,16 +443,22 @@ func parseOpenCodeLine(line string) (text string, sessionID string) {
 		Type      string `json:"type"`
 		SessionID string `json:"sessionID"`
 		Part      struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type  string `json:"type"`
+			Text  string `json:"text"`
+			Tool  string `json:"tool"`
+			State struct {
+				Status string `json:"status"`
+				Input  struct {
+					Command     string `json:"command"`
+					Description string `json:"description"`
+					FilePath    string `json:"file_path"`
+					Pattern     string `json:"pattern"`
+				} `json:"input"`
+				Output string `json:"output"`
+				Title  string `json:"title"`
+			} `json:"state"`
 		} `json:"part"`
-		Content struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		Text    string `json:"text"`
-		Message string `json:"message"`
-		Error   struct {
+		Error struct {
 			Name string `json:"name"`
 			Data struct {
 				Message string `json:"message"`
@@ -468,24 +475,45 @@ func parseOpenCodeLine(line string) (text string, sessionID string) {
 		sessionID = event.SessionID
 	}
 
-	// Extract text
 	switch event.Type {
-	case "text", "text.delta":
+	case "text":
 		if event.Part.Text != "" {
 			text = event.Part.Text
-		} else if event.Text != "" {
-			text = event.Text
 		}
-	case "message":
-		text = event.Message
-	case "tool.start":
-		text = "🔧 Running tool..."
-	case "tool.end":
-		text = "✅ Tool complete"
-	case "finish":
-		text = "✅ Task complete"
+	case "tool_use":
+		toolName := event.Part.Tool
+		if toolName != "" {
+			toolInfo := fmt.Sprintf("🔧 %s", toolName)
+			input := event.Part.State.Input
+			if input.Description != "" {
+				toolInfo += fmt.Sprintf(" → %s", input.Description)
+			} else if input.Command != "" {
+				cmd := input.Command
+				if len(cmd) > 80 {
+					cmd = cmd[:80] + "..."
+				}
+				toolInfo += fmt.Sprintf(" → %s", cmd)
+			} else if input.FilePath != "" {
+				toolInfo += fmt.Sprintf(" → %s", input.FilePath)
+			} else if input.Pattern != "" {
+				toolInfo += fmt.Sprintf(" → %s", input.Pattern)
+			} else if event.Part.State.Title != "" {
+				toolInfo += fmt.Sprintf(" → %s", event.Part.State.Title)
+			}
+			// Show truncated output for completed tools
+			if event.Part.State.Status == "completed" && event.Part.State.Output != "" {
+				output := event.Part.State.Output
+				lines := strings.Split(output, "\n")
+				if len(lines) > 5 {
+					output = strings.Join(lines[:5], "\n") + fmt.Sprintf("\n... (%d more lines)", len(lines)-5)
+				} else if len(output) > 500 {
+					output = output[:500] + "..."
+				}
+				toolInfo += "\n   " + strings.ReplaceAll(output, "\n", "\n   ")
+			}
+			text = toolInfo
+		}
 	case "error":
-		// OpenCode error event (e.g., connection failure, model error)
 		errMsg := event.Error.Data.Message
 		if errMsg == "" {
 			errMsg = event.Error.Name
@@ -498,22 +526,32 @@ func parseOpenCodeLine(line string) (text string, sessionID string) {
 	return text, sessionID
 }
 
-// parseOpenCodeOutput parses the complete OpenCode JSON output
+// parseOpenCodeOutput parses the complete OpenCode JSON output.
+// Only "text" type events are used for the final result (not tool output).
 func parseOpenCodeOutput(output string) *ExecuteResult {
 	result := &ExecuteResult{}
 	var lastText string
 
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.HasPrefix(line, "{") {
 			continue
 		}
-		text, sid := parseOpenCodeLine(line)
-		if sid != "" {
-			result.SessionID = sid
+		var msg struct {
+			Type      string `json:"type"`
+			SessionID string `json:"sessionID"`
+			Part      struct {
+				Text string `json:"text"`
+			} `json:"part"`
 		}
-		if text != "" {
-			lastText = text
+		if json.Unmarshal([]byte(line), &msg) != nil {
+			continue
+		}
+		if msg.SessionID != "" {
+			result.SessionID = msg.SessionID
+		}
+		// Only text events count as final result (skip tool output)
+		if msg.Type == "text" && msg.Part.Text != "" {
+			lastText = msg.Part.Text
 		}
 	}
 
@@ -539,33 +577,45 @@ func buildPromptWithGuide(prompt string) string {
 	return buildPromptWithContext("", prompt)
 }
 
-// buildPromptCompact builds a lightweight prompt for small-context models (e.g. local LLMs via OpenCode).
-// Skips skills injection and uses a shorter system guide to stay within context limits.
+// buildPromptCompact builds a prompt for OpenCode (local LLMs).
 // User prompt comes FIRST to ensure the model focuses on the actual request,
-// with system context appended as supplementary information.
+// with MCP tool guide, task history, and project skills appended as context.
+// Compact version: shorter MCP guide, same task history depth, skills included.
 func buildPromptCompact(sheepName, prompt string) string {
 	var sb strings.Builder
 
 	// User request first — prevents system instructions from overwhelming the actual request
 	sb.WriteString(prompt)
 
-	// Append system context as supplementary info
-	var hasSuffix bool
+	sb.WriteString("\n\n---\n")
 
 	if config.GetBool("include_mcp_guide") {
-		sb.WriteString("\n\n---\nAvailable tools: task_complete (task_id, summary), task_error (task_id, error), get_history (project_name, limit).\n")
-		hasSuffix = true
+		sb.WriteString(`[Available Shepherd MCP Tools]
+Task management: task_complete (task_id, summary), task_error (task_id, error), get_history (project_name, limit), get_status
+Browser automation: browser_session_start (sheep_name), browser_open, browser_click, browser_type, browser_get_text, browser_get_html, browser_screenshot, browser_session_stop
+For web tasks, use browser tools instead of WebFetch.
+
+`)
 	}
 
 	if config.GetBool("include_task_history") {
 		if sheepName != "" {
-			if ctx := getRecentTaskContextCompact(sheepName); ctx != "" {
-				if !hasSuffix {
-					sb.WriteString("\n\n---\n")
-				}
+			if ctx := getRecentTaskContext(sheepName); ctx != "" {
 				sb.WriteString(ctx)
+				sb.WriteString("\n")
 			}
 		}
+	}
+
+	if sheepName != "" {
+		if skillsText := getProjectSkills(sheepName); skillsText != "" {
+			sb.WriteString(skillsText)
+			sb.WriteString("\n")
+		}
+	}
+
+	if config.GetBool("include_mcp_guide") {
+		sb.WriteString("If you need details of previous tasks, use get_history tool.\n")
 	}
 
 	return sb.String()
