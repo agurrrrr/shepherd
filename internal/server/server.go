@@ -67,6 +67,10 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/config", s.handleGetConfig)
 	api.Patch("/config", s.handleUpdateConfig)
 
+	// MCP registration
+	api.Get("/mcp/status", s.handleMCPStatus)
+	api.Post("/mcp/register", s.handleMCPRegister)
+
 	// Sheep management
 	api.Get("/sheep", s.handleListSheep)
 	api.Post("/sheep", s.handleCreateSheep)

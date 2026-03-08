@@ -8,11 +8,34 @@
 	let saveMsg = '';
 	let restarting = false;
 
+	let mcpStatus = { claude: null, opencode: null };
+	let mcpLoaded = false;
+	let mcpRegistering = {};
+	let mcpError = '';
+
 	onMount(async () => {
-		const res = await apiGet('/api/config');
-		if (res?.data) configData = res.data;
+		const [configRes, mcpRes] = await Promise.all([
+			apiGet('/api/config'),
+			apiGet('/api/mcp/status')
+		]);
+		if (configRes?.data) configData = configRes.data;
+		if (mcpRes?.data) mcpStatus = mcpRes.data;
+		mcpLoaded = true;
 		loaded = true;
 	});
+
+	async function registerMCP(provider) {
+		mcpRegistering[provider] = true;
+		mcpError = '';
+		const res = await apiPost('/api/mcp/register', { provider });
+		if (res?.success) {
+			const statusRes = await apiGet('/api/mcp/status');
+			if (statusRes?.data) mcpStatus = statusRes.data;
+		} else {
+			mcpError = res?.message || 'Registration failed';
+		}
+		mcpRegistering[provider] = false;
+	}
 
 	async function save() {
 		saving = true;
@@ -135,6 +158,48 @@
 				{/if}
 			</div>
 		</div>
+
+		<div class="mcp-section card">
+			<h2 class="section-title">MCP Registration</h2>
+			{#if !mcpLoaded}
+				<p class="text-muted">Loading...</p>
+			{:else}
+				<div class="mcp-providers">
+					{#each [
+						{ key: 'claude', label: 'Claude Code' },
+						{ key: 'opencode', label: 'OpenCode' }
+					] as provider}
+						{@const status = mcpStatus[provider.key]}
+						<div class="mcp-provider">
+							<div class="mcp-provider-info">
+								<span class="mcp-provider-name">{provider.label}</span>
+								{#if status?.registered}
+									<span class="badge badge-success">Registered</span>
+								{:else}
+									<span class="badge badge-muted">Not Registered</span>
+								{/if}
+							</div>
+							<div class="mcp-provider-path">{status?.config_path || ''}</div>
+							{#if status?.error}
+								<div class="mcp-provider-error">{status.error}</div>
+							{/if}
+							{#if !status?.registered}
+								<button
+									class="btn btn-sm"
+									onclick={() => registerMCP(provider.key)}
+									disabled={mcpRegistering[provider.key]}
+								>
+									{mcpRegistering[provider.key] ? 'Registering...' : 'Register'}
+								</button>
+							{/if}
+						</div>
+					{/each}
+				</div>
+				{#if mcpError}
+					<div class="mcp-error">{mcpError}</div>
+				{/if}
+			{/if}
+		</div>
 	{/if}
 </div>
 
@@ -228,6 +293,93 @@
 		cursor: not-allowed;
 	}
 
+	.mcp-section {
+		max-width: 500px;
+		margin-top: 24px;
+	}
+
+	.section-title {
+		font-size: 16px;
+		font-weight: 600;
+		margin-bottom: 16px;
+	}
+
+	.mcp-providers {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	.mcp-provider {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 12px;
+		background: var(--bg-secondary);
+		border-radius: 8px;
+		border: 1px solid var(--border);
+	}
+
+	.mcp-provider-info {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.mcp-provider-name {
+		font-size: 14px;
+		font-weight: 600;
+	}
+
+	.mcp-provider-path {
+		font-size: 12px;
+		color: var(--text-secondary);
+		font-family: monospace;
+	}
+
+	.mcp-provider-error {
+		font-size: 12px;
+		color: var(--danger);
+	}
+
+	.mcp-error {
+		margin-top: 12px;
+		font-size: 13px;
+		color: var(--danger);
+	}
+
+	.badge {
+		font-size: 11px;
+		font-weight: 600;
+		padding: 2px 8px;
+		border-radius: 10px;
+	}
+
+	.badge-success {
+		background: color-mix(in srgb, var(--success) 15%, transparent);
+		color: var(--success);
+	}
+
+	.badge-muted {
+		background: var(--bg-tertiary);
+		color: var(--text-secondary);
+	}
+
+	.btn-sm {
+		padding: 4px 12px;
+		font-size: 12px;
+		font-weight: 600;
+		background: var(--accent);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		align-self: flex-start;
+		transition: opacity 0.15s;
+	}
+	.btn-sm:hover { opacity: 0.85; }
+	.btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+
 	@media (max-width: 768px) {
 		.settings-form {
 			max-width: none;
@@ -249,6 +401,10 @@
 
 		.setting-actions {
 			flex-wrap: wrap;
+		}
+
+		.mcp-section {
+			max-width: none;
 		}
 	}
 </style>
