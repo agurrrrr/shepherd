@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -89,9 +90,9 @@ func checkClaudeMCP(homeDir string) mcpProviderStatus {
 	return status
 }
 
-// checkOpenCodeMCP checks if shepherd is registered in ~/.config/opencode/config.json
+// checkOpenCodeMCP checks if shepherd is registered in OpenCode's config.json
 func checkOpenCodeMCP(homeDir string) mcpProviderStatus {
-	configPath := filepath.Join(homeDir, ".config", "opencode", "config.json")
+	configPath := config.OpenCodeNativeConfigPath()
 	status := mcpProviderStatus{ConfigPath: configPath}
 
 	data, err := os.ReadFile(configPath)
@@ -159,9 +160,9 @@ func registerClaudeMCP(homeDir string) error {
 	return os.WriteFile(configPath, append(out, '\n'), 0644)
 }
 
-// registerOpenCodeMCP adds shepherd to ~/.config/opencode/config.json
+// registerOpenCodeMCP adds shepherd to OpenCode's config.json
 func registerOpenCodeMCP(homeDir string) error {
-	configPath := filepath.Join(homeDir, ".config", "opencode", "config.json")
+	configPath := config.OpenCodeNativeConfigPath()
 
 	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 		return fmt.Errorf("cannot create directory: %w", err)

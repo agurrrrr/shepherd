@@ -286,11 +286,15 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		args = append(args, "-s", sessionID)
 	}
 
-	// Add prompt (compact for local LLMs with limited context)
-	args = append(args, buildPromptCompact(sheepName, prompt))
+	// Build prompt (compact for local LLMs with limited context)
+	fullPrompt := buildPromptCompact(sheepName, prompt)
 
+	// Pass prompt via stdin instead of command-line argument.
+	// On Windows, opencode is often a .cmd shim (npm install) — passing long
+	// prompts as args causes cmd.exe escaping issues and length limits.
 	cmd := exec.CommandContext(ctx, config.GetOpenCodeBinary(), args...)
 	cmd.Dir = projectPath
+	cmd.Stdin = strings.NewReader(fullPrompt)
 	envutil.SetCleanEnv(cmd)
 
 	// Register running task

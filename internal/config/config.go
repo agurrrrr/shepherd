@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/spf13/viper"
 )
@@ -134,10 +135,22 @@ func GetOpenCodeBinary() string {
 
 	// 4. Common locations
 	home, _ := os.UserHomeDir()
-	candidates := []string{
-		filepath.Join(home, ".bun/install/global/node_modules/opencode-ai/bin/opencode"),
-		filepath.Join(home, ".local/bin/opencode"),
-		"/usr/local/bin/opencode",
+	var candidates []string
+	if runtime.GOOS == "windows" {
+		appdata := os.Getenv("APPDATA")
+		localAppdata := os.Getenv("LOCALAPPDATA")
+		candidates = []string{
+			filepath.Join(appdata, "npm", "opencode.cmd"),
+			filepath.Join(localAppdata, "bun", "bin", "opencode.exe"),
+			filepath.Join(home, ".bun", "bin", "opencode.exe"),
+			filepath.Join(home, "scoop", "shims", "opencode.exe"),
+		}
+	} else {
+		candidates = []string{
+			filepath.Join(home, ".bun/install/global/node_modules/opencode-ai/bin/opencode"),
+			filepath.Join(home, ".local/bin/opencode"),
+			"/usr/local/bin/opencode",
+		}
 	}
 	for _, p := range candidates {
 		if _, err := os.Stat(p); err == nil {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -138,16 +139,29 @@ func OpenCodeConfigExists() bool {
 	return err == nil
 }
 
-// ReadOpenCodeNativeModel reads the model from OpenCode's own config file
-// (~/.config/opencode/config.json). This is the source of truth for which model
-// OpenCode will use, so Shepherd reads it directly instead of maintaining a separate copy.
-func ReadOpenCodeNativeModel() string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+// OpenCodeNativeConfigPath returns the path to OpenCode's native config.json.
+// Linux: ~/.config/opencode/config.json
+// Windows: %APPDATA%\opencode\config.json
+// macOS: ~/Library/Application Support/opencode/config.json
+func OpenCodeNativeConfigPath() string {
+	if configDir, err := os.UserConfigDir(); err == nil {
+		return filepath.Join(configDir, "opencode", "config.json")
 	}
+	// fallback for systems where UserConfigDir fails
+	if runtime.GOOS == "windows" {
+		if appdata := os.Getenv("APPDATA"); appdata != "" {
+			return filepath.Join(appdata, "opencode", "config.json")
+		}
+	}
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".config", "opencode", "config.json")
+}
 
-	configPath := filepath.Join(homeDir, ".config", "opencode", "config.json")
+// ReadOpenCodeNativeModel reads the model from OpenCode's own config file.
+// This is the source of truth for which model OpenCode will use,
+// so Shepherd reads it directly instead of maintaining a separate copy.
+func ReadOpenCodeNativeModel() string {
+	configPath := OpenCodeNativeConfigPath()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return ""
