@@ -36,8 +36,9 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	app := fiber.New(fiber.Config{
 		AppName:               "Shepherd API",
 		DisableStartupMessage: true,
-		UnescapePath:          true,               // URL-decode path params (한글 등 비ASCII 문자 지원)
-		BodyLimit:             50 * 1024 * 1024,   // 50MB for file uploads
+		UnescapePath:          true,             // URL-decode path params (한글 등 비ASCII 문자 지원)
+		BodyLimit:             50 * 1024 * 1024, // 50MB for file uploads
+		ReadBufferSize:        16384,            // 16KB — fasthttp default 4KB causes 431 on browsers with large headers
 	})
 
 	hub := NewSSEHub()
