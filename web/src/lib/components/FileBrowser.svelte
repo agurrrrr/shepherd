@@ -1,6 +1,6 @@
 <script>
 	import { onMount, tick } from 'svelte';
-	import { apiGet } from '$lib/api.js';
+	import { apiGet, apiDownload } from '$lib/api.js';
 	import { Carta } from 'carta-md';
 	import DOMPurify from 'isomorphic-dompurify';
 	import '$lib/style/github-markdown.css';
@@ -105,19 +105,15 @@
 		}
 	}
 
-	function downloadFile(entry) {
+	async function downloadFile(entry) {
 		const url = `/api/projects/${encodeURIComponent(projectName)}/files/download/${entry.path}`;
-		const token = localStorage.getItem('shepherd_access_token');
-		// Use fetch to get with auth, then download blob
-		fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-			.then(r => r.blob())
-			.then(blob => {
-				const a = document.createElement('a');
-				a.href = URL.createObjectURL(blob);
-				a.download = entry.name || entry.path.split('/').pop();
-				a.click();
-				URL.revokeObjectURL(a.href);
-			});
+		const blob = await apiDownload(url);
+		if (!blob) return;
+		const a = document.createElement('a');
+		a.href = URL.createObjectURL(blob);
+		a.download = entry.name || entry.path.split('/').pop();
+		a.click();
+		URL.revokeObjectURL(a.href);
 	}
 
 	function formatFileSize(bytes) {
@@ -318,6 +314,8 @@
 		font-size: 13px;
 		line-height: 1.5;
 		tab-size: 4;
+		white-space: pre-wrap;
+		word-break: break-all;
 	}
 	.fb-code code {
 		font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;

@@ -94,6 +94,34 @@ export async function apiUpload(url, formData) {
 	return res.json();
 }
 
+/**
+ * Download a file as blob with auth + auto-refresh.
+ * @param {string} url
+ * @returns {Promise<Blob|null>}
+ */
+export async function apiDownload(url) {
+	const token = get(accessToken);
+	const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+	let res = await fetch(BASE + url, { headers });
+
+	if (res.status === 401) {
+		const refreshed = await tryRefresh();
+		if (refreshed) {
+			const newToken = get(accessToken);
+			res = await fetch(BASE + url, {
+				headers: { Authorization: `Bearer ${newToken}` }
+			});
+		} else {
+			logout();
+			return null;
+		}
+	}
+
+	if (!res.ok) return null;
+	return res.blob();
+}
+
 async function tryRefresh() {
 	const token = get(refreshToken);
 	if (!token) return false;
