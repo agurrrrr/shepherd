@@ -313,7 +313,7 @@
 	}
 
 	.search-box { flex: 1; min-width: 150px; }
-	.search-input { width: 100%; padding: 6px 10px; font-size: 13px; }
+	.search-input { width: 100%; padding: 6px 10px; }
 
 	/* Task Table */
 	.task-table {
