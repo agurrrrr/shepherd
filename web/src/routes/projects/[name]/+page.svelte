@@ -3,10 +3,6 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { apiGet, apiPost, apiPatch, apiDelete } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
-	import { Carta } from 'carta-md';
-	import DOMPurify from 'isomorphic-dompurify';
-	import html2canvas from 'html2canvas';
-	import '$lib/style/github-markdown.css';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
 	import CommandInput from '$lib/components/CommandInput.svelte';
@@ -14,8 +10,7 @@
 	import GitGraph from '$lib/components/GitGraph.svelte';
 	import ScheduleForm from '$lib/components/ScheduleForm.svelte';
 	import SkillForm from '$lib/components/SkillForm.svelte';
-
-	const carta = new Carta({ sanitizer: DOMPurify.sanitize });
+	import FileBrowser from '$lib/components/FileBrowser.svelte';
 
 	let projectName = $state('');
 	let project = $state(null);
@@ -38,10 +33,6 @@
 
 	// Documents
 	let docs = $state([]);
-	let docsLoaded = $state(false);
-	let docSearch = $state('');
-	let docSort = $state('modified'); // 'modified', 'name', 'size'
-
 	// Git
 	let gitLoaded = $state(false);
 
@@ -56,10 +47,9 @@
 	let skillsLoaded = $state(false);
 	let showSkillForm = $state(false);
 	let editingSkillItem = $state(null);
-	let selectedDoc = $state(null);
-	let docContent = $state('');
-	let docRendered = $state('');
-	let docLoading = $state(false);
+
+	// Files tab key — changes to force FileBrowser remount on project switch
+	let filesKey = $state(0);
 
 	let unsubs = [];
 
@@ -83,13 +73,7 @@
 		tasks = [];
 		tasksLoaded = false;
 		taskPage = 1;
-		docs = [];
-		docsLoaded = false;
-		docSearch = '';
-		docSort = 'modified';
-		selectedDoc = null;
-		docContent = '';
-		docRendered = '';
+		filesKey++; // force FileBrowser remount
 		gitLoaded = false;
 		projectSchedules = [];
 		schedulesLoaded = false;
@@ -196,9 +180,7 @@
 		if (tab === 'history' && !tasksLoaded) {
 			loadTasks();
 		}
-		if (tab === 'docs' && !docsLoaded) {
-			loadDocs();
-		}
+		// Files tab: FileBrowser component manages its own state
 		if (tab === 'git' && !gitLoaded) {
 			gitLoaded = true;
 		}
@@ -207,125 +189,6 @@
 		}
 		if (tab === 'skills' && !skillsLoaded) {
 			loadProjectSkills();
-		}
-	}
-
-	async function loadDocs() {
-		const res = await apiGet(`/api/projects/${encodeURIComponent(projectName)}/docs`);
-		if (res?.data) {
-			docs = res.data;
-		}
-		docsLoaded = true;
-	}
-
-	let filteredDocs = $derived.by(() => {
-		let result = docs;
-		// Search filter
-		if (docSearch.trim()) {
-			const q = docSearch.trim().toLowerCase();
-			result = result.filter(d =>
-				d.name.toLowerCase().includes(q) || d.path.toLowerCase().includes(q)
-			);
-		}
-		// Sort
-		result = [...result].sort((a, b) => {
-			if (docSort === 'modified') {
-				return (b.modified_at || '').localeCompare(a.modified_at || '');
-			} else if (docSort === 'name') {
-				return a.name.localeCompare(b.name);
-			} else if (docSort === 'size') {
-				return (b.size || 0) - (a.size || 0);
-			}
-			return 0;
-		});
-		return result;
-	});
-
-	function formatFileSize(bytes) {
-		if (!bytes) return '';
-		if (bytes < 1024) return bytes + ' B';
-		if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-	}
-
-	async function openDoc(doc) {
-		docLoading = true;
-		selectedDoc = doc;
-		docContent = '';
-		docRendered = '';
-		const res = await apiGet(`/api/projects/${encodeURIComponent(projectName)}/docs/${doc.path}`);
-		if (res?.data?.content) {
-			docContent = res.data.content;
-			docRendered = await carta.render(docContent);
-		}
-		docLoading = false;
-	}
-
-	function closeDoc() {
-		selectedDoc = null;
-		docContent = '';
-		docRendered = '';
-	}
-
-	async function downloadDoc(doc) {
-		const res = await apiGet(`/api/projects/${encodeURIComponent(projectName)}/docs/${doc.path}`);
-		if (res?.data?.content) {
-			const blob = new Blob([res.data.content], { type: 'text/markdown; charset=utf-8' });
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.href = url;
-			a.download = doc.name || doc.path.split('/').pop();
-			a.click();
-			URL.revokeObjectURL(url);
-		}
-	}
-
-	let imgExporting = $state(false);
-
-	async function downloadDocAsImage() {
-		const el = document.querySelector('.doc-content .markdown-body');
-		if (!el) return;
-		imgExporting = true;
-
-		try {
-			// 임시 컨테이너에 복제하여 고정 너비로 캡처
-			const wrapper = document.createElement('div');
-			wrapper.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;padding:40px;background:#0d1117;color:#c9d1d9;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;';
-			wrapper.innerHTML = '<div class="markdown-body">' + el.innerHTML + '</div>';
-			document.body.appendChild(wrapper);
-
-			// github-markdown.css 스타일 주입
-			const styles = document.querySelectorAll('style, link[rel="stylesheet"]');
-			const clonedStyles = [];
-			styles.forEach(s => {
-				const c = s.cloneNode(true);
-				wrapper.prepend(c);
-				clonedStyles.push(c);
-			});
-
-			const canvas = await html2canvas(wrapper, {
-				backgroundColor: '#0d1117',
-				scale: 2,
-				useCORS: true,
-				logging: false,
-			});
-
-			document.body.removeChild(wrapper);
-
-			canvas.toBlob((blob) => {
-				if (!blob) return;
-				const url = URL.createObjectURL(blob);
-				const a = document.createElement('a');
-				a.href = url;
-				const baseName = (selectedDoc?.name || 'document').replace(/\.md$/i, '');
-				a.download = baseName + '.png';
-				a.click();
-				URL.revokeObjectURL(url);
-			}, 'image/png');
-		} catch (e) {
-			console.error('Image export failed:', e);
-		} finally {
-			imgExporting = false;
 		}
 	}
 
@@ -512,9 +375,9 @@
 				onclick={() => switchTab('history')}>
 				Task History
 			</button>
-			<button class="tab" class:active={activeTab === 'docs'}
-				onclick={() => switchTab('docs')}>
-				Docs
+			<button class="tab" class:active={activeTab === 'files'}
+				onclick={() => switchTab('files')}>
+				Files
 			</button>
 			<button class="tab" class:active={activeTab === 'git'}
 				onclick={() => switchTab('git')}>
@@ -570,79 +433,12 @@
 				</div>
 			{/if}
 
-			<!-- Docs tab -->
-			{#if activeTab === 'docs'}
-				<div class="docs-fill">
-					{#if selectedDoc}
-						<div class="doc-viewer">
-							<div class="doc-header">
-								<button class="btn-doc-back" onclick={closeDoc}>&larr; Back</button>
-								<span class="doc-title">{selectedDoc.path}</span>
-								<div class="doc-header-actions">
-									<button class="btn-doc-action" onclick={() => downloadDoc(selectedDoc)} title="Download .md">
-										<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75z"/><path d="M7.25 7.689V2a.75.75 0 011.5 0v5.689l1.97-1.969a.749.749 0 111.06 1.06l-3.25 3.25a.749.749 0 01-1.06 0L4.22 6.78a.749.749 0 111.06-1.06l1.97 1.969z"/></svg>
-									</button>
-									<button class="btn-doc-action" onclick={downloadDocAsImage} disabled={imgExporting} title="Download as Image">
-										{#if imgExporting}
-											<span class="img-export-spinner"></span>
-										{:else}
-											<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M16 13.25A1.75 1.75 0 0114.25 15H1.75A1.75 1.75 0 010 13.25V2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75zM1.75 2.5a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h.94l3.88-5.17a.75.75 0 011.2 0l1.62 2.16 1.22-1.408a.75.75 0 011.127-.045l2.1 2.1V2.75a.25.25 0 00-.25-.25zM5.5 6a1.5 1.5 0 11-3.001-.001A1.5 1.5 0 015.5 6z"/></svg>
-										{/if}
-									</button>
-								</div>
-							</div>
-							<div class="doc-content">
-								{#if docLoading}
-									<p class="text-muted">Loading...</p>
-								{:else}
-									<div class="markdown-body">{@html docRendered}</div>
-								{/if}
-							</div>
-						</div>
-					{:else}
-						{#if !docsLoaded}
-							<p class="text-muted">Loading docs...</p>
-						{:else if docs.length === 0}
-							<p class="text-muted">No .md files found</p>
-						{:else}
-							<div class="doc-toolbar">
-								<input class="input doc-search" type="text" bind:value={docSearch} placeholder="Search docs..." />
-								<select class="input doc-sort-select" bind:value={docSort}>
-									<option value="modified">Last Modified</option>
-									<option value="name">Name</option>
-									<option value="size">Size</option>
-								</select>
-							</div>
-							{#if filteredDocs.length === 0}
-								<p class="text-muted">No matching documents.</p>
-							{:else}
-								<div class="doc-list">
-									{#each filteredDocs as d}
-										<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-										<div class="card doc-item" onclick={() => openDoc(d)}>
-											<span class="doc-icon">📄</span>
-											<div class="doc-info">
-												<span class="doc-name">{d.name}</span>
-												<span class="doc-path mono">{d.path}</span>
-											</div>
-											<div class="doc-meta">
-												{#if d.modified_at}
-													<span class="doc-modified">{d.modified_at}</span>
-												{/if}
-												{#if d.size}
-													<span class="doc-size">{formatFileSize(d.size)}</span>
-												{/if}
-											</div>
-											<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-											<span class="btn-doc-action doc-dl-btn" onclick={(e) => { e.stopPropagation(); downloadDoc(d); }} title="Download">
-												<svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75z"/><path d="M7.25 7.689V2a.75.75 0 011.5 0v5.689l1.97-1.969a.749.749 0 111.06 1.06l-3.25 3.25a.749.749 0 01-1.06 0L4.22 6.78a.749.749 0 111.06-1.06l1.97 1.969z"/></svg>
-											</span>
-										</div>
-									{/each}
-								</div>
-							{/if}
-						{/if}
-					{/if}
+			<!-- Files tab -->
+			{#if activeTab === 'files'}
+				<div class="files-fill">
+					{#key filesKey}
+						<FileBrowser {projectName} />
+					{/key}
 				</div>
 			{/if}
 
@@ -1037,191 +833,13 @@
 		flex-direction: column;
 	}
 
-	/* Docs tab */
-	.docs-fill {
+	/* Files tab */
+	.files-fill {
 		flex: 1;
 		min-height: 0;
-		overflow-y: auto;
-		padding: 8px 0;
-	}
-
-	.doc-toolbar {
-		display: flex;
-		gap: 8px;
-		margin-bottom: 8px;
-		align-items: center;
-	}
-
-	.doc-search {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.doc-sort-select {
-		width: 140px;
-		flex-shrink: 0;
-	}
-
-	.doc-list {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.doc-item {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 8px 14px;
-		cursor: pointer;
-		transition: border-color 0.15s;
-	}
-
-	.doc-item:hover {
-		border-color: var(--accent);
-	}
-
-	.doc-icon {
-		font-size: 16px;
-		flex-shrink: 0;
-	}
-
-	.doc-info {
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
-		min-width: 0;
-		flex: 1;
-	}
-
-	.doc-name {
-		font-size: 13px;
-		font-weight: 500;
-	}
-
-	.doc-path {
-		font-size: 11px;
-		color: var(--text-secondary);
 		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.doc-meta {
 		display: flex;
 		flex-direction: column;
-		align-items: flex-end;
-		gap: 1px;
-		flex-shrink: 0;
-	}
-
-	.doc-modified {
-		font-size: 11px;
-		color: var(--text-secondary);
-		font-family: var(--font-mono);
-		white-space: nowrap;
-	}
-
-	.doc-size {
-		font-size: 10px;
-		color: var(--text-secondary);
-		opacity: 0.7;
-	}
-
-	.doc-viewer {
-		display: flex;
-		flex-direction: column;
-		height: 100%;
-	}
-
-	.doc-header {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding-bottom: 8px;
-		border-bottom: 1px solid var(--border);
-		flex-shrink: 0;
-	}
-
-	.doc-header-actions {
-		display: flex;
-		gap: 4px;
-		margin-left: auto;
-	}
-
-	.img-export-spinner {
-		width: 14px;
-		height: 14px;
-		border: 2px solid var(--border);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.6s linear infinite;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
-	.btn-doc-back {
-		background: none;
-		border: 1px solid var(--border);
-		color: var(--text-secondary);
-		padding: 3px 10px;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 12px;
-	}
-
-	.btn-doc-back:hover {
-		color: var(--accent);
-		border-color: var(--accent);
-	}
-
-	.btn-doc-action {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: none;
-		border: 1px solid var(--border);
-		color: var(--text-secondary);
-		padding: 4px;
-		border-radius: 4px;
-		cursor: pointer;
-		flex-shrink: 0;
-		transition: color 0.15s, border-color 0.15s;
-	}
-
-	.btn-doc-action:hover {
-		color: var(--accent);
-		border-color: var(--accent);
-	}
-
-	.doc-dl-btn {
-		opacity: 0;
-		transition: opacity 0.15s, color 0.15s, border-color 0.15s;
-	}
-
-	.doc-item:hover .doc-dl-btn {
-		opacity: 1;
-	}
-
-	.doc-title {
-		font-size: 13px;
-		font-weight: 500;
-		color: var(--text-primary);
-	}
-
-	.doc-content {
-		flex: 1;
-		min-height: 0;
-		overflow-y: auto;
-		padding: 16px 0;
-	}
-
-	.doc-content :global(.markdown-body) {
-		font-size: 14px;
-		line-height: 1.6;
-		color: var(--text-primary);
 	}
 
 	@media (max-width: 768px) {

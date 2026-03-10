@@ -79,6 +79,7 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"session_reuse":      config.GetBool("session_reuse"),
 		"include_task_history": config.GetBool("include_task_history"),
 		"include_mcp_guide":   config.GetBool("include_mcp_guide"),
+		"enable_file_browser": config.GetBool("enable_file_browser"),
 	})
 }
 
@@ -99,6 +100,7 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"session_reuse":      true,
 		"include_task_history": true,
 		"include_mcp_guide":   true,
+		"enable_file_browser": true,
 	}
 
 	for key, value := range body {

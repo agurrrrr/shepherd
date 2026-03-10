@@ -46,6 +46,9 @@ func Init() error {
 	viper.SetDefault("include_task_history", true)
 	viper.SetDefault("include_mcp_guide", true)
 
+	// 파일 탐색기
+	viper.SetDefault("enable_file_browser", true)
+
 	// 서버 설정
 	viper.SetDefault("server_port", 8585)
 	viper.SetDefault("server_host", "0.0.0.0")

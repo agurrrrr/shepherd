@@ -47,7 +47,8 @@
 			auto_approve: configData.auto_approve,
 			session_reuse: configData.session_reuse,
 			include_task_history: configData.include_task_history,
-			include_mcp_guide: configData.include_mcp_guide
+			include_mcp_guide: configData.include_mcp_guide,
+			enable_file_browser: configData.enable_file_browser
 		});
 		if (res?.success) {
 			saveMsg = 'Saved';
@@ -107,6 +108,14 @@
 				<label class="toggle">
 					<input type="checkbox" bind:checked={configData.auto_approve} />
 					<span>{configData.auto_approve ? 'Enabled' : 'Disabled'}</span>
+				</label>
+			</div>
+
+			<div class="setting-row">
+				<label>File Browser</label>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={configData.enable_file_browser} />
+					<span>{configData.enable_file_browser ? 'Enabled' : 'Disabled'}</span>
 				</label>
 			</div>
 

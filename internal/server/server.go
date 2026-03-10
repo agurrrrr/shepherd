@@ -89,6 +89,11 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/projects/:name/docs-download/*", s.handleDownloadDoc)
 	api.Get("/projects/:name/docs/*", s.handleGetDoc)
 
+	// File browser
+	api.Get("/projects/:name/files", s.handleListFiles)
+	api.Get("/projects/:name/files/download/*", s.handleDownloadFile)
+	api.Get("/projects/:name/files/content/*", s.handleGetFileContent)
+
 	// Git (read-only)
 	api.Get("/projects/:name/git/log", s.handleGitLog)
 	api.Get("/projects/:name/git/branches", s.handleGitBranches)
