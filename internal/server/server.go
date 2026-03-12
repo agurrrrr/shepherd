@@ -181,6 +181,12 @@ func (s *Server) WireProcessorCallbacks() {
 			"project_name": projectName, "error": errMsg,
 		}})
 	}
+	s.processor.OnTaskStop = func(taskID int, sheepName, projectName, reason string) {
+		s.hub.Broadcast(SSEEvent{Type: "task_stop", Data: map[string]interface{}{
+			"task_id": taskID, "sheep_name": sheepName,
+			"project_name": projectName, "reason": reason,
+		}})
+	}
 	s.processor.OnOutput = func(sheepName, projectName, text string) {
 		s.hub.Broadcast(SSEEvent{Type: "output", Data: map[string]interface{}{
 			"sheep_name": sheepName, "project_name": projectName, "text": text,

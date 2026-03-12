@@ -26,7 +26,7 @@ func (Task) Fields() []ent.Field {
 			Optional().
 			Comment("수정한 파일 목록"),
 		field.Enum("status").
-			Values("pending", "running", "completed", "failed").
+			Values("pending", "running", "completed", "failed", "stopped").
 			Default("pending").
 			Comment("작업 상태"),
 		field.Text("error").

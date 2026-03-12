@@ -85,9 +85,8 @@ func StopTask(sheepName string) (*StopTaskResult, error) {
 	}
 
 	// Force kill process
-	if task.Cmd != nil && task.Cmd.Process != nil {
-		task.Cmd.Process.Kill()
-	}
+	// Kill entire process group (parent + children)
+	killProcessGroup(task.Cmd)
 
 	// Restore status
 	ctx := context.Background()
@@ -310,6 +309,7 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
+	setProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start OpenCode: %w", err)
 	}
@@ -574,6 +574,23 @@ func IsRateLimitError(err error) bool {
 		strings.Contains(errStr, "429") ||
 		strings.Contains(errStr, "too many requests") ||
 		strings.Contains(errStr, "limit exceeded")
+}
+
+// IsQuestionError checks if the error is a question stop error
+// (Claude used AskUserQuestion and the task was stopped).
+func IsQuestionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.HasPrefix(err.Error(), "question: ")
+}
+
+// IsCancelledError checks if the error is a user-initiated cancellation.
+func IsCancelledError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return err.Error() == "task was cancelled"
 }
 
 // buildPromptWithGuide adds MCP tool usage guide and recent task context to the prompt.
@@ -998,6 +1015,7 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
+	setProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start Claude Code: %w", err)
 	}
@@ -1005,6 +1023,9 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 	// Stream output
 	var outputBuilder strings.Builder
 	var mu sync.Mutex
+
+	// Channel to detect AskUserQuestion (stop task when Claude asks a question)
+	questionCh := make(chan string, 1)
 
 	// Read stdout
 	go func() {
@@ -1019,6 +1040,14 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 			mu.Lock()
 			outputBuilder.WriteString(line + "\n")
 			mu.Unlock()
+
+			// Detect AskUserQuestion — signal to stop the task
+			if q := extractAskUserQuestion(line); q != "" {
+				select {
+				case questionCh <- q:
+				default:
+				}
+			}
 
 			// Try to parse stream-json
 			parsed := parseStreamLine(line)
@@ -1044,8 +1073,25 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		}
 	}()
 
-	// Wait for completion
-	err = cmd.Wait()
+	// Wait for completion or AskUserQuestion
+	cmdDone := make(chan error, 1)
+	go func() {
+		cmdDone <- cmd.Wait()
+	}()
+
+	select {
+	case err = <-cmdDone:
+		// Normal completion — continue with existing error handling below
+	case q := <-questionCh:
+		// Claude asked a question — stop the task
+		if opts.OnOutput != nil {
+			opts.OnOutput("⏸ Task stopped — question detected\n")
+		}
+		cancel()
+		killProcessGroup(cmd)
+		<-cmdDone // Wait for process to exit
+		return nil, fmt.Errorf("question: %s", q)
+	}
 
 	mu.Lock()
 	fullOutput := outputBuilder.String()
@@ -1135,7 +1181,21 @@ func parseStreamLine(line string) string {
 					toolInfo := fmt.Sprintf("🔧 %s", content.Name)
 					if content.Input != nil {
 						if inputMap, ok := content.Input.(map[string]any); ok {
-							if cmd, ok := inputMap["command"].(string); ok {
+							if content.Name == "AskUserQuestion" {
+								if questions, ok := inputMap["questions"].([]any); ok {
+									var qTexts []string
+									for _, q := range questions {
+										if qMap, ok := q.(map[string]any); ok {
+											if qText, ok := qMap["question"].(string); ok {
+												qTexts = append(qTexts, qText)
+											}
+										}
+									}
+									if len(qTexts) > 0 {
+										toolInfo += " → " + strings.Join(qTexts, " / ")
+									}
+								}
+							} else if cmd, ok := inputMap["command"].(string); ok {
 								if len(cmd) > 80 {
 									cmd = cmd[:80] + "..."
 								}
@@ -1197,6 +1257,60 @@ func parseStreamLine(line string) string {
 		// System messages (init, etc.)
 		if msg.Subtype == "init" {
 			return "🚀 Claude session starting..."
+		}
+	}
+
+	return ""
+}
+
+// extractAskUserQuestion checks if a stream-json line contains an AskUserQuestion tool use
+// and returns the question text. Returns empty string if not.
+func extractAskUserQuestion(line string) string {
+	if !strings.HasPrefix(line, "{") {
+		return ""
+	}
+
+	var msg struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content []struct {
+				Type  string `json:"type"`
+				Name  string `json:"name"`
+				Input any    `json:"input"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+
+	if err := json.Unmarshal([]byte(line), &msg); err != nil {
+		return ""
+	}
+
+	if msg.Type != "assistant" {
+		return ""
+	}
+
+	for _, content := range msg.Message.Content {
+		if content.Type == "tool_use" && content.Name == "AskUserQuestion" {
+			inputMap, ok := content.Input.(map[string]any)
+			if !ok {
+				return "AskUserQuestion"
+			}
+			questions, ok := inputMap["questions"].([]any)
+			if !ok {
+				return "AskUserQuestion"
+			}
+			var qTexts []string
+			for _, q := range questions {
+				if qMap, ok := q.(map[string]any); ok {
+					if qText, ok := qMap["question"].(string); ok {
+						qTexts = append(qTexts, qText)
+					}
+				}
+			}
+			if len(qTexts) > 0 {
+				return strings.Join(qTexts, " / ")
+			}
+			return "AskUserQuestion"
 		}
 	}
 

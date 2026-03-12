@@ -25,6 +25,7 @@
 		unsubs.push(onSSE('task_complete', () => loadTasks()));
 		unsubs.push(onSSE('task_start', () => loadTasks()));
 		unsubs.push(onSSE('task_fail', () => loadTasks()));
+		unsubs.push(onSSE('task_stop', () => loadTasks()));
 	});
 
 	onDestroy(() => unsubs.forEach(fn => fn()));
@@ -97,6 +98,7 @@
 			case 'failed': return '\u274C';
 			case 'running': return '\u26A1';
 			case 'pending': return '\u23F3';
+			case 'stopped': return '\u23F9';
 			default: return '\u2022';
 		}
 	}
@@ -106,7 +108,8 @@
 		{ value: 'running', label: 'Running' },
 		{ value: 'pending', label: 'Pending' },
 		{ value: 'completed', label: 'Completed' },
-		{ value: 'failed', label: 'Failed' }
+		{ value: 'failed', label: 'Failed' },
+		{ value: 'stopped', label: 'Stopped' }
 	];
 </script>
 

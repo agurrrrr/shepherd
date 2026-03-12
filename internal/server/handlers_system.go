@@ -60,6 +60,7 @@ func (s *Server) handleSystemStatus(c *fiber.Ctx) error {
 			"running":   counts[task.StatusRunning],
 			"completed": counts[task.StatusCompleted],
 			"failed":    counts[task.StatusFailed],
+			"stopped":   counts[task.StatusStopped],
 		},
 		"sse_clients": s.hub.ClientCount(),
 	})

@@ -27,10 +27,11 @@ type Processor struct {
 	running  bool
 	mu       sync.Mutex
 
-	// Callbacks: called on task start/complete/fail
+	// Callbacks: called on task start/complete/fail/stop
 	OnTaskStart    func(taskID int, sheepName, projectName, prompt string)
 	OnTaskComplete func(taskID int, sheepName, projectName, summary string)
 	OnTaskFail     func(taskID int, sheepName, projectName, errMsg string)
+	OnTaskStop     func(taskID int, sheepName, projectName, reason string)
 
 	// Callback: output streaming (projectName is the project assigned to the task)
 	OnOutput func(sheepName, projectName, text string)
@@ -235,6 +236,18 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 			return
 		}
 
+		// Question or cancel error: task stops, sheep goes idle (not error)
+		if worker.IsQuestionError(err) || worker.IsCancelledError(err) {
+			if p.OnStatusChange != nil {
+				p.OnStatusChange(sheepName, "idle")
+			}
+			if p.OnTaskStop != nil {
+				p.OnTaskStop(taskID, sheepName, projectName, err.Error())
+			}
+			_ = StopTaskWithOutput(taskID, err.Error(), outputLines)
+			return
+		}
+
 		if p.OnStatusChange != nil {
 			p.OnStatusChange(sheepName, "error")
 		}
@@ -298,5 +311,5 @@ func GetQueueStatus() (string, error) {
 	}
 
 	return fmt.Sprintf(i18n.T().QueueStatusFmt,
-		counts["pending"], counts["running"], counts["completed"], counts["failed"]), nil
+		counts["pending"], counts["running"], counts["completed"], counts["failed"], counts["stopped"]), nil
 }

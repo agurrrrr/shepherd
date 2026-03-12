@@ -8,7 +8,8 @@
 		pending: { label: 'Pending', css: 'badge-pending' },
 		running: { label: 'Running', css: 'badge-running' },
 		completed: { label: 'Completed', css: 'badge-completed' },
-		failed: { label: 'Failed', css: 'badge-failed' }
+		failed: { label: 'Failed', css: 'badge-failed' },
+		stopped: { label: 'Stopped', css: 'badge-stopped' }
 	};
 
 	let config = $derived(statusConfig[status] || statusConfig.idle);

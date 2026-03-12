@@ -19,6 +19,7 @@
 		if (/^[🟠🟢🔵⚪]\s/.test(line)) return 'sheep';
 		if (line.startsWith('🚀 ')) return 'status';
 		if (line.startsWith('✅ ')) return 'status';
+		if (line.startsWith('⏸')) return 'status';
 		if (line.startsWith('🔧 ')) return 'tool';
 		if (/^\s{2,}/.test(line)) return 'result';
 		return 'text';
@@ -127,6 +128,7 @@
 		if (text.includes('Grep')) return '🔍';
 		if (text.includes('Glob')) return '📂';
 		if (text.includes('Task')) return '📋';
+		if (text.includes('AskUserQuestion')) return '❓';
 		return '🔧';
 	}
 

@@ -39,6 +39,12 @@
 				task = { ...task, status: 'failed', error: data.error };
 			}
 		}));
+
+		unsubs.push(onSSE('task_stop', (data) => {
+			if (task && data.task_id === task.id) {
+				task = { ...task, status: 'stopped', error: data.reason };
+			}
+		}));
 	});
 
 	onDestroy(() => unsubs.forEach(fn => fn()));

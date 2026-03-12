@@ -223,8 +223,8 @@ func handleGetStatus(args map[string]interface{}) (string, error) {
 	}
 
 	sb.WriteString("\n=== 작업 현황 ===\n")
-	sb.WriteString(fmt.Sprintf("  대기: %d, 진행중: %d, 완료: %d, 실패: %d\n",
-		counts[task.StatusPending], counts[task.StatusRunning], counts[task.StatusCompleted], counts[task.StatusFailed]))
+	sb.WriteString(fmt.Sprintf("  대기: %d, 진행중: %d, 완료: %d, 실패: %d, 중단: %d\n",
+		counts[task.StatusPending], counts[task.StatusRunning], counts[task.StatusCompleted], counts[task.StatusFailed], counts[task.StatusStopped]))
 
 	return sb.String(), nil
 }

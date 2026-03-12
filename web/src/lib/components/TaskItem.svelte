@@ -5,7 +5,8 @@
 		completed: '\u2705',
 		running: '\uD83D\uDD04',
 		failed: '\u274C',
-		pending: '\u23F8'
+		pending: '\u23F8',
+		stopped: '\u23F9'
 	};
 
 	function formatDate(dateStr) {
@@ -24,7 +25,7 @@
 	}
 </script>
 
-<a href="/tasks/{task.id}" class="task-item" class:failed={task.status === 'failed'}>
+<a href="/tasks/{task.id}" class="task-item" class:failed={task.status === 'failed'} class:stopped={task.status === 'stopped'}>
 	<span class="task-id mono">#{task.id}</span>
 	<span class="task-status">{statusIcons[task.status] || '\u23F8'}</span>
 	<span class="task-project">{task.project || '-'}</span>
@@ -55,6 +56,10 @@
 
 	.task-item.failed {
 		border-left: 3px solid var(--danger);
+	}
+
+	.task-item.stopped {
+		border-left: 3px solid var(--warning);
 	}
 
 	.task-id {

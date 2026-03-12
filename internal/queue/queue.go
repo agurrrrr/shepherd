@@ -321,6 +321,36 @@ func FailTaskWithOutput(id int, errMsg string, output []string) error {
 	return nil
 }
 
+// StopTaskWithOutput marks a task as stopped (user cancel or question detected).
+func StopTaskWithOutput(id int, reason string, output []string) error {
+	ctx := context.Background()
+	client := db.Client()
+
+	updateQuery := client.Task.Update().
+		Where(task.ID(id)).
+		SetStatus(task.StatusStopped).
+		SetError(reason).
+		SetCompletedAt(time.Now())
+
+	if len(output) > 0 {
+		updateQuery = updateQuery.SetOutput(output)
+		summary := buildSummaryFromOutput(output)
+		if summary != "" {
+			updateQuery = updateQuery.SetSummary(summary)
+		}
+	}
+
+	count, err := updateQuery.Save(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to mark task as stopped: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("task #%d not found", id)
+	}
+
+	return nil
+}
+
 // buildSummaryFromOutput builds a summary from output lines (last meaningful lines).
 func buildSummaryFromOutput(output []string) string {
 	// Collect last meaningful lines (excluding empty lines)
@@ -354,6 +384,7 @@ func CountByStatus() (map[task.Status]int, error) {
 		task.StatusRunning,
 		task.StatusCompleted,
 		task.StatusFailed,
+		task.StatusStopped,
 	} {
 		count, err := client.Task.Query().
 			Where(task.StatusEQ(status)).
@@ -378,6 +409,8 @@ func StatusToKorean(status task.Status) string {
 		return "completed"
 	case task.StatusFailed:
 		return "failed"
+	case task.StatusStopped:
+		return "stopped"
 	default:
 		return string(status)
 	}
@@ -403,14 +436,14 @@ func RecoverStuckTasks() (int, error) {
 	return count, nil
 }
 
-// CancelPendingTasks marks all pending tasks as failed (cancelled).
+// CancelPendingTasks marks all pending tasks as stopped (cancelled).
 func CancelPendingTasks() (int, error) {
 	ctx := context.Background()
 	client := db.Client()
 
 	count, err := client.Task.Update().
 		Where(task.StatusEQ(task.StatusPending)).
-		SetStatus(task.StatusFailed).
+		SetStatus(task.StatusStopped).
 		SetError("cancelled by user").
 		SetCompletedAt(time.Now()).
 		Save(ctx)
@@ -421,14 +454,14 @@ func CancelPendingTasks() (int, error) {
 	return count, nil
 }
 
-// CancelRunningTasks marks all running tasks as failed (cancelled).
+// CancelRunningTasks marks all running tasks as stopped (cancelled).
 func CancelRunningTasks() (int, error) {
 	ctx := context.Background()
 	client := db.Client()
 
 	count, err := client.Task.Update().
 		Where(task.StatusEQ(task.StatusRunning)).
-		SetStatus(task.StatusFailed).
+		SetStatus(task.StatusStopped).
 		SetError("cancelled by user").
 		SetCompletedAt(time.Now()).
 		Save(ctx)

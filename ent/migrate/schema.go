@@ -148,7 +148,7 @@ var (
 		{Name: "prompt", Type: field.TypeString, Size: 2147483647},
 		{Name: "summary", Type: field.TypeString, Nullable: true, Size: 2147483647},
 		{Name: "files_modified", Type: field.TypeJSON, Nullable: true},
-		{Name: "status", Type: field.TypeEnum, Enums: []string{"pending", "running", "completed", "failed"}, Default: "pending"},
+		{Name: "status", Type: field.TypeEnum, Enums: []string{"pending", "running", "completed", "failed", "stopped"}, Default: "pending"},
 		{Name: "error", Type: field.TypeString, Nullable: true, Size: 2147483647},
 		{Name: "output", Type: field.TypeJSON, Nullable: true},
 		{Name: "started_at", Type: field.TypeTime, Nullable: true},

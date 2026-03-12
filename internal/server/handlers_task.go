@@ -262,8 +262,8 @@ func (s *Server) handleStopTask(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Mark task as failed
-	_ = queue.FailTaskWithOutput(id, "stopped by user", result.OutputLines)
+	// Mark task as stopped
+	_ = queue.StopTaskWithOutput(id, "stopped by user", result.OutputLines)
 
 	return success(c, map[string]interface{}{
 		"task_id": id,

@@ -145,6 +145,7 @@ func (s *Server) handleDashboard(c *fiber.Ctx) error {
 			"running":   counts[entTask.StatusRunning],
 			"completed": counts[entTask.StatusCompleted],
 			"failed":    counts[entTask.StatusFailed],
+			"stopped":   counts[entTask.StatusStopped],
 		},
 		"today": map[string]interface{}{
 			"total":     todayTotal,
