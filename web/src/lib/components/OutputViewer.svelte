@@ -21,6 +21,8 @@
 		if (line.startsWith('✅ ')) return 'status';
 		if (line.startsWith('⏸')) return 'status';
 		if (line.startsWith('🔧 ')) return 'tool';
+		if (line.startsWith('❓')) return 'question';
+		if (line.startsWith('  ▸ ')) return 'question-option';
 		if (/^\s{2,}/.test(line)) return 'result';
 		return 'text';
 	}
@@ -29,49 +31,61 @@
 		const blocks = [];
 		let currentResult = null;
 		let currentText = null;
+		let currentQuestion = null;
+
+		function flushAll() {
+			if (currentText) { blocks.push(currentText); currentText = null; }
+			if (currentResult) { blocks.push(currentResult); currentResult = null; }
+			if (currentQuestion) { blocks.push(currentQuestion); currentQuestion = null; }
+		}
 
 		for (const raw of lines) {
 			const type = classifyLine(raw);
 			const text = stripAnsi(raw);
 
-			if (type === 'result') {
-				// Flush pending text block
-				if (currentText) {
-					blocks.push(currentText);
-					currentText = null;
+			if (type === 'question') {
+				// Flush others, start new question block
+				if (currentText) { blocks.push(currentText); currentText = null; }
+				if (currentResult) { blocks.push(currentResult); currentResult = null; }
+				if (currentQuestion) { blocks.push(currentQuestion); }
+				// Parse: "❓ [Header] Question?" or "❓ Question?"
+				const hm = text.match(/^❓\s+\[(.+?)\]\s+(.+)/);
+				currentQuestion = {
+					type: 'question',
+					header: hm ? hm[1] : '',
+					question: hm ? hm[2] : text.replace(/^❓\s*/, ''),
+					options: []
+				};
+			} else if (type === 'question-option' && currentQuestion) {
+				// Parse: "  ▸ Label — Description" or "  ▸ Label"
+				const om = text.match(/^\s+▸\s+(.+?)\s+—\s+(.+)/);
+				if (om) {
+					currentQuestion.options.push({ label: om[1], description: om[2] });
+				} else {
+					currentQuestion.options.push({ label: text.replace(/^\s+▸\s+/, ''), description: '' });
 				}
+			} else if (type === 'result') {
+				if (currentQuestion) { blocks.push(currentQuestion); currentQuestion = null; }
+				if (currentText) { blocks.push(currentText); currentText = null; }
 				if (currentResult) {
 					currentResult.lines.push(text);
 				} else {
 					currentResult = { type: 'result', lines: [text] };
 				}
 			} else if (type === 'text') {
-				// Flush pending result block
-				if (currentResult) {
-					blocks.push(currentResult);
-					currentResult = null;
-				}
-				// Group consecutive text lines into one block
+				if (currentQuestion) { blocks.push(currentQuestion); currentQuestion = null; }
+				if (currentResult) { blocks.push(currentResult); currentResult = null; }
 				if (currentText) {
 					currentText.text += '\n' + text;
 				} else {
 					currentText = { type: 'text', text };
 				}
 			} else {
-				// Non-text, non-result: flush both pending groups
-				if (currentText) {
-					blocks.push(currentText);
-					currentText = null;
-				}
-				if (currentResult) {
-					blocks.push(currentResult);
-					currentResult = null;
-				}
+				flushAll();
 				blocks.push({ type, text });
 			}
 		}
-		if (currentText) blocks.push(currentText);
-		if (currentResult) blocks.push(currentResult);
+		flushAll();
 		return blocks;
 	}
 
@@ -157,6 +171,29 @@
 				{/if}
 			</div>
 
+		{:else if block.type === 'question'}
+			<div class="block-question">
+				<div class="question-header">
+					<span class="question-icon">❓</span>
+					{#if block.header}
+						<span class="question-tag">{block.header}</span>
+					{/if}
+					<span class="question-text">{block.question}</span>
+				</div>
+				{#if block.options.length > 0}
+					<div class="question-options">
+						{#each block.options as opt}
+							<div class="question-option">
+								<span class="option-label">{opt.label}</span>
+								{#if opt.description}
+									<span class="option-desc">{opt.description}</span>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+
 		{:else if block.type === 'result'}
 			<pre class="block-result"><code>{block.lines.map(l => l.replace(/^\s{2,3}/, '')).join('\n')}</code></pre>
 
@@ -234,6 +271,78 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		min-width: 0;
+	}
+
+	/* Question card */
+	.block-question {
+		margin-top: 4px;
+		padding: 10px 12px;
+		background: var(--bg-tertiary);
+		border-left: 3px solid var(--warning);
+		border-radius: 0 var(--radius) var(--radius) 0;
+		flex-shrink: 0;
+	}
+
+	.question-header {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+		flex-wrap: wrap;
+	}
+
+	.question-icon {
+		font-size: 14px;
+		flex-shrink: 0;
+	}
+
+	.question-tag {
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--warning);
+		background: rgba(210, 153, 34, 0.15);
+		padding: 1px 6px;
+		border-radius: 3px;
+		flex-shrink: 0;
+	}
+
+	.question-text {
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--text-primary);
+		line-height: 1.4;
+	}
+
+	.question-options {
+		margin-top: 8px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		padding-left: 22px;
+	}
+
+	.question-option {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+		font-size: 12px;
+		line-height: 1.4;
+	}
+
+	.question-option::before {
+		content: '▸';
+		color: var(--warning);
+		flex-shrink: 0;
+		font-weight: 600;
+	}
+
+	.option-label {
+		font-weight: 600;
+		color: var(--accent);
+		flex-shrink: 0;
+	}
+
+	.option-desc {
+		color: var(--text-secondary);
 	}
 
 	.block-result {

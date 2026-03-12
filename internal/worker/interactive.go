@@ -1183,16 +1183,39 @@ func parseStreamLine(line string) string {
 						if inputMap, ok := content.Input.(map[string]any); ok {
 							if content.Name == "AskUserQuestion" {
 								if questions, ok := inputMap["questions"].([]any); ok {
-									var qTexts []string
+									var qLines []string
 									for _, q := range questions {
-										if qMap, ok := q.(map[string]any); ok {
-											if qText, ok := qMap["question"].(string); ok {
-												qTexts = append(qTexts, qText)
+										qMap, ok := q.(map[string]any)
+										if !ok {
+											continue
+										}
+										qText, _ := qMap["question"].(string)
+										if qText == "" {
+											continue
+										}
+										header, _ := qMap["header"].(string)
+										if header != "" {
+											qLines = append(qLines, fmt.Sprintf("❓ [%s] %s", header, qText))
+										} else {
+											qLines = append(qLines, fmt.Sprintf("❓ %s", qText))
+										}
+										if options, ok := qMap["options"].([]any); ok {
+											for _, opt := range options {
+												if optMap, ok := opt.(map[string]any); ok {
+													label, _ := optMap["label"].(string)
+													desc, _ := optMap["description"].(string)
+													if label != "" && desc != "" {
+														qLines = append(qLines, fmt.Sprintf("  ▸ %s — %s", label, desc))
+													} else if label != "" {
+														qLines = append(qLines, fmt.Sprintf("  ▸ %s", label))
+													}
+												}
 											}
 										}
 									}
-									if len(qTexts) > 0 {
-										toolInfo += " → " + strings.Join(qTexts, " / ")
+									if len(qLines) > 0 {
+										outputs = append(outputs, strings.Join(qLines, "\n"))
+										continue
 									}
 								}
 							} else if cmd, ok := inputMap["command"].(string); ok {
