@@ -699,6 +699,8 @@
 		gap: 0;
 		border-bottom: 1px solid var(--border);
 		flex-shrink: 0;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	.tab {
@@ -710,6 +712,8 @@
 		cursor: pointer;
 		border-bottom: 2px solid transparent;
 		transition: color 0.15s, border-color 0.15s;
+		white-space: nowrap;
+		flex-shrink: 0;
 	}
 
 	.tab:hover {

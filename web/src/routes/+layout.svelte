@@ -451,8 +451,10 @@
 
 	.main-content {
 		flex: 1;
+		min-width: 0;
 		margin-left: 220px;
 		padding: 24px;
+		overflow-x: hidden;
 	}
 
 	.loading-screen {

@@ -251,7 +251,9 @@
 		font-family: var(--font-mono);
 		font-size: 12px;
 		min-height: 28px;
+		min-width: 0;
 		flex-shrink: 0;
+		overflow: hidden;
 	}
 
 	.tool-icon {
@@ -266,6 +268,7 @@
 	}
 
 	.tool-detail {
+		flex: 1;
 		color: var(--text-secondary);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -280,6 +283,8 @@
 		background: var(--bg-tertiary);
 		border-left: 3px solid var(--warning);
 		border-radius: 0 var(--radius) var(--radius) 0;
+		min-width: 0;
+		overflow: hidden;
 		flex-shrink: 0;
 	}
 
@@ -356,7 +361,10 @@
 		line-height: 1.5;
 		white-space: pre-wrap;
 		word-break: break-word;
+		overflow-wrap: break-word;
 		color: var(--text-secondary);
+		min-width: 0;
+		max-width: 100%;
 		flex-shrink: 0;
 	}
 
@@ -364,6 +372,9 @@
 		background: none;
 		padding: 0;
 		font-size: inherit;
+		white-space: inherit;
+		word-break: inherit;
+		overflow-wrap: inherit;
 	}
 
 	/* AI text: markdown rendered */
@@ -372,8 +383,9 @@
 		font-size: 13px;
 		line-height: 1.6;
 		color: var(--text-primary);
-		overflow-x: auto;
+		overflow-x: hidden;
 		word-break: break-word;
+		min-width: 0;
 		flex-shrink: 0;
 	}
 

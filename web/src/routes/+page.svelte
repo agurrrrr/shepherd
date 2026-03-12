@@ -452,6 +452,11 @@
 
 	/* Responsive */
 	@media (max-width: 768px) {
+		.dashboard {
+			max-width: 100%;
+			overflow-x: hidden;
+		}
+
 		.stats-row {
 			gap: 6px;
 		}
@@ -478,6 +483,26 @@
 			flex-direction: column;
 			align-items: flex-start;
 			gap: 6px;
+		}
+
+		.today-stats {
+			flex-wrap: wrap;
+			gap: 8px;
+		}
+
+		.recent-item {
+			padding: 8px 10px;
+		}
+
+		.recent-prompt {
+			white-space: normal;
+			display: -webkit-box;
+			-webkit-line-clamp: 2;
+			-webkit-box-orient: vertical;
+		}
+
+		.recent-error {
+			white-space: normal;
 		}
 	}
 </style>
