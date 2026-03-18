@@ -28,6 +28,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/scheduler"
 	"github.com/agurrrrr/shepherd/internal/server"
 	"github.com/agurrrrr/shepherd/internal/skill"
+	"github.com/agurrrrr/shepherd/internal/spec"
 	"github.com/agurrrrr/shepherd/internal/tui"
 	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/worker"
@@ -3100,6 +3101,150 @@ var initCmd = &cobra.Command{
 	},
 }
 
+// --- spec commands ---
+
+var specGenType string
+var specGenName string
+var specGenProject string
+var specListProject string
+
+var specCmd = &cobra.Command{
+	Use:   "spec",
+	Short: "Manage spec documents",
+	Long:  "Generate and manage spec template documents.",
+}
+
+var specGenerateCmd = &cobra.Command{
+	Use:   "generate",
+	Short: "Generate a spec template",
+	Long:  "Generate a spec template file in the project's spec/ directory.\nTypes: overview, api, db-schema, db-erd, screen, flow, requirements, infra, env",
+	Run: func(cmd *cobra.Command, args []string) {
+		projectPath, err := resolveProjectPath(specGenProject)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		title := specGenName
+		if title == "" {
+			title = "Untitled"
+		}
+
+		content, err := spec.Generate(specGenType, title)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		specDir := filepath.Join(projectPath, "spec")
+		if err := os.MkdirAll(specDir, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating spec directory: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Sanitize filename
+		safeName := strings.Map(func(r rune) rune {
+			if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
+				return '-'
+			}
+			return r
+		}, title)
+		filename := fmt.Sprintf("%s-%s.md", specGenType, safeName)
+		outPath := filepath.Join(specDir, filename)
+
+		if err := os.WriteFile(outPath, []byte(content), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Generated %s spec: %s\n", specGenType, outPath)
+	},
+}
+
+var specListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List spec files in a project",
+	Run: func(cmd *cobra.Command, args []string) {
+		projectPath, err := resolveProjectPath(specListProject)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		specDir := filepath.Join(projectPath, "spec")
+		if _, err := os.Stat(specDir); os.IsNotExist(err) {
+			fmt.Println("No spec directory found.")
+			return
+		}
+
+		entries, err := os.ReadDir(specDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading spec directory: %v\n", err)
+			os.Exit(1)
+		}
+
+		count := 0
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+				info, _ := e.Info()
+				size := int64(0)
+				if info != nil {
+					size = info.Size()
+				}
+				fmt.Printf("  %s (%d bytes)\n", e.Name(), size)
+				count++
+			}
+		}
+		if count == 0 {
+			fmt.Println("No spec files found.")
+		} else {
+			fmt.Printf("\n%d spec file(s)\n", count)
+		}
+	},
+}
+
+var specTypesCmd = &cobra.Command{
+	Use:   "types",
+	Short: "List available spec types",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("Available spec types:")
+		for _, t := range spec.SpecTypes {
+			fmt.Printf("  - %s\n", t)
+		}
+	},
+}
+
+// resolveProjectPath finds the project path from --project flag or cwd.
+func resolveProjectPath(projectName string) (string, error) {
+	if projectName != "" {
+		p, err := project.Get(projectName)
+		if err != nil {
+			return "", fmt.Errorf("project not found: %s", projectName)
+		}
+		return p.Path, nil
+	}
+
+	// Auto-detect from cwd
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("cannot get working directory: %w", err)
+	}
+
+	projects, err := project.List()
+	if err != nil {
+		return "", fmt.Errorf("cannot list projects: %w", err)
+	}
+
+	for _, p := range projects {
+		cleanPath := filepath.Clean(p.Path)
+		if strings.HasPrefix(filepath.Clean(cwd), cleanPath) {
+			return p.Path, nil
+		}
+	}
+
+	return "", fmt.Errorf("no project found for current directory. Use --project flag or run from a registered project directory")
+}
+
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate(fmt.Sprintf("shepherd version {{.Version}} (built %s)\n", buildTime))
@@ -3234,6 +3379,16 @@ func init() {
 
 	// Register init command
 	rootCmd.AddCommand(initCmd)
+
+	// Register spec command
+	specGenerateCmd.Flags().StringVarP(&specGenType, "type", "t", "overview", "Spec type (overview|api|db-schema|db-erd|screen|flow|requirements|infra|env)")
+	specGenerateCmd.Flags().StringVarP(&specGenName, "name", "n", "", "Document title")
+	specGenerateCmd.Flags().StringVarP(&specGenProject, "project", "p", "", "Project name (auto-detect from cwd if omitted)")
+	specListCmd.Flags().StringVarP(&specListProject, "project", "p", "", "Project name (auto-detect from cwd if omitted)")
+	specCmd.AddCommand(specGenerateCmd)
+	specCmd.AddCommand(specListCmd)
+	specCmd.AddCommand(specTypesCmd)
+	rootCmd.AddCommand(specCmd)
 }
 
 func main() {

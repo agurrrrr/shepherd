@@ -11,6 +11,7 @@
 	import ScheduleForm from '$lib/components/ScheduleForm.svelte';
 	import SkillForm from '$lib/components/SkillForm.svelte';
 	import FileBrowser from '$lib/components/FileBrowser.svelte';
+	import SpecViewer from '$lib/components/SpecViewer.svelte';
 
 	let projectName = $state('');
 	let project = $state(null);
@@ -400,6 +401,10 @@
 				onclick={() => switchTab('skills')}>
 				Skills
 			</button>
+			<button class="tab" class:active={activeTab === 'specs'}
+				onclick={() => switchTab('specs')}>
+				Specs
+			</button>
 		</div>
 
 		<!-- Content area -->
@@ -519,6 +524,13 @@
 							</div>
 						</div>
 					{/if}
+				</div>
+			{/if}
+
+			<!-- Specs tab -->
+			{#if activeTab === 'specs'}
+				<div class="spec-fill">
+					<SpecViewer {projectName} />
 				</div>
 			{/if}
 
@@ -858,6 +870,15 @@
 
 	/* Git tab */
 	.git-fill {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	/* Specs tab */
+	.spec-fill {
 		flex: 1;
 		min-height: 0;
 		overflow: hidden;

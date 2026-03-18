@@ -89,6 +89,12 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/projects/:name/docs-download/*", s.handleDownloadDoc)
 	api.Get("/projects/:name/docs/*", s.handleGetDoc)
 
+	// Spec files
+	api.Get("/spec-types", s.handleListSpecTypes)
+	api.Get("/projects/:name/specs", s.handleListSpecs)
+	api.Get("/projects/:name/specs-download/*", s.handleDownloadSpec)
+	api.Get("/projects/:name/specs/*", s.handleGetSpec)
+
 	// File browser
 	api.Get("/projects/:name/files", s.handleListFiles)
 	api.Get("/projects/:name/files/download/*", s.handleDownloadFile)
