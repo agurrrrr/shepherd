@@ -101,6 +101,7 @@ func (m *Manager) createSession(sheepName string, opts *SessionOptions) (*Sessio
 		userDataDir: userDataDir,
 		headless:    opts.Headless,
 		proxy:       opts.Proxy,
+		Debug:       NewDebugState(),
 	}
 
 	return sess, nil

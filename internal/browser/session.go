@@ -21,6 +21,7 @@ type Session struct {
 	headless    bool
 	proxy       string
 	defaultPage string
+	Debug       *DebugState
 }
 
 // GetBrowser returns the browser instance.
@@ -150,6 +151,10 @@ func (s *Session) SetDefaultPage(name string) error {
 func (s *Session) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.Debug != nil {
+		s.Debug.Close()
+	}
 
 	for name, page := range s.pages {
 		page.Close()

@@ -49,6 +49,13 @@ func (s *Server) registerBrowserTools() {
 	// 캡처
 	s.tools["browser_screenshot"] = handleBrowserScreenshot
 	s.tools["browser_pdf"] = handleBrowserPDF
+
+	// 디버그
+	s.tools["browser_console_start"] = handleBrowserConsoleStart
+	s.tools["browser_console_messages"] = handleBrowserConsoleMessages
+	s.tools["browser_network_start"] = handleBrowserNetworkStart
+	s.tools["browser_network_requests"] = handleBrowserNetworkRequests
+	s.tools["browser_network_request"] = handleBrowserNetworkRequest
 }
 
 // getBrowserToolsList 브라우저 도구 목록 반환
@@ -407,6 +414,67 @@ func getBrowserToolsList() []Tool {
 					"page_name":  {Type: "string", Description: "페이지 이름 (선택)"},
 				},
 				Required: []string{"sheep_name"},
+			},
+		},
+		// 디버그
+		{
+			Name:        "browser_console_start",
+			Description: "콘솔 메시지 수집을 시작합니다 (log, warn, error 등)",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"sheep_name": {Type: "string", Description: "양 이름"},
+					"page_name":  {Type: "string", Description: "페이지 이름 (선택)"},
+				},
+				Required: []string{"sheep_name"},
+			},
+		},
+		{
+			Name:        "browser_console_messages",
+			Description: "수집된 콘솔 메시지를 조회합니다",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"sheep_name": {Type: "string", Description: "양 이름"},
+					"clear":      {Type: "boolean", Description: "조회 후 메시지 삭제 (기본 false)"},
+				},
+				Required: []string{"sheep_name"},
+			},
+		},
+		{
+			Name:        "browser_network_start",
+			Description: "네트워크 요청 모니터링을 시작합니다",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"sheep_name": {Type: "string", Description: "양 이름"},
+					"page_name":  {Type: "string", Description: "페이지 이름 (선택)"},
+				},
+				Required: []string{"sheep_name"},
+			},
+		},
+		{
+			Name:        "browser_network_requests",
+			Description: "수집된 네트워크 요청 목록을 조회합니다",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"sheep_name": {Type: "string", Description: "양 이름"},
+					"clear":      {Type: "boolean", Description: "조회 후 목록 삭제 (기본 false)"},
+				},
+				Required: []string{"sheep_name"},
+			},
+		},
+		{
+			Name:        "browser_network_request",
+			Description: "특정 네트워크 요청의 상세 정보를 조회합니다",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"sheep_name": {Type: "string", Description: "양 이름"},
+					"request_id": {Type: "string", Description: "요청 ID"},
+				},
+				Required: []string{"sheep_name", "request_id"},
 			},
 		},
 	}
@@ -1054,4 +1122,153 @@ func handleBrowserPDF(args map[string]interface{}) (string, error) {
 		return fmt.Sprintf("PDF 저장됨: %s (%d bytes)", path, len(data)), nil
 	}
 	return fmt.Sprintf("PDF 생성됨 (%d bytes)", len(data)), nil
+}
+
+// 디버그 핸들러
+
+func handleBrowserConsoleStart(args map[string]interface{}) (string, error) {
+	sheepName, _ := args["sheep_name"].(string)
+	pageName, _ := args["page_name"].(string)
+
+	if sheepName == "" {
+		return "", fmt.Errorf("sheep_name이 필요합니다")
+	}
+
+	mgr := browser.GetManager()
+	sess := mgr.GetSession(sheepName)
+	if sess == nil {
+		return "", fmt.Errorf("세션 없음: %s", sheepName)
+	}
+
+	page := sess.GetPage(pageName)
+	if page == nil {
+		return "", fmt.Errorf("페이지 없음: %s", pageName)
+	}
+
+	if err := sess.Debug.StartConsoleCapture(page); err != nil {
+		return "", err
+	}
+
+	return "콘솔 메시지 수집 시작됨", nil
+}
+
+func handleBrowserConsoleMessages(args map[string]interface{}) (string, error) {
+	sheepName, _ := args["sheep_name"].(string)
+	clear, _ := args["clear"].(bool)
+
+	if sheepName == "" {
+		return "", fmt.Errorf("sheep_name이 필요합니다")
+	}
+
+	mgr := browser.GetManager()
+	sess := mgr.GetSession(sheepName)
+	if sess == nil {
+		return "", fmt.Errorf("세션 없음: %s", sheepName)
+	}
+
+	messages := sess.Debug.GetConsoleMessages()
+	if clear {
+		sess.Debug.ClearConsoleMessages()
+	}
+
+	if len(messages) == 0 {
+		return "콘솔 메시지 없음", nil
+	}
+
+	result := fmt.Sprintf("콘솔 메시지 (%d개):\n", len(messages))
+	for _, m := range messages {
+		result += fmt.Sprintf("  [%s] %s  (%s)\n", m.Type, m.Text, m.Timestamp.Format("15:04:05"))
+	}
+	return result, nil
+}
+
+func handleBrowserNetworkStart(args map[string]interface{}) (string, error) {
+	sheepName, _ := args["sheep_name"].(string)
+	pageName, _ := args["page_name"].(string)
+
+	if sheepName == "" {
+		return "", fmt.Errorf("sheep_name이 필요합니다")
+	}
+
+	mgr := browser.GetManager()
+	sess := mgr.GetSession(sheepName)
+	if sess == nil {
+		return "", fmt.Errorf("세션 없음: %s", sheepName)
+	}
+
+	page := sess.GetPage(pageName)
+	if page == nil {
+		return "", fmt.Errorf("페이지 없음: %s", pageName)
+	}
+
+	if err := sess.Debug.StartNetworkCapture(page); err != nil {
+		return "", err
+	}
+
+	return "네트워크 요청 모니터링 시작됨", nil
+}
+
+func handleBrowserNetworkRequests(args map[string]interface{}) (string, error) {
+	sheepName, _ := args["sheep_name"].(string)
+	clear, _ := args["clear"].(bool)
+
+	if sheepName == "" {
+		return "", fmt.Errorf("sheep_name이 필요합니다")
+	}
+
+	mgr := browser.GetManager()
+	sess := mgr.GetSession(sheepName)
+	if sess == nil {
+		return "", fmt.Errorf("세션 없음: %s", sheepName)
+	}
+
+	requests := sess.Debug.GetNetworkRequests()
+	if clear {
+		sess.Debug.ClearNetworkRequests()
+	}
+
+	if len(requests) == 0 {
+		return "네트워크 요청 없음", nil
+	}
+
+	result := fmt.Sprintf("네트워크 요청 (%d개):\n", len(requests))
+	for _, r := range requests {
+		status := ""
+		if r.Status > 0 {
+			status = fmt.Sprintf(" → %d %s (%.0fms)", r.Status, r.StatusText, r.Duration)
+		}
+		result += fmt.Sprintf("  [%s] %s %s%s\n", r.RequestID, r.Method, r.URL, status)
+	}
+	return result, nil
+}
+
+func handleBrowserNetworkRequest(args map[string]interface{}) (string, error) {
+	sheepName, _ := args["sheep_name"].(string)
+	requestID, _ := args["request_id"].(string)
+
+	if sheepName == "" || requestID == "" {
+		return "", fmt.Errorf("sheep_name과 request_id가 필요합니다")
+	}
+
+	mgr := browser.GetManager()
+	sess := mgr.GetSession(sheepName)
+	if sess == nil {
+		return "", fmt.Errorf("세션 없음: %s", sheepName)
+	}
+
+	entry, ok := sess.Debug.GetNetworkRequest(requestID)
+	if !ok {
+		return "", fmt.Errorf("요청 없음: %s", requestID)
+	}
+
+	result := fmt.Sprintf("요청 상세:\n")
+	result += fmt.Sprintf("  ID: %s\n", entry.RequestID)
+	result += fmt.Sprintf("  Method: %s\n", entry.Method)
+	result += fmt.Sprintf("  URL: %s\n", entry.URL)
+	result += fmt.Sprintf("  Type: %s\n", entry.Type)
+	result += fmt.Sprintf("  Status: %d %s\n", entry.Status, entry.StatusText)
+	result += fmt.Sprintf("  MIME: %s\n", entry.MIMEType)
+	result += fmt.Sprintf("  Duration: %.0fms\n", entry.Duration)
+	result += fmt.Sprintf("  Timestamp: %s\n", entry.Timestamp.Format(time.RFC3339))
+	return result, nil
 }

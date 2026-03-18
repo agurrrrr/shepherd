@@ -30,6 +30,7 @@
 	let taskTotalPages = $state(1);
 	let taskLimit = 10;
 	let tasksLoaded = $state(false);
+	let taskSearchQuery = $state('');
 
 	// Documents
 	let docs = $state([]);
@@ -166,6 +167,7 @@
 		params.set('project', projectName);
 		params.set('page', taskPage);
 		params.set('limit', taskLimit);
+		if (taskSearchQuery.trim()) params.set('q', taskSearchQuery.trim());
 		const res = await apiGet(`/api/tasks?${params}`);
 		if (res) {
 			tasks = res.data || [];
@@ -195,6 +197,13 @@
 	function onTaskPageChange(p) {
 		taskPage = p;
 		loadTasks();
+	}
+
+	function onTaskSearch(e) {
+		if (e.key === 'Enter') {
+			taskPage = 1;
+			loadTasks();
+		}
 	}
 
 	function truncate(s, max) {
@@ -405,10 +414,19 @@
 			<!-- Task History tab -->
 			{#if activeTab === 'history'}
 				<div class="history-fill">
+					<div class="task-search">
+						<input
+							class="input task-search-input"
+							type="text"
+							placeholder="Search tasks..."
+							bind:value={taskSearchQuery}
+							onkeydown={onTaskSearch}
+						/>
+					</div>
 					{#if !tasksLoaded}
 						<p class="text-muted">Loading tasks...</p>
 					{:else if tasks.length === 0}
-						<p class="text-muted">No tasks yet</p>
+						<p class="text-muted">{taskSearchQuery ? 'No matching tasks' : 'No tasks yet'}</p>
 					{:else}
 						<div class="task-list">
 							{#each tasks as t (t.id)}
@@ -746,6 +764,16 @@
 		flex: 1;
 		max-height: none !important;
 		min-height: 0;
+	}
+
+	.task-search {
+		flex-shrink: 0;
+		padding: 8px 0;
+	}
+
+	.task-search-input {
+		width: 100%;
+		font-size: 13px;
 	}
 
 	.history-fill {
