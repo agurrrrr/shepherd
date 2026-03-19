@@ -412,6 +412,13 @@
 	.spec-preview :global(hr) { border: none; border-top: 1px solid var(--border-color, #333); margin: 16px 0; }
 	.spec-preview :global(img) { max-width: 100%; }
 
+	/* Wireframe container: reset dark theme overrides to light theme */
+	.spec-preview :global(.wf-container th) { background: #f5f5f5; color: #333; border-color: #ddd; }
+	.spec-preview :global(.wf-container td) { background: #fff; color: #333; border-color: #ddd; }
+	.spec-preview :global(.wf-container table) { color: #333; }
+	.spec-preview :global(.wf-container pre) { background: #f5f5f5; color: #333; }
+	.spec-preview :global(.wf-container code) { color: #333; }
+
 	/* Mermaid overrides for dark theme */
 	.spec-preview :global(.mermaid) {
 		margin: 16px 0;
