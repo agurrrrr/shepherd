@@ -21,6 +21,7 @@
     "highlight.js": "^11.11.1",
     "html2canvas": "^1.4.1",
     "isomorphic-dompurify": "^2.36.0",
+    "jspdf": "^4.2.1",
     "marked": "^15.0.7"
   }
 }

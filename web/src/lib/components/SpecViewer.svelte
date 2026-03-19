@@ -1,6 +1,8 @@
 <script>
 	import { onMount, tick } from 'svelte';
 	import { Marked } from 'marked';
+	import html2canvas from 'html2canvas';
+	import { jsPDF } from 'jspdf';
 	import { apiGet, apiDownload } from '$lib/api.js';
 	import '$lib/style/wireframe.css';
 
@@ -15,6 +17,7 @@
 
 	let mermaidLoaded = false;
 	let mermaidCounter = 0;
+	let pdfExporting = $state(false);
 
 	const typeColors = {
 		overview: '#3b82f6',
@@ -162,6 +165,53 @@
 		apiDownload(`/api/projects/${encodeURIComponent(projectName)}/specs-download/${selectedSpec.path}`);
 	}
 
+	async function downloadPDF() {
+		if (!previewEl || !selectedSpec || pdfExporting) return;
+		pdfExporting = true;
+		try {
+			const canvas = await html2canvas(previewEl, {
+				scale: 2,
+				useCORS: true,
+				backgroundColor: '#1e1e1e',
+				scrollY: -previewEl.scrollTop,
+				height: previewEl.scrollHeight,
+				windowHeight: previewEl.scrollHeight
+			});
+
+			const imgWidth = 210; // A4 mm
+			const pageHeight = 297;
+			const margin = 10;
+			const contentWidth = imgWidth - margin * 2;
+			const imgHeight = (canvas.height * contentWidth) / canvas.width;
+
+			const pdf = new jsPDF('p', 'mm', 'a4');
+			let y = margin;
+			let remaining = imgHeight;
+			const pageContentHeight = pageHeight - margin * 2;
+
+			while (remaining > 0) {
+				if (y !== margin) pdf.addPage();
+				pdf.addImage(
+					canvas.toDataURL('image/png'),
+					'PNG',
+					margin,
+					y === margin ? margin : margin - (imgHeight - remaining),
+					contentWidth,
+					imgHeight
+				);
+				remaining -= pageContentHeight;
+				y = margin;
+			}
+
+			const name = selectedSpec.name.replace(/\.md$/, '');
+			pdf.save(`${name}.pdf`);
+		} catch (e) {
+			console.error('PDF export failed:', e);
+		} finally {
+			pdfExporting = false;
+		}
+	}
+
 	onMount(() => {
 		loadSpecs();
 	});
@@ -176,6 +226,9 @@
 			{#if detectType(selectedSpec.name)}
 				<span class="spec-type-badge" style="background:{typeColors[detectType(selectedSpec.name)]}20;color:{typeColors[detectType(selectedSpec.name)]}">{detectType(selectedSpec.name)}</span>
 			{/if}
+			<button class="btn-download" onclick={downloadPDF} disabled={pdfExporting}>
+				{pdfExporting ? 'Exporting...' : 'PDF'}
+			</button>
 			<button class="btn-download" onclick={downloadSpec}>Download</button>
 		</div>
 		<div class="spec-preview markdown-body" bind:this={previewEl}>

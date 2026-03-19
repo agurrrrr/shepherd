@@ -3,8 +3,11 @@
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 14px;
   color: #333;
+  background: #fff;
   line-height: 1.4;
   margin: 16px 0;
+  padding: 16px;
+  border-radius: 8px;
 }
 /* Device Frames */
 .wf-phone {
