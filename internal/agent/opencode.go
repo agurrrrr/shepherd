@@ -73,6 +73,7 @@ func (p *OpenCodeProvider) Execute(workdir, prompt string, opts ExecuteOptions) 
 	cmd := exec.CommandContext(ctx, config.GetOpenCodeBinary(), args...)
 	cmd.Dir = workdir
 	envutil.SetCleanEnv(cmd)
+	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -116,6 +117,7 @@ func (p *OpenCodeProvider) ExecuteInteractive(workdir, sessionID, prompt string,
 	cmd := exec.CommandContext(ctx, config.GetOpenCodeBinary(), args...)
 	cmd.Dir = workdir
 	envutil.SetCleanEnv(cmd)
+	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

@@ -295,6 +295,8 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 	cmd.Dir = projectPath
 	cmd.Stdin = strings.NewReader(fullPrompt)
 	envutil.SetCleanEnv(cmd)
+	// Auto-approve all permissions to prevent interactive prompts that block stdin
+	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
 
 	// Register running task
 	registerRunningTask(sheepName, cancel, cmd)
