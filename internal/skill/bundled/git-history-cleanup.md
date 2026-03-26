@@ -3,6 +3,9 @@ name: git-history-cleanup
 description: Git 커밋 히스토리 정리 가이드라인
 tags: [git, cleanup]
 scope: global
+effort: high
+maxTurns: 20
+disallowedTools: [Edit, Write, NotebookEdit]
 ---
 # Git History Cleanup
 

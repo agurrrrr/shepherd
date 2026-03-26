@@ -406,8 +406,8 @@ var skillListCmd = &cobra.Command{
 			return
 		}
 
-		fmt.Printf("%-4s %-25s %-8s %-8s %-8s %s\n", "ID", "NAME", "SCOPE", "ENABLED", "BUNDLED", "TAGS")
-		fmt.Println(strings.Repeat("-", 80))
+		fmt.Printf("%-4s %-25s %-8s %-8s %-8s %-8s %s\n", "ID", "NAME", "SCOPE", "ENABLED", "BUNDLED", "EFFORT", "TAGS")
+		fmt.Println(strings.Repeat("-", 90))
 		for _, s := range skills {
 			enabled := "yes"
 			if !s.Enabled {
@@ -417,11 +417,15 @@ var skillListCmd = &cobra.Command{
 			if s.Bundled {
 				bundled = "bundled"
 			}
+			effort := ""
+			if s.Effort != "" {
+				effort = s.Effort
+			}
 			tags := ""
 			if len(s.Tags) > 0 {
 				tags = strings.Join(s.Tags, ", ")
 			}
-			fmt.Printf("%-4d %-25s %-8s %-8s %-8s %s\n", s.ID, s.Name, s.Scope, enabled, bundled, tags)
+			fmt.Printf("%-4d %-25s %-8s %-8s %-8s %-8s %s\n", s.ID, s.Name, s.Scope, enabled, bundled, effort, tags)
 		}
 	},
 }
@@ -456,6 +460,10 @@ var skillAddCmd = &cobra.Command{
 		var tags []string
 		var projectID *int
 
+		effort := ""
+		maxTurns := 0
+		var disallowedTools []string
+
 		if fm != nil {
 			if description == "" {
 				description = fm.Description
@@ -466,6 +474,9 @@ var skillAddCmd = &cobra.Command{
 			if fm.Scope != "" {
 				scope = fm.Scope
 			}
+			effort = fm.Effort
+			maxTurns = fm.MaxTurns
+			disallowedTools = fm.DisallowedTools
 		}
 
 		if skillAddTags != "" {
@@ -490,11 +501,24 @@ var skillAddCmd = &cobra.Command{
 			body = string(content)
 		}
 
-		sk, err := skill.CreateSkill(projectID, name, description, body, scope, tags)
+		sk, err := skill.CreateSkill(projectID, name, description, body, scope, tags, effort, maxTurns, disallowedTools)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create skill: %v\n", err)
 			os.Exit(1)
 		}
+
+		// Sync to project's .claude/skills/ directory
+		if skillAddProject != "" {
+			p, _ := project.Get(skillAddProject)
+			if p != nil {
+				if syncErr := skill.SyncSkillToProject(sk, p.Path); syncErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to sync skill to .claude/skills/: %v\n", syncErr)
+				} else {
+					fmt.Printf("Synced to %s/.claude/skills/%s.md\n", p.Path, sk.Name)
+				}
+			}
+		}
+
 		fmt.Printf("Skill '%s' created (ID: %d, scope: %s)\n", sk.Name, sk.ID, sk.Scope)
 	},
 }
@@ -544,6 +568,15 @@ var skillShowCmd = &cobra.Command{
 		}
 		if len(sk.Tags) > 0 {
 			fmt.Printf("Tags:        %s\n", strings.Join(sk.Tags, ", "))
+		}
+		if sk.Effort != "" {
+			fmt.Printf("Effort:      %s\n", sk.Effort)
+		}
+		if sk.MaxTurns > 0 {
+			fmt.Printf("MaxTurns:    %d\n", sk.MaxTurns)
+		}
+		if len(sk.DisallowedTools) > 0 {
+			fmt.Printf("Disallowed:  %s\n", strings.Join(sk.DisallowedTools, ", "))
 		}
 		if sk.Edges.Project != nil {
 			fmt.Printf("Project:     %s\n", sk.Edges.Project.Name)

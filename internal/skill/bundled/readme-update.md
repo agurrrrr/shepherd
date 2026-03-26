@@ -3,6 +3,8 @@ name: readme-update
 description: README 작성 및 업데이트 가이드라인
 tags: [docs, readme]
 scope: global
+effort: medium
+maxTurns: 10
 ---
 # README Update
 

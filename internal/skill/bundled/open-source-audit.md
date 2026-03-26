@@ -3,6 +3,9 @@ name: open-source-audit
 description: 오픈소스 공개 전 보안/민감정보 감사 체크리스트
 tags: [security, open-source, audit]
 scope: global
+effort: high
+maxTurns: 20
+disallowedTools: [Edit, Write, NotebookEdit]
 ---
 # Open Source Audit
 

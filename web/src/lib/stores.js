@@ -24,6 +24,10 @@ export const accessToken = persisted('shepherd_access_token', '');
 export const refreshToken = persisted('shepherd_refresh_token', '');
 export const username = persisted('shepherd_username', '');
 
+// Wireframe preset
+export const wireframePreset = persisted('shepherd_wf_preset', 'default');
+export const wireframeOptions = persisted('shepherd_wf_options', { compact: false, showGrid: false });
+
 // App state
 export const isAuthenticated = writable(false);
 export const sheep = writable([]);

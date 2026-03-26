@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
@@ -55,10 +56,13 @@ func (s *Server) handleListProjectSkills(c *fiber.Ctx) error {
 // POST /api/skills — create a global skill
 func (s *Server) handleCreateGlobalSkill(c *fiber.Ctx) error {
 	var body struct {
-		Name        string   `json:"name"`
-		Description string   `json:"description"`
-		Content     string   `json:"content"`
-		Tags        []string `json:"tags"`
+		Name            string   `json:"name"`
+		Description     string   `json:"description"`
+		Content         string   `json:"content"`
+		Tags            []string `json:"tags"`
+		Effort          string   `json:"effort"`
+		MaxTurns        int      `json:"max_turns"`
+		DisallowedTools []string `json:"disallowed_tools"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -71,7 +75,7 @@ func (s *Server) handleCreateGlobalSkill(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusBadRequest, "content is required")
 	}
 
-	sk, err := skill.CreateSkill(nil, body.Name, body.Description, body.Content, "global", body.Tags)
+	sk, err := skill.CreateSkill(nil, body.Name, body.Description, body.Content, "global", body.Tags, body.Effort, body.MaxTurns, body.DisallowedTools)
 	if err != nil {
 		return fail(c, fiber.StatusBadRequest, err.Error())
 	}
@@ -86,10 +90,13 @@ func (s *Server) handleCreateProjectSkill(c *fiber.Ctx) error {
 	projectName := paramDecoded(c, "name")
 
 	var body struct {
-		Name        string   `json:"name"`
-		Description string   `json:"description"`
-		Content     string   `json:"content"`
-		Tags        []string `json:"tags"`
+		Name            string   `json:"name"`
+		Description     string   `json:"description"`
+		Content         string   `json:"content"`
+		Tags            []string `json:"tags"`
+		Effort          string   `json:"effort"`
+		MaxTurns        int      `json:"max_turns"`
+		DisallowedTools []string `json:"disallowed_tools"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -111,9 +118,15 @@ func (s *Server) handleCreateProjectSkill(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusNotFound, "project not found")
 	}
 
-	sk, err := skill.CreateSkill(&proj.ID, body.Name, body.Description, body.Content, "project", body.Tags)
+	sk, err := skill.CreateSkill(&proj.ID, body.Name, body.Description, body.Content, "project", body.Tags, body.Effort, body.MaxTurns, body.DisallowedTools)
 	if err != nil {
 		return fail(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// Sync to project's .claude/skills/ directory
+	if syncErr := skill.SyncSkillToProject(sk, proj.Path); syncErr != nil {
+		// Non-fatal: log warning but still return success
+		fmt.Printf("Warning: failed to sync skill to .claude/skills/: %v\n", syncErr)
 	}
 
 	s.hub.Broadcast(SSEEvent{Type: "skill_created", Data: skillToMap(sk)})
@@ -257,16 +270,19 @@ func (s *Server) handleExportSkill(c *fiber.Ctx) error {
 // skillToMap converts a Skill entity to a response map.
 func skillToMap(sk *ent.Skill) fiber.Map {
 	m := fiber.Map{
-		"id":          sk.ID,
-		"name":        sk.Name,
-		"description": sk.Description,
-		"content":     sk.Content,
-		"scope":       string(sk.Scope),
-		"enabled":     sk.Enabled,
-		"tags":        sk.Tags,
-		"bundled":     sk.Bundled,
-		"created_at":  sk.CreatedAt.Format("2006-01-02 15:04:05"),
-		"updated_at":  sk.UpdatedAt.Format("2006-01-02 15:04:05"),
+		"id":               sk.ID,
+		"name":             sk.Name,
+		"description":      sk.Description,
+		"content":          sk.Content,
+		"scope":            string(sk.Scope),
+		"enabled":          sk.Enabled,
+		"tags":             sk.Tags,
+		"bundled":          sk.Bundled,
+		"effort":           sk.Effort,
+		"max_turns":        sk.MaxTurns,
+		"disallowed_tools": sk.DisallowedTools,
+		"created_at":       sk.CreatedAt.Format("2006-01-02 15:04:05"),
+		"updated_at":       sk.UpdatedAt.Format("2006-01-02 15:04:05"),
 	}
 	if sk.Edges.Project != nil {
 		m["project"] = sk.Edges.Project.Name

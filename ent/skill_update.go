@@ -138,6 +138,71 @@ func (_u *SkillUpdate) SetNillableBundled(v *bool) *SkillUpdate {
 	return _u
 }
 
+// SetEffort sets the "effort" field.
+func (_u *SkillUpdate) SetEffort(v string) *SkillUpdate {
+	_u.mutation.SetEffort(v)
+	return _u
+}
+
+// SetNillableEffort sets the "effort" field if the given value is not nil.
+func (_u *SkillUpdate) SetNillableEffort(v *string) *SkillUpdate {
+	if v != nil {
+		_u.SetEffort(*v)
+	}
+	return _u
+}
+
+// ClearEffort clears the value of the "effort" field.
+func (_u *SkillUpdate) ClearEffort() *SkillUpdate {
+	_u.mutation.ClearEffort()
+	return _u
+}
+
+// SetMaxTurns sets the "max_turns" field.
+func (_u *SkillUpdate) SetMaxTurns(v int) *SkillUpdate {
+	_u.mutation.ResetMaxTurns()
+	_u.mutation.SetMaxTurns(v)
+	return _u
+}
+
+// SetNillableMaxTurns sets the "max_turns" field if the given value is not nil.
+func (_u *SkillUpdate) SetNillableMaxTurns(v *int) *SkillUpdate {
+	if v != nil {
+		_u.SetMaxTurns(*v)
+	}
+	return _u
+}
+
+// AddMaxTurns adds value to the "max_turns" field.
+func (_u *SkillUpdate) AddMaxTurns(v int) *SkillUpdate {
+	_u.mutation.AddMaxTurns(v)
+	return _u
+}
+
+// ClearMaxTurns clears the value of the "max_turns" field.
+func (_u *SkillUpdate) ClearMaxTurns() *SkillUpdate {
+	_u.mutation.ClearMaxTurns()
+	return _u
+}
+
+// SetDisallowedTools sets the "disallowed_tools" field.
+func (_u *SkillUpdate) SetDisallowedTools(v []string) *SkillUpdate {
+	_u.mutation.SetDisallowedTools(v)
+	return _u
+}
+
+// AppendDisallowedTools appends value to the "disallowed_tools" field.
+func (_u *SkillUpdate) AppendDisallowedTools(v []string) *SkillUpdate {
+	_u.mutation.AppendDisallowedTools(v)
+	return _u
+}
+
+// ClearDisallowedTools clears the value of the "disallowed_tools" field.
+func (_u *SkillUpdate) ClearDisallowedTools() *SkillUpdate {
+	_u.mutation.ClearDisallowedTools()
+	return _u
+}
+
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *SkillUpdate) SetUpdatedAt(v time.Time) *SkillUpdate {
 	_u.mutation.SetUpdatedAt(v)
@@ -273,6 +338,32 @@ func (_u *SkillUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Bundled(); ok {
 		_spec.SetField(skill.FieldBundled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.Effort(); ok {
+		_spec.SetField(skill.FieldEffort, field.TypeString, value)
+	}
+	if _u.mutation.EffortCleared() {
+		_spec.ClearField(skill.FieldEffort, field.TypeString)
+	}
+	if value, ok := _u.mutation.MaxTurns(); ok {
+		_spec.SetField(skill.FieldMaxTurns, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedMaxTurns(); ok {
+		_spec.AddField(skill.FieldMaxTurns, field.TypeInt, value)
+	}
+	if _u.mutation.MaxTurnsCleared() {
+		_spec.ClearField(skill.FieldMaxTurns, field.TypeInt)
+	}
+	if value, ok := _u.mutation.DisallowedTools(); ok {
+		_spec.SetField(skill.FieldDisallowedTools, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedDisallowedTools(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, skill.FieldDisallowedTools, value)
+		})
+	}
+	if _u.mutation.DisallowedToolsCleared() {
+		_spec.ClearField(skill.FieldDisallowedTools, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(skill.FieldUpdatedAt, field.TypeTime, value)
@@ -431,6 +522,71 @@ func (_u *SkillUpdateOne) SetNillableBundled(v *bool) *SkillUpdateOne {
 	if v != nil {
 		_u.SetBundled(*v)
 	}
+	return _u
+}
+
+// SetEffort sets the "effort" field.
+func (_u *SkillUpdateOne) SetEffort(v string) *SkillUpdateOne {
+	_u.mutation.SetEffort(v)
+	return _u
+}
+
+// SetNillableEffort sets the "effort" field if the given value is not nil.
+func (_u *SkillUpdateOne) SetNillableEffort(v *string) *SkillUpdateOne {
+	if v != nil {
+		_u.SetEffort(*v)
+	}
+	return _u
+}
+
+// ClearEffort clears the value of the "effort" field.
+func (_u *SkillUpdateOne) ClearEffort() *SkillUpdateOne {
+	_u.mutation.ClearEffort()
+	return _u
+}
+
+// SetMaxTurns sets the "max_turns" field.
+func (_u *SkillUpdateOne) SetMaxTurns(v int) *SkillUpdateOne {
+	_u.mutation.ResetMaxTurns()
+	_u.mutation.SetMaxTurns(v)
+	return _u
+}
+
+// SetNillableMaxTurns sets the "max_turns" field if the given value is not nil.
+func (_u *SkillUpdateOne) SetNillableMaxTurns(v *int) *SkillUpdateOne {
+	if v != nil {
+		_u.SetMaxTurns(*v)
+	}
+	return _u
+}
+
+// AddMaxTurns adds value to the "max_turns" field.
+func (_u *SkillUpdateOne) AddMaxTurns(v int) *SkillUpdateOne {
+	_u.mutation.AddMaxTurns(v)
+	return _u
+}
+
+// ClearMaxTurns clears the value of the "max_turns" field.
+func (_u *SkillUpdateOne) ClearMaxTurns() *SkillUpdateOne {
+	_u.mutation.ClearMaxTurns()
+	return _u
+}
+
+// SetDisallowedTools sets the "disallowed_tools" field.
+func (_u *SkillUpdateOne) SetDisallowedTools(v []string) *SkillUpdateOne {
+	_u.mutation.SetDisallowedTools(v)
+	return _u
+}
+
+// AppendDisallowedTools appends value to the "disallowed_tools" field.
+func (_u *SkillUpdateOne) AppendDisallowedTools(v []string) *SkillUpdateOne {
+	_u.mutation.AppendDisallowedTools(v)
+	return _u
+}
+
+// ClearDisallowedTools clears the value of the "disallowed_tools" field.
+func (_u *SkillUpdateOne) ClearDisallowedTools() *SkillUpdateOne {
+	_u.mutation.ClearDisallowedTools()
 	return _u
 }
 
@@ -599,6 +755,32 @@ func (_u *SkillUpdateOne) sqlSave(ctx context.Context) (_node *Skill, err error)
 	}
 	if value, ok := _u.mutation.Bundled(); ok {
 		_spec.SetField(skill.FieldBundled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.Effort(); ok {
+		_spec.SetField(skill.FieldEffort, field.TypeString, value)
+	}
+	if _u.mutation.EffortCleared() {
+		_spec.ClearField(skill.FieldEffort, field.TypeString)
+	}
+	if value, ok := _u.mutation.MaxTurns(); ok {
+		_spec.SetField(skill.FieldMaxTurns, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedMaxTurns(); ok {
+		_spec.AddField(skill.FieldMaxTurns, field.TypeInt, value)
+	}
+	if _u.mutation.MaxTurnsCleared() {
+		_spec.ClearField(skill.FieldMaxTurns, field.TypeInt)
+	}
+	if value, ok := _u.mutation.DisallowedTools(); ok {
+		_spec.SetField(skill.FieldDisallowedTools, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedDisallowedTools(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, skill.FieldDisallowedTools, value)
+		})
+	}
+	if _u.mutation.DisallowedToolsCleared() {
+		_spec.ClearField(skill.FieldDisallowedTools, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(skill.FieldUpdatedAt, field.TypeTime, value)

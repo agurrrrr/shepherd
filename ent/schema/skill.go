@@ -38,6 +38,17 @@ func (Skill) Fields() []ent.Field {
 		field.Bool("bundled").
 			Default(false).
 			Comment("번들(내장) 스킬 여부"),
+		field.String("effort").
+			Optional().
+			Default("").
+			Comment("모델 추론 노력 수준 (low/medium/high)"),
+		field.Int("max_turns").
+			Optional().
+			Default(0).
+			Comment("최대 에이전트 턴 수 (0이면 제한 없음)"),
+		field.JSON("disallowed_tools", []string{}).
+			Optional().
+			Comment("사용 금지 도구 목록"),
 		field.Time("created_at").
 			Default(time.Now).
 			Immutable(),

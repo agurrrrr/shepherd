@@ -131,12 +131,20 @@ func init() {
 	skillDescBundled := skillFields[6].Descriptor()
 	// skill.DefaultBundled holds the default value on creation for the bundled field.
 	skill.DefaultBundled = skillDescBundled.Default.(bool)
+	// skillDescEffort is the schema descriptor for effort field.
+	skillDescEffort := skillFields[7].Descriptor()
+	// skill.DefaultEffort holds the default value on creation for the effort field.
+	skill.DefaultEffort = skillDescEffort.Default.(string)
+	// skillDescMaxTurns is the schema descriptor for max_turns field.
+	skillDescMaxTurns := skillFields[8].Descriptor()
+	// skill.DefaultMaxTurns holds the default value on creation for the max_turns field.
+	skill.DefaultMaxTurns = skillDescMaxTurns.Default.(int)
 	// skillDescCreatedAt is the schema descriptor for created_at field.
-	skillDescCreatedAt := skillFields[7].Descriptor()
+	skillDescCreatedAt := skillFields[10].Descriptor()
 	// skill.DefaultCreatedAt holds the default value on creation for the created_at field.
 	skill.DefaultCreatedAt = skillDescCreatedAt.Default.(func() time.Time)
 	// skillDescUpdatedAt is the schema descriptor for updated_at field.
-	skillDescUpdatedAt := skillFields[8].Descriptor()
+	skillDescUpdatedAt := skillFields[11].Descriptor()
 	// skill.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	skill.DefaultUpdatedAt = skillDescUpdatedAt.Default.(func() time.Time)
 	// skill.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.

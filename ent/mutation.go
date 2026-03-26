@@ -3849,25 +3849,30 @@ func (m *SheepNameMutation) ResetEdge(name string) error {
 // SkillMutation represents an operation that mutates the Skill nodes in the graph.
 type SkillMutation struct {
 	config
-	op             Op
-	typ            string
-	id             *int
-	name           *string
-	description    *string
-	content        *string
-	scope          *skill.Scope
-	enabled        *bool
-	tags           *[]string
-	appendtags     []string
-	bundled        *bool
-	created_at     *time.Time
-	updated_at     *time.Time
-	clearedFields  map[string]struct{}
-	project        *int
-	clearedproject bool
-	done           bool
-	oldValue       func(context.Context) (*Skill, error)
-	predicates     []predicate.Skill
+	op                     Op
+	typ                    string
+	id                     *int
+	name                   *string
+	description            *string
+	content                *string
+	scope                  *skill.Scope
+	enabled                *bool
+	tags                   *[]string
+	appendtags             []string
+	bundled                *bool
+	effort                 *string
+	max_turns              *int
+	addmax_turns           *int
+	disallowed_tools       *[]string
+	appenddisallowed_tools []string
+	created_at             *time.Time
+	updated_at             *time.Time
+	clearedFields          map[string]struct{}
+	project                *int
+	clearedproject         bool
+	done                   bool
+	oldValue               func(context.Context) (*Skill, error)
+	predicates             []predicate.Skill
 }
 
 var _ ent.Mutation = (*SkillMutation)(nil)
@@ -4262,6 +4267,190 @@ func (m *SkillMutation) ResetBundled() {
 	m.bundled = nil
 }
 
+// SetEffort sets the "effort" field.
+func (m *SkillMutation) SetEffort(s string) {
+	m.effort = &s
+}
+
+// Effort returns the value of the "effort" field in the mutation.
+func (m *SkillMutation) Effort() (r string, exists bool) {
+	v := m.effort
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEffort returns the old "effort" field's value of the Skill entity.
+// If the Skill object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SkillMutation) OldEffort(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEffort is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEffort requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEffort: %w", err)
+	}
+	return oldValue.Effort, nil
+}
+
+// ClearEffort clears the value of the "effort" field.
+func (m *SkillMutation) ClearEffort() {
+	m.effort = nil
+	m.clearedFields[skill.FieldEffort] = struct{}{}
+}
+
+// EffortCleared returns if the "effort" field was cleared in this mutation.
+func (m *SkillMutation) EffortCleared() bool {
+	_, ok := m.clearedFields[skill.FieldEffort]
+	return ok
+}
+
+// ResetEffort resets all changes to the "effort" field.
+func (m *SkillMutation) ResetEffort() {
+	m.effort = nil
+	delete(m.clearedFields, skill.FieldEffort)
+}
+
+// SetMaxTurns sets the "max_turns" field.
+func (m *SkillMutation) SetMaxTurns(i int) {
+	m.max_turns = &i
+	m.addmax_turns = nil
+}
+
+// MaxTurns returns the value of the "max_turns" field in the mutation.
+func (m *SkillMutation) MaxTurns() (r int, exists bool) {
+	v := m.max_turns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMaxTurns returns the old "max_turns" field's value of the Skill entity.
+// If the Skill object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SkillMutation) OldMaxTurns(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMaxTurns is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMaxTurns requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMaxTurns: %w", err)
+	}
+	return oldValue.MaxTurns, nil
+}
+
+// AddMaxTurns adds i to the "max_turns" field.
+func (m *SkillMutation) AddMaxTurns(i int) {
+	if m.addmax_turns != nil {
+		*m.addmax_turns += i
+	} else {
+		m.addmax_turns = &i
+	}
+}
+
+// AddedMaxTurns returns the value that was added to the "max_turns" field in this mutation.
+func (m *SkillMutation) AddedMaxTurns() (r int, exists bool) {
+	v := m.addmax_turns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearMaxTurns clears the value of the "max_turns" field.
+func (m *SkillMutation) ClearMaxTurns() {
+	m.max_turns = nil
+	m.addmax_turns = nil
+	m.clearedFields[skill.FieldMaxTurns] = struct{}{}
+}
+
+// MaxTurnsCleared returns if the "max_turns" field was cleared in this mutation.
+func (m *SkillMutation) MaxTurnsCleared() bool {
+	_, ok := m.clearedFields[skill.FieldMaxTurns]
+	return ok
+}
+
+// ResetMaxTurns resets all changes to the "max_turns" field.
+func (m *SkillMutation) ResetMaxTurns() {
+	m.max_turns = nil
+	m.addmax_turns = nil
+	delete(m.clearedFields, skill.FieldMaxTurns)
+}
+
+// SetDisallowedTools sets the "disallowed_tools" field.
+func (m *SkillMutation) SetDisallowedTools(s []string) {
+	m.disallowed_tools = &s
+	m.appenddisallowed_tools = nil
+}
+
+// DisallowedTools returns the value of the "disallowed_tools" field in the mutation.
+func (m *SkillMutation) DisallowedTools() (r []string, exists bool) {
+	v := m.disallowed_tools
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDisallowedTools returns the old "disallowed_tools" field's value of the Skill entity.
+// If the Skill object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SkillMutation) OldDisallowedTools(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDisallowedTools is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDisallowedTools requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDisallowedTools: %w", err)
+	}
+	return oldValue.DisallowedTools, nil
+}
+
+// AppendDisallowedTools adds s to the "disallowed_tools" field.
+func (m *SkillMutation) AppendDisallowedTools(s []string) {
+	m.appenddisallowed_tools = append(m.appenddisallowed_tools, s...)
+}
+
+// AppendedDisallowedTools returns the list of values that were appended to the "disallowed_tools" field in this mutation.
+func (m *SkillMutation) AppendedDisallowedTools() ([]string, bool) {
+	if len(m.appenddisallowed_tools) == 0 {
+		return nil, false
+	}
+	return m.appenddisallowed_tools, true
+}
+
+// ClearDisallowedTools clears the value of the "disallowed_tools" field.
+func (m *SkillMutation) ClearDisallowedTools() {
+	m.disallowed_tools = nil
+	m.appenddisallowed_tools = nil
+	m.clearedFields[skill.FieldDisallowedTools] = struct{}{}
+}
+
+// DisallowedToolsCleared returns if the "disallowed_tools" field was cleared in this mutation.
+func (m *SkillMutation) DisallowedToolsCleared() bool {
+	_, ok := m.clearedFields[skill.FieldDisallowedTools]
+	return ok
+}
+
+// ResetDisallowedTools resets all changes to the "disallowed_tools" field.
+func (m *SkillMutation) ResetDisallowedTools() {
+	m.disallowed_tools = nil
+	m.appenddisallowed_tools = nil
+	delete(m.clearedFields, skill.FieldDisallowedTools)
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *SkillMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -4407,7 +4596,7 @@ func (m *SkillMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *SkillMutation) Fields() []string {
-	fields := make([]string, 0, 9)
+	fields := make([]string, 0, 12)
 	if m.name != nil {
 		fields = append(fields, skill.FieldName)
 	}
@@ -4428,6 +4617,15 @@ func (m *SkillMutation) Fields() []string {
 	}
 	if m.bundled != nil {
 		fields = append(fields, skill.FieldBundled)
+	}
+	if m.effort != nil {
+		fields = append(fields, skill.FieldEffort)
+	}
+	if m.max_turns != nil {
+		fields = append(fields, skill.FieldMaxTurns)
+	}
+	if m.disallowed_tools != nil {
+		fields = append(fields, skill.FieldDisallowedTools)
 	}
 	if m.created_at != nil {
 		fields = append(fields, skill.FieldCreatedAt)
@@ -4457,6 +4655,12 @@ func (m *SkillMutation) Field(name string) (ent.Value, bool) {
 		return m.Tags()
 	case skill.FieldBundled:
 		return m.Bundled()
+	case skill.FieldEffort:
+		return m.Effort()
+	case skill.FieldMaxTurns:
+		return m.MaxTurns()
+	case skill.FieldDisallowedTools:
+		return m.DisallowedTools()
 	case skill.FieldCreatedAt:
 		return m.CreatedAt()
 	case skill.FieldUpdatedAt:
@@ -4484,6 +4688,12 @@ func (m *SkillMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldTags(ctx)
 	case skill.FieldBundled:
 		return m.OldBundled(ctx)
+	case skill.FieldEffort:
+		return m.OldEffort(ctx)
+	case skill.FieldMaxTurns:
+		return m.OldMaxTurns(ctx)
+	case skill.FieldDisallowedTools:
+		return m.OldDisallowedTools(ctx)
 	case skill.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	case skill.FieldUpdatedAt:
@@ -4546,6 +4756,27 @@ func (m *SkillMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetBundled(v)
 		return nil
+	case skill.FieldEffort:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEffort(v)
+		return nil
+	case skill.FieldMaxTurns:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMaxTurns(v)
+		return nil
+	case skill.FieldDisallowedTools:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDisallowedTools(v)
+		return nil
 	case skill.FieldCreatedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -4567,13 +4798,21 @@ func (m *SkillMutation) SetField(name string, value ent.Value) error {
 // AddedFields returns all numeric fields that were incremented/decremented during
 // this mutation.
 func (m *SkillMutation) AddedFields() []string {
-	return nil
+	var fields []string
+	if m.addmax_turns != nil {
+		fields = append(fields, skill.FieldMaxTurns)
+	}
+	return fields
 }
 
 // AddedField returns the numeric value that was incremented/decremented on a field
 // with the given name. The second boolean return value indicates that this field
 // was not set, or was not defined in the schema.
 func (m *SkillMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case skill.FieldMaxTurns:
+		return m.AddedMaxTurns()
+	}
 	return nil, false
 }
 
@@ -4582,6 +4821,13 @@ func (m *SkillMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *SkillMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case skill.FieldMaxTurns:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMaxTurns(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Skill numeric field %s", name)
 }
@@ -4595,6 +4841,15 @@ func (m *SkillMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(skill.FieldTags) {
 		fields = append(fields, skill.FieldTags)
+	}
+	if m.FieldCleared(skill.FieldEffort) {
+		fields = append(fields, skill.FieldEffort)
+	}
+	if m.FieldCleared(skill.FieldMaxTurns) {
+		fields = append(fields, skill.FieldMaxTurns)
+	}
+	if m.FieldCleared(skill.FieldDisallowedTools) {
+		fields = append(fields, skill.FieldDisallowedTools)
 	}
 	return fields
 }
@@ -4615,6 +4870,15 @@ func (m *SkillMutation) ClearField(name string) error {
 		return nil
 	case skill.FieldTags:
 		m.ClearTags()
+		return nil
+	case skill.FieldEffort:
+		m.ClearEffort()
+		return nil
+	case skill.FieldMaxTurns:
+		m.ClearMaxTurns()
+		return nil
+	case skill.FieldDisallowedTools:
+		m.ClearDisallowedTools()
 		return nil
 	}
 	return fmt.Errorf("unknown Skill nullable field %s", name)
@@ -4644,6 +4908,15 @@ func (m *SkillMutation) ResetField(name string) error {
 		return nil
 	case skill.FieldBundled:
 		m.ResetBundled()
+		return nil
+	case skill.FieldEffort:
+		m.ResetEffort()
+		return nil
+	case skill.FieldMaxTurns:
+		m.ResetMaxTurns()
+		return nil
+	case skill.FieldDisallowedTools:
+		m.ResetDisallowedTools()
 		return nil
 	case skill.FieldCreatedAt:
 		m.ResetCreatedAt()

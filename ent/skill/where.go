@@ -80,6 +80,16 @@ func Bundled(v bool) predicate.Skill {
 	return predicate.Skill(sql.FieldEQ(FieldBundled, v))
 }
 
+// Effort applies equality check predicate on the "effort" field. It's identical to EffortEQ.
+func Effort(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldEQ(FieldEffort, v))
+}
+
+// MaxTurns applies equality check predicate on the "max_turns" field. It's identical to MaxTurnsEQ.
+func MaxTurns(v int) predicate.Skill {
+	return predicate.Skill(sql.FieldEQ(FieldMaxTurns, v))
+}
+
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.Skill {
 	return predicate.Skill(sql.FieldEQ(FieldCreatedAt, v))
@@ -343,6 +353,141 @@ func BundledEQ(v bool) predicate.Skill {
 // BundledNEQ applies the NEQ predicate on the "bundled" field.
 func BundledNEQ(v bool) predicate.Skill {
 	return predicate.Skill(sql.FieldNEQ(FieldBundled, v))
+}
+
+// EffortEQ applies the EQ predicate on the "effort" field.
+func EffortEQ(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldEQ(FieldEffort, v))
+}
+
+// EffortNEQ applies the NEQ predicate on the "effort" field.
+func EffortNEQ(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldNEQ(FieldEffort, v))
+}
+
+// EffortIn applies the In predicate on the "effort" field.
+func EffortIn(vs ...string) predicate.Skill {
+	return predicate.Skill(sql.FieldIn(FieldEffort, vs...))
+}
+
+// EffortNotIn applies the NotIn predicate on the "effort" field.
+func EffortNotIn(vs ...string) predicate.Skill {
+	return predicate.Skill(sql.FieldNotIn(FieldEffort, vs...))
+}
+
+// EffortGT applies the GT predicate on the "effort" field.
+func EffortGT(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldGT(FieldEffort, v))
+}
+
+// EffortGTE applies the GTE predicate on the "effort" field.
+func EffortGTE(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldGTE(FieldEffort, v))
+}
+
+// EffortLT applies the LT predicate on the "effort" field.
+func EffortLT(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldLT(FieldEffort, v))
+}
+
+// EffortLTE applies the LTE predicate on the "effort" field.
+func EffortLTE(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldLTE(FieldEffort, v))
+}
+
+// EffortContains applies the Contains predicate on the "effort" field.
+func EffortContains(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldContains(FieldEffort, v))
+}
+
+// EffortHasPrefix applies the HasPrefix predicate on the "effort" field.
+func EffortHasPrefix(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldHasPrefix(FieldEffort, v))
+}
+
+// EffortHasSuffix applies the HasSuffix predicate on the "effort" field.
+func EffortHasSuffix(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldHasSuffix(FieldEffort, v))
+}
+
+// EffortIsNil applies the IsNil predicate on the "effort" field.
+func EffortIsNil() predicate.Skill {
+	return predicate.Skill(sql.FieldIsNull(FieldEffort))
+}
+
+// EffortNotNil applies the NotNil predicate on the "effort" field.
+func EffortNotNil() predicate.Skill {
+	return predicate.Skill(sql.FieldNotNull(FieldEffort))
+}
+
+// EffortEqualFold applies the EqualFold predicate on the "effort" field.
+func EffortEqualFold(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldEqualFold(FieldEffort, v))
+}
+
+// EffortContainsFold applies the ContainsFold predicate on the "effort" field.
+func EffortContainsFold(v string) predicate.Skill {
+	return predicate.Skill(sql.FieldContainsFold(FieldEffort, v))
+}
+
+// MaxTurnsEQ applies the EQ predicate on the "max_turns" field.
+func MaxTurnsEQ(v int) predicate.Skill {
+	return predicate.Skill(sql.FieldEQ(FieldMaxTurns, v))
+}
+
+// MaxTurnsNEQ applies the NEQ predicate on the "max_turns" field.
+func MaxTurnsNEQ(v int) predicate.Skill {
+	return predicate.Skill(sql.FieldNEQ(FieldMaxTurns, v))
+}
+
+// MaxTurnsIn applies the In predicate on the "max_turns" field.
+func MaxTurnsIn(vs ...int) predicate.Skill {
+	return predicate.Skill(sql.FieldIn(FieldMaxTurns, vs...))
+}
+
+// MaxTurnsNotIn applies the NotIn predicate on the "max_turns" field.
+func MaxTurnsNotIn(vs ...int) predicate.Skill {
+	return predicate.Skill(sql.FieldNotIn(FieldMaxTurns, vs...))
+}
+
+// MaxTurnsGT applies the GT predicate on the "max_turns" field.
+func MaxTurnsGT(v int) predicate.Skill {
+	return predicate.Skill(sql.FieldGT(FieldMaxTurns, v))
+}
+
+// MaxTurnsGTE applies the GTE predicate on the "max_turns" field.
+func MaxTurnsGTE(v int) predicate.Skill {
+	return predicate.Skill(sql.FieldGTE(FieldMaxTurns, v))
+}
+
+// MaxTurnsLT applies the LT predicate on the "max_turns" field.
+func MaxTurnsLT(v int) predicate.Skill {
+	return predicate.Skill(sql.FieldLT(FieldMaxTurns, v))
+}
+
+// MaxTurnsLTE applies the LTE predicate on the "max_turns" field.
+func MaxTurnsLTE(v int) predicate.Skill {
+	return predicate.Skill(sql.FieldLTE(FieldMaxTurns, v))
+}
+
+// MaxTurnsIsNil applies the IsNil predicate on the "max_turns" field.
+func MaxTurnsIsNil() predicate.Skill {
+	return predicate.Skill(sql.FieldIsNull(FieldMaxTurns))
+}
+
+// MaxTurnsNotNil applies the NotNil predicate on the "max_turns" field.
+func MaxTurnsNotNil() predicate.Skill {
+	return predicate.Skill(sql.FieldNotNull(FieldMaxTurns))
+}
+
+// DisallowedToolsIsNil applies the IsNil predicate on the "disallowed_tools" field.
+func DisallowedToolsIsNil() predicate.Skill {
+	return predicate.Skill(sql.FieldIsNull(FieldDisallowedTools))
+}
+
+// DisallowedToolsNotNil applies the NotNil predicate on the "disallowed_tools" field.
+func DisallowedToolsNotNil() predicate.Skill {
+	return predicate.Skill(sql.FieldNotNull(FieldDisallowedTools))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.

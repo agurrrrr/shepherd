@@ -3,6 +3,8 @@ name: ui-bug-triage
 description: 스크린샷 기반 UI 버그 분석 및 수정 가이드
 tags: [ui, debugging, svelte]
 scope: global
+effort: high
+maxTurns: 25
 ---
 # UI Bug Triage
 

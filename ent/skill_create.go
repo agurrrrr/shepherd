@@ -95,6 +95,40 @@ func (_c *SkillCreate) SetNillableBundled(v *bool) *SkillCreate {
 	return _c
 }
 
+// SetEffort sets the "effort" field.
+func (_c *SkillCreate) SetEffort(v string) *SkillCreate {
+	_c.mutation.SetEffort(v)
+	return _c
+}
+
+// SetNillableEffort sets the "effort" field if the given value is not nil.
+func (_c *SkillCreate) SetNillableEffort(v *string) *SkillCreate {
+	if v != nil {
+		_c.SetEffort(*v)
+	}
+	return _c
+}
+
+// SetMaxTurns sets the "max_turns" field.
+func (_c *SkillCreate) SetMaxTurns(v int) *SkillCreate {
+	_c.mutation.SetMaxTurns(v)
+	return _c
+}
+
+// SetNillableMaxTurns sets the "max_turns" field if the given value is not nil.
+func (_c *SkillCreate) SetNillableMaxTurns(v *int) *SkillCreate {
+	if v != nil {
+		_c.SetMaxTurns(*v)
+	}
+	return _c
+}
+
+// SetDisallowedTools sets the "disallowed_tools" field.
+func (_c *SkillCreate) SetDisallowedTools(v []string) *SkillCreate {
+	_c.mutation.SetDisallowedTools(v)
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *SkillCreate) SetCreatedAt(v time.Time) *SkillCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -188,6 +222,14 @@ func (_c *SkillCreate) defaults() {
 	if _, ok := _c.mutation.Bundled(); !ok {
 		v := skill.DefaultBundled
 		_c.mutation.SetBundled(v)
+	}
+	if _, ok := _c.mutation.Effort(); !ok {
+		v := skill.DefaultEffort
+		_c.mutation.SetEffort(v)
+	}
+	if _, ok := _c.mutation.MaxTurns(); !ok {
+		v := skill.DefaultMaxTurns
+		_c.mutation.SetMaxTurns(v)
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := skill.DefaultCreatedAt()
@@ -290,6 +332,18 @@ func (_c *SkillCreate) createSpec() (*Skill, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Bundled(); ok {
 		_spec.SetField(skill.FieldBundled, field.TypeBool, value)
 		_node.Bundled = value
+	}
+	if value, ok := _c.mutation.Effort(); ok {
+		_spec.SetField(skill.FieldEffort, field.TypeString, value)
+		_node.Effort = value
+	}
+	if value, ok := _c.mutation.MaxTurns(); ok {
+		_spec.SetField(skill.FieldMaxTurns, field.TypeInt, value)
+		_node.MaxTurns = value
+	}
+	if value, ok := _c.mutation.DisallowedTools(); ok {
+		_spec.SetField(skill.FieldDisallowedTools, field.TypeJSON, value)
+		_node.DisallowedTools = value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(skill.FieldCreatedAt, field.TypeTime, value)

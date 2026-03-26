@@ -3,6 +3,8 @@ name: code-review
 description: 코드 리뷰 시 참고하는 체크리스트
 tags: [review, quality]
 scope: global
+effort: medium
+maxTurns: 15
 ---
 # Code Review
 

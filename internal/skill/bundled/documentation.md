@@ -3,6 +3,8 @@ name: documentation
 description: 코드 문서화 시 참고하는 가이드라인
 tags: [docs, quality]
 scope: global
+effort: medium
+maxTurns: 15
 ---
 # Documentation
 

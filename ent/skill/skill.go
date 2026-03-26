@@ -29,6 +29,12 @@ const (
 	FieldTags = "tags"
 	// FieldBundled holds the string denoting the bundled field in the database.
 	FieldBundled = "bundled"
+	// FieldEffort holds the string denoting the effort field in the database.
+	FieldEffort = "effort"
+	// FieldMaxTurns holds the string denoting the max_turns field in the database.
+	FieldMaxTurns = "max_turns"
+	// FieldDisallowedTools holds the string denoting the disallowed_tools field in the database.
+	FieldDisallowedTools = "disallowed_tools"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
@@ -56,6 +62,9 @@ var Columns = []string{
 	FieldEnabled,
 	FieldTags,
 	FieldBundled,
+	FieldEffort,
+	FieldMaxTurns,
+	FieldDisallowedTools,
 	FieldCreatedAt,
 	FieldUpdatedAt,
 }
@@ -90,6 +99,10 @@ var (
 	DefaultEnabled bool
 	// DefaultBundled holds the default value on creation for the "bundled" field.
 	DefaultBundled bool
+	// DefaultEffort holds the default value on creation for the "effort" field.
+	DefaultEffort string
+	// DefaultMaxTurns holds the default value on creation for the "max_turns" field.
+	DefaultMaxTurns int
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
@@ -160,6 +173,16 @@ func ByEnabled(opts ...sql.OrderTermOption) OrderOption {
 // ByBundled orders the results by the bundled field.
 func ByBundled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldBundled, opts...).ToFunc()
+}
+
+// ByEffort orders the results by the effort field.
+func ByEffort(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldEffort, opts...).ToFunc()
+}
+
+// ByMaxTurns orders the results by the max_turns field.
+func ByMaxTurns(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMaxTurns, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

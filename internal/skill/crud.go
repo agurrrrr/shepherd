@@ -3,6 +3,8 @@ package skill
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/agurrrrr/shepherd/ent"
 	"github.com/agurrrrr/shepherd/ent/project"
@@ -11,7 +13,7 @@ import (
 )
 
 // CreateSkill creates a new skill, optionally associated with a project.
-func CreateSkill(projectID *int, name, description, content, scope string, tags []string) (*ent.Skill, error) {
+func CreateSkill(projectID *int, name, description, content, scope string, tags []string, effort string, maxTurns int, disallowedTools []string) (*ent.Skill, error) {
 	ctx := context.Background()
 	client := db.Client()
 
@@ -26,6 +28,15 @@ func CreateSkill(projectID *int, name, description, content, scope string, tags 
 	}
 	if tags != nil {
 		builder = builder.SetTags(tags)
+	}
+	if effort != "" {
+		builder = builder.SetEffort(effort)
+	}
+	if maxTurns > 0 {
+		builder = builder.SetMaxTurns(maxTurns)
+	}
+	if disallowedTools != nil {
+		builder = builder.SetDisallowedTools(disallowedTools)
 	}
 	if projectID != nil {
 		builder = builder.SetProjectID(*projectID)
@@ -201,4 +212,21 @@ func GetEnabledSkillsForProject(projectName string) ([]*ent.Skill, error) {
 	}
 
 	return append(globalSkills, projectSkills...), nil
+}
+
+// SyncSkillToProject writes a skill file to the project's .claude/skills/ directory.
+// This enables Claude Code to natively use frontmatter like effort, maxTurns, disallowedTools.
+func SyncSkillToProject(sk *ent.Skill, projectPath string) error {
+	skillsDir := filepath.Join(projectPath, ".claude", "skills")
+	if err := os.MkdirAll(skillsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create skills dir: %w", err)
+	}
+
+	content := ExportSkillToMarkdown(sk)
+	filePath := filepath.Join(skillsDir, sk.Name+".md")
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write skill file: %w", err)
+	}
+
+	return nil
 }

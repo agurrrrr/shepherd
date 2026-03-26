@@ -124,6 +124,9 @@ var (
 		{Name: "enabled", Type: field.TypeBool, Default: true},
 		{Name: "tags", Type: field.TypeJSON, Nullable: true},
 		{Name: "bundled", Type: field.TypeBool, Default: false},
+		{Name: "effort", Type: field.TypeString, Nullable: true, Default: ""},
+		{Name: "max_turns", Type: field.TypeInt, Nullable: true, Default: 0},
+		{Name: "disallowed_tools", Type: field.TypeJSON, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "project_skills", Type: field.TypeInt, Nullable: true},
@@ -136,7 +139,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "skills_projects_skills",
-				Columns:    []*schema.Column{SkillsColumns[10]},
+				Columns:    []*schema.Column{SkillsColumns[13]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},

@@ -17,10 +17,13 @@ var bundledFS embed.FS
 
 // SkillFrontmatter represents the YAML frontmatter of a skill file.
 type SkillFrontmatter struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Tags        []string `yaml:"tags"`
-	Scope       string   `yaml:"scope"`
+	Name            string   `yaml:"name"`
+	Description     string   `yaml:"description"`
+	Tags            []string `yaml:"tags,omitempty"`
+	Scope           string   `yaml:"scope,omitempty"`
+	Effort          string   `yaml:"effort,omitempty"`
+	MaxTurns        int      `yaml:"maxTurns,omitempty"`
+	DisallowedTools []string `yaml:"disallowedTools,omitempty"`
 }
 
 // ParseSkillFile parses a markdown file with YAML frontmatter.
@@ -54,10 +57,13 @@ func ExportSkillToMarkdown(sk *ent.Skill) string {
 	var sb strings.Builder
 
 	fm := SkillFrontmatter{
-		Name:        sk.Name,
-		Description: sk.Description,
-		Tags:        sk.Tags,
-		Scope:       string(sk.Scope),
+		Name:            sk.Name,
+		Description:     sk.Description,
+		Tags:            sk.Tags,
+		Scope:           string(sk.Scope),
+		Effort:          sk.Effort,
+		MaxTurns:        sk.MaxTurns,
+		DisallowedTools: sk.DisallowedTools,
 	}
 
 	fmBytes, err := yaml.Marshal(fm)
@@ -85,6 +91,9 @@ func ImportSkillFromMarkdown(content string, projectID *int) (*ent.Skill, error)
 	description := ""
 	scope := "project"
 	var tags []string
+	effort := ""
+	maxTurns := 0
+	var disallowedTools []string
 
 	if fm != nil {
 		if fm.Name != "" {
@@ -95,13 +104,16 @@ func ImportSkillFromMarkdown(content string, projectID *int) (*ent.Skill, error)
 			scope = "global"
 		}
 		tags = fm.Tags
+		effort = fm.Effort
+		maxTurns = fm.MaxTurns
+		disallowedTools = fm.DisallowedTools
 	}
 
 	if body == "" {
 		body = content
 	}
 
-	return CreateSkill(projectID, name, description, body, scope, tags)
+	return CreateSkill(projectID, name, description, body, scope, tags, effort, maxTurns, disallowedTools)
 }
 
 // SeedBundledSkills loads bundled skill files and inserts them into DB if not present.
@@ -149,13 +161,18 @@ func SeedBundledSkills() error {
 		}
 
 		if existing != nil {
-			// Update content if changed
-			if existing.Content != body || existing.Description != fm.Description {
-				_, err = client.Skill.UpdateOneID(existing.ID).
+			// Update if content, description, or frontmatter fields changed
+			if existing.Content != body || existing.Description != fm.Description ||
+				existing.Effort != fm.Effort || existing.MaxTurns != fm.MaxTurns ||
+				!slicesEqual(existing.DisallowedTools, fm.DisallowedTools) {
+				builder := client.Skill.UpdateOneID(existing.ID).
 					SetContent(body).
 					SetDescription(fm.Description).
 					SetTags(fm.Tags).
-					Save(ctx)
+					SetEffort(fm.Effort).
+					SetMaxTurns(fm.MaxTurns).
+					SetDisallowedTools(fm.DisallowedTools)
+				_, err = builder.Save(ctx)
 				if err != nil {
 					return fmt.Errorf("failed to update bundled skill %s: %w", fm.Name, err)
 				}
@@ -169,7 +186,10 @@ func SeedBundledSkills() error {
 			SetContent(body).
 			SetScope(scope).
 			SetBundled(true).
-			SetEnabled(true)
+			SetEnabled(true).
+			SetEffort(fm.Effort).
+			SetMaxTurns(fm.MaxTurns).
+			SetDisallowedTools(fm.DisallowedTools)
 
 		if fm.Description != "" {
 			builder = builder.SetDescription(fm.Description)
@@ -184,4 +204,17 @@ func SeedBundledSkills() error {
 	}
 
 	return nil
+}
+
+// slicesEqual compares two string slices for equality.
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

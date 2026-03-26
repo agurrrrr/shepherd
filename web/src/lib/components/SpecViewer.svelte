@@ -3,7 +3,10 @@
 	import { Marked } from 'marked';
 	import html2canvas from 'html2canvas';
 	import { jsPDF } from 'jspdf';
-	import { apiGet, apiDownload } from '$lib/api.js';
+	import { apiGet } from '$lib/api.js';
+	import { accessToken, wireframePreset, wireframeOptions } from '$lib/stores.js';
+	import { get } from 'svelte/store';
+	import { wireframePresets, allVarKeys } from '$lib/wireframe-presets.js';
 	import '$lib/style/wireframe.css';
 
 	let { projectName } = $props();
@@ -18,6 +21,33 @@
 	let mermaidLoaded = false;
 	let mermaidCounter = 0;
 	let pdfExporting = $state(false);
+
+	let currentPreset = $state(get(wireframePreset));
+	let compactMode = $state(get(wireframeOptions).compact || false);
+	let showGrid = $state(get(wireframeOptions).showGrid || false);
+	const presetEntries = Object.entries(wireframePresets);
+
+	function applyPresetToContainers() {
+		if (!previewEl) return;
+		const containers = previewEl.querySelectorAll('.wf-container');
+		const preset = wireframePresets[currentPreset] || wireframePresets.default;
+		containers.forEach(el => {
+			for (const key of allVarKeys) el.style.removeProperty(key);
+			for (const [k, v] of Object.entries(preset.vars)) el.style.setProperty(k, v);
+			el.classList.toggle('wf-compact', compactMode);
+			el.classList.toggle('wf-show-grid', showGrid);
+		});
+	}
+
+	function onPresetChange() {
+		wireframePreset.set(currentPreset);
+		applyPresetToContainers();
+	}
+
+	function onToggleChange() {
+		wireframeOptions.set({ compact: compactMode, showGrid: showGrid });
+		applyPresetToContainers();
+	}
 
 	const typeColors = {
 		overview: '#3b82f6',
@@ -152,6 +182,8 @@
 				}
 			}
 		}
+
+		applyPresetToContainers();
 	}
 
 	function goBack() {
@@ -162,21 +194,43 @@
 
 	function downloadSpec() {
 		if (!selectedSpec) return;
-		apiDownload(`/api/projects/${encodeURIComponent(projectName)}/specs-download/${selectedSpec.path}`);
+		const token = get(accessToken);
+		const url = `/api/projects/${encodeURIComponent(projectName)}/specs-download/${selectedSpec.path}?token=${encodeURIComponent(token)}`;
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = selectedSpec.name;
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
 	}
 
 	async function downloadPDF() {
 		if (!previewEl || !selectedSpec || pdfExporting) return;
 		pdfExporting = true;
 		try {
+			// Temporarily expand scroll containers so html2canvas captures full content
+			const detail = previewEl.closest('.spec-detail');
+			const savedStyles = [];
+			for (const el of [previewEl, detail]) {
+				if (!el) continue;
+				savedStyles.push({ el, overflow: el.style.overflow, height: el.style.height, maxHeight: el.style.maxHeight });
+				el.style.overflow = 'visible';
+				el.style.height = 'auto';
+				el.style.maxHeight = 'none';
+			}
+
 			const canvas = await html2canvas(previewEl, {
 				scale: 2,
 				useCORS: true,
-				backgroundColor: '#1e1e1e',
-				scrollY: -previewEl.scrollTop,
-				height: previewEl.scrollHeight,
-				windowHeight: previewEl.scrollHeight
+				backgroundColor: '#1e1e1e'
 			});
+
+			// Restore original styles
+			for (const s of savedStyles) {
+				s.el.style.overflow = s.overflow;
+				s.el.style.height = s.height;
+				s.el.style.maxHeight = s.maxHeight;
+			}
 
 			const imgWidth = 210; // A4 mm
 			const pageHeight = 297;
@@ -226,6 +280,21 @@
 			{#if detectType(selectedSpec.name)}
 				<span class="spec-type-badge" style="background:{typeColors[detectType(selectedSpec.name)]}20;color:{typeColors[detectType(selectedSpec.name)]}">{detectType(selectedSpec.name)}</span>
 			{/if}
+			<div class="wf-controls">
+				<select class="wf-preset-select" bind:value={currentPreset} onchange={onPresetChange}>
+					{#each presetEntries as [key, p]}
+						<option value={key}>{p.label}</option>
+					{/each}
+				</select>
+				<label class="wf-toggle-label">
+					<input type="checkbox" bind:checked={compactMode} onchange={onToggleChange} />
+					Compact
+				</label>
+				<label class="wf-toggle-label">
+					<input type="checkbox" bind:checked={showGrid} onchange={onToggleChange} />
+					Grid
+				</label>
+			</div>
 			<button class="btn-download" onclick={downloadPDF} disabled={pdfExporting}>
 				{pdfExporting ? 'Exporting...' : 'PDF'}
 			</button>
@@ -381,8 +450,41 @@
 		background: var(--bg-tertiary, #2a2a2a);
 	}
 
-	.btn-download {
+	.btn-download:first-of-type {
+		margin-left: 0;
+	}
+
+	.wf-controls {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 		margin-left: auto;
+	}
+
+	.wf-preset-select {
+		padding: 3px 8px;
+		border: 1px solid var(--border-color, #333);
+		border-radius: 4px;
+		background: var(--bg-tertiary, #2a2a2a);
+		color: inherit;
+		font-size: 12px;
+		cursor: pointer;
+	}
+
+	.wf-toggle-label {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 11px;
+		color: var(--text-secondary, #888);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.wf-toggle-label input[type="checkbox"] {
+		width: 13px;
+		height: 13px;
+		cursor: pointer;
 	}
 
 	.spec-preview {
@@ -412,12 +514,12 @@
 	.spec-preview :global(hr) { border: none; border-top: 1px solid var(--border-color, #333); margin: 16px 0; }
 	.spec-preview :global(img) { max-width: 100%; }
 
-	/* Wireframe container: reset dark theme overrides to light theme */
-	.spec-preview :global(.wf-container th) { background: #f5f5f5; color: #333; border-color: #ddd; }
-	.spec-preview :global(.wf-container td) { background: #fff; color: #333; border-color: #ddd; }
-	.spec-preview :global(.wf-container table) { color: #333; }
-	.spec-preview :global(.wf-container pre) { background: #f5f5f5; color: #333; }
-	.spec-preview :global(.wf-container code) { color: #333; }
+	/* Wireframe container: use CSS variables instead of dark theme overrides */
+	.spec-preview :global(.wf-container th) { background: var(--wf-surface-alt); color: var(--wf-text); border-color: var(--wf-border); }
+	.spec-preview :global(.wf-container td) { background: var(--wf-surface); color: var(--wf-text); border-color: var(--wf-border); }
+	.spec-preview :global(.wf-container table) { color: var(--wf-text); }
+	.spec-preview :global(.wf-container pre) { background: var(--wf-surface-alt); color: var(--wf-text); }
+	.spec-preview :global(.wf-container code) { color: var(--wf-text); }
 
 	/* Mermaid overrides for dark theme */
 	.spec-preview :global(.mermaid) {

@@ -33,6 +33,12 @@ type Skill struct {
 	Tags []string `json:"tags,omitempty"`
 	// 번들(내장) 스킬 여부
 	Bundled bool `json:"bundled,omitempty"`
+	// 모델 추론 노력 수준 (low/medium/high)
+	Effort string `json:"effort,omitempty"`
+	// 최대 에이전트 턴 수 (0이면 제한 없음)
+	MaxTurns int `json:"max_turns,omitempty"`
+	// 사용 금지 도구 목록
+	DisallowedTools []string `json:"disallowed_tools,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
@@ -69,13 +75,13 @@ func (*Skill) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case skill.FieldTags:
+		case skill.FieldTags, skill.FieldDisallowedTools:
 			values[i] = new([]byte)
 		case skill.FieldEnabled, skill.FieldBundled:
 			values[i] = new(sql.NullBool)
-		case skill.FieldID:
+		case skill.FieldID, skill.FieldMaxTurns:
 			values[i] = new(sql.NullInt64)
-		case skill.FieldName, skill.FieldDescription, skill.FieldContent, skill.FieldScope:
+		case skill.FieldName, skill.FieldDescription, skill.FieldContent, skill.FieldScope, skill.FieldEffort:
 			values[i] = new(sql.NullString)
 		case skill.FieldCreatedAt, skill.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -145,6 +151,26 @@ func (_m *Skill) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field bundled", values[i])
 			} else if value.Valid {
 				_m.Bundled = value.Bool
+			}
+		case skill.FieldEffort:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field effort", values[i])
+			} else if value.Valid {
+				_m.Effort = value.String
+			}
+		case skill.FieldMaxTurns:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field max_turns", values[i])
+			} else if value.Valid {
+				_m.MaxTurns = int(value.Int64)
+			}
+		case skill.FieldDisallowedTools:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field disallowed_tools", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.DisallowedTools); err != nil {
+					return fmt.Errorf("unmarshal field disallowed_tools: %w", err)
+				}
 			}
 		case skill.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -226,6 +252,15 @@ func (_m *Skill) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("bundled=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Bundled))
+	builder.WriteString(", ")
+	builder.WriteString("effort=")
+	builder.WriteString(_m.Effort)
+	builder.WriteString(", ")
+	builder.WriteString("max_turns=")
+	builder.WriteString(fmt.Sprintf("%v", _m.MaxTurns))
+	builder.WriteString(", ")
+	builder.WriteString("disallowed_tools=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DisallowedTools))
 	builder.WriteString(", ")
 	builder.WriteString("created_at=")
 	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))

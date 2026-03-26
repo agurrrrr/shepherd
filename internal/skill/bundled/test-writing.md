@@ -3,6 +3,8 @@ name: test-writing
 description: 테스트 작성 시 참고하는 가이드라인
 tags: [testing, quality]
 scope: global
+effort: high
+maxTurns: 20
 ---
 # Test Writing
 

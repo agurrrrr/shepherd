@@ -3,6 +3,8 @@ name: security-hardening
 description: 웹 애플리케이션 보안 강화 체크리스트
 tags: [security, hardening]
 scope: global
+effort: high
+maxTurns: 25
 ---
 # Security Hardening
 
