@@ -1,5 +1,5 @@
 <script>
-	import { onMount, tick } from 'svelte';
+	import { onMount } from 'svelte';
 	import { apiGet } from '$lib/api.js';
 	import { accessToken } from '$lib/stores.js';
 	import { get } from 'svelte/store';
@@ -27,6 +27,7 @@
 	let fileMeta = $state(null); // for binary/too-large info
 	let pdfExporting = $state(false);
 	let mdBodyEl = $state(null);
+	let codeEl = $state(null);
 
 	let breadcrumbs = $derived.by(() => {
 		const crumbs = [{ name: 'root', path: '' }];
@@ -39,6 +40,13 @@
 			});
 		}
 		return crumbs;
+	});
+
+	$effect(() => {
+		if (codeEl && fileContent && !renderedMarkdown) {
+			codeEl.removeAttribute('data-highlighted');
+			hljs.highlightElement(codeEl);
+		}
 	});
 
 	onMount(() => {
@@ -66,12 +74,21 @@
 		loading = false;
 	}
 
+	let imageUrl = $state('');
+
 	async function openFile(entry) {
 		fileLoading = true;
 		selectedFile = entry;
 		fileContent = '';
 		renderedMarkdown = '';
 		fileMeta = null;
+		imageUrl = '';
+
+		if (isImageFile(entry.name)) {
+			imageUrl = getFileUrl(entry);
+			fileLoading = false;
+			return;
+		}
 
 		const res = await apiGet(
 			`/api/projects/${encodeURIComponent(projectName)}/files/content/${entry.path}`
@@ -85,12 +102,6 @@
 				renderedMarkdown = await carta.render(fileContent);
 			} else {
 				fileContent = res.data.content;
-				await tick();
-				const el = document.querySelector('.fb-code code');
-				if (el) {
-					el.removeAttribute('data-highlighted');
-					hljs.highlightElement(el);
-				}
 			}
 		}
 		fileLoading = false;
@@ -101,6 +112,7 @@
 		fileContent = '';
 		renderedMarkdown = '';
 		fileMeta = null;
+		imageUrl = '';
 	}
 
 	function handleEntryClick(entry) {
@@ -192,6 +204,18 @@
 		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 	}
 
+	const imageExts = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ico', 'avif']);
+
+	function isImageFile(name) {
+		const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+		return imageExts.has(ext);
+	}
+
+	function getFileUrl(entry) {
+		const token = get(accessToken);
+		return `/api/projects/${encodeURIComponent(projectName)}/files/download/${entry.path}?token=${encodeURIComponent(token)}`;
+	}
+
 	function fileIcon(entry) {
 		if (entry.is_dir) return '\uD83D\uDCC1';
 		const ext = entry.name.includes('.') ? entry.name.split('.').pop().toLowerCase() : '';
@@ -200,6 +224,9 @@
 			md: '\uD83D\uDCDD', json: '{}', yaml: '\u2699\uFE0F', yml: '\u2699\uFE0F',
 			svelte: '\uD83D\uDD36', html: '\uD83C\uDF10', css: '\uD83C\uDFA8',
 			sh: '\uD83D\uDCBB', sql: '\uD83D\uDDC4\uFE0F', rs: '\uD83E\uDD80',
+			png: '\uD83D\uDDBC\uFE0F', jpg: '\uD83D\uDDBC\uFE0F', jpeg: '\uD83D\uDDBC\uFE0F',
+			gif: '\uD83D\uDDBC\uFE0F', webp: '\uD83D\uDDBC\uFE0F', svg: '\uD83D\uDDBC\uFE0F',
+			bmp: '\uD83D\uDDBC\uFE0F', ico: '\uD83D\uDDBC\uFE0F', avif: '\uD83D\uDDBC\uFE0F',
 		};
 		return iconMap[ext] || '\uD83D\uDCC4';
 	}
@@ -226,6 +253,10 @@
 			<div class="fb-viewer-content">
 				{#if fileLoading}
 					<p class="text-muted">Loading...</p>
+				{:else if imageUrl}
+					<div class="fb-image-preview">
+						<img src={imageUrl} alt={selectedFile.name} />
+					</div>
 				{:else if fileMeta?.is_binary}
 					<div class="fb-placeholder">
 						<p>Binary file ({formatFileSize(fileMeta.size)})</p>
@@ -240,7 +271,7 @@
 				{:else if renderedMarkdown}
 					<div class="markdown-body" bind:this={mdBodyEl}>{@html renderedMarkdown}</div>
 				{:else if fileContent}
-					<pre class="fb-code"><code class={fileMeta?.language ? `language-${fileMeta.language}` : ''}>{fileContent}</code></pre>
+					<pre class="fb-code"><code bind:this={codeEl} class={fileMeta?.language ? `language-${fileMeta.language}` : ''}>{fileContent}</code></pre>
 				{:else}
 					<p class="text-muted">Empty file</p>
 				{/if}
@@ -407,6 +438,20 @@
 	}
 	.fb-code code {
 		font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+	}
+
+	/* Image preview */
+	.fb-image-preview {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 200px;
+	}
+	.fb-image-preview img {
+		max-width: 100%;
+		max-height: 80vh;
+		border-radius: 4px;
+		object-fit: contain;
 	}
 
 	/* Placeholder for binary / too-large */

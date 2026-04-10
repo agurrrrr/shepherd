@@ -10,16 +10,6 @@ import (
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
 
-// maxRequeueCount is the maximum number of times a task can be requeued due to rate limits.
-const maxRequeueCount = 3
-
-// requeueCount tracks how many times each task has been requeued.
-// key: taskID, value: requeue count
-var (
-	requeueCount   = make(map[int]int)
-	requeueCountMu sync.Mutex
-)
-
 // Processor handles automatic execution of pending tasks.
 type Processor struct {
 	interval time.Duration
@@ -37,8 +27,6 @@ type Processor struct {
 	OnOutput func(sheepName, projectName, text string)
 	// Callback: status change (working, idle, error)
 	OnStatusChange func(sheepName, status string)
-	// Callback: provider change (rate limit fallback / restore)
-	OnProviderChange func(sheepName, provider string)
 }
 
 // NewProcessor creates a new task queue processor.
@@ -181,61 +169,6 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 	// Execute Claude Code (with streaming output support)
 	result, err := worker.ExecuteInteractive(sheepName, prompt, opts)
 	if err != nil {
-		// Rate limit error: temporarily switch provider to opencode and requeue
-		if worker.IsRateLimitError(err) {
-			// Check requeue count — fail if exceeded max retries
-			requeueCountMu.Lock()
-			requeueCount[taskID]++
-			count := requeueCount[taskID]
-			requeueCountMu.Unlock()
-
-			if count > maxRequeueCount {
-				// Max retries exceeded — fail the task
-				requeueCountMu.Lock()
-				delete(requeueCount, taskID)
-				requeueCountMu.Unlock()
-
-				if p.OnStatusChange != nil {
-					p.OnStatusChange(sheepName, "error")
-				}
-				if p.OnTaskFail != nil {
-					p.OnTaskFail(taskID, sheepName, projectName, fmt.Sprintf("rate limit: max retries (%d) exceeded", maxRequeueCount))
-				}
-				_ = FailTaskWithOutput(taskID, fmt.Sprintf("rate limit: max retries (%d) exceeded", maxRequeueCount), outputLines)
-
-				// Restore original provider if saved
-				if original, ok := worker.GetAndClearRateLimitOriginal(sheepName); ok {
-					_ = worker.UpdateProvider(sheepName, original)
-					if p.OnProviderChange != nil {
-						p.OnProviderChange(sheepName, original)
-					}
-				}
-				return
-			}
-
-			provider, _ := worker.GetProvider(sheepName)
-			if provider == sheep.ProviderClaude || provider == sheep.ProviderAuto {
-				// Save original provider for restoration after rate limit clears
-				worker.SetRateLimitOriginal(sheepName, string(provider))
-
-				_ = worker.UpdateProvider(sheepName, "opencode")
-				if p.OnProviderChange != nil {
-					p.OnProviderChange(sheepName, "opencode")
-				}
-				if p.OnOutput != nil {
-					p.OnOutput(sheepName, projectName, i18n.T().RateLimitSwitch)
-				}
-			}
-			if p.OnStatusChange != nil {
-				p.OnStatusChange(sheepName, "idle")
-			}
-			_ = RequeueTask(taskID, outputLines)
-			if p.OnOutput != nil {
-				p.OnOutput(sheepName, projectName, i18n.T().RateLimitRequeue)
-			}
-			return
-		}
-
 		// Question or cancel error: task stops, sheep goes idle (not error)
 		if worker.IsQuestionError(err) || worker.IsCancelledError(err) {
 			if p.OnStatusChange != nil {
@@ -257,24 +190,6 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 		// Save output even on failure
 		_ = FailTaskWithOutput(taskID, err.Error(), outputLines)
 		return
-	}
-
-	// Task succeeded — clean up requeue count
-	requeueCountMu.Lock()
-	delete(requeueCount, taskID)
-	requeueCountMu.Unlock()
-
-	// Task succeeded — restore original provider if it was switched due to rate limit
-	originalProvider, hasOriginal := worker.GetAndClearRateLimitOriginal(sheepName)
-
-	if hasOriginal {
-		_ = worker.UpdateProvider(sheepName, originalProvider)
-		if p.OnProviderChange != nil {
-			p.OnProviderChange(sheepName, originalProvider)
-		}
-		if p.OnOutput != nil {
-			p.OnOutput(sheepName, projectName, fmt.Sprintf(i18n.T().RateLimitRestoreFmt, originalProvider))
-		}
 	}
 
 	// Change status: idle

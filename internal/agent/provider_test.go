@@ -142,39 +142,3 @@ func TestShouldUseOpenCode(t *testing.T) {
 	}
 }
 
-func TestIsRateLimitError(t *testing.T) {
-	tests := []struct {
-		errMsg   string
-		expected bool
-	}{
-		{"rate limit exceeded", true},
-		{"429 too many requests", true},
-		{"too many requests", true},
-		{"limit exceeded", true},
-		{"리미트 초과", true},
-		{"connection refused", false},
-		{"timeout", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.errMsg, func(t *testing.T) {
-			var err error
-			if tt.errMsg != "" {
-				err = &testError{msg: tt.errMsg}
-			}
-			result := isRateLimitError(err)
-			if result != tt.expected {
-				t.Errorf("isRateLimitError(%q) = %v, want %v", tt.errMsg, result, tt.expected)
-			}
-		})
-	}
-}
-
-type testError struct {
-	msg string
-}
-
-func (e *testError) Error() string {
-	return e.msg
-}

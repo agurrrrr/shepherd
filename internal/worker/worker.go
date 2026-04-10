@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/agurrrrr/shepherd/ent"
 	"github.com/agurrrrr/shepherd/ent/sheep"
@@ -11,32 +10,6 @@ import (
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/names"
 )
-
-// rateLimitOriginal tracks the original provider before rate limit fallback.
-// key: sheepName, value: original provider string (e.g., "claude", "auto")
-var (
-	rateLimitOriginal   = make(map[string]string)
-	rateLimitOriginalMu sync.Mutex
-)
-
-// SetRateLimitOriginal saves the original provider before rate limit fallback.
-func SetRateLimitOriginal(sheepName, provider string) {
-	rateLimitOriginalMu.Lock()
-	defer rateLimitOriginalMu.Unlock()
-	rateLimitOriginal[sheepName] = provider
-}
-
-// GetAndClearRateLimitOriginal returns and removes the original provider for a sheep.
-// Returns ("", false) if no original provider was saved.
-func GetAndClearRateLimitOriginal(sheepName string) (string, bool) {
-	rateLimitOriginalMu.Lock()
-	defer rateLimitOriginalMu.Unlock()
-	original, ok := rateLimitOriginal[sheepName]
-	if ok {
-		delete(rateLimitOriginal, sheepName)
-	}
-	return original, ok
-}
 
 // CreateOptions contains options for sheep creation
 type CreateOptions struct {
@@ -260,7 +233,6 @@ func IsWorking(name string) (bool, error) {
 
 // UpdateProvider updates the provider of a sheep.
 // Also clears the session ID since different providers have different session systems.
-// Clears any rate limit fallback state so manual changes are respected.
 func UpdateProvider(name string, provider string) error {
 	ctx := context.Background()
 	client := db.Client()
@@ -269,11 +241,6 @@ func UpdateProvider(name string, provider string) error {
 	if provider != "claude" && provider != "opencode" && provider != "auto" {
 		return fmt.Errorf("'%s' is not a valid provider (claude, opencode, auto)", provider)
 	}
-
-	// Clear rate limit fallback state — manual provider change takes priority
-	rateLimitOriginalMu.Lock()
-	delete(rateLimitOriginal, name)
-	rateLimitOriginalMu.Unlock()
 
 	// Clear session ID when changing provider (different providers use different session systems)
 	count, err := client.Sheep.Update().

@@ -75,43 +75,6 @@ func (r *Router) shouldUseOpenCode(prompt string) bool {
 	return false
 }
 
-// ExecuteWithFallback executes with Claude, falls back to OpenCode on rate limit
-func (r *Router) ExecuteWithFallback(workdir, prompt string, opts ExecuteOptions) (*Result, error) {
-	result, err := r.claude.Execute(workdir, prompt, opts)
-	if err != nil {
-		if r.opencode.IsAvailable() && isRateLimitError(err) {
-			return r.opencode.Execute(workdir, prompt, opts)
-		}
-		return nil, err
-	}
-	return result, nil
-}
-
-// ExecuteInteractiveWithFallback interactive execution with fallback
-func (r *Router) ExecuteInteractiveWithFallback(workdir, sessionID, prompt string, opts InteractiveOptions) (*Result, error) {
-	result, err := r.claude.ExecuteInteractive(workdir, sessionID, prompt, opts)
-	if err != nil {
-		if r.opencode.IsAvailable() && isRateLimitError(err) {
-			return r.opencode.ExecuteInteractive(workdir, "", prompt, opts)
-		}
-		return nil, err
-	}
-	return result, nil
-}
-
-// isRateLimitError checks if the error is a rate limit error
-func isRateLimitError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := strings.ToLower(err.Error())
-	return strings.Contains(errStr, "rate limit") ||
-		strings.Contains(errStr, "429") ||
-		strings.Contains(errStr, "too many requests") ||
-		strings.Contains(errStr, "리미트") ||
-		strings.Contains(errStr, "limit exceeded")
-}
-
 // Claude returns the Claude provider
 func (r *Router) Claude() *ClaudeProvider {
 	return r.claude

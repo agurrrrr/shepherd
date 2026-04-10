@@ -11,7 +11,6 @@ import (
 
 	"github.com/agurrrrr/shepherd/ent"
 	"github.com/agurrrrr/shepherd/ent/sheep"
-	"github.com/agurrrrr/shepherd/internal/agent"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/worker"
@@ -117,25 +116,7 @@ User request: %s`, currentDir, prompt)
 	provider := getManagerProvider()
 	output, err := runClassifyCLI(provider, classifyPrompt)
 	if err != nil {
-		// Fallback on rate limit error
-		if isRateLimitError(err) {
-			fallback := "opencode"
-			if provider == "opencode" {
-				fallback = "claude"
-			}
-			if fallback == "opencode" {
-				router := agent.NewRouter()
-				if !router.IsLocalAvailable() {
-					return nil, fmt.Errorf("manager(%s) rate limited, fallback unavailable: %w", provider, err)
-				}
-			}
-			output, err = runClassifyCLI(fallback, classifyPrompt)
-			if err != nil {
-				return nil, fmt.Errorf("fallback(%s) failed: %w", fallback, err)
-			}
-		} else {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	if output.IsError {
@@ -397,7 +378,6 @@ func Analyze(prompt string) (*Decision, error) {
 }
 
 // callClaudeCLI calls Claude Code CLI for task analysis.
-// Falls back to Vibe if Claude hits rate limit.
 func callClaudeCLI(userPrompt, projectInfo, sheepInfo string) (*Decision, error) {
 	// Build analysis prompt
 	analysisPrompt := fmt.Sprintf(`You are the shepherd (manager). Analyze the user's request and assign the appropriate project and sheep (worker).
@@ -421,25 +401,7 @@ Decide project, sheep, and reason as JSON.`, projectInfo, sheepInfo, userPrompt)
 	provider := getManagerProvider()
 	output, err := runAnalysisCLI(provider, analysisPrompt)
 	if err != nil {
-		// Fallback on rate limit error
-		if isRateLimitError(err) {
-			fallback := "opencode"
-			if provider == "opencode" {
-				fallback = "claude"
-			}
-			if fallback == "opencode" {
-				router := agent.NewRouter()
-				if !router.IsLocalAvailable() {
-					return nil, fmt.Errorf("manager(%s) rate limited, fallback unavailable: %w", provider, err)
-				}
-			}
-			output, err = runAnalysisCLI(fallback, analysisPrompt)
-			if err != nil {
-				return nil, fmt.Errorf("fallback(%s) failed: %w", fallback, err)
-			}
-		} else {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	if output.IsError {
@@ -471,18 +433,6 @@ func runAnalysisCLI(cli, prompt string) (*claudeOutput, error) {
 	return runWithClaude(prompt, decisionSchema, AnalysisTimeout)
 }
 
-// isRateLimitError checks if the error is a rate limit error
-func isRateLimitError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := strings.ToLower(err.Error())
-	return strings.Contains(errStr, "rate limit") ||
-		strings.Contains(errStr, "429") ||
-		strings.Contains(errStr, "too many requests") ||
-		strings.Contains(errStr, "rate_limit") ||
-		strings.Contains(errStr, "limit exceeded")
-}
 
 // validateDecision validates that the decision references existing entities.
 func validateDecision(d *Decision, projects []*ent.Project, sheepList []*ent.Sheep) error {

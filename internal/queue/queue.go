@@ -228,31 +228,6 @@ func StartTask(id int) error {
 	return nil
 }
 
-// RequeueTask moves a running task back to pending status (e.g., on rate limit).
-func RequeueTask(id int, output []string) error {
-	ctx := context.Background()
-	client := db.Client()
-
-	updateQuery := client.Task.Update().
-		Where(task.ID(id)).
-		SetStatus(task.StatusPending).
-		ClearStartedAt()
-
-	if len(output) > 0 {
-		updateQuery = updateQuery.SetOutput(output)
-	}
-
-	count, err := updateQuery.Save(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to requeue task: %w", err)
-	}
-	if count == 0 {
-		return fmt.Errorf("task #%d not found", id)
-	}
-
-	return nil
-}
-
 // CompleteTask marks a task as completed with summary and modified files.
 func CompleteTask(id int, summary string, filesModified []string) error {
 	return CompleteTaskWithOutput(id, summary, filesModified, nil)
@@ -416,24 +391,39 @@ func StatusToKorean(status task.Status) string {
 	}
 }
 
-// RecoverStuckTasks marks running tasks as failed after abnormal termination.
-// This should be called on startup to clean up after abnormal termination.
+// RecoverStuckTasks marks running tasks as failed and stale pending tasks as stopped
+// after abnormal termination. This should be called on startup.
 func RecoverStuckTasks() (int, error) {
 	ctx := context.Background()
 	client := db.Client()
+	now := time.Now()
 
 	// Change tasks in running status to failed
-	count, err := client.Task.Update().
+	runningCount, err := client.Task.Update().
 		Where(task.StatusEQ(task.StatusRunning)).
 		SetStatus(task.StatusFailed).
 		SetError("interrupted due to abnormal termination").
-		SetCompletedAt(time.Now()).
+		SetCompletedAt(now).
 		Save(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to recover task status: %w", err)
+		return 0, fmt.Errorf("failed to recover running tasks: %w", err)
 	}
 
-	return count, nil
+	// Cancel pending tasks created before this startup (stale from previous session)
+	pendingCount, err := client.Task.Update().
+		Where(
+			task.StatusEQ(task.StatusPending),
+			task.CreatedAtLT(now),
+		).
+		SetStatus(task.StatusStopped).
+		SetError("cancelled: stale task from previous session").
+		SetCompletedAt(now).
+		Save(ctx)
+	if err != nil {
+		return runningCount, fmt.Errorf("failed to cancel stale pending tasks: %w", err)
+	}
+
+	return runningCount + pendingCount, nil
 }
 
 // CancelPendingTasks marks all pending tasks as stopped (cancelled).

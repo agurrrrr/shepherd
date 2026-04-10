@@ -29,10 +29,7 @@ type Messages struct {
 	SettingsNotSet    string
 
 	// Queue/Processor
-	QueueStatusFmt       string // format string with %d placeholders
-	RateLimitSwitch      string
-	RateLimitRequeue     string
-	RateLimitRestoreFmt  string // format string: provider name
+	QueueStatusFmt string // format string with %d placeholders
 
 	// Status
 	StatusIdle       string
@@ -152,10 +149,7 @@ var ko = &Messages{
 	SettingsKeys:      "[↑↓]선택 [Enter]변경 [Esc]닫기",
 	SettingsNotSet:    "(미설정)",
 
-	QueueStatusFmt:      "대기: %d, 진행중: %d, 완료: %d, 실패: %d, 중단: %d",
-	RateLimitSwitch:     "🔄 Rate limit 감지 - 프로바이더를 opencode로 임시 전환\n",
-	RateLimitRequeue:    "⏸️ Rate limit - 작업 재큐잉\n",
-	RateLimitRestoreFmt: "🔄 Rate limit 해제 - 프로바이더를 %s(으)로 복구\n",
+	QueueStatusFmt: "대기: %d, 진행중: %d, 완료: %d, 실패: %d, 중단: %d",
 
 	StatusIdle:       "대기",
 	StatusWorking:    "작업중",
@@ -265,10 +259,7 @@ var en = &Messages{
 	SettingsKeys:      "[↑↓]Select [Enter]Edit [Esc]Close",
 	SettingsNotSet:    "(not set)",
 
-	QueueStatusFmt:      "Pending: %d, Running: %d, Completed: %d, Failed: %d, Stopped: %d",
-	RateLimitSwitch:     "🔄 Rate limit detected - temporarily switching to opencode\n",
-	RateLimitRequeue:    "⏸️ Rate limit - requeueing task\n",
-	RateLimitRestoreFmt: "🔄 Rate limit cleared - restoring provider to %s\n",
+	QueueStatusFmt: "Pending: %d, Running: %d, Completed: %d, Failed: %d, Stopped: %d",
 
 	StatusIdle:       "Idle",
 	StatusWorking:    "Working",

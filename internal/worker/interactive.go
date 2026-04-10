@@ -231,11 +231,8 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		// reusing sessions causes token count to grow unboundedly)
 		result, execErr = executeWithOpenCode(ctx, sheepName, proj.Path, "", prompt, opts, cancel)
 	case sheep.ProviderAuto:
-		// auto mode: default Claude, fallback to OpenCode on failure
+		// auto mode: use Claude by default
 		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
-		if execErr != nil && IsRateLimitError(execErr) {
-			result, execErr = executeWithOpenCode(ctx, sheepName, proj.Path, "", prompt, opts, cancel)
-		}
 	default: // claude
 		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
 	}
@@ -565,18 +562,6 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 	return result
 }
 
-// IsRateLimitError checks if the error is a rate limit error.
-func IsRateLimitError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := strings.ToLower(err.Error())
-	return strings.Contains(errStr, "rate limit") ||
-		strings.Contains(errStr, "hit your limit") ||
-		strings.Contains(errStr, "429") ||
-		strings.Contains(errStr, "too many requests") ||
-		strings.Contains(errStr, "limit exceeded")
-}
 
 // IsQuestionError checks if the error is a question stop error
 // (Claude used AskUserQuestion and the task was stopped).

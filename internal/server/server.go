@@ -203,11 +203,6 @@ func (s *Server) WireProcessorCallbacks() {
 			"sheep_name": sheepName, "status": status,
 		}})
 	}
-	s.processor.OnProviderChange = func(sheepName, provider string) {
-		s.hub.Broadcast(SSEEvent{Type: "provider_change", Data: map[string]interface{}{
-			"sheep_name": sheepName, "provider": provider,
-		}})
-	}
 }
 
 // WireSchedulerCallbacks connects Scheduler callbacks to the SSE Hub.
