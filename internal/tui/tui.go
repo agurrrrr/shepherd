@@ -24,6 +24,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/queue"
+	"github.com/agurrrrr/shepherd/internal/server"
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
 
@@ -142,11 +143,15 @@ func RunAsClient() error {
 
 	client := apiclient.New()
 
-	// Auto-login if auth is configured
+	// Auto-login: generate a local token using shared JWT secret
+	jwtSecret := config.GetString("auth_jwt_secret")
 	username := config.GetString("auth_username")
-	if username != "" {
-		// In client mode, try connecting without auth first (local access)
-		// The middleware skips auth if jwt_secret is empty
+	if jwtSecret != "" && username != "" {
+		token, err := server.GenerateAccessToken(username, jwtSecret, 24*time.Hour)
+		if err != nil {
+			return fmt.Errorf("failed to generate local auth token: %w", err)
+		}
+		client.SetToken(token)
 	}
 
 	// Load sheep list from daemon API
@@ -178,17 +183,20 @@ func RunAsClient() error {
 		go t.handleCommandAsClient(client, cmd)
 	})
 
-	// Connect to SSE event stream
-	go t.listenSSE(client)
-
-	// Show client mode indicator
-	t.sendOutput("System", "🔗 Connected to Shepherd daemon (client mode)")
-
-	// Create and run the program
+	// Create the program first (needed before any Send calls)
 	t.program = tea.NewProgram(
 		*t.model,
 		tea.WithAltScreen(),
 	)
+
+	// Connect to SSE event stream
+	go t.listenSSE(client)
+
+	// Show client mode indicator after a short delay to let program start
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		t.sendOutput("System", "🔗 Connected to Shepherd daemon (client mode)")
+	}()
 
 	_, err = t.program.Run()
 	return err

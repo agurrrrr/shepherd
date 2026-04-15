@@ -74,6 +74,11 @@ type SSEEvent struct {
 
 // --- Auth ---
 
+// SetToken sets the access token for API requests.
+func (c *Client) SetToken(token string) {
+	c.token = token
+}
+
 // Login authenticates and stores the access token.
 func (c *Client) Login(username, password string) error {
 	body, _ := json.Marshal(map[string]string{

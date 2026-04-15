@@ -318,12 +318,39 @@ Skills are reusable prompt templates that can be attached to projects or used gl
 - **Global skills**: Available to all projects
 - **Project skills**: Scoped to a specific project
 - **Bundled skills**: Pre-installed default skills (auto-seeded on first startup)
-- **Import/Export**: Share skills as files
+- **Import/Export**: Share skills as markdown files with YAML frontmatter
+- **Lazy loading**: Only skill names and descriptions are injected into prompts; agents load full content on demand via the `skill_load` MCP tool
+- **Sync to project**: Skills can be synced to each project's `.claude/skills/` directory
+
+### Skill Frontmatter
+
+Skills support YAML frontmatter for metadata:
+
+```markdown
+---
+name: code-review
+description: Code review checklist
+tags: [review, quality]
+scope: global
+effort: medium
+max_turns: 10
+disallowed_tools: [Write, Bash]
+---
+
+(skill content here)
+```
+
+| Field | Description |
+|-------|-------------|
+| `effort` | Model inference effort (`low`, `medium`, `high`) |
+| `max_turns` | Maximum agent turns (0 = unlimited) |
+| `disallowed_tools` | List of tools the agent cannot use |
 
 ```
 GET  /api/skills                    # List global skills
 POST /api/skills/import             # Import from file
 GET  /api/skills/:id/export         # Export to file
+POST /api/skills/sync-all           # Sync all skills to project directories
 ```
 
 ---
@@ -375,7 +402,7 @@ User Input → Interactive CLI / Web UI / MCP Client
 ```
 shepherd/
 ├── cmd/shepherd/          # CLI entrypoint (~2000 lines, all commands)
-├── ent/schema/            # Ent ORM entities (Sheep, Project, Task, Skill, Schedule)
+├── ent/schema/            # Ent ORM entities (Sheep, Project, Task, Skill, Schedule, SkillLink)
 ├── internal/
 │   ├── agent/             # AI provider abstraction (Claude, OpenCode)
 │   ├── browser/           # Browser automation (Rod)
@@ -419,8 +446,10 @@ GET|DELETE       /api/projects/:name           # Get / Delete
 POST             /api/projects/:name/assign    # Assign sheep
 
 GET|POST         /api/tasks                    # List / Create
-GET              /api/tasks/:id                # Get details
+GET              /api/tasks/:id                # Get details (includes cost_usd)
 POST             /api/tasks/:id/stop           # Stop running task
+POST             /api/tasks/:id/retry          # Retry failed/stopped task
+POST             /api/tasks/:id/retry-from     # Bulk retry from this task onwards
 ```
 
 ### Git (Read-Only)
@@ -440,6 +469,7 @@ POST             /api/projects/:name/schedules/:id/run  # Trigger now
 
 GET|POST         /api/skills                    # List / Create global
 POST             /api/skills/import             # Import
+POST             /api/skills/sync-all           # Sync all skills to projects
 GET|PATCH|DELETE /api/skills/:id                # CRUD
 GET              /api/skills/:id/export         # Export
 GET|POST         /api/projects/:name/skills     # Project-scoped skills
@@ -472,7 +502,7 @@ Run Shepherd as an MCP server for integration with Claude Desktop:
 }
 ```
 
-**Available MCP tools:** `task_start`, `task_complete`, `task_error`, `get_history`, `get_status`, and 20+ browser automation tools (`browser_open`, `browser_click`, `browser_type`, `browser_screenshot`, etc.)
+**Available MCP tools:** `task_start`, `task_complete`, `task_error`, `get_history`, `get_status`, `skill_load`, and 20+ browser automation tools (`browser_open`, `browser_click`, `browser_type`, `browser_screenshot`, etc.)
 
 ---
 
@@ -492,6 +522,30 @@ Add custom names with `shepherd names add <name>`.
 - **Manual recovery**: `shepherd recover`
 - **Graceful shutdown**: Handles SIGINT/SIGTERM, saves state before exit
 - **Timeouts**: 60 sec (task analysis), 30 min (interactive execution)
+
+### Rate Limit Retry
+
+When a rate limit error is detected (HTTP 429, "too many requests", etc.), Shepherd automatically retries with exponential backoff:
+
+- Up to 3 retries per task
+- Backoff: 30s → 60s → 120s (capped at 5 minutes)
+- Retry progress is streamed to the UI in real-time
+
+### Circuit Breaker
+
+If a sheep fails 5 consecutive tasks, Shepherd automatically pauses task execution for that sheep to prevent wasting resources.
+
+- Tripped breakers are shown in `status` and the dashboard
+- Manually retrying a task (`POST /api/tasks/:id/retry`) resets the breaker
+- Successful task completion also resets the counter
+
+### Cost Tracking
+
+Task execution costs are captured from Claude Code output and stored per task.
+
+- `cost_usd` field on each task (returned in all API responses)
+- Per-project and global cost aggregation
+- Total cost displayed in queue status
 
 ---
 

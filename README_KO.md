@@ -314,12 +314,39 @@ POST /api/projects/:name/schedules/:id/run    # 즉시 실행
 - **글로벌 스킬**: 모든 프로젝트에서 사용 가능
 - **프로젝트 스킬**: 특정 프로젝트에 한정
 - **번들 스킬**: 첫 시작 시 자동 설치되는 기본 스킬
-- **Import/Export**: 파일로 스킬 공유
+- **Import/Export**: YAML 프론트매터 포함 마크다운 파일로 스킬 공유
+- **Lazy loading**: 프롬프트에는 스킬 이름과 설명만 주입하고, 에이전트가 필요 시 `skill_load` MCP 도구로 전체 내용 로드
+- **프로젝트 동기화**: 스킬을 각 프로젝트의 `.claude/skills/` 디렉토리에 동기화 가능
+
+### 스킬 프론트매터
+
+스킬은 메타데이터를 위한 YAML 프론트매터를 지원합니다:
+
+```markdown
+---
+name: code-review
+description: 코드 리뷰 체크리스트
+tags: [review, quality]
+scope: global
+effort: medium
+max_turns: 10
+disallowed_tools: [Write, Bash]
+---
+
+(스킬 내용)
+```
+
+| 필드 | 설명 |
+|------|------|
+| `effort` | 모델 추론 노력도 (`low`, `medium`, `high`) |
+| `max_turns` | 최대 에이전트 턴 수 (0 = 무제한) |
+| `disallowed_tools` | 에이전트 사용 금지 도구 목록 |
 
 ```
 GET  /api/skills                    # 글로벌 스킬 목록
 POST /api/skills/import             # 파일에서 가져오기
 GET  /api/skills/:id/export         # 파일로 내보내기
+POST /api/skills/sync-all           # 모든 스킬을 프로젝트 디렉토리에 동기화
 ```
 
 ---
@@ -373,7 +400,7 @@ auth_jwt_secret: "자동 생성"
 ```
 shepherd/
 ├── cmd/shepherd/          # CLI 진입점 (~2000줄, 전체 명령어)
-├── ent/schema/            # Ent ORM 엔티티 (Sheep, Project, Task, Skill, Schedule)
+├── ent/schema/            # Ent ORM 엔티티 (Sheep, Project, Task, Skill, Schedule, SkillLink)
 ├── internal/
 │   ├── agent/             # AI 프로바이더 추상화 (Claude, OpenCode)
 │   ├── browser/           # 브라우저 자동화 (Rod)
@@ -417,8 +444,10 @@ GET|DELETE       /api/projects/:name           # 조회 / 삭제
 POST             /api/projects/:name/assign    # 양 배정
 
 GET|POST         /api/tasks                    # 목록 / 생성
-GET              /api/tasks/:id                # 상세 조회
+GET              /api/tasks/:id                # 상세 조회 (cost_usd 포함)
 POST             /api/tasks/:id/stop           # 실행 중 작업 중지
+POST             /api/tasks/:id/retry          # 실패/중지된 작업 재시도
+POST             /api/tasks/:id/retry-from     # 이 작업 이후 일괄 재시도
 ```
 
 ### Git (읽기 전용)
@@ -438,6 +467,7 @@ POST             /api/projects/:name/schedules/:id/run  # 즉시 실행
 
 GET|POST         /api/skills                    # 글로벌 목록 / 생성
 POST             /api/skills/import             # 가져오기
+POST             /api/skills/sync-all           # 모든 스킬 프로젝트 동기화
 GET|PATCH|DELETE /api/skills/:id                # CRUD
 GET              /api/skills/:id/export         # 내보내기
 GET|POST         /api/projects/:name/skills     # 프로젝트 범위 스킬
@@ -470,7 +500,7 @@ Shepherd를 Claude Desktop 연동용 MCP 서버로 실행:
 }
 ```
 
-**사용 가능한 MCP 도구:** `task_start`, `task_complete`, `task_error`, `get_history`, `get_status`, 그리고 20+ 브라우저 자동화 도구 (`browser_open`, `browser_click`, `browser_type`, `browser_screenshot` 등)
+**사용 가능한 MCP 도구:** `task_start`, `task_complete`, `task_error`, `get_history`, `get_status`, `skill_load`, 그리고 20+ 브라우저 자동화 도구 (`browser_open`, `browser_click`, `browser_type`, `browser_screenshot` 등)
 
 ---
 
@@ -490,6 +520,30 @@ Shepherd를 Claude Desktop 연동용 MCP 서버로 실행:
 - **수동 복구**: `shepherd recover`
 - **안전 종료**: SIGINT/SIGTERM 처리, 종료 전 상태 저장
 - **타임아웃**: 60초 (작업 분석), 30분 (인터랙티브 실행)
+
+### Rate Limit 자동 재시도
+
+Rate limit 에러 감지 시 (HTTP 429, "too many requests" 등) 지수 백오프로 자동 재시도합니다:
+
+- 작업당 최대 3회 재시도
+- 대기 시간: 30초 → 60초 → 120초 (최대 5분)
+- 재시도 진행 상황이 UI에 실시간 스트리밍
+
+### 서킷 브레이커
+
+양이 연속 5회 작업 실패 시, 리소스 낭비를 방지하기 위해 해당 양의 작업 실행을 자동 차단합니다.
+
+- 차단된 양은 `status` 및 대시보드에 표시
+- 수동 재시도 (`POST /api/tasks/:id/retry`) 시 차단 해제
+- 작업 성공 시에도 카운터 자동 리셋
+
+### 비용 추적
+
+Claude Code 실행 비용이 작업 단위로 기록됩니다.
+
+- 각 작업에 `cost_usd` 필드 (모든 API 응답에 포함)
+- 프로젝트별/전체 비용 집계
+- 큐 상태에 총 비용 표시
 
 ---
 

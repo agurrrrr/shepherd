@@ -328,6 +328,10 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		scanner.Buffer(buf, 1024*1024)
 
 		for scanner.Scan() {
+			if ctx.Err() != nil {
+				return
+			}
+
 			line := scanner.Text()
 
 			mu.Lock()
@@ -352,6 +356,9 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		defer wg.Done()
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
+			if ctx.Err() != nil {
+				return
+			}
 			line := scanner.Text()
 			if opts.OnOutput != nil && strings.TrimSpace(line) != "" {
 				opts.OnOutput("⚠️ " + line + "\n")
@@ -675,22 +682,6 @@ For web search/crawling tasks, use browser tools instead of WebFetch.
 	}
 
 	// Inject project skills (summary only - use skill_load MCP tool for full content)
-	if sheepName != "" {
-		if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
-			sb.WriteString(skillsText)
-			sb.WriteString("\n")
-		}
-	}
-
-	if config.GetBool("include_task_history") {
-		if sheepName != "" {
-			if ctx := getRecentTaskContext(sheepName); ctx != "" {
-				sb.WriteString(ctx)
-				sb.WriteString("\n")
-			}
-		}
-	}
-
 	if sheepName != "" {
 		if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
 			sb.WriteString(skillsText)
@@ -1073,6 +1064,10 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		scanner.Buffer(buf, 1024*1024)
 
 		for scanner.Scan() {
+			if ctx.Err() != nil {
+				return
+			}
+
 			line := scanner.Text()
 
 			mu.Lock()
@@ -1104,6 +1099,9 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
+			if ctx.Err() != nil {
+				return
+			}
 			line := scanner.Text()
 			if opts.OnOutput != nil && strings.TrimSpace(line) != "" {
 				opts.OnOutput("⚠️ " + line + "\n")
