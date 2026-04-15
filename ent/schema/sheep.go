@@ -31,6 +31,9 @@ func (Sheep) Fields() []ent.Field {
 			Values("claude", "opencode", "auto").
 			Default("claude").
 			Comment("AI provider (claude, opencode, auto)"),
+		field.Int("consecutive_failures").
+			Default(0).
+			Comment("연속 실패 횟수 (서킷 브레이커)"),
 		field.Time("created_at").
 			Default(time.Now).
 			Immutable(),

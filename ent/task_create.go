@@ -82,6 +82,20 @@ func (_c *TaskCreate) SetOutput(v []string) *TaskCreate {
 	return _c
 }
 
+// SetCostUsd sets the "cost_usd" field.
+func (_c *TaskCreate) SetCostUsd(v float64) *TaskCreate {
+	_c.mutation.SetCostUsd(v)
+	return _c
+}
+
+// SetNillableCostUsd sets the "cost_usd" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableCostUsd(v *float64) *TaskCreate {
+	if v != nil {
+		_c.SetCostUsd(*v)
+	}
+	return _c
+}
+
 // SetStartedAt sets the "started_at" field.
 func (_c *TaskCreate) SetStartedAt(v time.Time) *TaskCreate {
 	_c.mutation.SetStartedAt(v)
@@ -201,6 +215,10 @@ func (_c *TaskCreate) defaults() {
 		v := task.DefaultStatus
 		_c.mutation.SetStatus(v)
 	}
+	if _, ok := _c.mutation.CostUsd(); !ok {
+		v := task.DefaultCostUsd
+		_c.mutation.SetCostUsd(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := task.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -277,6 +295,10 @@ func (_c *TaskCreate) createSpec() (*Task, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Output(); ok {
 		_spec.SetField(task.FieldOutput, field.TypeJSON, value)
 		_node.Output = value
+	}
+	if value, ok := _c.mutation.CostUsd(); ok {
+		_spec.SetField(task.FieldCostUsd, field.TypeFloat64, value)
+		_node.CostUsd = value
 	}
 	if value, ok := _c.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)

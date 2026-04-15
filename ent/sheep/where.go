@@ -65,6 +65,11 @@ func SessionID(v string) predicate.Sheep {
 	return predicate.Sheep(sql.FieldEQ(FieldSessionID, v))
 }
 
+// ConsecutiveFailures applies equality check predicate on the "consecutive_failures" field. It's identical to ConsecutiveFailuresEQ.
+func ConsecutiveFailures(v int) predicate.Sheep {
+	return predicate.Sheep(sql.FieldEQ(FieldConsecutiveFailures, v))
+}
+
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.Sheep {
 	return predicate.Sheep(sql.FieldEQ(FieldCreatedAt, v))
@@ -253,6 +258,46 @@ func ProviderIn(vs ...Provider) predicate.Sheep {
 // ProviderNotIn applies the NotIn predicate on the "provider" field.
 func ProviderNotIn(vs ...Provider) predicate.Sheep {
 	return predicate.Sheep(sql.FieldNotIn(FieldProvider, vs...))
+}
+
+// ConsecutiveFailuresEQ applies the EQ predicate on the "consecutive_failures" field.
+func ConsecutiveFailuresEQ(v int) predicate.Sheep {
+	return predicate.Sheep(sql.FieldEQ(FieldConsecutiveFailures, v))
+}
+
+// ConsecutiveFailuresNEQ applies the NEQ predicate on the "consecutive_failures" field.
+func ConsecutiveFailuresNEQ(v int) predicate.Sheep {
+	return predicate.Sheep(sql.FieldNEQ(FieldConsecutiveFailures, v))
+}
+
+// ConsecutiveFailuresIn applies the In predicate on the "consecutive_failures" field.
+func ConsecutiveFailuresIn(vs ...int) predicate.Sheep {
+	return predicate.Sheep(sql.FieldIn(FieldConsecutiveFailures, vs...))
+}
+
+// ConsecutiveFailuresNotIn applies the NotIn predicate on the "consecutive_failures" field.
+func ConsecutiveFailuresNotIn(vs ...int) predicate.Sheep {
+	return predicate.Sheep(sql.FieldNotIn(FieldConsecutiveFailures, vs...))
+}
+
+// ConsecutiveFailuresGT applies the GT predicate on the "consecutive_failures" field.
+func ConsecutiveFailuresGT(v int) predicate.Sheep {
+	return predicate.Sheep(sql.FieldGT(FieldConsecutiveFailures, v))
+}
+
+// ConsecutiveFailuresGTE applies the GTE predicate on the "consecutive_failures" field.
+func ConsecutiveFailuresGTE(v int) predicate.Sheep {
+	return predicate.Sheep(sql.FieldGTE(FieldConsecutiveFailures, v))
+}
+
+// ConsecutiveFailuresLT applies the LT predicate on the "consecutive_failures" field.
+func ConsecutiveFailuresLT(v int) predicate.Sheep {
+	return predicate.Sheep(sql.FieldLT(FieldConsecutiveFailures, v))
+}
+
+// ConsecutiveFailuresLTE applies the LTE predicate on the "consecutive_failures" field.
+func ConsecutiveFailuresLTE(v int) predicate.Sheep {
+	return predicate.Sheep(sql.FieldLTE(FieldConsecutiveFailures, v))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.

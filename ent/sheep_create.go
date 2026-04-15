@@ -71,6 +71,20 @@ func (_c *SheepCreate) SetNillableProvider(v *sheep.Provider) *SheepCreate {
 	return _c
 }
 
+// SetConsecutiveFailures sets the "consecutive_failures" field.
+func (_c *SheepCreate) SetConsecutiveFailures(v int) *SheepCreate {
+	_c.mutation.SetConsecutiveFailures(v)
+	return _c
+}
+
+// SetNillableConsecutiveFailures sets the "consecutive_failures" field if the given value is not nil.
+func (_c *SheepCreate) SetNillableConsecutiveFailures(v *int) *SheepCreate {
+	if v != nil {
+		_c.SetConsecutiveFailures(*v)
+	}
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *SheepCreate) SetCreatedAt(v time.Time) *SheepCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -195,6 +209,10 @@ func (_c *SheepCreate) defaults() {
 		v := sheep.DefaultProvider
 		_c.mutation.SetProvider(v)
 	}
+	if _, ok := _c.mutation.ConsecutiveFailures(); !ok {
+		v := sheep.DefaultConsecutiveFailures
+		_c.mutation.SetConsecutiveFailures(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := sheep.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -230,6 +248,9 @@ func (_c *SheepCreate) check() error {
 		if err := sheep.ProviderValidator(v); err != nil {
 			return &ValidationError{Name: "provider", err: fmt.Errorf(`ent: validator failed for field "Sheep.provider": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.ConsecutiveFailures(); !ok {
+		return &ValidationError{Name: "consecutive_failures", err: errors.New(`ent: missing required field "Sheep.consecutive_failures"`)}
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Sheep.created_at"`)}
@@ -278,6 +299,10 @@ func (_c *SheepCreate) createSpec() (*Sheep, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Provider(); ok {
 		_spec.SetField(sheep.FieldProvider, field.TypeEnum, value)
 		_node.Provider = value
+	}
+	if value, ok := _c.mutation.ConsecutiveFailures(); ok {
+		_spec.SetField(sheep.FieldConsecutiveFailures, field.TypeInt, value)
+		_node.ConsecutiveFailures = value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(sheep.FieldCreatedAt, field.TypeTime, value)

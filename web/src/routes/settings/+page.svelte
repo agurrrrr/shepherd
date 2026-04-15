@@ -13,6 +13,9 @@
 	let mcpRegistering = {};
 	let mcpError = '';
 
+	let syncing = false;
+	let syncResult = '';
+
 	onMount(async () => {
 		const [configRes, mcpRes] = await Promise.all([
 			apiGet('/api/config'),
@@ -57,6 +60,20 @@
 		}
 		saving = false;
 		setTimeout(() => saveMsg = '', 3000);
+	}
+
+	async function syncSkills() {
+		syncing = true;
+		syncResult = '';
+		const res = await apiPost('/api/skills/sync-all');
+		if (res?.success) {
+			const d = res.data;
+			syncResult = `Synced ${d.synced} skills to ${d.projects} projects` + (d.errors > 0 ? ` (${d.errors} errors)` : '');
+		} else {
+			syncResult = 'Error: ' + (res?.message || 'Sync failed');
+		}
+		syncing = false;
+		setTimeout(() => syncResult = '', 5000);
 	}
 
 	async function restart() {
@@ -208,6 +225,18 @@
 					<div class="mcp-error">{mcpError}</div>
 				{/if}
 			{/if}
+		</div>
+		<div class="sync-section card">
+			<h2 class="section-title">Skill Sync</h2>
+			<p class="sync-desc">Sync all enabled skills to each project's <code>.claude/skills/</code> directory so Claude Code and OpenCode can use them natively with frontmatter (effort, maxTurns, etc).</p>
+			<div class="sync-actions">
+				<button class="btn btn-sm" onclick={syncSkills} disabled={syncing}>
+					{syncing ? 'Syncing...' : 'Sync All Skills'}
+				</button>
+				{#if syncResult}
+					<span class="sync-msg" class:error={syncResult.startsWith('Error')}>{syncResult}</span>
+				{/if}
+			</div>
 		</div>
 	{/if}
 </div>
@@ -388,6 +417,35 @@
 	}
 	.btn-sm:hover { opacity: 0.85; }
 	.btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	.sync-section {
+		max-width: 500px;
+		margin-top: 24px;
+	}
+	.sync-desc {
+		font-size: 13px;
+		color: var(--text-secondary);
+		line-height: 1.5;
+		margin-bottom: 12px;
+	}
+	.sync-desc code {
+		background: var(--bg-tertiary, #2a2a2a);
+		padding: 1px 5px;
+		border-radius: 3px;
+		font-size: 12px;
+	}
+	.sync-actions {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+	.sync-msg {
+		font-size: 13px;
+		color: var(--success);
+	}
+	.sync-msg.error {
+		color: var(--danger);
+	}
 
 	@media (max-width: 768px) {
 		.settings-form {

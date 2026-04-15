@@ -112,6 +112,8 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Post("/tasks", s.handleCreateTask)
 	api.Get("/tasks/:id", s.handleGetTask)
 	api.Post("/tasks/:id/stop", s.handleStopTask)
+	api.Post("/tasks/:id/retry", s.handleRetryTask)
+	api.Post("/tasks/:id/retry-from", s.handleRetryFromTask)
 
 	// Schedule management
 	api.Get("/schedules", s.handleListAllSchedules)
@@ -127,6 +129,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/skills", s.handleListAllSkills)
 	api.Post("/skills", s.handleCreateGlobalSkill)
 	api.Post("/skills/import", s.handleImportSkill)
+	api.Post("/skills/sync-all", s.handleSyncAllSkills)
 	api.Get("/skills/:id", s.handleGetSkill)
 	api.Patch("/skills/:id", s.handleUpdateSkill)
 	api.Delete("/skills/:id", s.handleDeleteSkill)

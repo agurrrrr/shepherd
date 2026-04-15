@@ -89,12 +89,16 @@ func init() {
 	sheepDescName := sheepFields[0].Descriptor()
 	// sheep.NameValidator is a validator for the "name" field. It is called by the builders before save.
 	sheep.NameValidator = sheepDescName.Validators[0].(func(string) error)
+	// sheepDescConsecutiveFailures is the schema descriptor for consecutive_failures field.
+	sheepDescConsecutiveFailures := sheepFields[4].Descriptor()
+	// sheep.DefaultConsecutiveFailures holds the default value on creation for the consecutive_failures field.
+	sheep.DefaultConsecutiveFailures = sheepDescConsecutiveFailures.Default.(int)
 	// sheepDescCreatedAt is the schema descriptor for created_at field.
-	sheepDescCreatedAt := sheepFields[4].Descriptor()
+	sheepDescCreatedAt := sheepFields[5].Descriptor()
 	// sheep.DefaultCreatedAt holds the default value on creation for the created_at field.
 	sheep.DefaultCreatedAt = sheepDescCreatedAt.Default.(func() time.Time)
 	// sheepDescUpdatedAt is the schema descriptor for updated_at field.
-	sheepDescUpdatedAt := sheepFields[5].Descriptor()
+	sheepDescUpdatedAt := sheepFields[6].Descriptor()
 	// sheep.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	sheep.DefaultUpdatedAt = sheepDescUpdatedAt.Default.(func() time.Time)
 	// sheep.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
@@ -155,8 +159,12 @@ func init() {
 	taskDescPrompt := taskFields[0].Descriptor()
 	// task.PromptValidator is a validator for the "prompt" field. It is called by the builders before save.
 	task.PromptValidator = taskDescPrompt.Validators[0].(func(string) error)
+	// taskDescCostUsd is the schema descriptor for cost_usd field.
+	taskDescCostUsd := taskFields[6].Descriptor()
+	// task.DefaultCostUsd holds the default value on creation for the cost_usd field.
+	task.DefaultCostUsd = taskDescCostUsd.Default.(float64)
 	// taskDescCreatedAt is the schema descriptor for created_at field.
-	taskDescCreatedAt := taskFields[8].Descriptor()
+	taskDescCreatedAt := taskFields[9].Descriptor()
 	// task.DefaultCreatedAt holds the default value on creation for the created_at field.
 	task.DefaultCreatedAt = taskDescCreatedAt.Default.(func() time.Time)
 }

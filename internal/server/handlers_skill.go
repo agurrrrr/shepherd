@@ -10,6 +10,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent"
 	entProject "github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/skill"
 )
 
@@ -265,6 +266,37 @@ func (s *Server) handleExportSkill(c *fiber.Ctx) error {
 	c.Set("Content-Type", "text/markdown; charset=utf-8")
 	c.Set("Content-Disposition", "attachment; filename=\""+sk.Name+".md\"")
 	return c.SendString(md)
+}
+
+// POST /api/skills/sync-all — sync all enabled skills to all projects' .claude/skills/ directories
+func (s *Server) handleSyncAllSkills(c *fiber.Ctx) error {
+	projects, err := project.List()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to list projects: "+err.Error())
+	}
+
+	synced := 0
+	errors := 0
+	for _, p := range projects {
+		skills, err := skill.GetEnabledSkillsForProject(p.Name)
+		if err != nil {
+			errors++
+			continue
+		}
+		for _, sk := range skills {
+			if err := skill.SyncSkillToProject(sk, p.Path); err != nil {
+				errors++
+			} else {
+				synced++
+			}
+		}
+	}
+
+	return success(c, fiber.Map{
+		"synced":   synced,
+		"errors":   errors,
+		"projects": len(projects),
+	})
 }
 
 // skillToMap converts a Skill entity to a response map.

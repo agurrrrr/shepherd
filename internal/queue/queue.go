@@ -233,8 +233,8 @@ func CompleteTask(id int, summary string, filesModified []string) error {
 	return CompleteTaskWithOutput(id, summary, filesModified, nil)
 }
 
-// CompleteTaskWithOutput marks a task as completed with summary, modified files, and output.
-func CompleteTaskWithOutput(id int, summary string, filesModified []string, output []string) error {
+// CompleteTaskWithCost marks a task as completed with summary, modified files, output, and cost.
+func CompleteTaskWithCost(id int, summary string, filesModified []string, output []string, costUSD float64) error {
 	ctx := context.Background()
 	client := db.Client()
 
@@ -248,6 +248,9 @@ func CompleteTaskWithOutput(id int, summary string, filesModified []string, outp
 	if len(output) > 0 {
 		updateQuery = updateQuery.SetOutput(output)
 	}
+	if costUSD > 0 {
+		updateQuery = updateQuery.SetCostUsd(costUSD)
+	}
 
 	count, err := updateQuery.Save(ctx)
 	if err != nil {
@@ -258,6 +261,11 @@ func CompleteTaskWithOutput(id int, summary string, filesModified []string, outp
 	}
 
 	return nil
+}
+
+// CompleteTaskWithOutput marks a task as completed with summary, modified files, and output.
+func CompleteTaskWithOutput(id int, summary string, filesModified []string, output []string) error {
+	return CompleteTaskWithCost(id, summary, filesModified, output, 0)
 }
 
 // FailTask marks a task as failed with an error message.
@@ -460,4 +468,58 @@ func CancelRunningTasks() (int, error) {
 	}
 
 	return count, nil
+}
+
+// GetProjectCostStats returns total cost for a project.
+func GetProjectCostStats(projectName string) (float64, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	tasks, err := client.Task.Query().
+		Where(
+			task.HasProjectWith(project.Name(projectName)),
+			task.StatusEQ(task.StatusCompleted),
+			task.CostUsdGT(0),
+		).
+		All(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query cost: %w", err)
+	}
+
+	var total float64
+	for _, t := range tasks {
+		total += t.CostUsd
+	}
+	return total, nil
+}
+
+// GetTotalCost returns total cost across all tasks.
+func GetTotalCost() (float64, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	tasks, err := client.Task.Query().
+		Where(
+			task.CostUsdGT(0),
+		).
+		All(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query total cost: %w", err)
+	}
+
+	var total float64
+	for _, t := range tasks {
+		total += t.CostUsd
+	}
+	return total, nil
+}
+
+// IsRateLimitError checks if an error message indicates a rate limit.
+func IsRateLimitError(errMsg string) bool {
+	lower := strings.ToLower(errMsg)
+	return strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "hit your limit") ||
+		strings.Contains(lower, "429") ||
+		strings.Contains(lower, "too many requests") ||
+		strings.Contains(lower, "limit exceeded")
 }

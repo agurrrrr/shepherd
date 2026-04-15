@@ -83,6 +83,7 @@ var (
 		{Name: "status", Type: field.TypeEnum, Enums: []string{"idle", "working", "error"}, Default: "idle"},
 		{Name: "session_id", Type: field.TypeString, Nullable: true},
 		{Name: "provider", Type: field.TypeEnum, Enums: []string{"claude", "opencode", "auto"}, Default: "claude"},
+		{Name: "consecutive_failures", Type: field.TypeInt, Default: 0},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "project_sheep", Type: field.TypeInt, Unique: true, Nullable: true},
@@ -95,7 +96,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "sheep_projects_sheep",
-				Columns:    []*schema.Column{SheepColumns[7]},
+				Columns:    []*schema.Column{SheepColumns[8]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -154,6 +155,7 @@ var (
 		{Name: "status", Type: field.TypeEnum, Enums: []string{"pending", "running", "completed", "failed", "stopped"}, Default: "pending"},
 		{Name: "error", Type: field.TypeString, Nullable: true, Size: 2147483647},
 		{Name: "output", Type: field.TypeJSON, Nullable: true},
+		{Name: "cost_usd", Type: field.TypeFloat64, Nullable: true, Default: 0},
 		{Name: "started_at", Type: field.TypeTime, Nullable: true},
 		{Name: "completed_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
@@ -168,13 +170,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "tasks_projects_tasks",
-				Columns:    []*schema.Column{TasksColumns[10]},
+				Columns:    []*schema.Column{TasksColumns[11]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "tasks_sheep_tasks",
-				Columns:    []*schema.Column{TasksColumns[11]},
+				Columns:    []*schema.Column{TasksColumns[12]},
 				RefColumns: []*schema.Column{SheepColumns[0]},
 				OnDelete:   schema.SetNull,
 			},

@@ -35,6 +35,10 @@ func (Task) Fields() []ent.Field {
 		field.JSON("output", []string{}).
 			Optional().
 			Comment("작업 출력 로그"),
+		field.Float("cost_usd").
+			Optional().
+			Default(0).
+			Comment("실행 비용 (USD)"),
 		field.Time("started_at").
 			Optional().
 			Comment("작업 시작 시간"),

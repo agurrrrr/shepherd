@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	MCPVersion  = "2024-11-05"
-	ServerName  = "shepherd"
-	ServerVer   = "0.1.0"
+	MCPVersion = "2024-11-05"
+	ServerName = "shepherd"
+	ServerVer  = "0.1.0"
 )
 
 // JSON-RPC 2.0 structures
@@ -225,6 +225,17 @@ func (s *Server) handleToolsList(req *Request) {
 			InputSchema: InputSchema{
 				Type:       "object",
 				Properties: map[string]Property{},
+			},
+		},
+		{
+			Name:        "skill_load",
+			Description: "Load full content of a skill by name. Use this when you need detailed instructions from a project skill.",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"skill_name": {Type: "string", Description: "Name of the skill to load"},
+				},
+				Required: []string{"skill_name"},
 			},
 		},
 	}

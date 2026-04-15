@@ -135,6 +135,33 @@ func (_u *TaskUpdate) ClearOutput() *TaskUpdate {
 	return _u
 }
 
+// SetCostUsd sets the "cost_usd" field.
+func (_u *TaskUpdate) SetCostUsd(v float64) *TaskUpdate {
+	_u.mutation.ResetCostUsd()
+	_u.mutation.SetCostUsd(v)
+	return _u
+}
+
+// SetNillableCostUsd sets the "cost_usd" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableCostUsd(v *float64) *TaskUpdate {
+	if v != nil {
+		_u.SetCostUsd(*v)
+	}
+	return _u
+}
+
+// AddCostUsd adds value to the "cost_usd" field.
+func (_u *TaskUpdate) AddCostUsd(v float64) *TaskUpdate {
+	_u.mutation.AddCostUsd(v)
+	return _u
+}
+
+// ClearCostUsd clears the value of the "cost_usd" field.
+func (_u *TaskUpdate) ClearCostUsd() *TaskUpdate {
+	_u.mutation.ClearCostUsd()
+	return _u
+}
+
 // SetStartedAt sets the "started_at" field.
 func (_u *TaskUpdate) SetStartedAt(v time.Time) *TaskUpdate {
 	_u.mutation.SetStartedAt(v)
@@ -323,6 +350,15 @@ func (_u *TaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.OutputCleared() {
 		_spec.ClearField(task.FieldOutput, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.CostUsd(); ok {
+		_spec.SetField(task.FieldCostUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedCostUsd(); ok {
+		_spec.AddField(task.FieldCostUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.CostUsdCleared() {
+		_spec.ClearField(task.FieldCostUsd, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)
@@ -515,6 +551,33 @@ func (_u *TaskUpdateOne) AppendOutput(v []string) *TaskUpdateOne {
 // ClearOutput clears the value of the "output" field.
 func (_u *TaskUpdateOne) ClearOutput() *TaskUpdateOne {
 	_u.mutation.ClearOutput()
+	return _u
+}
+
+// SetCostUsd sets the "cost_usd" field.
+func (_u *TaskUpdateOne) SetCostUsd(v float64) *TaskUpdateOne {
+	_u.mutation.ResetCostUsd()
+	_u.mutation.SetCostUsd(v)
+	return _u
+}
+
+// SetNillableCostUsd sets the "cost_usd" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableCostUsd(v *float64) *TaskUpdateOne {
+	if v != nil {
+		_u.SetCostUsd(*v)
+	}
+	return _u
+}
+
+// AddCostUsd adds value to the "cost_usd" field.
+func (_u *TaskUpdateOne) AddCostUsd(v float64) *TaskUpdateOne {
+	_u.mutation.AddCostUsd(v)
+	return _u
+}
+
+// ClearCostUsd clears the value of the "cost_usd" field.
+func (_u *TaskUpdateOne) ClearCostUsd() *TaskUpdateOne {
+	_u.mutation.ClearCostUsd()
 	return _u
 }
 
@@ -736,6 +799,15 @@ func (_u *TaskUpdateOne) sqlSave(ctx context.Context) (_node *Task, err error) {
 	}
 	if _u.mutation.OutputCleared() {
 		_spec.ClearField(task.FieldOutput, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.CostUsd(); ok {
+		_spec.SetField(task.FieldCostUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedCostUsd(); ok {
+		_spec.AddField(task.FieldCostUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.CostUsdCleared() {
+		_spec.ClearField(task.FieldCostUsd, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)

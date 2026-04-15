@@ -32,6 +32,8 @@ type Task struct {
 	Error string `json:"error,omitempty"`
 	// 작업 출력 로그
 	Output []string `json:"output,omitempty"`
+	// 실행 비용 (USD)
+	CostUsd float64 `json:"cost_usd,omitempty"`
 	// 작업 시작 시간
 	StartedAt time.Time `json:"started_at,omitempty"`
 	// 작업 완료 시간
@@ -86,6 +88,8 @@ func (*Task) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case task.FieldFilesModified, task.FieldOutput:
 			values[i] = new([]byte)
+		case task.FieldCostUsd:
+			values[i] = new(sql.NullFloat64)
 		case task.FieldID:
 			values[i] = new(sql.NullInt64)
 		case task.FieldPrompt, task.FieldSummary, task.FieldStatus, task.FieldError:
@@ -156,6 +160,12 @@ func (_m *Task) assignValues(columns []string, values []any) error {
 				if err := json.Unmarshal(*value, &_m.Output); err != nil {
 					return fmt.Errorf("unmarshal field output: %w", err)
 				}
+			}
+		case task.FieldCostUsd:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field cost_usd", values[i])
+			} else if value.Valid {
+				_m.CostUsd = value.Float64
 			}
 		case task.FieldStartedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -252,6 +262,9 @@ func (_m *Task) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("output=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Output))
+	builder.WriteString(", ")
+	builder.WriteString("cost_usd=")
+	builder.WriteString(fmt.Sprintf("%v", _m.CostUsd))
 	builder.WriteString(", ")
 	builder.WriteString("started_at=")
 	builder.WriteString(_m.StartedAt.Format(time.ANSIC))

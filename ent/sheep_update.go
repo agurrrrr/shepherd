@@ -93,6 +93,27 @@ func (_u *SheepUpdate) SetNillableProvider(v *sheep.Provider) *SheepUpdate {
 	return _u
 }
 
+// SetConsecutiveFailures sets the "consecutive_failures" field.
+func (_u *SheepUpdate) SetConsecutiveFailures(v int) *SheepUpdate {
+	_u.mutation.ResetConsecutiveFailures()
+	_u.mutation.SetConsecutiveFailures(v)
+	return _u
+}
+
+// SetNillableConsecutiveFailures sets the "consecutive_failures" field if the given value is not nil.
+func (_u *SheepUpdate) SetNillableConsecutiveFailures(v *int) *SheepUpdate {
+	if v != nil {
+		_u.SetConsecutiveFailures(*v)
+	}
+	return _u
+}
+
+// AddConsecutiveFailures adds value to the "consecutive_failures" field.
+func (_u *SheepUpdate) AddConsecutiveFailures(v int) *SheepUpdate {
+	_u.mutation.AddConsecutiveFailures(v)
+	return _u
+}
+
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *SheepUpdate) SetUpdatedAt(v time.Time) *SheepUpdate {
 	_u.mutation.SetUpdatedAt(v)
@@ -272,6 +293,12 @@ func (_u *SheepUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(sheep.FieldProvider, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.ConsecutiveFailures(); ok {
+		_spec.SetField(sheep.FieldConsecutiveFailures, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedConsecutiveFailures(); ok {
+		_spec.AddField(sheep.FieldConsecutiveFailures, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(sheep.FieldUpdatedAt, field.TypeTime, value)
@@ -458,6 +485,27 @@ func (_u *SheepUpdateOne) SetNillableProvider(v *sheep.Provider) *SheepUpdateOne
 	if v != nil {
 		_u.SetProvider(*v)
 	}
+	return _u
+}
+
+// SetConsecutiveFailures sets the "consecutive_failures" field.
+func (_u *SheepUpdateOne) SetConsecutiveFailures(v int) *SheepUpdateOne {
+	_u.mutation.ResetConsecutiveFailures()
+	_u.mutation.SetConsecutiveFailures(v)
+	return _u
+}
+
+// SetNillableConsecutiveFailures sets the "consecutive_failures" field if the given value is not nil.
+func (_u *SheepUpdateOne) SetNillableConsecutiveFailures(v *int) *SheepUpdateOne {
+	if v != nil {
+		_u.SetConsecutiveFailures(*v)
+	}
+	return _u
+}
+
+// AddConsecutiveFailures adds value to the "consecutive_failures" field.
+func (_u *SheepUpdateOne) AddConsecutiveFailures(v int) *SheepUpdateOne {
+	_u.mutation.AddConsecutiveFailures(v)
 	return _u
 }
 
@@ -670,6 +718,12 @@ func (_u *SheepUpdateOne) sqlSave(ctx context.Context) (_node *Sheep, err error)
 	}
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(sheep.FieldProvider, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.ConsecutiveFailures(); ok {
+		_spec.SetField(sheep.FieldConsecutiveFailures, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedConsecutiveFailures(); ok {
+		_spec.AddField(sheep.FieldConsecutiveFailures, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(sheep.FieldUpdatedAt, field.TypeTime, value)

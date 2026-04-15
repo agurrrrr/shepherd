@@ -9,6 +9,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/queue"
+	"github.com/agurrrrr/shepherd/internal/skill"
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
 
@@ -19,6 +20,7 @@ func (s *Server) registerTools() {
 	s.tools["task_error"] = handleTaskError
 	s.tools["get_history"] = handleGetHistory
 	s.tools["get_status"] = handleGetStatus
+	s.tools["skill_load"] = handleSkillLoad
 
 	// 브라우저 도구 등록 (minimal 모드에서는 제외)
 	if !s.minimal {
@@ -236,4 +238,46 @@ func truncateString(s string, maxLen int) string {
 		return s[:maxLen] + "..."
 	}
 	return s
+}
+
+func handleSkillLoad(args map[string]interface{}) (string, error) {
+	skillName, _ := args["skill_name"].(string)
+	if skillName == "" {
+		return "", fmt.Errorf("skill_name is required")
+	}
+
+	// Search all skills by name
+	skills, err := skill.ListAll()
+	if err != nil {
+		return "", fmt.Errorf("failed to list skills: %w", err)
+	}
+
+	for _, sk := range skills {
+		if sk.Name == skillName {
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("# %s\n", sk.Name))
+			if sk.Description != "" {
+				sb.WriteString(fmt.Sprintf("Description: %s\n", sk.Description))
+			}
+			if sk.Effort != "" {
+				sb.WriteString(fmt.Sprintf("Effort: %s\n", sk.Effort))
+			}
+			if sk.MaxTurns > 0 {
+				sb.WriteString(fmt.Sprintf("Max turns: %d\n", sk.MaxTurns))
+			}
+			if len(sk.DisallowedTools) > 0 {
+				sb.WriteString(fmt.Sprintf("Disallowed tools: %s\n", strings.Join(sk.DisallowedTools, ", ")))
+			}
+			sb.WriteString("\n")
+			sb.WriteString(sk.Content)
+			return sb.String(), nil
+		}
+	}
+
+	// List available skills for better error message
+	var names []string
+	for _, sk := range skills {
+		names = append(names, sk.Name)
+	}
+	return "", fmt.Errorf("skill '%s' not found. Available skills: %s", skillName, strings.Join(names, ", "))
 }

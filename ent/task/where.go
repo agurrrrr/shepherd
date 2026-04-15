@@ -70,6 +70,11 @@ func Error(v string) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldError, v))
 }
 
+// CostUsd applies equality check predicate on the "cost_usd" field. It's identical to CostUsdEQ.
+func CostUsd(v float64) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCostUsd, v))
+}
+
 // StartedAt applies equality check predicate on the "started_at" field. It's identical to StartedAtEQ.
 func StartedAt(v time.Time) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldStartedAt, v))
@@ -338,6 +343,56 @@ func OutputIsNil() predicate.Task {
 // OutputNotNil applies the NotNil predicate on the "output" field.
 func OutputNotNil() predicate.Task {
 	return predicate.Task(sql.FieldNotNull(FieldOutput))
+}
+
+// CostUsdEQ applies the EQ predicate on the "cost_usd" field.
+func CostUsdEQ(v float64) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCostUsd, v))
+}
+
+// CostUsdNEQ applies the NEQ predicate on the "cost_usd" field.
+func CostUsdNEQ(v float64) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldCostUsd, v))
+}
+
+// CostUsdIn applies the In predicate on the "cost_usd" field.
+func CostUsdIn(vs ...float64) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldCostUsd, vs...))
+}
+
+// CostUsdNotIn applies the NotIn predicate on the "cost_usd" field.
+func CostUsdNotIn(vs ...float64) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldCostUsd, vs...))
+}
+
+// CostUsdGT applies the GT predicate on the "cost_usd" field.
+func CostUsdGT(v float64) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldCostUsd, v))
+}
+
+// CostUsdGTE applies the GTE predicate on the "cost_usd" field.
+func CostUsdGTE(v float64) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldCostUsd, v))
+}
+
+// CostUsdLT applies the LT predicate on the "cost_usd" field.
+func CostUsdLT(v float64) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldCostUsd, v))
+}
+
+// CostUsdLTE applies the LTE predicate on the "cost_usd" field.
+func CostUsdLTE(v float64) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldCostUsd, v))
+}
+
+// CostUsdIsNil applies the IsNil predicate on the "cost_usd" field.
+func CostUsdIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldCostUsd))
+}
+
+// CostUsdNotNil applies the NotNil predicate on the "cost_usd" field.
+func CostUsdNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldCostUsd))
 }
 
 // StartedAtEQ applies the EQ predicate on the "started_at" field.

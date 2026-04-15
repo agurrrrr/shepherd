@@ -27,6 +27,8 @@ const (
 	FieldError = "error"
 	// FieldOutput holds the string denoting the output field in the database.
 	FieldOutput = "output"
+	// FieldCostUsd holds the string denoting the cost_usd field in the database.
+	FieldCostUsd = "cost_usd"
 	// FieldStartedAt holds the string denoting the started_at field in the database.
 	FieldStartedAt = "started_at"
 	// FieldCompletedAt holds the string denoting the completed_at field in the database.
@@ -64,6 +66,7 @@ var Columns = []string{
 	FieldStatus,
 	FieldError,
 	FieldOutput,
+	FieldCostUsd,
 	FieldStartedAt,
 	FieldCompletedAt,
 	FieldCreatedAt,
@@ -94,6 +97,8 @@ func ValidColumn(column string) bool {
 var (
 	// PromptValidator is a validator for the "prompt" field. It is called by the builders before save.
 	PromptValidator func(string) error
+	// DefaultCostUsd holds the default value on creation for the "cost_usd" field.
+	DefaultCostUsd float64
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 )
@@ -153,6 +158,11 @@ func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 // ByError orders the results by the error field.
 func ByError(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldError, opts...).ToFunc()
+}
+
+// ByCostUsd orders the results by the cost_usd field.
+func ByCostUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCostUsd, opts...).ToFunc()
 }
 
 // ByStartedAt orders the results by the started_at field.

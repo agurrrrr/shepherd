@@ -2550,26 +2550,28 @@ func (m *ScheduleMutation) ResetEdge(name string) error {
 // SheepMutation represents an operation that mutates the Sheep nodes in the graph.
 type SheepMutation struct {
 	config
-	op                     Op
-	typ                    string
-	id                     *int
-	name                   *string
-	status                 *sheep.Status
-	session_id             *string
-	provider               *sheep.Provider
-	created_at             *time.Time
-	updated_at             *time.Time
-	clearedFields          map[string]struct{}
-	project                *int
-	clearedproject         bool
-	tasks                  map[int]struct{}
-	removedtasks           map[int]struct{}
-	clearedtasks           bool
-	browser_session        *int
-	clearedbrowser_session bool
-	done                   bool
-	oldValue               func(context.Context) (*Sheep, error)
-	predicates             []predicate.Sheep
+	op                      Op
+	typ                     string
+	id                      *int
+	name                    *string
+	status                  *sheep.Status
+	session_id              *string
+	provider                *sheep.Provider
+	consecutive_failures    *int
+	addconsecutive_failures *int
+	created_at              *time.Time
+	updated_at              *time.Time
+	clearedFields           map[string]struct{}
+	project                 *int
+	clearedproject          bool
+	tasks                   map[int]struct{}
+	removedtasks            map[int]struct{}
+	clearedtasks            bool
+	browser_session         *int
+	clearedbrowser_session  bool
+	done                    bool
+	oldValue                func(context.Context) (*Sheep, error)
+	predicates              []predicate.Sheep
 }
 
 var _ ent.Mutation = (*SheepMutation)(nil)
@@ -2827,6 +2829,62 @@ func (m *SheepMutation) ResetProvider() {
 	m.provider = nil
 }
 
+// SetConsecutiveFailures sets the "consecutive_failures" field.
+func (m *SheepMutation) SetConsecutiveFailures(i int) {
+	m.consecutive_failures = &i
+	m.addconsecutive_failures = nil
+}
+
+// ConsecutiveFailures returns the value of the "consecutive_failures" field in the mutation.
+func (m *SheepMutation) ConsecutiveFailures() (r int, exists bool) {
+	v := m.consecutive_failures
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConsecutiveFailures returns the old "consecutive_failures" field's value of the Sheep entity.
+// If the Sheep object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SheepMutation) OldConsecutiveFailures(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConsecutiveFailures is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConsecutiveFailures requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConsecutiveFailures: %w", err)
+	}
+	return oldValue.ConsecutiveFailures, nil
+}
+
+// AddConsecutiveFailures adds i to the "consecutive_failures" field.
+func (m *SheepMutation) AddConsecutiveFailures(i int) {
+	if m.addconsecutive_failures != nil {
+		*m.addconsecutive_failures += i
+	} else {
+		m.addconsecutive_failures = &i
+	}
+}
+
+// AddedConsecutiveFailures returns the value that was added to the "consecutive_failures" field in this mutation.
+func (m *SheepMutation) AddedConsecutiveFailures() (r int, exists bool) {
+	v := m.addconsecutive_failures
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetConsecutiveFailures resets all changes to the "consecutive_failures" field.
+func (m *SheepMutation) ResetConsecutiveFailures() {
+	m.consecutive_failures = nil
+	m.addconsecutive_failures = nil
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *SheepMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -3065,7 +3123,7 @@ func (m *SheepMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *SheepMutation) Fields() []string {
-	fields := make([]string, 0, 6)
+	fields := make([]string, 0, 7)
 	if m.name != nil {
 		fields = append(fields, sheep.FieldName)
 	}
@@ -3077,6 +3135,9 @@ func (m *SheepMutation) Fields() []string {
 	}
 	if m.provider != nil {
 		fields = append(fields, sheep.FieldProvider)
+	}
+	if m.consecutive_failures != nil {
+		fields = append(fields, sheep.FieldConsecutiveFailures)
 	}
 	if m.created_at != nil {
 		fields = append(fields, sheep.FieldCreatedAt)
@@ -3100,6 +3161,8 @@ func (m *SheepMutation) Field(name string) (ent.Value, bool) {
 		return m.SessionID()
 	case sheep.FieldProvider:
 		return m.Provider()
+	case sheep.FieldConsecutiveFailures:
+		return m.ConsecutiveFailures()
 	case sheep.FieldCreatedAt:
 		return m.CreatedAt()
 	case sheep.FieldUpdatedAt:
@@ -3121,6 +3184,8 @@ func (m *SheepMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldSessionID(ctx)
 	case sheep.FieldProvider:
 		return m.OldProvider(ctx)
+	case sheep.FieldConsecutiveFailures:
+		return m.OldConsecutiveFailures(ctx)
 	case sheep.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	case sheep.FieldUpdatedAt:
@@ -3162,6 +3227,13 @@ func (m *SheepMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetProvider(v)
 		return nil
+	case sheep.FieldConsecutiveFailures:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConsecutiveFailures(v)
+		return nil
 	case sheep.FieldCreatedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -3183,13 +3255,21 @@ func (m *SheepMutation) SetField(name string, value ent.Value) error {
 // AddedFields returns all numeric fields that were incremented/decremented during
 // this mutation.
 func (m *SheepMutation) AddedFields() []string {
-	return nil
+	var fields []string
+	if m.addconsecutive_failures != nil {
+		fields = append(fields, sheep.FieldConsecutiveFailures)
+	}
+	return fields
 }
 
 // AddedField returns the numeric value that was incremented/decremented on a field
 // with the given name. The second boolean return value indicates that this field
 // was not set, or was not defined in the schema.
 func (m *SheepMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case sheep.FieldConsecutiveFailures:
+		return m.AddedConsecutiveFailures()
+	}
 	return nil, false
 }
 
@@ -3198,6 +3278,13 @@ func (m *SheepMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *SheepMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case sheep.FieldConsecutiveFailures:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddConsecutiveFailures(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Sheep numeric field %s", name)
 }
@@ -3245,6 +3332,9 @@ func (m *SheepMutation) ResetField(name string) error {
 		return nil
 	case sheep.FieldProvider:
 		m.ResetProvider()
+		return nil
+	case sheep.FieldConsecutiveFailures:
+		m.ResetConsecutiveFailures()
 		return nil
 	case sheep.FieldCreatedAt:
 		m.ResetCreatedAt()
@@ -5016,6 +5106,8 @@ type TaskMutation struct {
 	error                *string
 	output               *[]string
 	appendoutput         []string
+	cost_usd             *float64
+	addcost_usd          *float64
 	started_at           *time.Time
 	completed_at         *time.Time
 	created_at           *time.Time
@@ -5427,6 +5519,76 @@ func (m *TaskMutation) ResetOutput() {
 	delete(m.clearedFields, task.FieldOutput)
 }
 
+// SetCostUsd sets the "cost_usd" field.
+func (m *TaskMutation) SetCostUsd(f float64) {
+	m.cost_usd = &f
+	m.addcost_usd = nil
+}
+
+// CostUsd returns the value of the "cost_usd" field in the mutation.
+func (m *TaskMutation) CostUsd() (r float64, exists bool) {
+	v := m.cost_usd
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCostUsd returns the old "cost_usd" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldCostUsd(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCostUsd is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCostUsd requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCostUsd: %w", err)
+	}
+	return oldValue.CostUsd, nil
+}
+
+// AddCostUsd adds f to the "cost_usd" field.
+func (m *TaskMutation) AddCostUsd(f float64) {
+	if m.addcost_usd != nil {
+		*m.addcost_usd += f
+	} else {
+		m.addcost_usd = &f
+	}
+}
+
+// AddedCostUsd returns the value that was added to the "cost_usd" field in this mutation.
+func (m *TaskMutation) AddedCostUsd() (r float64, exists bool) {
+	v := m.addcost_usd
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearCostUsd clears the value of the "cost_usd" field.
+func (m *TaskMutation) ClearCostUsd() {
+	m.cost_usd = nil
+	m.addcost_usd = nil
+	m.clearedFields[task.FieldCostUsd] = struct{}{}
+}
+
+// CostUsdCleared returns if the "cost_usd" field was cleared in this mutation.
+func (m *TaskMutation) CostUsdCleared() bool {
+	_, ok := m.clearedFields[task.FieldCostUsd]
+	return ok
+}
+
+// ResetCostUsd resets all changes to the "cost_usd" field.
+func (m *TaskMutation) ResetCostUsd() {
+	m.cost_usd = nil
+	m.addcost_usd = nil
+	delete(m.clearedFields, task.FieldCostUsd)
+}
+
 // SetStartedAt sets the "started_at" field.
 func (m *TaskMutation) SetStartedAt(t time.Time) {
 	m.started_at = &t
@@ -5673,7 +5835,7 @@ func (m *TaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *TaskMutation) Fields() []string {
-	fields := make([]string, 0, 9)
+	fields := make([]string, 0, 10)
 	if m.prompt != nil {
 		fields = append(fields, task.FieldPrompt)
 	}
@@ -5691,6 +5853,9 @@ func (m *TaskMutation) Fields() []string {
 	}
 	if m.output != nil {
 		fields = append(fields, task.FieldOutput)
+	}
+	if m.cost_usd != nil {
+		fields = append(fields, task.FieldCostUsd)
 	}
 	if m.started_at != nil {
 		fields = append(fields, task.FieldStartedAt)
@@ -5721,6 +5886,8 @@ func (m *TaskMutation) Field(name string) (ent.Value, bool) {
 		return m.Error()
 	case task.FieldOutput:
 		return m.Output()
+	case task.FieldCostUsd:
+		return m.CostUsd()
 	case task.FieldStartedAt:
 		return m.StartedAt()
 	case task.FieldCompletedAt:
@@ -5748,6 +5915,8 @@ func (m *TaskMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldError(ctx)
 	case task.FieldOutput:
 		return m.OldOutput(ctx)
+	case task.FieldCostUsd:
+		return m.OldCostUsd(ctx)
 	case task.FieldStartedAt:
 		return m.OldStartedAt(ctx)
 	case task.FieldCompletedAt:
@@ -5805,6 +5974,13 @@ func (m *TaskMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetOutput(v)
 		return nil
+	case task.FieldCostUsd:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCostUsd(v)
+		return nil
 	case task.FieldStartedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -5833,13 +6009,21 @@ func (m *TaskMutation) SetField(name string, value ent.Value) error {
 // AddedFields returns all numeric fields that were incremented/decremented during
 // this mutation.
 func (m *TaskMutation) AddedFields() []string {
-	return nil
+	var fields []string
+	if m.addcost_usd != nil {
+		fields = append(fields, task.FieldCostUsd)
+	}
+	return fields
 }
 
 // AddedField returns the numeric value that was incremented/decremented on a field
 // with the given name. The second boolean return value indicates that this field
 // was not set, or was not defined in the schema.
 func (m *TaskMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case task.FieldCostUsd:
+		return m.AddedCostUsd()
+	}
 	return nil, false
 }
 
@@ -5848,6 +6032,13 @@ func (m *TaskMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *TaskMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case task.FieldCostUsd:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCostUsd(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Task numeric field %s", name)
 }
@@ -5867,6 +6058,9 @@ func (m *TaskMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(task.FieldOutput) {
 		fields = append(fields, task.FieldOutput)
+	}
+	if m.FieldCleared(task.FieldCostUsd) {
+		fields = append(fields, task.FieldCostUsd)
 	}
 	if m.FieldCleared(task.FieldStartedAt) {
 		fields = append(fields, task.FieldStartedAt)
@@ -5900,6 +6094,9 @@ func (m *TaskMutation) ClearField(name string) error {
 	case task.FieldOutput:
 		m.ClearOutput()
 		return nil
+	case task.FieldCostUsd:
+		m.ClearCostUsd()
+		return nil
 	case task.FieldStartedAt:
 		m.ClearStartedAt()
 		return nil
@@ -5931,6 +6128,9 @@ func (m *TaskMutation) ResetField(name string) error {
 		return nil
 	case task.FieldOutput:
 		m.ResetOutput()
+		return nil
+	case task.FieldCostUsd:
+		m.ResetCostUsd()
 		return nil
 	case task.FieldStartedAt:
 		m.ResetStartedAt()

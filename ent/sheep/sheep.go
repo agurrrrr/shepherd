@@ -23,6 +23,8 @@ const (
 	FieldSessionID = "session_id"
 	// FieldProvider holds the string denoting the provider field in the database.
 	FieldProvider = "provider"
+	// FieldConsecutiveFailures holds the string denoting the consecutive_failures field in the database.
+	FieldConsecutiveFailures = "consecutive_failures"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
@@ -65,6 +67,7 @@ var Columns = []string{
 	FieldStatus,
 	FieldSessionID,
 	FieldProvider,
+	FieldConsecutiveFailures,
 	FieldCreatedAt,
 	FieldUpdatedAt,
 }
@@ -93,6 +96,8 @@ func ValidColumn(column string) bool {
 var (
 	// NameValidator is a validator for the "name" field. It is called by the builders before save.
 	NameValidator func(string) error
+	// DefaultConsecutiveFailures holds the default value on creation for the "consecutive_failures" field.
+	DefaultConsecutiveFailures int
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
@@ -181,6 +186,11 @@ func BySessionID(opts ...sql.OrderTermOption) OrderOption {
 // ByProvider orders the results by the provider field.
 func ByProvider(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProvider, opts...).ToFunc()
+}
+
+// ByConsecutiveFailures orders the results by the consecutive_failures field.
+func ByConsecutiveFailures(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldConsecutiveFailures, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

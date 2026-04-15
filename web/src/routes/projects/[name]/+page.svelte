@@ -178,6 +178,33 @@
 		tasksLoaded = true;
 	}
 
+	let retryingId = $state(null);
+	let retryFromId = $state(null);
+
+	async function retryTask(e, taskId) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (retryingId) return;
+		retryingId = taskId;
+		const res = await apiPost(`/api/tasks/${taskId}/retry`);
+		retryingId = null;
+		if (res?.success) {
+			loadTasks();
+		}
+	}
+
+	async function retryFromTask(e, taskId) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (retryFromId) return;
+		retryFromId = taskId;
+		const res = await apiPost(`/api/tasks/${taskId}/retry-from`);
+		retryFromId = null;
+		if (res?.success) {
+			loadTasks();
+		}
+	}
+
 	function switchTab(tab) {
 		activeTab = tab;
 		if (tab === 'history' && !tasksLoaded) {
@@ -440,6 +467,16 @@
 										<span class="task-id mono">#{t.id}</span>
 										<StatusBadge status={t.status} />
 										<span class="task-prompt-text">{truncate(t.prompt, 80)}</span>
+										{#if t.status === 'failed' || t.status === 'stopped'}
+											<button class="retry-btn" onclick={(e) => retryTask(e, t.id)}
+												disabled={retryingId === t.id}>
+												{retryingId === t.id ? '...' : 'Retry'}
+											</button>
+											<button class="retry-from-btn" onclick={(e) => retryFromTask(e, t.id)}
+												disabled={retryFromId === t.id}>
+												{retryFromId === t.id ? '...' : 'Retry All'}
+											</button>
+										{/if}
 										<span class="task-time mono">{formatTime(t.created_at)}</span>
 									</div>
 									{#if t.summary}
@@ -848,6 +885,29 @@
 		color: var(--text-secondary);
 		margin-top: 4px;
 		line-height: 1.4;
+	}
+
+	.retry-btn, .retry-from-btn {
+		padding: 2px 8px;
+		font-size: 11px;
+		font-weight: 600;
+		border: 1px solid var(--border-color, #444);
+		border-radius: 4px;
+		background: transparent;
+		color: var(--accent);
+		cursor: pointer;
+		flex-shrink: 0;
+		transition: background 0.15s, opacity 0.15s;
+	}
+	.retry-btn:hover, .retry-from-btn:hover {
+		background: var(--bg-tertiary, #2a2a2a);
+	}
+	.retry-btn:disabled, .retry-from-btn:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	.retry-from-btn {
+		color: var(--text-secondary, #888);
 	}
 
 	/* Command bar: fixed at bottom */

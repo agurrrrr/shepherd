@@ -76,14 +76,15 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 	}
 
 	type taskItem struct {
-		ID        int    `json:"id"`
-		Prompt    string `json:"prompt"`
-		Status    string `json:"status"`
-		Summary   string `json:"summary,omitempty"`
-		Error     string `json:"error,omitempty"`
-		Sheep     string `json:"sheep,omitempty"`
-		Project   string `json:"project,omitempty"`
-		CreatedAt string `json:"created_at"`
+		ID        int     `json:"id"`
+		Prompt    string  `json:"prompt"`
+		Status    string  `json:"status"`
+		Summary   string  `json:"summary,omitempty"`
+		Error     string  `json:"error,omitempty"`
+		CostUSD   float64 `json:"cost_usd,omitempty"`
+		Sheep     string  `json:"sheep,omitempty"`
+		Project   string  `json:"project,omitempty"`
+		CreatedAt string  `json:"created_at"`
 	}
 
 	var items []taskItem
@@ -94,6 +95,7 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 			Status:    string(t.Status),
 			Summary:   t.Summary,
 			Error:     t.Error,
+			CostUSD:   t.CostUsd,
 			CreatedAt: t.CreatedAt.Format("2006-01-02 15:04:05"),
 		}
 		if t.Edges.Sheep != nil {
@@ -217,6 +219,7 @@ func (s *Server) handleGetTask(c *fiber.Ctx) error {
 		"error":          t.Error,
 		"files_modified": t.FilesModified,
 		"output":         t.Output,
+		"cost_usd":       t.CostUsd,
 		"created_at":     t.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 	if !t.StartedAt.IsZero() {
@@ -268,6 +271,127 @@ func (s *Server) handleStopTask(c *fiber.Ctx) error {
 	return success(c, map[string]interface{}{
 		"task_id": id,
 		"stopped": true,
+	})
+}
+
+// POST /api/tasks/:id/retry
+func (s *Server) handleRetryTask(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid task ID")
+	}
+
+	t, err := queue.GetTask(id)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, err.Error())
+	}
+
+	if t.Status != entTask.StatusFailed && t.Status != entTask.StatusStopped {
+		return fail(c, fiber.StatusBadRequest, "only failed or stopped tasks can be retried")
+	}
+
+	if t.Edges.Sheep == nil {
+		return fail(c, fiber.StatusInternalServerError, "task has no assigned sheep")
+	}
+
+	// Reset circuit breaker on manual retry
+	queue.ResetCircuitBreaker(t.Edges.Sheep.Name)
+
+	var projectID int
+	if t.Edges.Project != nil {
+		projectID = t.Edges.Project.ID
+	}
+
+	var newTask *ent.Task
+	if projectID > 0 {
+		newTask, err = queue.CreateTask(t.Prompt, t.Edges.Sheep.ID, projectID)
+	} else {
+		newTask, err = queue.CreateManagerTask(t.Prompt, t.Edges.Sheep.ID)
+	}
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	if s.processor != nil {
+		s.processor.ProcessPendingNow()
+	}
+
+	return success(c, map[string]interface{}{
+		"task_id":          newTask.ID,
+		"original_task_id": id,
+		"sheep_name":       t.Edges.Sheep.Name,
+	})
+}
+
+// POST /api/tasks/:id/retry-from
+// Retries all failed/stopped tasks from this task ID onwards (inclusive) for the same project
+func (s *Server) handleRetryFromTask(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid task ID")
+	}
+
+	t, err := queue.GetTask(id)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, err.Error())
+	}
+
+	if t.Edges.Project == nil {
+		return fail(c, fiber.StatusBadRequest, "task has no project")
+	}
+
+	// Find all failed/stopped tasks for this project with ID >= given ID, ordered by ID asc
+	ctx := context.Background()
+	client := db.Client()
+	failedTasks, err := client.Task.Query().
+		Where(
+			entTask.IDGTE(id),
+			entTask.HasProjectWith(entProject.ID(t.Edges.Project.ID)),
+			entTask.Or(
+				entTask.StatusEQ(entTask.StatusFailed),
+				entTask.StatusEQ(entTask.StatusStopped),
+			),
+		).
+		WithSheep().
+		WithProject().
+		Order(ent.Asc(entTask.FieldID)).
+		All(ctx)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	if len(failedTasks) == 0 {
+		return fail(c, fiber.StatusNotFound, "no failed tasks found from this ID")
+	}
+
+	var createdIDs []int
+	for _, ft := range failedTasks {
+		if ft.Edges.Sheep == nil {
+			continue
+		}
+		var projectID int
+		if ft.Edges.Project != nil {
+			projectID = ft.Edges.Project.ID
+		}
+		var newTask *ent.Task
+		if projectID > 0 {
+			newTask, err = queue.CreateTask(ft.Prompt, ft.Edges.Sheep.ID, projectID)
+		} else {
+			newTask, err = queue.CreateManagerTask(ft.Prompt, ft.Edges.Sheep.ID)
+		}
+		if err != nil {
+			continue
+		}
+		createdIDs = append(createdIDs, newTask.ID)
+	}
+
+	if s.processor != nil {
+		s.processor.ProcessPendingNow()
+	}
+
+	return success(c, map[string]interface{}{
+		"created_tasks": createdIDs,
+		"count":         len(createdIDs),
 	})
 }
 

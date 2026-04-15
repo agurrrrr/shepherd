@@ -27,6 +27,8 @@ type Sheep struct {
 	SessionID string `json:"session_id,omitempty"`
 	// AI provider (claude, opencode, auto)
 	Provider sheep.Provider `json:"provider,omitempty"`
+	// 연속 실패 횟수 (서킷 브레이커)
+	ConsecutiveFailures int `json:"consecutive_failures,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
@@ -87,7 +89,7 @@ func (*Sheep) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case sheep.FieldID:
+		case sheep.FieldID, sheep.FieldConsecutiveFailures:
 			values[i] = new(sql.NullInt64)
 		case sheep.FieldName, sheep.FieldStatus, sheep.FieldSessionID, sheep.FieldProvider:
 			values[i] = new(sql.NullString)
@@ -139,6 +141,12 @@ func (_m *Sheep) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field provider", values[i])
 			} else if value.Valid {
 				_m.Provider = sheep.Provider(value.String)
+			}
+		case sheep.FieldConsecutiveFailures:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field consecutive_failures", values[i])
+			} else if value.Valid {
+				_m.ConsecutiveFailures = int(value.Int64)
 			}
 		case sheep.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -221,6 +229,9 @@ func (_m *Sheep) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("provider=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Provider))
+	builder.WriteString(", ")
+	builder.WriteString("consecutive_failures=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ConsecutiveFailures))
 	builder.WriteString(", ")
 	builder.WriteString("created_at=")
 	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))

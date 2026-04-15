@@ -38,12 +38,12 @@ type InteractiveOptions struct {
 
 // RunningTask contains information about a running task
 type RunningTask struct {
-	SheepName    string
-	Cancel       context.CancelFunc
-	Cmd          *exec.Cmd
-	TaskID       int
-	OutputLines  []string
-	outputMu     sync.Mutex
+	SheepName   string
+	Cancel      context.CancelFunc
+	Cmd         *exec.Cmd
+	TaskID      int
+	OutputLines []string
+	outputMu    sync.Mutex
 }
 
 // Running task management
@@ -267,7 +267,6 @@ func executeWithClaude(ctx context.Context, sheepName, projectPath, sessionID, p
 	}
 	return executeInteractiveWithPty(ctx, sheepName, projectPath, sessionID, prompt, opts, cancel)
 }
-
 
 // executeWithOpenCode runs tasks via OpenCode CLI.
 func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID, prompt string, opts InteractiveOptions, cancel context.CancelFunc) (*ExecuteResult, error) {
@@ -562,7 +561,6 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 	return result
 }
 
-
 // IsQuestionError checks if the error is a question stop error
 // (Claude used AskUserQuestion and the task was stopped).
 func IsQuestionError(err error) bool {
@@ -600,6 +598,7 @@ func buildPromptCompact(sheepName, prompt string) string {
 	if config.GetBool("include_mcp_guide") {
 		sb.WriteString(`[Available Shepherd MCP Tools]
 Task management: task_complete (task_id, summary), task_error (task_id, error), get_history (project_name, limit), get_status
+Skills: skill_load (skill_name) - load full skill content when needed
 Browser automation: browser_session_start (sheep_name), browser_open, browser_click, browser_type, browser_get_text, browser_get_html, browser_screenshot, browser_session_stop
 For web tasks, use browser tools instead of WebFetch.
 
@@ -616,14 +615,14 @@ For web tasks, use browser tools instead of WebFetch.
 	}
 
 	if sheepName != "" {
-		if skillsText := getProjectSkills(sheepName); skillsText != "" {
+		if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
 			sb.WriteString(skillsText)
 			sb.WriteString("\n")
 		}
 	}
 
 	if config.GetBool("include_mcp_guide") {
-		sb.WriteString("If you need details of previous tasks, use get_history tool.\n")
+		sb.WriteString("If you need details of previous tasks, use get_history tool.\nFor full skill content, use skill_load MCP tool.\n")
 	}
 
 	return sb.String()
@@ -651,6 +650,9 @@ Task management:
 - get_history: Query project task history (project_name, limit)
 - get_status: Get overall system status
 
+Skills:
+- skill_load: Load full content of a skill by name (use when you need detailed instructions)
+
 Browser automation (PREFERRED over WebFetch for web tasks):
 - browser_session_start, browser_session_stop, browser_open, browser_close
 - browser_click, browser_type, browser_select, browser_check, browser_hover
@@ -672,8 +674,25 @@ For web search/crawling tasks, use browser tools instead of WebFetch.
 		}
 	}
 
+	// Inject project skills (summary only - use skill_load MCP tool for full content)
 	if sheepName != "" {
-		if skillsText := getProjectSkills(sheepName); skillsText != "" {
+		if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
+			sb.WriteString(skillsText)
+			sb.WriteString("\n")
+		}
+	}
+
+	if config.GetBool("include_task_history") {
+		if sheepName != "" {
+			if ctx := getRecentTaskContext(sheepName); ctx != "" {
+				sb.WriteString(ctx)
+				sb.WriteString("\n")
+			}
+		}
+	}
+
+	if sheepName != "" {
+		if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
 			sb.WriteString(skillsText)
 			sb.WriteString("\n")
 		}
@@ -717,6 +736,9 @@ Task management:
 - get_history: Query project task history (project_name, limit)
 - get_status: Get overall system status
 
+Skills:
+- skill_load: Load full content of a skill by name (use when you need detailed instructions)
+
 Browser automation (PREFERRED over WebFetch for web tasks):
 - browser_session_start: Start browser session (sheep_name required)
 - browser_session_stop: End browser session (sheep_name)
@@ -759,9 +781,9 @@ IMPORTANT: For web search/crawling tasks, use browser tools instead of WebFetch.
 		}
 	}
 
-	// Inject project skills
+	// Inject project skills (summary only - use skill_load MCP tool for full content)
 	if sheepName != "" {
-		if skillsText := getProjectSkills(sheepName); skillsText != "" {
+		if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
 			sb.WriteString(skillsText)
 			sb.WriteString("\n")
 		}
@@ -874,21 +896,10 @@ func getRecentTaskContextCompact(sheepName string) string {
 	return sb.String()
 }
 
-// getProjectSkills returns formatted skill content for prompt injection.
+// getProjectSkills returns formatted skill content for prompt injection (full version).
 func getProjectSkills(sheepName string) string {
-	bgCtx := context.Background()
-	client := db.Client()
-
-	s, err := client.Sheep.Query().
-		Where(sheep.Name(sheepName)).
-		WithProject().
-		Only(bgCtx)
-	if err != nil || s.Edges.Project == nil {
-		return ""
-	}
-
-	skills, err := skill.GetEnabledSkillsForProject(s.Edges.Project.Name)
-	if err != nil || len(skills) == 0 {
+	skills := getSkillsForSheep(sheepName)
+	if len(skills) == 0 {
 		return ""
 	}
 
@@ -903,6 +914,46 @@ func getProjectSkills(sheepName string) string {
 		sb.WriteString("\n\n")
 	}
 	return sb.String()
+}
+
+// getProjectSkillsSummary returns a compact skill list (name + description only).
+// Full content can be retrieved via MCP skill_load tool if needed.
+func getProjectSkillsSummary(sheepName string) string {
+	skills := getSkillsForSheep(sheepName)
+	if len(skills) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[Project Skills - use skill_load MCP tool for full content]\n")
+	for _, sk := range skills {
+		desc := sk.Description
+		if desc == "" {
+			desc = truncateStr(sk.Content, 60)
+		}
+		sb.WriteString(fmt.Sprintf("- %s: %s\n", sk.Name, desc))
+	}
+	return sb.String()
+}
+
+// getSkillsForSheep returns enabled skills for the sheep's project.
+func getSkillsForSheep(sheepName string) []*ent.Skill {
+	bgCtx := context.Background()
+	client := db.Client()
+
+	s, err := client.Sheep.Query().
+		Where(sheep.Name(sheepName)).
+		WithProject().
+		Only(bgCtx)
+	if err != nil || s.Edges.Project == nil {
+		return nil
+	}
+
+	skills, err := skill.GetEnabledSkillsForProject(s.Edges.Project.Name)
+	if err != nil || len(skills) == 0 {
+		return nil
+	}
+	return skills
 }
 
 // truncateStr truncates a string to maxLen runes.
@@ -1396,12 +1447,12 @@ func isInputPrompt(line string) bool {
 
 	// Claude Code's actual input prompt patterns (exact matching)
 	exactPrompts := []string{
-		"❯",                    // Menu selection cursor
-		"> ",                   // Default input prompt (trailing space)
-		"? ",                   // Question prompt
-		"Enter to confirm",     // Confirmation prompt
-		"Esc to cancel",        // Cancel prompt
-		"to confirm · Esc",     // Confirm/cancel prompt
+		"❯",                // Menu selection cursor
+		"> ",               // Default input prompt (trailing space)
+		"? ",               // Question prompt
+		"Enter to confirm", // Confirmation prompt
+		"Esc to cancel",    // Cancel prompt
+		"to confirm · Esc", // Confirm/cancel prompt
 	}
 
 	for _, pattern := range exactPrompts {
