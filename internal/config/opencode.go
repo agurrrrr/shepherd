@@ -177,6 +177,66 @@ func ReadOpenCodeNativeModel() string {
 	return nativeConfig.Model
 }
 
+// OpenCodeModelOption describes a single selectable OpenCode model.
+type OpenCodeModelOption struct {
+	ID    string `json:"id"`    // "<provider>/<model_key>" — passed to `opencode run -m`
+	Label string `json:"label"` // human-readable display name
+}
+
+// ListOpenCodeModels returns the list of models defined in OpenCode's native
+// config.json (custom providers defined by the user). The currently-selected
+// `model` field is also included at the top of the list so users can keep
+// using it even if it points to a built-in provider not declared under
+// `provider.*.models.*`.
+func ListOpenCodeModels() []OpenCodeModelOption {
+	configPath := OpenCodeNativeConfigPath()
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil
+	}
+
+	var raw struct {
+		Model    string `json:"model"`
+		Provider map[string]struct {
+			Name   string `json:"name"`
+			Models map[string]struct {
+				Name string `json:"name"`
+			} `json:"models"`
+		} `json:"provider"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+
+	seen := map[string]bool{}
+	out := make([]OpenCodeModelOption, 0)
+
+	// Current default first, so users recognize "what I'm already using".
+	if raw.Model != "" {
+		out = append(out, OpenCodeModelOption{ID: raw.Model, Label: raw.Model + " (current default)"})
+		seen[raw.Model] = true
+	}
+
+	for provKey, prov := range raw.Provider {
+		for modelKey, model := range prov.Models {
+			id := provKey + "/" + modelKey
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			label := id
+			if model.Name != "" {
+				label = model.Name + " (" + id + ")"
+			} else if prov.Name != "" {
+				label = prov.Name + " / " + modelKey
+			}
+			out = append(out, OpenCodeModelOption{ID: id, Label: label})
+		}
+	}
+
+	return out
+}
+
 // GetModelDisplayName returns display name (e.g., "opencode(local-llm/devstral-small-2)")
 // Priority: shepherd config override → OpenCode native config → CLI detection → fallback
 func (c *OpenCodeConfig) GetModelDisplayName() string {

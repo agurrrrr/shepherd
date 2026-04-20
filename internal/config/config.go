@@ -45,6 +45,12 @@ func Init() error {
 	viper.SetDefault("session_reuse", true)
 	viper.SetDefault("include_task_history", true)
 	viper.SetDefault("include_mcp_guide", true)
+	viper.SetDefault("custom_prompt_claude", "")
+	viper.SetDefault("custom_prompt_opencode", "")
+
+	// 전역 모델 선택 (빈 문자열이면 각 CLI의 기본 모델 사용)
+	viper.SetDefault("model_claude", "")
+	viper.SetDefault("model_opencode", "")
 
 	// 파일 탐색기
 	viper.SetDefault("enable_file_browser", true)

@@ -275,6 +275,7 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		"run",
 		"--format", "json",
 	}
+	args = append(args, opencodeModelArgs()...)
 
 	// Resume session
 	if sessionID != "" {
@@ -590,6 +591,36 @@ func buildPromptWithGuide(prompt string) string {
 	return buildPromptWithContext("", prompt)
 }
 
+// claudeModelArgs returns ["--model", "<name>"] when a Claude model override is
+// configured globally, else nil so the Claude CLI picks its own default.
+func claudeModelArgs() []string {
+	if m := strings.TrimSpace(config.GetString("model_claude")); m != "" {
+		return []string{"--model", m}
+	}
+	return nil
+}
+
+// opencodeModelArgs returns ["-m", "<name>"] when an OpenCode model override is
+// configured globally, else nil. OpenCode model ids are "<provider>/<model>".
+func opencodeModelArgs() []string {
+	if m := strings.TrimSpace(config.GetString("model_opencode")); m != "" {
+		return []string{"-m", m}
+	}
+	return nil
+}
+
+// PreviewSystemPrompt returns the system prompt injection that would be sent
+// alongside a task's user prompt for the given sheep. Used by the settings UI
+// to let users inspect what's actually being prepended/appended.
+// If sheepName is empty, per-sheep context (task history, project skills) is omitted.
+func PreviewSystemPrompt(sheepName string) map[string]string {
+	return map[string]string{
+		"streaming": buildSystemContext(sheepName),
+		"compact":   buildPromptCompact(sheepName, "<USER_PROMPT>"),
+		"withGuide": buildPromptWithContext(sheepName, "<USER_PROMPT>"),
+	}
+}
+
 // buildPromptCompact builds a prompt for OpenCode (local LLMs).
 // User prompt comes FIRST to ensure the model focuses on the actual request,
 // with MCP tool guide, task history, and project skills appended as context.
@@ -630,6 +661,12 @@ For web tasks, use browser tools instead of WebFetch.
 
 	if config.GetBool("include_mcp_guide") {
 		sb.WriteString("If you need details of previous tasks, use get_history tool.\nFor full skill content, use skill_load MCP tool.\n")
+	}
+
+	if cp := strings.TrimSpace(config.GetString("custom_prompt_opencode")); cp != "" {
+		sb.WriteString("\n[User Custom Instructions]\n")
+		sb.WriteString(cp)
+		sb.WriteString("\n")
 	}
 
 	return sb.String()
@@ -694,6 +731,12 @@ For web search/crawling tasks, use browser tools instead of WebFetch.
 - get_history: Query project task history (project_name required, limit optional)
 Only query when needed. If the summary above is sufficient, start working immediately.
 `)
+	}
+
+	if cp := strings.TrimSpace(config.GetString("custom_prompt_claude")); cp != "" {
+		sb.WriteString("\n[User Custom Instructions]\n")
+		sb.WriteString(cp)
+		sb.WriteString("\n")
 	}
 
 	return sb.String()
@@ -787,6 +830,12 @@ If you need details of previous tasks, use shepherd MCP tools:
 Only query when needed. If the summary above is sufficient, start working immediately.
 
 `)
+	}
+
+	if cp := strings.TrimSpace(config.GetString("custom_prompt_claude")); cp != "" {
+		sb.WriteString("[User Custom Instructions]\n")
+		sb.WriteString(cp)
+		sb.WriteString("\n\n")
 	}
 
 	sb.WriteString("[User Request]\n")
@@ -1012,6 +1061,7 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		"--dangerously-skip-permissions",
 		"--mcp-config", GetMCPConfigJSON(),
 	}
+	args = append(args, claudeModelArgs()...)
 
 	// Separate system context from user prompt to prevent
 	// system instructions from overwhelming the user's actual request.

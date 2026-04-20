@@ -67,6 +67,8 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Post("/system/restart", s.handleRestart)
 	api.Get("/config", s.handleGetConfig)
 	api.Patch("/config", s.handleUpdateConfig)
+	api.Get("/config/system-prompt-preview", s.handleSystemPromptPreview)
+	api.Get("/config/model-options", s.handleGetModelOptions)
 
 	// MCP registration
 	api.Get("/mcp/status", s.handleMCPStatus)

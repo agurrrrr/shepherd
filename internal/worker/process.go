@@ -132,6 +132,7 @@ func executeClaudeCodeWithTimeout(projectPath, sessionID, prompt string, timeout
 		"--print",
 		"--output-format", "json",
 	}
+	args = append(args, claudeModelArgs()...)
 
 	// Auto-approve mode
 	if config.GetBool("auto_approve") {

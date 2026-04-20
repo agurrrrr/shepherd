@@ -22,6 +22,7 @@ func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sess
 	args := []string{
 		"--mcp-config", GetMCPConfigJSON(),
 	}
+	args = append(args, claudeModelArgs()...)
 
 	// Auto-approve mode
 	if config.GetBool("auto_approve") {

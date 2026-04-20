@@ -80,8 +80,52 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"session_reuse":      config.GetBool("session_reuse"),
 		"include_task_history": config.GetBool("include_task_history"),
 		"include_mcp_guide":   config.GetBool("include_mcp_guide"),
-		"enable_file_browser": config.GetBool("enable_file_browser"),
+		"enable_file_browser":    config.GetBool("enable_file_browser"),
+		"custom_prompt_claude":   config.GetString("custom_prompt_claude"),
+		"custom_prompt_opencode": config.GetString("custom_prompt_opencode"),
+		"model_claude":           config.GetString("model_claude"),
+		"model_opencode":         config.GetString("model_opencode"),
 	})
+}
+
+// GET /api/config/model-options
+// Returns selectable models for each provider. Claude options are a curated
+// hard-coded list (CLI aliases + pinned versions), OpenCode options come from
+// the user's ~/.config/opencode/config.json.
+func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
+	type option struct {
+		ID    string `json:"id"`
+		Label string `json:"label"`
+	}
+
+	claude := []option{
+		{ID: "", Label: "CLI default"},
+		{ID: "opus", Label: "opus (alias — latest Opus)"},
+		{ID: "sonnet", Label: "sonnet (alias — latest Sonnet)"},
+		{ID: "haiku", Label: "haiku (alias — latest Haiku)"},
+		{ID: "claude-opus-4-7", Label: "claude-opus-4-7"},
+		{ID: "claude-sonnet-4-6", Label: "claude-sonnet-4-6"},
+		{ID: "claude-haiku-4-5", Label: "claude-haiku-4-5"},
+	}
+
+	opencode := []option{{ID: "", Label: "OpenCode config default"}}
+	for _, m := range config.ListOpenCodeModels() {
+		opencode = append(opencode, option{ID: m.ID, Label: m.Label})
+	}
+
+	return success(c, map[string]interface{}{
+		"claude":   claude,
+		"opencode": opencode,
+	})
+}
+
+// GET /api/config/system-prompt-preview?sheep=<name>
+// Returns the system prompt that would be injected into task prompts,
+// so the user can inspect tool lists, task-history injection, skill summaries,
+// and their own custom_prompt all rendered together.
+func (s *Server) handleSystemPromptPreview(c *fiber.Ctx) error {
+	sheepName := c.Query("sheep", "")
+	return success(c, worker.PreviewSystemPrompt(sheepName))
 }
 
 // PATCH /api/config
@@ -100,8 +144,12 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"auto_approve":      true,
 		"session_reuse":      true,
 		"include_task_history": true,
-		"include_mcp_guide":   true,
-		"enable_file_browser": true,
+		"include_mcp_guide":      true,
+		"enable_file_browser":    true,
+		"custom_prompt_claude":   true,
+		"custom_prompt_opencode": true,
+		"model_claude":           true,
+		"model_opencode":         true,
 	}
 
 	for key, value := range body {
