@@ -477,6 +477,9 @@
 												{retryFromId === t.id ? '...' : 'Retry All'}
 											</button>
 										{/if}
+										{#if t.cost_usd > 0}
+											<span class="task-cost mono">${t.cost_usd.toFixed(4)}</span>
+										{/if}
 										<span class="task-time mono">{formatTime(t.created_at)}</span>
 									</div>
 									{#if t.summary}
@@ -872,6 +875,15 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.task-cost {
+		font-size: 11px;
+		color: var(--text-secondary);
+		flex-shrink: 0;
+		background: rgba(56, 139, 253, 0.1);
+		padding: 1px 6px;
+		border-radius: 8px;
 	}
 
 	.task-time {
