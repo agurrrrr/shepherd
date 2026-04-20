@@ -282,8 +282,15 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		args = append(args, "-s", sessionID)
 	}
 
-	// Build prompt (compact for local LLMs with limited context)
-	fullPrompt := buildPromptCompact(sheepName, prompt)
+	// Build prompt. Compact (default) targets local LLMs with limited context;
+	// when the user disables compaction, mirror Claude's full system prompt so
+	// OpenCode gets the same MCP guide, task history, and skill summaries.
+	var fullPrompt string
+	if config.GetBool("opencode_compact_prompt") {
+		fullPrompt = buildPromptCompact(sheepName, prompt)
+	} else {
+		fullPrompt = buildPromptWithContextUsing(sheepName, prompt, "custom_prompt_opencode")
+	}
 
 	// Pass prompt via stdin instead of command-line argument.
 	// On Windows, opencode is often a .cmd shim (npm install) — passing long
@@ -614,10 +621,18 @@ func opencodeModelArgs() []string {
 // to let users inspect what's actually being prepended/appended.
 // If sheepName is empty, per-sheep context (task history, project skills) is omitted.
 func PreviewSystemPrompt(sheepName string) map[string]string {
+	var opencode string
+	if config.GetBool("opencode_compact_prompt") {
+		opencode = buildPromptCompact(sheepName, "<USER_PROMPT>")
+	} else {
+		opencode = buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_opencode")
+	}
+
 	return map[string]string{
 		"streaming": buildSystemContext(sheepName),
 		"compact":   buildPromptCompact(sheepName, "<USER_PROMPT>"),
 		"withGuide": buildPromptWithContext(sheepName, "<USER_PROMPT>"),
+		"opencode":  opencode,
 	}
 }
 
@@ -743,7 +758,16 @@ Only query when needed. If the summary above is sufficient, start working immedi
 }
 
 // buildPromptWithContext adds MCP guide and recent task context for a specific sheep.
+// Uses the Claude custom-prompt key by default; providers that share this full
+// prompt but need their own custom instructions should call
+// buildPromptWithContextUsing directly.
 func buildPromptWithContext(sheepName, prompt string) string {
+	return buildPromptWithContextUsing(sheepName, prompt, "custom_prompt_claude")
+}
+
+// buildPromptWithContextUsing is the generalized form that lets the caller pick
+// which config key holds the user's [User Custom Instructions] block.
+func buildPromptWithContextUsing(sheepName, prompt, customPromptKey string) string {
 	var sb strings.Builder
 
 	if config.GetBool("include_mcp_guide") {
@@ -832,7 +856,7 @@ Only query when needed. If the summary above is sufficient, start working immedi
 `)
 	}
 
-	if cp := strings.TrimSpace(config.GetString("custom_prompt_claude")); cp != "" {
+	if cp := strings.TrimSpace(config.GetString(customPromptKey)); cp != "" {
 		sb.WriteString("[User Custom Instructions]\n")
 		sb.WriteString(cp)
 		sb.WriteString("\n\n")

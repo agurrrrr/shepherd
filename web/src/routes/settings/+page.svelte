@@ -91,6 +91,7 @@
 			enable_file_browser: configData.enable_file_browser,
 			custom_prompt_claude: configData.custom_prompt_claude || '',
 			custom_prompt_opencode: configData.custom_prompt_opencode || '',
+			opencode_compact_prompt: configData.opencode_compact_prompt,
 			model_claude: configData.model_claude || '',
 			model_opencode: configData.model_opencode || ''
 		});
@@ -222,6 +223,14 @@
 				</label>
 			</div>
 
+			<div class="setting-row">
+				<label>OpenCode Compact</label>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={configData.opencode_compact_prompt} />
+					<span>{configData.opencode_compact_prompt ? 'Compact' : 'Full (same as Claude)'}</span>
+				</label>
+			</div>
+
 			<div class="setting-row column">
 				<label>Custom Prompt — Claude</label>
 				<textarea
@@ -285,8 +294,9 @@
 				{:else if preview}
 					<div class="preview-tabs">
 						<button class="preview-tab" class:active={previewMode === 'streaming'} onclick={() => previewMode = 'streaming'}>Streaming (Claude --append-system-prompt)</button>
-						<button class="preview-tab" class:active={previewMode === 'withGuide'} onclick={() => previewMode = 'withGuide'}>With Guide (Interactive)</button>
-						<button class="preview-tab" class:active={previewMode === 'compact'} onclick={() => previewMode = 'compact'}>Compact (OpenCode)</button>
+						<button class="preview-tab" class:active={previewMode === 'withGuide'} onclick={() => previewMode = 'withGuide'}>With Guide (Claude Interactive)</button>
+						<button class="preview-tab" class:active={previewMode === 'opencode'} onclick={() => previewMode = 'opencode'}>OpenCode (Actual)</button>
+						<button class="preview-tab" class:active={previewMode === 'compact'} onclick={() => previewMode = 'compact'}>Compact</button>
 					</div>
 					<pre class="preview-body">{preview[previewMode] || '(empty)'}</pre>
 					<button class="btn btn-sm btn-outline" onclick={loadPreview}>Refresh</button>

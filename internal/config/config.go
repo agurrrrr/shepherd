@@ -48,6 +48,9 @@ func Init() error {
 	viper.SetDefault("custom_prompt_claude", "")
 	viper.SetDefault("custom_prompt_opencode", "")
 
+	// OpenCode 프롬프트 단축 여부 — false면 Claude와 동일한 full 시스템 프롬프트 사용
+	viper.SetDefault("opencode_compact_prompt", true)
+
 	// 전역 모델 선택 (빈 문자열이면 각 CLI의 기본 모델 사용)
 	viper.SetDefault("model_claude", "")
 	viper.SetDefault("model_opencode", "")

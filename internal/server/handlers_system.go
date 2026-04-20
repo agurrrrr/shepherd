@@ -81,10 +81,11 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"include_task_history": config.GetBool("include_task_history"),
 		"include_mcp_guide":   config.GetBool("include_mcp_guide"),
 		"enable_file_browser":    config.GetBool("enable_file_browser"),
-		"custom_prompt_claude":   config.GetString("custom_prompt_claude"),
-		"custom_prompt_opencode": config.GetString("custom_prompt_opencode"),
-		"model_claude":           config.GetString("model_claude"),
-		"model_opencode":         config.GetString("model_opencode"),
+		"custom_prompt_claude":    config.GetString("custom_prompt_claude"),
+		"custom_prompt_opencode":  config.GetString("custom_prompt_opencode"),
+		"opencode_compact_prompt": config.GetBool("opencode_compact_prompt"),
+		"model_claude":            config.GetString("model_claude"),
+		"model_opencode":          config.GetString("model_opencode"),
 	})
 }
 
@@ -146,10 +147,11 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"include_task_history": true,
 		"include_mcp_guide":      true,
 		"enable_file_browser":    true,
-		"custom_prompt_claude":   true,
-		"custom_prompt_opencode": true,
-		"model_claude":           true,
-		"model_opencode":         true,
+		"custom_prompt_claude":    true,
+		"custom_prompt_opencode":  true,
+		"opencode_compact_prompt": true,
+		"model_claude":            true,
+		"model_opencode":          true,
 	}
 
 	for key, value := range body {
