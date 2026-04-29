@@ -2452,8 +2452,10 @@ Configuration example (~/.claude/claude_desktop_config.json):
 
 		minimal, _ := cmd.Flags().GetBool("minimal")
 
-		// Run MCP server
-		server := mcp.NewServer(minimal)
+		// Stateless client mode: browser tools forward to the long-running
+		// shepherd daemon over a loopback HTTP endpoint, so chrome sessions
+		// survive across mcp child invocations.
+		server := mcp.NewClient(minimal)
 		if err := server.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 			os.Exit(1)
@@ -2816,6 +2818,19 @@ func runServeForeground() {
 	defer daemon.RemovePID()
 
 	addr := fmt.Sprintf("%s:%d", config.GetString("server_host"), config.GetInt("server_port"))
+
+	// Write runtime info — endpoint + ephemeral mcp token — so stateless
+	// `shepherd mcp` children can forward browser tool calls back to this
+	// daemon (where chrome sessions actually live). Loopback URL: callers
+	// always reach the daemon via 127.0.0.1 even when bound to 0.0.0.0.
+	loopbackURL := fmt.Sprintf("http://127.0.0.1:%d", config.GetInt("server_port"))
+	if rtInfo, err := daemon.WriteRuntime(loopbackURL); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  Failed to write runtime info: %v\n", err)
+	} else {
+		srv.SetMCPToken(rtInfo.MCPToken)
+	}
+	defer daemon.RemoveRuntime()
+
 	fmt.Printf("🐑 Shepherd daemon starting on %s\n", addr)
 
 	// Start server in goroutine

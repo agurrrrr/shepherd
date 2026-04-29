@@ -1,4 +1,6 @@
 <script>
+	import Icon from './Icon.svelte';
+
 	let { page = 1, totalPages = 1, total = 0, limit = 20, onChange = () => {} } = $props();
 
 	let pages = $derived((() => {
@@ -13,13 +15,17 @@
 
 {#if totalPages > 1}
 	<div class="pagination">
-		<button class="btn page-btn" disabled={page <= 1} onclick={() => onChange(page - 1)}>&#x25C0;</button>
+		<button class="btn page-btn" aria-label="Previous page" disabled={page <= 1} onclick={() => onChange(page - 1)}>
+			<Icon name="chevron-left" size={14} />
+		</button>
 
 		{#each pages as p}
 			<button class="btn page-btn" class:active={p === page} onclick={() => onChange(p)}>{p}</button>
 		{/each}
 
-		<button class="btn page-btn" disabled={page >= totalPages} onclick={() => onChange(page + 1)}>&#x25B6;</button>
+		<button class="btn page-btn" aria-label="Next page" disabled={page >= totalPages} onclick={() => onChange(page + 1)}>
+			<Icon name="chevron-right" size={14} />
+		</button>
 
 		<span class="page-info">{total} items ({limit}/page)</span>
 	</div>

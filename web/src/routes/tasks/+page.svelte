@@ -3,6 +3,9 @@
 	import { apiGet } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import Icon from '$lib/components/Icon.svelte';
+	import Tabs from '$lib/components/Tabs.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
 
 	let tasks = [];
 	let total = 0;
@@ -94,12 +97,12 @@
 
 	function statusIcon(status) {
 		switch (status) {
-			case 'completed': return '\u2705';
-			case 'failed': return '\u274C';
-			case 'running': return '\u26A1';
-			case 'pending': return '\u23F3';
-			case 'stopped': return '\u23F9';
-			default: return '\u2022';
+			case 'completed': return { name: 'check-circle', tone: 'success' };
+			case 'failed': return { name: 'x-circle', tone: 'danger' };
+			case 'running': return { name: 'zap', tone: 'live' };
+			case 'pending': return { name: 'hourglass', tone: 'warning' };
+			case 'stopped': return { name: 'stop-circle', tone: 'warning' };
+			default: return { name: 'circle', tone: 'idle' };
 		}
 	}
 
@@ -121,15 +124,7 @@
 
 	<!-- Status tabs + Search -->
 	<div class="toolbar">
-		<div class="status-tabs">
-			{#each statusTabs as tab}
-				<button
-					class="tab-btn"
-					class:active={statusFilter === tab.value}
-					onclick={() => setStatus(tab.value)}
-				>{tab.label}</button>
-			{/each}
-		</div>
+		<Tabs tabs={statusTabs} value={statusFilter} onChange={setStatus} ariaLabel="Status filter" />
 		<div class="search-box">
 			<input
 				class="input search-input"
@@ -144,15 +139,22 @@
 	{#if !loaded}
 		<p class="text-muted">Loading...</p>
 	{:else if tasks.length === 0}
-		<div class="card empty-state">
-			<p>No tasks found.</p>
+		<div class="card">
+			<EmptyState
+				icon="inbox"
+				title={statusFilter || searchQuery ? 'No matches' : 'No tasks yet'}
+				description={statusFilter || searchQuery ? 'Try clearing filters or searching differently.' : 'Tasks you start from the dashboard or schedules will appear here.'}
+			/>
 		</div>
 	{:else}
 		<!-- Compact Task List -->
 		<div class="task-table">
 			{#each tasks as t (t.id)}
+				{@const icn = statusIcon(t.status)}
 				<div class="task-row" class:running={t.status === 'running'} onclick={() => viewDetail(t.id)}>
-					<span class="row-icon">{statusIcon(t.status)}</span>
+					<span class="row-icon" data-tone={icn.tone}>
+						<Icon name={icn.name} size={15} label={t.status} />
+					</span>
 					<span class="row-id">#{t.id}</span>
 					<div class="row-body">
 						<span class="row-prompt">{truncate(t.summary || t.prompt, 80)}</span>
@@ -285,36 +287,6 @@
 		flex-wrap: wrap;
 	}
 
-	.status-tabs {
-		display: flex;
-		gap: 2px;
-		background: var(--bg-secondary);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 2px;
-	}
-
-	.tab-btn {
-		padding: 5px 12px;
-		border: none;
-		background: transparent;
-		color: var(--text-secondary);
-		font-size: 13px;
-		border-radius: 4px;
-		cursor: pointer;
-		transition: all 0.15s;
-	}
-
-	.tab-btn:hover {
-		color: var(--text-primary);
-	}
-
-	.tab-btn.active {
-		background: var(--bg-tertiary);
-		color: var(--accent);
-		font-weight: 600;
-	}
-
 	.search-box { flex: 1; min-width: 150px; }
 	.search-input { width: 100%; padding: 6px 10px; }
 
@@ -352,10 +324,16 @@
 
 	.row-icon {
 		flex-shrink: 0;
-		font-size: 13px;
+		display: inline-flex;
+		justify-content: center;
 		width: 18px;
-		text-align: center;
+		color: var(--text-secondary);
 	}
+
+	.row-icon[data-tone="success"] { color: var(--success); }
+	.row-icon[data-tone="live"] { color: var(--live); }
+	.row-icon[data-tone="danger"] { color: var(--danger); }
+	.row-icon[data-tone="warning"] { color: var(--warning); }
 
 	.row-id {
 		flex-shrink: 0;
@@ -425,7 +403,6 @@
 
 	.btn-sm { padding: 4px 12px; font-size: 12px; }
 	.page-info { font-size: 13px; color: var(--text-secondary); }
-	.empty-state { text-align: center; padding: 40px 20px; }
 
 	/* Modal */
 	.modal-overlay {
@@ -530,11 +507,7 @@
 	@media (max-width: 768px) {
 		.toolbar {
 			flex-direction: column;
-		}
-
-		.status-tabs {
-			width: 100%;
-			overflow-x: auto;
+			align-items: stretch;
 		}
 
 		.search-box {

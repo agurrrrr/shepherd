@@ -5,6 +5,7 @@
 	import { logout, apiGet } from '$lib/api.js';
 	import { connectSSE, disconnectSSE, onSSE } from '$lib/sse.js';
 	import { goto } from '$app/navigation';
+	import Icon from '$lib/components/Icon.svelte';
 	import '../app.css';
 
 	let unsubscribers = [];
@@ -99,9 +100,18 @@
 {:else if $accessToken}
 	<div class="app-layout">
 		<!-- Mobile hamburger -->
-		<button class="mobile-toggle" onclick={() => sidebarOpen = !sidebarOpen}>
-			&#x2630;
+		<button class="mobile-toggle"
+			aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
+			aria-expanded={sidebarOpen}
+			onclick={() => sidebarOpen = !sidebarOpen}>
+			<Icon name="menu" size={22} />
 		</button>
+
+		<!-- Mobile backdrop -->
+		{#if sidebarOpen}
+			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<div class="sidebar-backdrop" onclick={() => sidebarOpen = false}></div>
+		{/if}
 
 		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 		<aside class="sidebar" class:open={sidebarOpen} onclick={() => sidebarOpen = false}>
@@ -115,27 +125,30 @@
 
 			<nav class="sidebar-nav">
 				<a href="/" class="nav-item" class:active={$page.url.pathname === '/'}>
-					<span class="nav-icon">&#x1F4CB;</span>
-					Dashboard
+					<Icon name="layout-dashboard" size={18} />
+					<span>Dashboard</span>
 				</a>
 
 				<!-- Projects accordion -->
 				<div class="nav-group">
-					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-					<div class="nav-item nav-group-toggle"
+					<button type="button" class="nav-item nav-group-toggle"
 						class:active={$page.url.pathname.startsWith('/projects')}
+						aria-expanded={projectsExpanded}
+						aria-controls="projects-submenu"
 						onclick={(e) => { e.stopPropagation(); projectsExpanded = !projectsExpanded; }}>
-						<span class="nav-icon">&#x1F4C1;</span>
+						<Icon name="folder" size={18} />
 						<span class="nav-group-label">Projects</span>
-						<span class="nav-chevron" class:expanded={projectsExpanded}>&#x25B6;</span>
-					</div>
+						<span class="nav-chevron" class:expanded={projectsExpanded}>
+							<Icon name="chevron-right" size={14} />
+						</span>
+					</button>
 
 					{#if projectsExpanded}
-						<div class="nav-sub-items">
+						<div class="nav-sub-items" id="projects-submenu">
 							<a href="/projects" class="nav-sub-item"
 								class:active={$page.url.pathname === '/projects'}
 								onclick={(e) => e.stopPropagation()}>
-								<span class="nav-sub-icon">&#x2699;</span>
+								<Icon name="settings" size={14} />
 								<span>Manage</span>
 							</a>
 							{#each $projects as p}
@@ -154,20 +167,20 @@
 				</div>
 
 				<a href="/tasks" class="nav-item" class:active={$page.url.pathname === '/tasks'}>
-					<span class="nav-icon">&#x1F4DD;</span>
-					Tasks
+					<Icon name="list-checks" size={18} />
+					<span>Tasks</span>
 				</a>
 				<a href="/schedules" class="nav-item" class:active={$page.url.pathname.startsWith('/schedules')}>
-					<span class="nav-icon">&#x23F0;</span>
-					Schedules
+					<Icon name="alarm-clock" size={18} />
+					<span>Schedules</span>
 				</a>
 				<a href="/skills" class="nav-item" class:active={$page.url.pathname.startsWith('/skills')}>
-					<span class="nav-icon">&#x1F4DA;</span>
-					Skills
+					<Icon name="book-open" size={18} />
+					<span>Skills</span>
 				</a>
 				<a href="/settings" class="nav-item" class:active={$page.url.pathname.startsWith('/settings')}>
-					<span class="nav-icon">&#x2699;</span>
-					Settings
+					<Icon name="settings" size={18} />
+					<span>Settings</span>
 				</a>
 			</nav>
 
@@ -194,10 +207,13 @@
 
 			<div class="sidebar-footer">
 				<div class="user-info">
-					<span class="user-icon">&#x1F464;</span>
+					<Icon name="user" size={14} />
 					<span>{$username || 'anonymous'}</span>
 				</div>
-				<button class="btn-logout" onclick={logout}>Logout</button>
+				<button class="btn-logout" aria-label="Sign out" onclick={logout}>
+					<Icon name="log-out" size={14} />
+					<span>Logout</span>
+				</button>
 			</div>
 		</aside>
 
@@ -216,8 +232,8 @@
 	}
 
 	.sidebar {
-		width: 220px;
-		background: var(--bg-secondary);
+		width: var(--sidebar-w);
+		background: var(--bg-2);
 		border-right: 1px solid var(--border);
 		display: flex;
 		flex-direction: column;
@@ -229,13 +245,24 @@
 		overflow-y: auto;
 	}
 
+	.sidebar-backdrop {
+		display: none;
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		z-index: 49;
+		backdrop-filter: blur(2px);
+		-webkit-backdrop-filter: blur(2px);
+	}
+
 	.sidebar-brand {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		padding: 16px;
-		font-size: 18px;
-		font-weight: 600;
+		gap: var(--space-2);
+		padding: var(--space-4);
+		font-size: var(--fs-md);
+		font-weight: var(--fw-semibold);
+		letter-spacing: -0.01em;
 		border-bottom: 1px solid var(--border);
 	}
 
@@ -246,7 +273,7 @@
 
 	.sidebar-nav {
 		flex: 1;
-		padding: 8px;
+		padding: var(--space-2);
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
@@ -255,30 +282,42 @@
 	.nav-item {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		padding: 8px 12px;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius);
 		color: var(--text-secondary);
 		text-decoration: none;
-		font-size: 14px;
-		transition: background 0.15s, color 0.15s;
+		font-size: var(--fs-base);
+		transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+		/* Reset for <button> variant (nav-group-toggle) */
+		background: none;
+		border: none;
+		width: 100%;
+		text-align: left;
+		font-family: inherit;
 	}
 
 	.nav-item:hover {
-		background: var(--bg-tertiary);
+		background: var(--bg-3);
 		color: var(--text-primary);
 		text-decoration: none;
 	}
 
 	.nav-item.active {
-		background: var(--bg-tertiary);
+		background: var(--bg-3);
 		color: var(--accent);
+		font-weight: var(--fw-medium);
+		box-shadow: inset 2px 0 0 var(--accent);
 	}
 
-	.nav-icon {
-		font-size: 16px;
-		width: 20px;
-		text-align: center;
+	.nav-item :global(.icon) {
+		flex-shrink: 0;
+		color: currentColor;
+		opacity: 0.85;
+	}
+
+	.nav-item.active :global(.icon) {
+		opacity: 1;
 	}
 
 	/* Projects accordion */
@@ -297,9 +336,9 @@
 	}
 
 	.nav-chevron {
-		font-size: 10px;
+		display: inline-flex;
 		transition: transform 0.2s ease;
-		color: var(--text-secondary);
+		color: var(--text-tertiary);
 	}
 
 	.nav-chevron.expanded {
@@ -316,30 +355,29 @@
 	.nav-sub-item {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		padding: 5px 12px;
+		gap: var(--space-2);
+		padding: 5px var(--space-3);
 		border-radius: var(--radius);
 		color: var(--text-secondary);
 		text-decoration: none;
-		font-size: 13px;
-		transition: background 0.15s, color 0.15s;
+		font-size: var(--fs-sm);
+		transition: background 0.15s, color 0.15s, box-shadow 0.15s;
 	}
 
 	.nav-sub-item:hover {
-		background: var(--bg-tertiary);
+		background: var(--bg-3);
 		color: var(--text-primary);
 		text-decoration: none;
 	}
 
 	.nav-sub-item.active {
-		background: var(--bg-tertiary);
+		background: var(--bg-3);
 		color: var(--accent);
+		font-weight: var(--fw-medium);
 	}
 
-	.nav-sub-icon {
-		font-size: 12px;
-		width: 14px;
-		text-align: center;
+	.nav-sub-item :global(.icon) {
+		opacity: 0.75;
 	}
 
 	.nav-sub-label {
@@ -369,7 +407,8 @@
 	}
 
 	.status-dot.working {
-		background: var(--accent);
+		background: var(--live);
+		box-shadow: 0 0 0 3px var(--live-soft);
 		animation: pulse 1.5s ease-in-out infinite;
 	}
 
@@ -413,7 +452,7 @@
 		font-size: 13px;
 	}
 
-	.stat-val.working { color: var(--accent); }
+	.stat-val.working { color: var(--live); }
 	.stat-val.pending { color: var(--warning); }
 	.stat-val.completed { color: var(--success); }
 	.stat-val.failed { color: var(--danger); }
@@ -428,32 +467,40 @@
 	}
 
 	.user-info {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-secondary);
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.btn-logout {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 		background: none;
 		border: none;
 		color: var(--text-secondary);
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		padding: 4px 8px;
 		border-radius: var(--radius);
+		transition: color 0.15s, background 0.15s;
 	}
 
 	.btn-logout:hover {
 		color: var(--danger);
-		background: rgba(248, 81, 73, 0.1);
+		background: var(--danger-soft);
 	}
 
 	.main-content {
 		flex: 1;
 		min-width: 0;
-		margin-left: 220px;
-		padding: 24px;
+		margin-left: var(--sidebar-w);
+		padding: var(--space-6);
 		overflow-x: hidden;
 	}
 
@@ -468,31 +515,46 @@
 	/* Mobile toggle */
 	.mobile-toggle {
 		display: none;
+		align-items: center;
+		justify-content: center;
 		position: fixed;
-		top: 8px;
-		left: 8px;
+		top: var(--space-2);
+		left: var(--space-2);
 		z-index: 60;
-		background: var(--bg-secondary);
+		background: var(--bg-2);
 		border: 1px solid var(--border);
 		color: var(--text-primary);
-		font-size: 20px;
-		padding: 10px 14px;
+		padding: 0;
 		border-radius: var(--radius);
 		min-width: 44px;
 		min-height: 44px;
+		box-shadow: var(--shadow-1);
+		transition: background 0.15s, border-color 0.15s;
 	}
 
-	/* Responsive */
+	.mobile-toggle:hover {
+		background: var(--bg-3);
+		border-color: var(--border-strong);
+	}
+
+	/* === Responsive ===
+	   Breakpoints:
+	   - ≤480px : Titan 2 (1440x1440 @ ~3-4 DPR ≈ 360-480 CSS px) and small phones
+	   - ≤768px : tablet portrait / standard mobile
+	*/
 	@media (max-width: 768px) {
 		.mobile-toggle {
-			display: flex;
-			align-items: center;
-			justify-content: center;
+			display: inline-flex;
+		}
+
+		.sidebar-backdrop {
+			display: block;
 		}
 
 		.sidebar {
 			transform: translateX(-100%);
 			transition: transform 0.2s ease;
+			box-shadow: var(--shadow-3);
 		}
 
 		.sidebar.open {
@@ -501,16 +563,18 @@
 
 		.main-content {
 			margin-left: 0;
-			padding: 12px;
-			padding-top: 56px;
+			padding: var(--space-3);
+			padding-top: calc(var(--mobile-topbar-h) + var(--space-2));
 		}
 
 		.nav-item {
-			padding: 10px 12px;
+			padding: 10px var(--space-3);
+			min-height: 40px;
 		}
 
 		.nav-sub-item {
-			padding: 8px 12px;
+			padding: var(--space-2) var(--space-3);
+			min-height: 36px;
 		}
 
 		.nav-sub-label {
@@ -518,7 +582,46 @@
 		}
 
 		.btn-logout {
+			padding: var(--space-2) var(--space-3);
+			min-height: 36px;
+		}
+	}
+
+	/* Titan 2 (1440x1440 square @ ~3 DPR ≈ 480 CSS px) and very small screens */
+	@media (max-width: 480px) {
+		.sidebar {
+			/* Full-width drawer on tiny screens (less swipeable target on a square viewport) */
+			width: min(280px, 88vw);
+		}
+
+		.main-content {
+			padding: var(--space-2);
+			padding-top: calc(var(--mobile-topbar-h) + var(--space-1));
+		}
+
+		.sidebar-brand {
+			padding: var(--space-3);
+			font-size: var(--fs-md);
+		}
+
+		.sidebar-nav {
+			padding: var(--space-2) 6px;
+		}
+
+		.sidebar-stats {
+			padding: var(--space-2) var(--space-3);
+		}
+
+		.sidebar-footer {
+			padding: var(--space-2) var(--space-3);
+		}
+
+		.mobile-toggle {
+			top: 6px;
+			left: 6px;
 			padding: 8px 12px;
+			min-width: 40px;
+			min-height: 40px;
 		}
 	}
 </style>

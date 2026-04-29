@@ -1,18 +1,102 @@
+/* === Shepherd Design Tokens === */
+
 :root {
-	--bg-primary: #0d1117;
-	--bg-secondary: #161b22;
-	--bg-tertiary: #21262d;
-	--text-primary: #c9d1d9;
-	--text-secondary: #8b949e;
+	/* --- Surfaces (5 levels) --- */
+	--bg-base: #0a0d12;          /* App background, deepest */
+	--bg-1: #0d1117;             /* Page background */
+	--bg-2: #161b22;             /* Card surface */
+	--bg-3: #21262d;             /* Elevated / button bg */
+	--bg-4: #2d333b;             /* Hover / active */
+
+	/* Backward-compat aliases (existing components use these) */
+	--bg-primary: var(--bg-1);
+	--bg-secondary: var(--bg-2);
+	--bg-tertiary: var(--bg-3);
+
+	/* --- Text (WCAG AA on bg-1/bg-2) --- */
+	--text-primary: #e6edf3;     /* Body — high contrast */
+	--text-secondary: #9aa4af;   /* Bumped from #8b949e for AA on bg-2 */
+	--text-tertiary: #6e7681;    /* Meta / captions */
+
+	/* --- Borders --- */
+	--border: #30363d;
+	--border-strong: #3d444d;
+	--border-subtle: #1c2128;
+
+	/* --- Brand: primary accent --- */
 	--accent: #58a6ff;
 	--accent-hover: #79c0ff;
+	--accent-soft: rgba(88, 166, 255, 0.15);
+	--accent-glow: rgba(88, 166, 255, 0.32);
+
+	/* --- Brand: live (secondary accent — running/active) --- */
+	--live: #56d4dd;             /* teal */
+	--live-hover: #7ee0e7;
+	--live-soft: rgba(86, 212, 221, 0.16);
+
+	/* --- Brand: wool (warm neutral — idle/passive, "shepherd" tone) --- */
+	--wool: #b8a895;
+	--wool-soft: rgba(184, 168, 149, 0.10);
+
+	/* --- Status --- */
 	--success: #3fb950;
+	--success-soft: rgba(63, 185, 80, 0.15);
 	--warning: #d29922;
+	--warning-soft: rgba(210, 153, 34, 0.15);
 	--danger: #f85149;
-	--border: #30363d;
+	--danger-soft: rgba(248, 81, 73, 0.15);
+
+	/* --- Typography scale --- */
 	--font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-	--radius: 6px;
-	--shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+	--font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+
+	--fs-2xs: 11px;
+	--fs-xs: 12px;
+	--fs-sm: 13px;
+	--fs-base: 14px;
+	--fs-md: 16px;
+	--fs-lg: 20px;
+	--fs-xl: 24px;
+	--fs-2xl: 32px;
+
+	--lh-tight: 1.25;
+	--lh-snug: 1.4;
+	--lh-base: 1.5;
+
+	--fw-normal: 400;
+	--fw-medium: 500;
+	--fw-semibold: 600;
+	--fw-bold: 700;
+
+	/* --- Spacing scale --- */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 20px;
+	--space-6: 24px;
+	--space-7: 32px;
+	--space-8: 40px;
+
+	/* --- Radius --- */
+	--radius-sm: 4px;
+	--radius: 6px;             /* default — backward compat */
+	--radius-md: 8px;
+	--radius-lg: 12px;
+	--radius-full: 999px;
+
+	/* --- Elevation --- */
+	--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+	--shadow: 0 1px 3px rgba(0, 0, 0, 0.4);          /* alias */
+	--shadow-2: 0 4px 12px rgba(0, 0, 0, 0.4);
+	--shadow-3: 0 12px 32px rgba(0, 0, 0, 0.5);
+
+	/* --- Focus ring (a11y) --- */
+	--focus-ring: 0 0 0 3px rgba(88, 166, 255, 0.45);
+
+	/* --- Layout constants --- */
+	--sidebar-w: 220px;
+	--mobile-topbar-h: 52px;
 }
 
 * {
@@ -27,14 +111,30 @@ html, body {
 }
 
 body {
-	background: var(--bg-primary);
+	background: var(--bg-1);
 	color: var(--text-primary);
-	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-	font-size: 14px;
-	line-height: 1.5;
+	font-family: var(--font-sans);
+	font-size: var(--fs-base);
+	line-height: var(--lh-base);
 	-webkit-text-size-adjust: 100%;
 	text-size-adjust: 100%;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
+
+/* --- Headings (consistent scale) --- */
+h1, h2, h3, h4, h5, h6 {
+	font-weight: var(--fw-semibold);
+	line-height: var(--lh-tight);
+	color: var(--text-primary);
+}
+
+h1 { font-size: var(--fs-2xl); }
+h2 { font-size: var(--fs-xl); }
+h3 { font-size: var(--fs-lg); }
+h4 { font-size: var(--fs-md); }
+h5 { font-size: var(--fs-base); }
+h6 { font-size: var(--fs-sm); }
 
 a {
 	color: var(--accent);
@@ -57,6 +157,25 @@ input, select, textarea {
 	font-size: inherit;
 }
 
+/* --- Focus visible (a11y) --- */
+:focus {
+	outline: none;
+}
+
+:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+	border-radius: var(--radius-sm);
+}
+
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+.nav-item:focus-visible,
+.nav-sub-item:focus-visible {
+	box-shadow: var(--focus-ring);
+}
+
 /* Buttons */
 .btn {
 	display: inline-flex;
@@ -67,12 +186,13 @@ input, select, textarea {
 	border-radius: var(--radius);
 	background: var(--bg-tertiary);
 	color: var(--text-primary);
-	font-size: 14px;
-	transition: background 0.15s, border-color 0.15s;
+	font-size: var(--fs-base);
+	transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
 
 .btn:hover {
-	background: var(--border);
+	background: var(--bg-4);
+	border-color: var(--border-strong);
 }
 
 .btn-primary {
@@ -116,11 +236,12 @@ input, textarea, select {
 	color: var(--text-primary);
 	font-size: 16px;
 	outline: none;
-	transition: border-color 0.15s;
+	transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .input:focus {
 	border-color: var(--accent);
+	box-shadow: var(--focus-ring);
 }
 
 .input::placeholder {
@@ -139,23 +260,40 @@ input, textarea, select {
 .badge {
 	display: inline-block;
 	padding: 2px 8px;
-	border-radius: 12px;
-	font-size: 12px;
-	font-weight: 500;
+	border-radius: var(--radius-full);
+	font-size: var(--fs-xs);
+	font-weight: var(--fw-medium);
 }
 
 .badge-idle { background: var(--bg-tertiary); color: var(--text-secondary); }
-.badge-working { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
-.badge-error { background: rgba(248, 81, 73, 0.15); color: var(--danger); }
-.badge-pending { background: rgba(210, 153, 34, 0.15); color: var(--warning); }
-.badge-running { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
-.badge-completed { background: rgba(63, 185, 80, 0.15); color: var(--success); }
-.badge-failed { background: rgba(248, 81, 73, 0.15); color: var(--danger); }
-.badge-stopped { background: rgba(210, 153, 34, 0.15); color: var(--warning); }
+.badge-working { background: var(--live-soft); color: var(--live); }
+.badge-error { background: var(--danger-soft); color: var(--danger); }
+.badge-pending { background: var(--warning-soft); color: var(--warning); }
+.badge-running { background: var(--live-soft); color: var(--live); }
+.badge-completed { background: var(--success-soft); color: var(--success); }
+.badge-failed { background: var(--danger-soft); color: var(--danger); }
+.badge-stopped { background: var(--warning-soft); color: var(--warning); }
 
 /* Mono text */
 .mono {
 	font-family: var(--font-mono);
+}
+
+/* --- Section heading utility --- */
+.section-heading {
+	font-size: var(--fs-lg);
+	font-weight: var(--fw-semibold);
+	color: var(--text-primary);
+	letter-spacing: -0.01em;
+	margin: 0;
+}
+
+.eyebrow {
+	font-size: var(--fs-2xs);
+	font-weight: var(--fw-semibold);
+	color: var(--text-tertiary);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
 }
 
 /* Scrollbar */
@@ -175,4 +313,13 @@ input, textarea, select {
 
 ::-webkit-scrollbar-thumb:hover {
 	background: var(--text-secondary);
+}
+
+/* --- Reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
 }

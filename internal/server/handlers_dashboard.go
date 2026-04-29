@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -13,6 +14,62 @@ import (
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
+
+// activityItem aggregates per-project task count and cost in a time window.
+type activityItem struct {
+	Project string  `json:"project"`
+	Tasks   int     `json:"tasks"`
+	CostUSD float64 `json:"cost_usd"`
+}
+
+// activityWindow holds the per-project breakdown plus totals so the UI can
+// render header chips without re-summing on the client.
+type activityWindow struct {
+	Items     []activityItem `json:"items"`
+	Total     int            `json:"total"`
+	TotalCost float64        `json:"total_cost"`
+}
+
+// projectActivity buckets tasks created since `since` by project and sums
+// cost_usd. Tasks without a project edge fall under "(unassigned)" so they
+// do not silently disappear from the totals.
+func projectActivity(ctx context.Context, client *ent.Client, since time.Time) (activityWindow, error) {
+	tasks, err := client.Task.Query().
+		Where(entTask.CreatedAtGTE(since)).
+		WithProject().
+		All(ctx)
+	if err != nil {
+		return activityWindow{}, err
+	}
+
+	agg := map[string]*activityItem{}
+	for _, t := range tasks {
+		name := "(unassigned)"
+		if t.Edges.Project != nil {
+			name = t.Edges.Project.Name
+		}
+		if agg[name] == nil {
+			agg[name] = &activityItem{Project: name}
+		}
+		agg[name].Tasks++
+		agg[name].CostUSD += t.CostUsd
+	}
+
+	out := make([]activityItem, 0, len(agg))
+	totalCost := 0.0
+	for _, v := range agg {
+		out = append(out, *v)
+		totalCost += v.CostUSD
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CostUSD != out[j].CostUSD {
+			return out[i].CostUSD > out[j].CostUSD
+		}
+		return out[i].Tasks > out[j].Tasks
+	})
+
+	return activityWindow{Items: out, Total: len(tasks), TotalCost: totalCost}, nil
+}
 
 // GET /api/dashboard
 func (s *Server) handleDashboard(c *fiber.Ctx) error {
@@ -117,6 +174,13 @@ func (s *Server) handleDashboard(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// 6. Activity windows: 5h / 1d / 7d, per-project task count + cost.
+	// Computed in-process — three small scans over recent rows is cheap and
+	// avoids client-side time math (which gets fiddly across timezones).
+	act5h, _ := projectActivity(ctx, client, now.Add(-5*time.Hour))
+	act1d, _ := projectActivity(ctx, client, now.Add(-24*time.Hour))
+	act7d, _ := projectActivity(ctx, client, now.Add(-7*24*time.Hour))
+
 	// Sheep counts
 	working := 0
 	idle := 0
@@ -154,6 +218,11 @@ func (s *Server) handleDashboard(c *fiber.Ctx) error {
 		},
 		"recent_tasks": recentItems,
 		"projects":     len(projects),
+		"activity": map[string]interface{}{
+			"5h": act5h,
+			"1d": act1d,
+			"7d": act7d,
+		},
 	})
 }
 

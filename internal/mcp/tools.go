@@ -14,15 +14,22 @@ import (
 )
 
 // registerTools registers all tool handlers
-func (s *Server) registerTools() {
+// registerCoreTools registers task / status / skill tools that talk to the
+// shepherd database directly. Same in both daemon and stateless client modes.
+func (s *Server) registerCoreTools() {
 	s.tools["task_start"] = handleTaskStart
 	s.tools["task_complete"] = handleTaskComplete
 	s.tools["task_error"] = handleTaskError
 	s.tools["get_history"] = handleGetHistory
+	s.tools["get_task_detail"] = handleGetTaskDetail
 	s.tools["get_status"] = handleGetStatus
 	s.tools["skill_load"] = handleSkillLoad
+}
 
-	// 브라우저 도구 등록 (minimal 모드에서는 제외)
+// registerTools registers every tool in-process — daemon use only, since
+// browser handlers manage live chrome processes that must outlive the call.
+func (s *Server) registerTools() {
+	s.registerCoreTools()
 	if !s.minimal {
 		s.registerBrowserTools()
 	}
@@ -135,6 +142,10 @@ func handleGetHistory(args map[string]interface{}) (string, error) {
 		return "", fmt.Errorf("project_name이 필요합니다")
 	}
 
+	if _, err := project.Get(projectName); err != nil {
+		return "", fmt.Errorf("project '%s' is not registered — register it first with `shepherd project add %s <absolute-path>` (or `shepherd init` from inside the directory). Empty history alone does not imply registration", projectName, projectName)
+	}
+
 	limitFloat, _ := args["limit"].(float64)
 	limit := int(limitFloat)
 	if limit <= 0 {
@@ -170,6 +181,75 @@ func handleGetHistory(args map[string]interface{}) (string, error) {
 		if t.Summary != "" {
 			sb.WriteString(fmt.Sprintf("  결과: %s\n", truncateString(t.Summary, 50)))
 		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String(), nil
+}
+
+func handleGetTaskDetail(args map[string]interface{}) (string, error) {
+	taskIDFloat, ok := args["task_id"].(float64)
+	if !ok {
+		return "", fmt.Errorf("task_id가 필요합니다")
+	}
+	taskID := int(taskIDFloat)
+
+	t, err := queue.GetTask(taskID)
+	if err != nil {
+		return "", err
+	}
+
+	var sb strings.Builder
+	sheepName := "-"
+	if t.Edges.Sheep != nil {
+		sheepName = t.Edges.Sheep.Name
+	}
+	projectName := "-"
+	if t.Edges.Project != nil {
+		projectName = t.Edges.Project.Name
+	}
+
+	sb.WriteString(fmt.Sprintf("=== 작업 #%d ===\n", t.ID))
+	sb.WriteString(fmt.Sprintf("상태: %s\n", queue.StatusToKorean(t.Status)))
+	sb.WriteString(fmt.Sprintf("양: %s\n", sheepName))
+	sb.WriteString(fmt.Sprintf("프로젝트: %s\n", projectName))
+	sb.WriteString(fmt.Sprintf("생성: %s\n", t.CreatedAt.Format("2006-01-02 15:04:05")))
+	if !t.StartedAt.IsZero() {
+		sb.WriteString(fmt.Sprintf("시작: %s\n", t.StartedAt.Format("2006-01-02 15:04:05")))
+	}
+	if !t.CompletedAt.IsZero() {
+		sb.WriteString(fmt.Sprintf("완료: %s\n", t.CompletedAt.Format("2006-01-02 15:04:05")))
+	}
+	if t.CostUsd > 0 {
+		sb.WriteString(fmt.Sprintf("비용: $%.4f\n", t.CostUsd))
+	}
+
+	sb.WriteString("\n--- 요청 ---\n")
+	sb.WriteString(t.Prompt)
+	sb.WriteString("\n")
+
+	if t.Summary != "" {
+		sb.WriteString("\n--- 결과 요약 ---\n")
+		sb.WriteString(t.Summary)
+		sb.WriteString("\n")
+	}
+
+	if t.Error != "" {
+		sb.WriteString("\n--- 에러 ---\n")
+		sb.WriteString(t.Error)
+		sb.WriteString("\n")
+	}
+
+	if len(t.FilesModified) > 0 {
+		sb.WriteString("\n--- 수정된 파일 ---\n")
+		for _, f := range t.FilesModified {
+			sb.WriteString(fmt.Sprintf("  - %s\n", f))
+		}
+	}
+
+	if len(t.Output) > 0 {
+		sb.WriteString("\n--- 출력 로그 ---\n")
+		sb.WriteString(strings.Join(t.Output, "\n"))
 		sb.WriteString("\n")
 	}
 

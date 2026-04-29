@@ -12,6 +12,12 @@
 	let unsubs = [];
 
 	$: taskId = $page.params.id;
+	$: from = $page.url.searchParams.get('from');
+	$: backFromProject = from === 'project' && task?.project;
+	$: backLink = backFromProject
+		? `/projects/${encodeURIComponent(task.project)}?tab=history`
+		: '/tasks';
+	$: backLabel = backFromProject ? `← Back to ${task.project}` : '← Back to Tasks';
 
 	onMount(async () => {
 		const res = await apiGet(`/api/tasks/${taskId}`);
@@ -61,7 +67,7 @@
 
 <div class="page">
 	<div class="page-nav">
-		<a href="/tasks">&larr; Back to Tasks</a>
+		<a href={backLink}>{backLabel}</a>
 	</div>
 
 	{#if loading}

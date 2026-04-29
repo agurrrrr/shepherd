@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/mcp"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/scheduler"
 )
@@ -27,6 +28,12 @@ type Server struct {
 	hub       *SSEHub
 	processor *queue.Processor
 	scheduler *scheduler.Scheduler
+
+	// In-process MCP server used by /api/_internal/mcp/call to dispatch
+	// browser tool calls forwarded from stateless `shepherd mcp` children.
+	// Browser sessions live in this daemon's memory.
+	mcpInner *mcp.Server
+	mcpToken string
 }
 
 // New creates a new Server with routes configured.
@@ -42,7 +49,13 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	})
 
 	hub := NewSSEHub()
-	s := &Server{app: app, hub: hub, processor: processor, scheduler: sched}
+	s := &Server{
+		app:       app,
+		hub:       hub,
+		processor: processor,
+		scheduler: sched,
+		mcpInner:  mcp.NewServer(false), // full mode — browser handlers live here
+	}
 
 	// Global middleware
 	app.Use(CORSMiddleware(corsOrigin))
@@ -51,6 +64,11 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	app.Get("/api/health", s.handleHealth)
 	app.Post("/api/auth/login", s.handleLogin)
 	app.Post("/api/auth/refresh", s.handleRefresh)
+
+	// Internal MCP proxy — token-authenticated, localhost-only by intent.
+	// Stateless `shepherd mcp` children forward browser calls here so that
+	// chrome processes survive past the per-call lifetime of the child.
+	app.Post("/api/_internal/mcp/call", s.handleMCPProxy)
 
 	// Authenticated routes
 	jwtSecret := config.GetString("auth_jwt_secret")
@@ -155,6 +173,13 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	}
 
 	return s
+}
+
+// SetMCPToken configures the shared secret that the MCP forwarder uses to
+// authenticate against /api/_internal/mcp/call. Must be called before the
+// daemon advertises runtime.json to disk.
+func (s *Server) SetMCPToken(token string) {
+	s.mcpToken = token
 }
 
 // Listen starts the HTTP server on the given address.

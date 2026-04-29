@@ -55,18 +55,21 @@
 
 	let unsubs = [];
 
+	const VALID_TABS = ['output', 'history', 'files', 'git', 'schedules', 'skills', 'specs'];
+
 	// React to route param changes
 	$effect(() => {
 		const newName = decodeURIComponent($page.params.name);
 		if (newName !== projectName) {
 			projectName = newName;
 			if (typeof window !== 'undefined') {
-				resetAndLoad();
+				const requestedTab = $page.url.searchParams.get('tab');
+				resetAndLoad(requestedTab);
 			}
 		}
 	});
 
-	function resetAndLoad() {
+	function resetAndLoad(initialTab = null) {
 		project = null;
 		loading = true;
 		liveOutput = [];
@@ -85,7 +88,11 @@
 		skillsLoaded = false;
 		showSkillForm = false;
 		editingSkillItem = null;
+		activeTab = 'output';
 		loadProject();
+		if (initialTab && initialTab !== 'output' && VALID_TABS.includes(initialTab)) {
+			switchTab(initialTab);
+		}
 	}
 
 	onMount(() => {
@@ -462,7 +469,7 @@
 					{:else}
 						<div class="task-list">
 							{#each tasks as t (t.id)}
-								<a href="/tasks/{t.id}" class="card task-history-item">
+								<a href="/tasks/{t.id}?from=project" class="card task-history-item">
 									<div class="task-row">
 										<span class="task-id mono">#{t.id}</span>
 										<StatusBadge status={t.status} />
