@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	cryptoRand "crypto/rand"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/daemon"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/i18n"
+	"github.com/agurrrrr/shepherd/internal/llmproxy"
 	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/mcp"
 	"github.com/agurrrrr/shepherd/internal/names"
@@ -2832,6 +2834,25 @@ func runServeForeground() {
 	defer daemon.RemoveRuntime()
 
 	fmt.Printf("🐑 Shepherd daemon starting on %s\n", addr)
+
+	// Optional reasoning-injection proxy. Routes opencode → llama-server with
+	// chat_template_kwargs.enable_thinking=true added to outgoing chat
+	// completions, since opencode's @ai-sdk adapter strips that field.
+	proxyCtx, proxyCancel := context.WithCancel(context.Background())
+	defer proxyCancel()
+	if config.GetBool("opencode_thinking_proxy_enabled") {
+		port := config.GetInt("opencode_thinking_proxy_port")
+		target := config.GetString("opencode_thinking_proxy_target")
+		if target == "" {
+			fmt.Fprintln(os.Stderr, "⚠️  opencode_thinking_proxy_enabled=true but opencode_thinking_proxy_target is empty; proxy disabled")
+		} else {
+			go func() {
+				if err := llmproxy.Run(proxyCtx, port, target); err != nil {
+					fmt.Fprintf(os.Stderr, "⚠️  Thinking proxy stopped: %v\n", err)
+				}
+			}()
+		}
+	}
 
 	// Start server in goroutine
 	go func() {

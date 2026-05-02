@@ -184,6 +184,10 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 		},
 		nil, // Input handler (not used in queue processing)
 	)
+	// Per-task reasoning toggle (OpenCode only). Resolved here so explicit
+	// per-request overrides win over the global default.
+	opts.Thinking = GetTaskThinking(taskID)
+	defer ClearTaskThinking(taskID)
 
 	// Execute with rate limit retry
 	var result *worker.ExecuteResult

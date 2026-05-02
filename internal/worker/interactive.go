@@ -36,6 +36,9 @@ type InteractiveOptions struct {
 	OnOutput      OutputHandler
 	OnInput       InputHandler
 	ShowRawOutput bool // Show raw output (for debugging)
+	// Thinking enables provider-side reasoning. Currently only honored by
+	// the OpenCode path, which appends `--thinking` to the CLI invocation.
+	Thinking bool
 }
 
 // RunningTask contains information about a running task
@@ -288,7 +291,17 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		"run",
 		"--format", "json",
 	}
-	args = append(args, opencodeModelArgs()...)
+	// Two-part contract for reasoning:
+	//   - server activation → shepherd proxy injects chat_template_kwargs
+	//     (model alias selected here routes through it)
+	//   - display in stream → opencode `--thinking` flag, which surfaces
+	//     reasoning_content blocks in the JSON event stream
+	// The flag alone does NOT activate reasoning (verified on opencode 1.3.17)
+	// — both pieces are required for the user to see traces.
+	args = append(args, opencodeModelArgs(opts.Thinking)...)
+	if opts.Thinking {
+		args = append(args, "--thinking")
+	}
 
 	// Resume session
 	if sessionID != "" {
@@ -463,7 +476,7 @@ func extractOpenCodeError(output string) string {
 }
 
 // parseOpenCodeLine parses a single OpenCode JSON output line.
-// OpenCode event types: step_start, tool_use, text, step_finish, error
+// OpenCode event types: step_start, tool_use, text, reasoning, step_finish, error
 func parseOpenCodeLine(line string) (text string, sessionID string) {
 	if !strings.HasPrefix(line, "{") {
 		return line, ""
@@ -509,6 +522,12 @@ func parseOpenCodeLine(line string) (text string, sessionID string) {
 	case "text":
 		if event.Part.Text != "" {
 			text = event.Part.Text
+		}
+	case "reasoning":
+		// Surface model reasoning trace prefixed with 💭 so it visually
+		// separates from the final answer in the live output stream.
+		if event.Part.Text != "" {
+			text = "💭 " + strings.ReplaceAll(strings.TrimSpace(event.Part.Text), "\n", "\n   ")
 		}
 	case "tool_use":
 		toolName := event.Part.Tool
@@ -620,9 +639,17 @@ func claudeModelArgs() []string {
 	return nil
 }
 
-// opencodeModelArgs returns ["-m", "<name>"] when an OpenCode model override is
-// configured globally, else nil. OpenCode model ids are "<provider>/<model>".
-func opencodeModelArgs() []string {
+// opencodeModelArgs returns ["-m", "<name>"] for the OpenCode invocation.
+// Model ids are "<provider>/<model>". When thinking is requested and a
+// thinking-routed model is configured, that wins; otherwise the global
+// override (model_opencode) is used. Returns nil when neither is set so
+// opencode falls back to its own config default.
+func opencodeModelArgs(thinking bool) []string {
+	if thinking {
+		if m := strings.TrimSpace(config.GetString("opencode_thinking_model")); m != "" {
+			return []string{"-m", m}
+		}
+	}
 	if m := strings.TrimSpace(config.GetString("model_opencode")); m != "" {
 		return []string{"-m", m}
 	}

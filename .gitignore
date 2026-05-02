@@ -23,6 +23,10 @@ vendor/
 
 # Claude Code context (personal per-developer)
 CLAUDE.md
+.claude/
+
+# Generated reports
+report.html
 
 # OS
 .DS_Store

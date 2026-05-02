@@ -28,6 +28,11 @@ export const username = persisted('shepherd_username', '');
 export const wireframePreset = persisted('shepherd_wf_preset', 'default');
 export const wireframeOptions = persisted('shepherd_wf_options', { compact: false, showGrid: false });
 
+// Per-project OpenCode thinking-mode override. Shape: { [projectName]: bool }.
+// Absence of a project key means "follow the global default" — explicit per-
+// project overrides are stored only when the user toggles them.
+export const thinkingByProject = persisted('shepherd_thinking_by_project', {});
+
 // App state
 export const isAuthenticated = writable(false);
 export const sheep = writable([]);

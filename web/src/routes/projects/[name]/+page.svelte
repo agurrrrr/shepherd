@@ -3,6 +3,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { apiGet, apiPost, apiPatch, apiDelete } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
+	import { thinkingByProject } from '$lib/stores.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
 	import CommandInput from '$lib/components/CommandInput.svelte';
@@ -23,6 +24,21 @@
 	let sheepStatus = $state('idle');
 	let sheepName = $state('');
 	let sheepProvider = $state('claude');
+	// Global OpenCode "thinking" default; per-project override lives in
+	// $thinkingByProject and wins when the user has explicitly toggled.
+	let opencodeThinkingDefault = $state(false);
+	let thinkingChecked = $derived.by(() => {
+		const overrides = $thinkingByProject || {};
+		if (projectName && Object.prototype.hasOwnProperty.call(overrides, projectName)) {
+			return !!overrides[projectName];
+		}
+		return opencodeThinkingDefault;
+	});
+
+	function toggleThinking(e) {
+		const checked = e.target.checked;
+		thinkingByProject.update((m) => ({ ...(m || {}), [projectName]: checked }));
+	}
 
 	// Task history
 	let tasks = $state([]);
@@ -137,7 +153,13 @@
 	onDestroy(() => unsubs.forEach(fn => fn()));
 
 	async function loadProject() {
-		const res = await apiGet(`/api/projects/${encodeURIComponent(projectName)}`);
+		const [res, configRes] = await Promise.all([
+			apiGet(`/api/projects/${encodeURIComponent(projectName)}`),
+			apiGet('/api/config')
+		]);
+		if (configRes?.data) {
+			opencodeThinkingDefault = !!configRes.data.opencode_thinking_default;
+		}
 		if (res?.data) {
 			project = res.data;
 			sheepName = project.sheep || '';
@@ -401,6 +423,16 @@
 						<option value="opencode">OpenCode</option>
 						<option value="auto">Auto</option>
 					</select>
+					{#if sheepProvider === 'opencode'}
+						<label class="thinking-toggle" title="Enable OpenCode reasoning for this project">
+							<input
+								type="checkbox"
+								checked={thinkingChecked}
+								onchange={toggleThinking}
+							/>
+							<span>🧠 Thinking</span>
+						</label>
+					{/if}
 					<span class="sheep-label">{sheepName}</span>
 					<StatusBadge status={sheepStatus} />
 				{:else}
@@ -649,7 +681,12 @@
 		{#if activeTab === 'output'}
 			<div class="command-bar card">
 				{#if sheepName}
-					<CommandInput projectName={project.name} sheepName={sheepName} sheepStatus={sheepStatus} />
+					<CommandInput
+						projectName={project.name}
+						sheepName={sheepName}
+						sheepStatus={sheepStatus}
+						thinking={sheepProvider === 'opencode' ? thinkingChecked : null}
+					/>
 				{:else}
 					<p class="text-muted command-disabled-text">Assign a sheep to this project to send tasks</p>
 				{/if}
@@ -756,6 +793,28 @@
 	}
 
 	.provider-select:hover {
+		border-color: var(--accent);
+	}
+
+	.thinking-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 2px 6px;
+		font-size: 12px;
+		border-radius: var(--radius);
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border);
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.thinking-toggle input {
+		margin: 0;
+		cursor: pointer;
+	}
+
+	.thinking-toggle:hover {
 		border-color: var(--accent);
 	}
 

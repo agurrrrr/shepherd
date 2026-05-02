@@ -125,6 +125,10 @@ func (s *Server) handleCreateTask(c *fiber.Ctx) error {
 		Prompt      string `json:"prompt"`
 		SheepName   string `json:"sheep_name"`
 		ProjectName string `json:"project_name"`
+		// Thinking is a tri-state: when omitted (nil), the global
+		// opencode_thinking_default applies. Pointer so JSON `false` is
+		// distinguishable from "field not sent".
+		Thinking *bool `json:"thinking,omitempty"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -185,6 +189,13 @@ func (s *Server) handleCreateTask(c *fiber.Ctx) error {
 	}
 	if err != nil {
 		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// Stash the explicit thinking flag (if any) so the worker picks it up
+	// when this task is processed. Must happen before ProcessPendingNow
+	// since processing may begin synchronously.
+	if body.Thinking != nil {
+		queue.SetTaskThinking(t.ID, *body.Thinking)
 	}
 
 	// Trigger immediate processing

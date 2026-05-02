@@ -83,10 +83,15 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"enable_file_browser":    config.GetBool("enable_file_browser"),
 		"custom_prompt_claude":    config.GetString("custom_prompt_claude"),
 		"custom_prompt_opencode":  config.GetString("custom_prompt_opencode"),
-		"opencode_compact_prompt": config.GetBool("opencode_compact_prompt"),
-		"model_claude":            config.GetString("model_claude"),
-		"model_opencode":          config.GetString("model_opencode"),
-		"task_timeout":            config.GetString("task_timeout"),
+		"opencode_compact_prompt":          config.GetBool("opencode_compact_prompt"),
+		"opencode_thinking_default":        config.GetBool("opencode_thinking_default"),
+		"opencode_thinking_proxy_enabled":  config.GetBool("opencode_thinking_proxy_enabled"),
+		"opencode_thinking_proxy_port":     config.GetInt("opencode_thinking_proxy_port"),
+		"opencode_thinking_proxy_target":   config.GetString("opencode_thinking_proxy_target"),
+		"opencode_thinking_model":          config.GetString("opencode_thinking_model"),
+		"model_claude":                     config.GetString("model_claude"),
+		"model_opencode":                   config.GetString("model_opencode"),
+		"task_timeout":                     config.GetString("task_timeout"),
 	})
 }
 
@@ -150,10 +155,15 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"enable_file_browser":    true,
 		"custom_prompt_claude":    true,
 		"custom_prompt_opencode":  true,
-		"opencode_compact_prompt": true,
-		"model_claude":            true,
-		"model_opencode":          true,
-		"task_timeout":            true,
+		"opencode_compact_prompt":          true,
+		"opencode_thinking_default":        true,
+		"opencode_thinking_proxy_enabled":  true,
+		"opencode_thinking_proxy_port":     true,
+		"opencode_thinking_proxy_target":   true,
+		"opencode_thinking_model":          true,
+		"model_claude":                     true,
+		"model_opencode":                   true,
+		"task_timeout":                     true,
 	}
 
 	for key, value := range body {

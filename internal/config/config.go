@@ -56,6 +56,23 @@ func Init() error {
 	// OpenCode 프롬프트 단축 여부 — false면 Claude와 동일한 full 시스템 프롬프트 사용
 	viper.SetDefault("opencode_compact_prompt", true)
 
+	// OpenCode 'thinking' (reasoning) 모드 기본값. 토글 ON일 때 worker가
+	// opencode_thinking_model을 -m 인자로 강제하고, 그 모델은 사용자가
+	// opencode config에 만들어둔 thinking-routed provider entry를 가리키도록
+	// 설정해야 한다 (baseURL = shepherd thinking proxy).
+	viper.SetDefault("opencode_thinking_default", false)
+
+	// OpenCode가 OpenAI 호환 어댑터에서 chat_template_kwargs 같은 비표준
+	// body 필드를 떨어뜨려서, shepherd 데몬 안에 작은 reverse proxy를 띄워
+	// 요청 body에 enable_thinking을 주입한 뒤 진짜 llama-server로 전달한다.
+	// 사용자는 opencode config에 baseURL을 이 proxy(127.0.0.1:port)로 가리키는
+	// thinking-routed provider entry를 한 번 만들고, opencode_thinking_model에
+	// 그 provider/model 조합 (예: "qwen3.6-thinking/qwen3.6-27b")을 넣어둔다.
+	viper.SetDefault("opencode_thinking_proxy_enabled", false)
+	viper.SetDefault("opencode_thinking_proxy_port", 8686)
+	viper.SetDefault("opencode_thinking_proxy_target", "")
+	viper.SetDefault("opencode_thinking_model", "")
+
 	// 전역 모델 선택 (빈 문자열이면 각 CLI의 기본 모델 사용)
 	viper.SetDefault("model_claude", "")
 	viper.SetDefault("model_opencode", "")

@@ -1,7 +1,9 @@
 <script>
 	import { apiPost, apiGet, apiUpload } from '$lib/api.js';
 
-	let { projectName = '', sheepName = '', sheepStatus = 'idle' } = $props();
+	// `thinking`: tri-state — true/false override the server default, null means
+	// "do not include the field" so the server applies opencode_thinking_default.
+	let { projectName = '', sheepName = '', sheepStatus = 'idle', thinking = null } = $props();
 
 	let prompt = $state('');
 	let loading = $state(false);
@@ -116,11 +118,15 @@
 
 			let result;
 			if (projectName && sheepName) {
-				result = await apiPost('/api/tasks', {
+				const taskBody = {
 					prompt: finalPrompt,
 					sheep_name: sheepName,
 					project_name: projectName
-				});
+				};
+				if (thinking !== null) {
+					taskBody.thinking = !!thinking;
+				}
+				result = await apiPost('/api/tasks', taskBody);
 			} else {
 				result = await apiPost('/api/command', { prompt: finalPrompt });
 			}

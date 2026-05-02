@@ -92,6 +92,11 @@
 			custom_prompt_claude: configData.custom_prompt_claude || '',
 			custom_prompt_opencode: configData.custom_prompt_opencode || '',
 			opencode_compact_prompt: configData.opencode_compact_prompt,
+			opencode_thinking_default: configData.opencode_thinking_default,
+			opencode_thinking_proxy_enabled: configData.opencode_thinking_proxy_enabled,
+			opencode_thinking_proxy_port: parseInt(configData.opencode_thinking_proxy_port) || 8686,
+			opencode_thinking_proxy_target: configData.opencode_thinking_proxy_target || '',
+			opencode_thinking_model: configData.opencode_thinking_model || '',
 			model_claude: configData.model_claude || '',
 			model_opencode: configData.model_opencode || '',
 			task_timeout: (configData.task_timeout || '').trim() || '4h'
@@ -236,6 +241,58 @@
 					<input type="checkbox" bind:checked={configData.opencode_compact_prompt} />
 					<span>{configData.opencode_compact_prompt ? 'Compact' : 'Full (same as Claude)'}</span>
 				</label>
+			</div>
+
+			<div class="setting-row">
+				<label>OpenCode Thinking (default)</label>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={configData.opencode_thinking_default} />
+					<span>{configData.opencode_thinking_default ? 'On' : 'Off'}</span>
+				</label>
+				<span class="hint">Default reasoning mode for OpenCode tasks. Per-project toggle on the project page overrides this.</span>
+			</div>
+
+			<div class="setting-row">
+				<label>Thinking Proxy</label>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={configData.opencode_thinking_proxy_enabled} />
+					<span>{configData.opencode_thinking_proxy_enabled ? 'Enabled' : 'Disabled'}</span>
+				</label>
+				<span class="hint">Loopback proxy that injects <code>chat_template_kwargs.enable_thinking</code> into OpenAI-compatible chat completions before forwarding to the upstream server. Required because opencode strips that field. Restart the daemon after toggling.</span>
+			</div>
+
+			<div class="setting-row">
+				<label>Thinking Proxy Port</label>
+				<input
+					class="input"
+					type="number"
+					min="1024"
+					max="65535"
+					bind:value={configData.opencode_thinking_proxy_port}
+				/>
+				<span class="hint">127.0.0.1:&lt;port&gt; that the proxy listens on. Use this URL as <code>baseURL</code> in your opencode config thinking provider entry.</span>
+			</div>
+
+			<div class="setting-row">
+				<label>Thinking Proxy Target</label>
+				<input
+					class="input"
+					type="text"
+					placeholder="http://127.0.0.1:8083/v1"
+					bind:value={configData.opencode_thinking_proxy_target}
+				/>
+				<span class="hint">Real OpenAI-compatible endpoint the proxy forwards to (your llama-server, etc.). Include scheme, host, port, and any path prefix.</span>
+			</div>
+
+			<div class="setting-row">
+				<label>Thinking Model</label>
+				<input
+					class="input"
+					type="text"
+					placeholder="qwen3.6-thinking/qwen3.6-27b"
+					bind:value={configData.opencode_thinking_model}
+				/>
+				<span class="hint"><code>provider/model</code> id used when the per-project Thinking toggle is on. The provider entry in opencode config should set <code>baseURL</code> to the proxy.</span>
 			</div>
 
 			<div class="setting-row column">
