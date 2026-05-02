@@ -93,7 +93,8 @@
 			custom_prompt_opencode: configData.custom_prompt_opencode || '',
 			opencode_compact_prompt: configData.opencode_compact_prompt,
 			model_claude: configData.model_claude || '',
-			model_opencode: configData.model_opencode || ''
+			model_opencode: configData.model_opencode || '',
+			task_timeout: (configData.task_timeout || '').trim() || '4h'
 		});
 		if (res?.success) {
 			saveMsg = 'Saved';
@@ -179,6 +180,12 @@
 			<div class="setting-row">
 				<label>Max Sheep</label>
 				<input class="input" type="number" bind:value={configData.max_sheep} min="1" max="50" />
+			</div>
+
+			<div class="setting-row">
+				<label>Task Timeout</label>
+				<input class="input" type="text" bind:value={configData.task_timeout} placeholder="4h" />
+				<span class="hint">Per-task execution cap (e.g. <code>30m</code>, <code>4h</code>, <code>8h30m</code>). Use <code>unlimited</code>, <code>0</code>, or <code>-1</code> to disable the deadline. Default: 4h.</span>
 			</div>
 
 			<div class="setting-row">

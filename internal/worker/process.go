@@ -16,8 +16,6 @@ import (
 )
 
 const (
-	// DefaultTimeout is the default execution timeout (10 minutes)
-	DefaultTimeout = 10 * time.Minute
 	// MaxRetries is the maximum number of retry attempts
 	MaxRetries = 2
 	// RetryDelay is the delay between retries
@@ -30,10 +28,11 @@ type ExecuteOptions struct {
 	MaxRetries int
 }
 
-// DefaultExecuteOptions returns default execution options
+// DefaultExecuteOptions returns default execution options. Timeout comes from
+// config (task_timeout); 0 means no deadline.
 func DefaultExecuteOptions() ExecuteOptions {
 	return ExecuteOptions{
-		Timeout:    DefaultTimeout,
+		Timeout:    config.GetTaskTimeout(),
 		MaxRetries: MaxRetries,
 	}
 }
@@ -124,8 +123,18 @@ func ExecuteWithOptions(sheepName, prompt string, opts ExecuteOptions) (*Execute
 }
 
 // executeClaudeCodeWithTimeout runs the claude CLI command with timeout.
+// A non-positive timeout disables the deadline (the run still inherits
+// cancellation from the parent context indirectly via cmd.Run returning).
 func executeClaudeCodeWithTimeout(projectPath, sessionID, prompt string, timeout time.Duration) (*ExecuteResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+	} else {
+		ctx, cancel = context.WithCancel(context.Background())
+	}
 	defer cancel()
 
 	args := []string{

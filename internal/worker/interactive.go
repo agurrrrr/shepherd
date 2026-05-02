@@ -30,6 +30,8 @@ type OutputHandler func(output string)
 
 // InteractiveOptions contains options for interactive execution.
 type InteractiveOptions struct {
+	// Timeout caps a single CLI invocation. Zero or negative means no deadline
+	// (the run is still cancellable via StopTask).
 	Timeout       time.Duration
 	OnOutput      OutputHandler
 	OnInput       InputHandler
@@ -165,10 +167,12 @@ func unregisterRunningTask(sheepName string) {
 	delete(runningTasks, sheepName)
 }
 
-// DefaultInteractiveOptions returns default interactive options.
+// DefaultInteractiveOptions returns default interactive options. The timeout is
+// pulled from config (key: task_timeout) so user-configured limits — including
+// "unlimited" — flow through every caller without per-call wiring.
 func DefaultInteractiveOptions(onOutput OutputHandler, onInput InputHandler) InteractiveOptions {
 	return InteractiveOptions{
-		Timeout:       30 * time.Minute, // Longer timeout for interactive mode
+		Timeout:       config.GetTaskTimeout(),
 		OnOutput:      onOutput,
 		OnInput:       onInput,
 		ShowRawOutput: false,
@@ -205,8 +209,17 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		return nil, fmt.Errorf("failed to change status: %w", err)
 	}
 
-	// Create cancellable context
-	ctx, cancel := context.WithTimeout(bgCtx, opts.Timeout)
+	// Create cancellable context. Unlimited (Timeout <= 0) gets a plain cancel
+	// context so StopTask still works, just without a deadline.
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
+	if opts.Timeout > 0 {
+		ctx, cancel = context.WithTimeout(bgCtx, opts.Timeout)
+	} else {
+		ctx, cancel = context.WithCancel(bgCtx)
+	}
 	defer cancel()
 	defer unregisterRunningTask(sheepName)
 

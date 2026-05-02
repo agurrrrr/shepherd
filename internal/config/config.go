@@ -5,9 +5,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
+
+// DefaultTaskTimeout is the fallback when task_timeout is unset or invalid.
+const DefaultTaskTimeout = 4 * time.Hour
 
 type Config struct {
 	MaxSheep int    `mapstructure:"max_sheep"`
@@ -54,6 +59,11 @@ func Init() error {
 	// 전역 모델 선택 (빈 문자열이면 각 CLI의 기본 모델 사용)
 	viper.SetDefault("model_claude", "")
 	viper.SetDefault("model_opencode", "")
+
+	// 작업 실행 타임아웃 (Claude/OpenCode CLI 한 번 실행에 허용되는 최대 시간).
+	// time.ParseDuration 형식 — 예: "4h", "30m", "8h30m".
+	// 무제한으로 두려면 "0", "-1", "unlimited", "none", "off" 중 하나로 지정.
+	viper.SetDefault("task_timeout", "4h")
 
 	// 파일 탐색기
 	viper.SetDefault("enable_file_browser", true)
@@ -117,6 +127,30 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// GetTaskTimeout returns the configured per-task execution timeout.
+// A return value of 0 means unlimited — callers should use a context without a
+// deadline (still cancellable). Sentinel strings for unlimited: "0", "-1",
+// "unlimited", "none", "off", or any non-positive duration. Unparseable values
+// fall back to DefaultTaskTimeout so a typo can't accidentally disable timeouts.
+func GetTaskTimeout() time.Duration {
+	raw := strings.TrimSpace(viper.GetString("task_timeout"))
+	if raw == "" {
+		return DefaultTaskTimeout
+	}
+	switch strings.ToLower(raw) {
+	case "0", "-1", "unlimited", "none", "off":
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return DefaultTaskTimeout
+	}
+	if d <= 0 {
+		return 0
+	}
+	return d
 }
 
 func GetConfigPath() string {

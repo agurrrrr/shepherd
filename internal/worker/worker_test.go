@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/agurrrrr/shepherd/ent/sheep"
+	"github.com/agurrrrr/shepherd/internal/config"
 )
 
 func TestStatusToKorean(t *testing.T) {
@@ -30,8 +31,9 @@ func TestStatusToKorean(t *testing.T) {
 func TestDefaultExecuteOptions(t *testing.T) {
 	opts := DefaultExecuteOptions()
 
-	if opts.Timeout != DefaultTimeout {
-		t.Errorf("Timeout = %v, want %v", opts.Timeout, DefaultTimeout)
+	want := config.GetTaskTimeout()
+	if opts.Timeout != want {
+		t.Errorf("Timeout = %v, want %v", opts.Timeout, want)
 	}
 
 	if opts.MaxRetries != MaxRetries {

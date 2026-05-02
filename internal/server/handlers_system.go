@@ -86,6 +86,7 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"opencode_compact_prompt": config.GetBool("opencode_compact_prompt"),
 		"model_claude":            config.GetString("model_claude"),
 		"model_opencode":          config.GetString("model_opencode"),
+		"task_timeout":            config.GetString("task_timeout"),
 	})
 }
 
@@ -152,6 +153,7 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"opencode_compact_prompt": true,
 		"model_claude":            true,
 		"model_opencode":          true,
+		"task_timeout":            true,
 	}
 
 	for key, value := range body {
