@@ -429,7 +429,7 @@
 	.text-muted { color: var(--text-secondary); }
 
 	.settings-form {
-		max-width: 500px;
+		max-width: 640px;
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
@@ -437,20 +437,27 @@
 
 	.setting-row {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		justify-content: space-between;
-		gap: 16px;
+		column-gap: 16px;
+		row-gap: 6px;
 	}
 
-	.setting-row label {
+	.setting-row > label:not(.toggle) {
 		font-size: 14px;
 		font-weight: 500;
-		min-width: 140px;
+		flex: 0 0 140px;
 	}
 
 	.setting-row .input {
-		flex: 1;
-		max-width: 200px;
+		flex: 1 1 200px;
+		max-width: 240px;
+		min-width: 0;
+	}
+
+	.setting-row:not(.column) > .hint {
+		flex: 0 0 100%;
+		margin-left: 156px;
 	}
 
 	.setting-row.column {
@@ -459,8 +466,8 @@
 		gap: 8px;
 	}
 
-	.setting-row.column label {
-		min-width: 0;
+	.setting-row.column > label:not(.toggle) {
+		flex: none;
 	}
 
 	.setting-row.column .input {
@@ -737,12 +744,16 @@
 			gap: 6px;
 		}
 
-		.setting-row label {
-			min-width: 0;
+		.setting-row > label:not(.toggle) {
+			flex: none;
 		}
 
 		.setting-row .input {
 			max-width: none;
+		}
+
+		.setting-row:not(.column) > .hint {
+			margin-left: 0;
 		}
 
 		.setting-actions {
