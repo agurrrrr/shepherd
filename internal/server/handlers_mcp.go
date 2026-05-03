@@ -189,7 +189,7 @@ func registerOpenCodeMCP(homeDir string) error {
 
 	mcp["shepherd"] = map[string]interface{}{
 		"type":    "local",
-		"command": []string{"shepherd", "mcp", "--minimal"},
+		"command": []string{"shepherd", "mcp"},
 		"enabled": true,
 	}
 	config["mcp"] = mcp
