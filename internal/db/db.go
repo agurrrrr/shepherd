@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sync"
 
@@ -15,6 +16,8 @@ import (
 
 var (
 	client *ent.Client
+	rawDB  *sql.DB
+	dbPath string
 	once   sync.Once
 )
 
@@ -22,7 +25,7 @@ var (
 func Init() error {
 	var initErr error
 	once.Do(func() {
-		dbPath := config.GetString("db_path")
+		dbPath = config.GetString("db_path")
 		if dbPath == "" {
 			dbPath = config.GetConfigPath()
 			// config 경로에서 shepherd.db 경로 추출
@@ -38,8 +41,8 @@ func Init() error {
 
 		// SQLite는 동시 write를 허용하지 않으므로 커넥션을 1개로 제한하여
 		// "database table is locked" 에러 방지
-		db := drv.DB()
-		db.SetMaxOpenConns(1)
+		rawDB = drv.DB()
+		rawDB.SetMaxOpenConns(1)
 
 		client = ent.NewClient(ent.Driver(drv))
 
@@ -62,6 +65,18 @@ func Init() error {
 // Client returns the database client.
 func Client() *ent.Client {
 	return client
+}
+
+// RawDB returns the underlying *sql.DB. Useful for SQLite-specific commands
+// such as `VACUUM INTO` that ent does not expose directly. Callers must not
+// close this handle.
+func RawDB() *sql.DB {
+	return rawDB
+}
+
+// Path returns the on-disk path of the SQLite database.
+func Path() string {
+	return dbPath
 }
 
 // Close closes the database connection.

@@ -88,6 +88,12 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/config/system-prompt-preview", s.handleSystemPromptPreview)
 	api.Get("/config/model-options", s.handleGetModelOptions)
 
+	// Backup & portable task history
+	api.Get("/settings/db-backup", s.handleDownloadDBBackup)
+	api.Get("/settings/tasks-export", s.handleExportTasks)
+	api.Post("/settings/tasks-import-preview", s.handleImportTasksPreview)
+	api.Post("/settings/tasks-import", s.handleImportTasks)
+
 	// MCP registration
 	api.Get("/mcp/status", s.handleMCPStatus)
 	api.Post("/mcp/register", s.handleMCPRegister)
