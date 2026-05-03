@@ -456,8 +456,9 @@
 	}
 
 	.setting-row:not(.column) > .hint {
-		flex: 0 0 100%;
+		flex: 0 0 calc(100% - 156px);
 		margin-left: 156px;
+		min-width: 0;
 	}
 
 	.setting-row.column {
@@ -753,6 +754,7 @@
 		}
 
 		.setting-row:not(.column) > .hint {
+			flex: 0 0 100%;
 			margin-left: 0;
 		}
 
