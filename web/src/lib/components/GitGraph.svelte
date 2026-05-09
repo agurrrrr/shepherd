@@ -166,6 +166,12 @@
 		if (res?.data?.output !== undefined) {
 			pushResult = `Pushed ${res.data.branch} → ${res.data.remote}`;
 			await loadChanges();
+			// Push advances the remote-tracking ref; reload the log so the
+			// origin/* badges on the graph follow it instead of staying on the
+			// previous commit.
+			commits = [];
+			commitsLoaded = false;
+			await loadCommits();
 		} else {
 			pushIsError = true;
 			pushResult = res?.message || 'Push failed';
