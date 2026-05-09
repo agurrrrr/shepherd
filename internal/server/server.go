@@ -126,12 +126,16 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/projects/:name/files/download/*", s.handleDownloadFile)
 	api.Get("/projects/:name/files/content/*", s.handleGetFileContent)
 
-	// Git (read-only)
+	// Git
 	api.Get("/projects/:name/git/log", s.handleGitLog)
 	api.Get("/projects/:name/git/branches", s.handleGitBranches)
 	api.Get("/projects/:name/git/commits/:hash", s.handleGitCommitDetail)
 	api.Get("/projects/:name/git/commits/:hash/diff", s.handleGitCommitDiff)
 	api.Get("/projects/:name/git/changes", s.handleGitChanges)
+	api.Post("/projects/:name/git/stage", s.handleGitStage)
+	api.Post("/projects/:name/git/unstage", s.handleGitUnstage)
+	api.Post("/projects/:name/git/commit", s.handleGitCommit)
+	api.Post("/projects/:name/git/push", s.handleGitPush)
 
 	// Task management
 	api.Get("/tasks", s.handleListTasks)

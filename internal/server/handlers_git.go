@@ -1,16 +1,30 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/agurrrrr/shepherd/internal/project"
 )
+
+// gitCmdTimeout caps long-running git operations (push, fetch).
+const gitCmdTimeout = 60 * time.Second
+
+// runGitWithTimeout runs `git -C path args...` with a context deadline and
+// returns combined stdout+stderr. The caller is responsible for checking err.
+func runGitWithTimeout(p string, args []string, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	full := append([]string{"-C", p}, args...)
+	return exec.CommandContext(ctx, "git", full...).CombinedOutput()
+}
 
 // validateGitRef validates a git ref name (branch, tag).
 // Allowed: alphanumeric, -, _, /, .
@@ -304,6 +318,24 @@ func (s *Server) handleGitCommitDetail(c *fiber.Ctx) error {
 	})
 }
 
+// gitChangeFile is a single entry from `git status --porcelain=v1`.
+// Index is the staged status (X), WorkTree is the unstaged status (Y).
+// Both are single ASCII chars; ' ' (space) means "no change in that column".
+type gitChangeFile struct {
+	Path     string `json:"path"`
+	Index    string `json:"index"`
+	WorkTree string `json:"work_tree"`
+}
+
+type gitChangesResponse struct {
+	Branch   string          `json:"branch"`
+	Upstream string          `json:"upstream,omitempty"`
+	Ahead    int             `json:"ahead"`
+	Behind   int             `json:"behind"`
+	Detached bool            `json:"detached"`
+	Files    []gitChangeFile `json:"files"`
+}
+
 // GET /api/projects/:name/git/changes
 func (s *Server) handleGitChanges(c *fiber.Ctx) error {
 	name := paramDecoded(c, "name")
@@ -312,34 +344,230 @@ func (s *Server) handleGitChanges(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusNotFound, "project not found")
 	}
 
-	cmd := exec.Command("git", "-C", p.Path, "status", "--porcelain")
-	out, err := cmd.Output()
+	// Use porcelain v2 with branch info — gives us branch name, upstream,
+	// ahead/behind, and per-file XY status in a single call.
+	out, err := exec.Command("git", "-C", p.Path, "status",
+		"--porcelain=v2", "--branch", "-z").Output()
 	if err != nil {
-		return fail(c, fiber.StatusInternalServerError, "git status failed: "+err.Error())
+		return fail(c, fiber.StatusInternalServerError, "git status failed")
 	}
 
-	type changeEntry struct {
-		Path   string `json:"path"`
-		Status string `json:"status"`
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	changes := make([]changeEntry, 0, len(lines))
-	for _, line := range lines {
-		if len(line) < 4 {
+	resp := gitChangesResponse{Files: []gitChangeFile{}}
+	// porcelain v2 uses NUL as a record separator (with -z).
+	// Header lines start with "# branch.*"; file lines with "1 ", "2 ", "u ", "?".
+	for _, rec := range strings.Split(string(out), "\x00") {
+		if rec == "" {
 			continue
 		}
-		status := strings.TrimSpace(line[:2])
-		path := strings.TrimSpace(line[3:])
-		if path != "" {
-			changes = append(changes, changeEntry{
-				Path:   path,
-				Status: status,
+		switch {
+		case strings.HasPrefix(rec, "# branch.head "):
+			resp.Branch = strings.TrimPrefix(rec, "# branch.head ")
+			if resp.Branch == "(detached)" {
+				resp.Detached = true
+				resp.Branch = ""
+			}
+		case strings.HasPrefix(rec, "# branch.upstream "):
+			resp.Upstream = strings.TrimPrefix(rec, "# branch.upstream ")
+		case strings.HasPrefix(rec, "# branch.ab "):
+			// "# branch.ab +A -B"
+			parts := strings.Fields(strings.TrimPrefix(rec, "# branch.ab "))
+			if len(parts) == 2 {
+				resp.Ahead, _ = strconv.Atoi(strings.TrimPrefix(parts[0], "+"))
+				resp.Behind, _ = strconv.Atoi(strings.TrimPrefix(parts[1], "-"))
+			}
+		case strings.HasPrefix(rec, "1 "):
+			// "1 XY sub mH mI mW hH hI path"
+			fields := strings.SplitN(rec, " ", 9)
+			if len(fields) == 9 && len(fields[1]) == 2 {
+				resp.Files = append(resp.Files, gitChangeFile{
+					Path:     fields[8],
+					Index:    string(fields[1][0]),
+					WorkTree: string(fields[1][1]),
+				})
+			}
+		case strings.HasPrefix(rec, "2 "):
+			// Renamed/copied entry: "2 XY sub mH mI mW hH hI Xscore path"
+			// path field contains "newpath" — the next NUL record is the original
+			// path which we skip below.
+			fields := strings.SplitN(rec, " ", 10)
+			if len(fields) == 10 && len(fields[1]) == 2 {
+				resp.Files = append(resp.Files, gitChangeFile{
+					Path:     fields[9],
+					Index:    string(fields[1][0]),
+					WorkTree: string(fields[1][1]),
+				})
+			}
+		case strings.HasPrefix(rec, "? "):
+			resp.Files = append(resp.Files, gitChangeFile{
+				Path:     strings.TrimPrefix(rec, "? "),
+				Index:    "?",
+				WorkTree: "?",
 			})
 		}
 	}
 
-	return success(c, changes)
+	return success(c, resp)
+}
+
+// POST /api/projects/:name/git/stage  body: {"paths": ["file1", "file2"]}
+func (s *Server) handleGitStage(c *fiber.Ctx) error {
+	return s.handleGitStageOp(c, true)
+}
+
+// POST /api/projects/:name/git/unstage  body: {"paths": ["file1"]}
+func (s *Server) handleGitUnstage(c *fiber.Ctx) error {
+	return s.handleGitStageOp(c, false)
+}
+
+func (s *Server) handleGitStageOp(c *fiber.Ctx, stage bool) error {
+	name := paramDecoded(c, "name")
+	p, err := project.Get(name)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, "project not found")
+	}
+	var body struct {
+		Paths []string `json:"paths"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	if len(body.Paths) == 0 {
+		return fail(c, fiber.StatusBadRequest, "paths required")
+	}
+	if len(body.Paths) > 1000 {
+		return fail(c, fiber.StatusBadRequest, "too many paths")
+	}
+	for _, fp := range body.Paths {
+		if !isValidFilePath(fp) {
+			return fail(c, fiber.StatusBadRequest, "invalid file path: "+fp)
+		}
+	}
+
+	var args []string
+	if stage {
+		args = append([]string{"add", "--"}, body.Paths...)
+	} else {
+		// `git restore --staged` is the modern UI; falls back gracefully on
+		// older git, but shepherd targets git ≥ 2.23. Using `--` makes paths
+		// unambiguous against branch names.
+		args = append([]string{"restore", "--staged", "--"}, body.Paths...)
+	}
+	out, err := runGitWithTimeout(p.Path, args, 30*time.Second)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError,
+			"git "+args[0]+" failed: "+strings.TrimSpace(string(out)))
+	}
+	return success(c, nil)
+}
+
+// POST /api/projects/:name/git/commit  body: {"message": "...", "signoff": false, "amend": false}
+func (s *Server) handleGitCommit(c *fiber.Ctx) error {
+	name := paramDecoded(c, "name")
+	p, err := project.Get(name)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, "project not found")
+	}
+
+	var body struct {
+		Message string `json:"message"`
+		Signoff bool   `json:"signoff,omitempty"`
+		Amend   bool   `json:"amend,omitempty"`
+		AllowEmpty bool `json:"allow_empty,omitempty"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	msg := strings.TrimRight(body.Message, " \t\r\n")
+	if msg == "" {
+		return fail(c, fiber.StatusBadRequest, "commit message required")
+	}
+	if len(msg) > 1<<20 { // 1 MiB
+		return fail(c, fiber.StatusBadRequest, "commit message too large")
+	}
+
+	args := []string{"-C", p.Path, "commit", "-F", "-"}
+	if body.Signoff {
+		args = append(args, "--signoff")
+	}
+	if body.Amend {
+		args = append(args, "--amend")
+	}
+	if body.AllowEmpty {
+		args = append(args, "--allow-empty")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Stdin = strings.NewReader(msg)
+	out, cmdErr := cmd.CombinedOutput()
+	if cmdErr != nil {
+		return fail(c, fiber.StatusInternalServerError,
+			"git commit failed: "+strings.TrimSpace(string(out)))
+	}
+
+	// Best-effort: report the resulting commit hash.
+	hashOut, _ := exec.Command("git", "-C", p.Path, "rev-parse", "HEAD").Output()
+	return success(c, fiber.Map{
+		"hash":   strings.TrimSpace(string(hashOut)),
+		"output": string(out),
+	})
+}
+
+// POST /api/projects/:name/git/push  body: {"remote": "origin", "branch": "main", "set_upstream": false}
+func (s *Server) handleGitPush(c *fiber.Ctx) error {
+	name := paramDecoded(c, "name")
+	p, err := project.Get(name)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, "project not found")
+	}
+
+	var body struct {
+		Remote      string `json:"remote"`
+		Branch      string `json:"branch"`
+		SetUpstream bool   `json:"set_upstream,omitempty"`
+	}
+	// Body is optional — empty body means "push current branch to origin".
+	_ = c.BodyParser(&body)
+
+	remote := body.Remote
+	if remote == "" {
+		remote = "origin"
+	}
+	if !isValidGitRef(remote) {
+		return fail(c, fiber.StatusBadRequest, "invalid remote name")
+	}
+
+	branch := body.Branch
+	if branch == "" {
+		bout, berr := exec.Command("git", "-C", p.Path,
+			"symbolic-ref", "--short", "HEAD").Output()
+		if berr != nil {
+			return fail(c, fiber.StatusBadRequest,
+				"cannot detect current branch (detached HEAD?)")
+		}
+		branch = strings.TrimSpace(string(bout))
+	}
+	if !isValidGitRef(branch) {
+		return fail(c, fiber.StatusBadRequest, "invalid branch name")
+	}
+
+	args := []string{"push"}
+	if body.SetUpstream {
+		args = append(args, "-u")
+	}
+	args = append(args, remote, branch)
+
+	out, cmdErr := runGitWithTimeout(p.Path, args, gitCmdTimeout)
+	if cmdErr != nil {
+		return fail(c, fiber.StatusInternalServerError,
+			"git push failed: "+strings.TrimSpace(string(out)))
+	}
+	return success(c, fiber.Map{
+		"remote": remote,
+		"branch": branch,
+		"output": string(out),
+	})
 }
 
 // --- Diff types and parser ---

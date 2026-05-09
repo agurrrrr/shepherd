@@ -1,5 +1,5 @@
 <script>
-	import { apiGet } from '$lib/api.js';
+	import { apiGet, apiPost } from '$lib/api.js';
 
 	let { projectName = '' } = $props();
 
@@ -20,10 +20,20 @@
 	let branchesLoading = $state(false);
 	let branchesLoaded = $state(false);
 
-	// Changes
-	let changes = $state([]);
+	// Changes — server returns {branch, upstream, ahead, behind, detached, files: [{path, index, work_tree}]}
+	let changesData = $state({ branch: '', upstream: '', ahead: 0, behind: 0, detached: false, files: [] });
 	let changesLoading = $state(false);
 	let changesLoaded = $state(false);
+
+	// Commit/push state
+	let commitMessage = $state('');
+	let commitSignoff = $state(false);
+	let commitBusy = $state(false);
+	let commitError = $state('');
+	let pushBusy = $state(false);
+	let pushResult = $state(''); // success or error message
+	let pushIsError = $state(false);
+	let stageBusy = $state(false);
 
 	// Diff viewer
 	let diffData = $state(null);
@@ -83,10 +93,108 @@
 		changesLoading = true;
 		const res = await apiGet(`/api/projects/${encodeURIComponent(projectName)}/git/changes`);
 		if (res?.data) {
-			changes = res.data;
+			// Defensive: backend returns object now, but tolerate older array shape too.
+			if (Array.isArray(res.data)) {
+				changesData = { branch: '', upstream: '', ahead: 0, behind: 0, detached: false, files: [] };
+			} else {
+				changesData = {
+					branch: res.data.branch || '',
+					upstream: res.data.upstream || '',
+					ahead: res.data.ahead || 0,
+					behind: res.data.behind || 0,
+					detached: !!res.data.detached,
+					files: res.data.files || [],
+				};
+			}
 		}
 		changesLoaded = true;
 		changesLoading = false;
+	}
+
+	async function stagePaths(paths) {
+		if (!paths.length) return;
+		stageBusy = true;
+		await apiPost(`/api/projects/${encodeURIComponent(projectName)}/git/stage`, { paths });
+		stageBusy = false;
+		await loadChanges();
+	}
+
+	async function unstagePaths(paths) {
+		if (!paths.length) return;
+		stageBusy = true;
+		await apiPost(`/api/projects/${encodeURIComponent(projectName)}/git/unstage`, { paths });
+		stageBusy = false;
+		await loadChanges();
+	}
+
+	async function doCommit() {
+		const msg = commitMessage.trim();
+		if (!msg) {
+			commitError = 'Commit message required';
+			return;
+		}
+		commitBusy = true;
+		commitError = '';
+		const res = await apiPost(`/api/projects/${encodeURIComponent(projectName)}/git/commit`, {
+			message: msg,
+			signoff: commitSignoff,
+		});
+		commitBusy = false;
+		if (res?.data?.hash) {
+			commitMessage = '';
+			// Refresh both panes — commit moves files out of staged and adds a row to the log.
+			await loadChanges();
+			commits = [];
+			commitsLoaded = false;
+			await loadCommits();
+		} else {
+			commitError = res?.message || 'Commit failed';
+		}
+	}
+
+	async function doPush() {
+		pushBusy = true;
+		pushResult = '';
+		pushIsError = false;
+		const body = {};
+		// First-time push: set upstream when there isn't one yet.
+		if (!changesData.upstream && changesData.branch && !changesData.detached) {
+			body.set_upstream = true;
+		}
+		const res = await apiPost(`/api/projects/${encodeURIComponent(projectName)}/git/push`, body);
+		pushBusy = false;
+		if (res?.data?.output !== undefined) {
+			pushResult = `Pushed ${res.data.branch} → ${res.data.remote}`;
+			await loadChanges();
+		} else {
+			pushIsError = true;
+			pushResult = res?.message || 'Push failed';
+		}
+	}
+
+	// porcelain v2 uses '.' (not ' ') to mean "unmodified on this side"
+	function isStaged(f) {
+		return f.index && f.index !== ' ' && f.index !== '.' && f.index !== '?';
+	}
+	function hasWorkTreeChange(f) {
+		return f.work_tree && f.work_tree !== ' ' && f.work_tree !== '.';
+	}
+	function isUntracked(f) {
+		return f.index === '?';
+	}
+
+	const statusName = {
+		'M': 'Modified', 'A': 'Added', 'D': 'Deleted',
+		'R': 'Renamed', 'C': 'Copied', 'U': 'Unmerged',
+		'?': 'Untracked', '!': 'Ignored', ' ': '', '.': '',
+	};
+	function codeClass(ch) {
+		if (ch === 'M') return 'modified';
+		if (ch === 'A') return 'added';
+		if (ch === 'D') return 'deleted';
+		if (ch === 'R' || ch === 'C') return 'modified';
+		if (ch === '?') return 'untracked';
+		return '';
 	}
 
 	async function selectCommit(commit) {
@@ -235,19 +343,6 @@
 		if (days < 30) return `${days}d ago`;
 
 		return d.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' });
-	}
-
-	function statusLabel(s) {
-		const map = { 'M': 'Modified', 'A': 'Added', 'D': 'Deleted', '??': 'Untracked', 'R': 'Renamed', 'C': 'Copied' };
-		return map[s] || s;
-	}
-
-	function statusClass(s) {
-		if (s === 'M' || s === 'MM') return 'modified';
-		if (s === 'A' || s === 'AM') return 'added';
-		if (s === 'D') return 'deleted';
-		if (s === '??') return 'untracked';
-		return 'modified';
 	}
 
 	// Compute SVG graph width from rows
@@ -456,21 +551,130 @@
 
 	<!-- Changes sub-tab -->
 	{#if subTab === 'changes'}
+		{@const stagedFiles = changesData.files.filter(isStaged)}
+		{@const unstagedFiles = changesData.files.filter(f => hasWorkTreeChange(f) || isUntracked(f))}
+		{@const stagedPaths = stagedFiles.map(f => f.path)}
+		{@const unstagedPaths = unstagedFiles.map(f => f.path)}
 		<div class="changes-panel">
+
+			<!-- Branch banner with push -->
+			<div class="branch-banner">
+				<div class="branch-banner-info">
+					{#if changesData.detached}
+						<span class="branch-name mono">(detached HEAD)</span>
+					{:else if changesData.branch}
+						<span class="branch-name mono">{changesData.branch}</span>
+						{#if changesData.upstream}
+							<span class="branch-upstream mono">→ {changesData.upstream}</span>
+						{:else}
+							<span class="branch-upstream-none">no upstream</span>
+						{/if}
+						{#if changesData.ahead > 0}
+							<span class="branch-counter ahead">↑{changesData.ahead}</span>
+						{/if}
+						{#if changesData.behind > 0}
+							<span class="branch-counter behind">↓{changesData.behind}</span>
+						{/if}
+					{:else}
+						<span class="text-muted">—</span>
+					{/if}
+				</div>
+				<div class="branch-banner-actions">
+					{#if pushResult}
+						<span class="push-result" class:error={pushIsError}>{pushResult}</span>
+					{/if}
+					<button class="btn-action"
+						onclick={doPush}
+						disabled={pushBusy || changesData.detached || !changesData.branch}
+						title={changesData.upstream ? `Push to ${changesData.upstream}` : 'Push (set upstream)'}>
+						{pushBusy ? 'Pushing…' : 'Push'}
+					</button>
+				</div>
+			</div>
+
 			{#if changesLoading && !changesLoaded}
 				<p class="text-muted">Loading changes...</p>
-			{:else if changes.length === 0}
+			{:else if changesData.files.length === 0}
 				<p class="text-muted">Working directory clean</p>
 			{:else}
-				<div class="changes-list">
-					{#each changes as ch}
-						<div class="change-row">
-							<span class="change-status {statusClass(ch.status)}">{ch.status}</span>
-							<span class="change-path mono">{ch.path}</span>
+				<div class="changes-sections">
+					<!-- Staged section -->
+					<div class="changes-section">
+						<div class="changes-section-header">
+							<span class="section-label">Staged ({stagedFiles.length})</span>
+							{#if stagedFiles.length > 0}
+								<button class="btn-mini"
+									disabled={stageBusy}
+									onclick={() => unstagePaths(stagedPaths)}>Unstage all</button>
+							{/if}
 						</div>
-					{/each}
+						{#if stagedFiles.length === 0}
+							<div class="changes-empty">Nothing staged</div>
+						{:else}
+							{#each stagedFiles as f}
+								<div class="change-row">
+									<span class="change-status {codeClass(f.index)}" title={statusName[f.index] || f.index}>{f.index}</span>
+									<span class="change-path mono">{f.path}</span>
+									<button class="btn-mini ghost"
+										disabled={stageBusy}
+										onclick={() => unstagePaths([f.path])}
+										title="Unstage">−</button>
+								</div>
+							{/each}
+						{/if}
+					</div>
+
+					<!-- Unstaged + untracked section -->
+					<div class="changes-section">
+						<div class="changes-section-header">
+							<span class="section-label">Changes ({unstagedFiles.length})</span>
+							{#if unstagedFiles.length > 0}
+								<button class="btn-mini"
+									disabled={stageBusy}
+									onclick={() => stagePaths(unstagedPaths)}>Stage all</button>
+							{/if}
+						</div>
+						{#if unstagedFiles.length === 0}
+							<div class="changes-empty">No unstaged changes</div>
+						{:else}
+							{#each unstagedFiles as f}
+								<div class="change-row">
+									<span class="change-status {codeClass(isUntracked(f) ? '?' : f.work_tree)}"
+										title={statusName[isUntracked(f) ? '?' : f.work_tree] || f.work_tree}>{isUntracked(f) ? '?' : f.work_tree}</span>
+									<span class="change-path mono">{f.path}</span>
+									<button class="btn-mini ghost"
+										disabled={stageBusy}
+										onclick={() => stagePaths([f.path])}
+										title="Stage">+</button>
+								</div>
+							{/each}
+						{/if}
+					</div>
 				</div>
 			{/if}
+
+			<!-- Commit form -->
+			<div class="commit-form">
+				<textarea class="commit-textarea mono"
+					placeholder={stagedFiles.length === 0 ? 'Stage files first to commit' : 'Commit message (first line = subject)'}
+					bind:value={commitMessage}
+					disabled={commitBusy || stagedFiles.length === 0}
+					rows="3"></textarea>
+				<div class="commit-form-actions">
+					<label class="commit-option">
+						<input type="checkbox" bind:checked={commitSignoff} disabled={commitBusy} />
+						Signed-off-by
+					</label>
+					{#if commitError}
+						<span class="commit-error">{commitError}</span>
+					{/if}
+					<button class="btn-action primary"
+						onclick={doCommit}
+						disabled={commitBusy || stagedFiles.length === 0 || !commitMessage.trim()}>
+						{commitBusy ? 'Committing…' : `Commit ${stagedFiles.length || ''}`}
+					</button>
+				</div>
+			</div>
 		</div>
 	{/if}
 
@@ -837,20 +1041,109 @@
 	.changes-panel {
 		flex: 1;
 		min-height: 0;
-		overflow-y: auto;
-		padding: 4px 0;
-	}
-
-	.changes-list {
 		display: flex;
 		flex-direction: column;
+		overflow: hidden;
+	}
+
+	.branch-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 6px 12px;
+		border-bottom: 1px solid var(--border);
+		flex-shrink: 0;
+		flex-wrap: wrap;
+	}
+
+	.branch-banner-info {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+		min-width: 0;
+	}
+
+	.branch-banner-actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-shrink: 0;
+	}
+
+	.branch-upstream {
+		font-size: 11px;
+		color: var(--text-secondary);
+	}
+
+	.branch-upstream-none {
+		font-size: 11px;
+		color: var(--text-secondary);
+		font-style: italic;
+	}
+
+	.branch-counter {
+		font-size: 11px;
+		font-family: var(--font-mono), monospace;
+		padding: 1px 6px;
+		border-radius: 3px;
+		font-weight: 600;
+	}
+
+	.branch-counter.ahead {
+		background: rgba(63, 185, 80, 0.18);
+		color: #81c784;
+	}
+
+	.branch-counter.behind {
+		background: rgba(248, 81, 73, 0.18);
+		color: #e57373;
+	}
+
+	.push-result {
+		font-size: 11px;
+		color: #81c784;
+	}
+
+	.push-result.error {
+		color: #e57373;
+	}
+
+	.changes-sections {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		padding: 8px 0;
+	}
+
+	.changes-section {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.changes-section-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 4px 12px;
+	}
+
+	.changes-empty {
+		padding: 4px 12px 8px 36px;
+		font-size: 11px;
+		color: var(--text-secondary);
+		font-style: italic;
 	}
 
 	.change-row {
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		padding: 4px 12px;
+		padding: 3px 12px;
 		font-size: 13px;
 	}
 
@@ -862,7 +1155,7 @@
 		font-size: 11px;
 		font-weight: 700;
 		font-family: var(--font-mono), monospace;
-		width: 24px;
+		width: 18px;
 		text-align: center;
 		flex-shrink: 0;
 	}
@@ -878,6 +1171,122 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		min-width: 0;
+		flex: 1;
+	}
+
+	.commit-form {
+		flex-shrink: 0;
+		border-top: 1px solid var(--border);
+		padding: 8px 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		background: var(--bg-secondary);
+	}
+
+	.commit-textarea {
+		width: 100%;
+		resize: vertical;
+		min-height: 56px;
+		padding: 6px 8px;
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		font-size: 12px;
+		line-height: 1.4;
+		font-family: var(--font-mono), monospace;
+		box-sizing: border-box;
+	}
+
+	.commit-textarea:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.commit-form-actions {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+
+	.commit-option {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 11px;
+		color: var(--text-secondary);
+	}
+
+	.commit-error {
+		font-size: 11px;
+		color: #e57373;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.btn-action {
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 4px 10px;
+		font-size: 12px;
+		cursor: pointer;
+		transition: background 0.1s, color 0.1s;
+		margin-left: auto;
+	}
+
+	.btn-action:hover:not(:disabled) {
+		background: var(--accent);
+		color: var(--bg-primary);
+	}
+
+	.btn-action.primary {
+		background: var(--accent);
+		color: var(--bg-primary);
+		border-color: var(--accent);
+	}
+
+	.btn-action.primary:hover:not(:disabled) {
+		filter: brightness(1.15);
+	}
+
+	.btn-action:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.btn-mini {
+		background: transparent;
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		padding: 1px 6px;
+		font-size: 11px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.btn-mini:hover:not(:disabled) {
+		color: var(--text-primary);
+		background: var(--bg-tertiary);
+	}
+
+	.btn-mini.ghost {
+		border-color: transparent;
+		opacity: 0.6;
+	}
+
+	.btn-mini.ghost:hover:not(:disabled) {
+		opacity: 1;
+		border-color: var(--border);
+	}
+
+	.btn-mini:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
 	}
 
 	/* Branches panel */
