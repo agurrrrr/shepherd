@@ -184,6 +184,23 @@ var setProviderCmd = &cobra.Command{
 	},
 }
 
+// rename command
+var renameCmd = &cobra.Command{
+	Use:   "rename <old-name> <new-name>",
+	Short: "Rename a sheep",
+	Long:  "Renames a sheep to a user-chosen name. Custom names not in the seeded pool are allowed.",
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		oldName := args[0]
+		newName := args[1]
+		if err := worker.Rename(oldName, newName); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to rename sheep: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("🐏 %s renamed to %s\n", oldName, newName)
+	},
+}
+
 // recall command
 var recallAll bool
 
@@ -3334,6 +3351,9 @@ func init() {
 
 	// Register set-provider command
 	rootCmd.AddCommand(setProviderCmd)
+
+	// Register rename command
+	rootCmd.AddCommand(renameCmd)
 
 	// Register recall command
 	recallCmd.Flags().BoolVarP(&recallAll, "all", "a", false, i18n.T().CLIFlagRecallAll)

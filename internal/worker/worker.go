@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/agurrrrr/shepherd/ent"
 	"github.com/agurrrrr/shepherd/ent/sheep"
@@ -10,6 +12,8 @@ import (
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/names"
 )
+
+const maxSheepNameLength = 32
 
 // CreateOptions contains options for sheep creation
 type CreateOptions struct {
@@ -229,6 +233,57 @@ func IsWorking(name string) (bool, error) {
 	}
 
 	return s.Status == sheep.StatusWorking, nil
+}
+
+// Rename changes a sheep's name to a user-chosen name.
+// Unlike Create, this accepts arbitrary names that aren't in the seeded pool —
+// users can give their sheep custom names like "감자" or "쫑쫑이".
+func Rename(oldName, newName string) error {
+	ctx := context.Background()
+	client := db.Client()
+
+	newName = strings.TrimSpace(newName)
+	if newName == "" {
+		return fmt.Errorf("new name must not be empty")
+	}
+	if utf8.RuneCountInString(newName) > maxSheepNameLength {
+		return fmt.Errorf("new name too long (max %d characters)", maxSheepNameLength)
+	}
+	if names.IsReserved(newName) {
+		return fmt.Errorf("'%s' is a reserved name", newName)
+	}
+	if names.IsManager(oldName) {
+		return fmt.Errorf("the manager sheep cannot be renamed")
+	}
+	if oldName == newName {
+		return nil
+	}
+
+	s, err := client.Sheep.Query().
+		Where(sheep.Name(oldName)).
+		Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return fmt.Errorf("'%s' not found", oldName)
+		}
+		return fmt.Errorf("failed to query sheep: %w", err)
+	}
+
+	exists, err := client.Sheep.Query().
+		Where(sheep.Name(newName)).
+		Exist(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to query sheep: %w", err)
+	}
+	if exists {
+		return fmt.Errorf("'%s' already exists", newName)
+	}
+
+	if _, err := client.Sheep.UpdateOne(s).SetName(newName).Save(ctx); err != nil {
+		return fmt.Errorf("failed to rename sheep: %w", err)
+	}
+
+	return nil
 }
 
 // UpdateProvider updates the provider of a sheep.
