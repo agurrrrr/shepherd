@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"unicode/utf8"
 
@@ -279,8 +280,33 @@ func Rename(oldName, newName string) error {
 		return fmt.Errorf("'%s' already exists", newName)
 	}
 
-	if _, err := client.Sheep.UpdateOne(s).SetName(newName).Save(ctx); err != nil {
+	// Check personal memory directory preconditions before touching DB so we
+	// can fail fast without leaving DB and FS out of sync.
+	oldDir := config.GetSheepMemoryDir(oldName)
+	newDir := config.GetSheepMemoryDir(newName)
+	hasOldDir := false
+	if info, err := os.Stat(oldDir); err == nil && info.IsDir() {
+		hasOldDir = true
+		if _, err := os.Stat(newDir); err == nil {
+			return fmt.Errorf("memory directory for '%s' already exists at %s", newName, newDir)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to check memory dir: %w", err)
+		}
+	}
+
+	updated, err := client.Sheep.UpdateOne(s).SetName(newName).Save(ctx)
+	if err != nil {
 		return fmt.Errorf("failed to rename sheep: %w", err)
+	}
+
+	if hasOldDir {
+		if err := os.Rename(oldDir, newDir); err != nil {
+			// Rollback DB rename so memory dir and sheep name stay aligned.
+			if _, rbErr := client.Sheep.UpdateOne(updated).SetName(oldName).Save(ctx); rbErr != nil {
+				return fmt.Errorf("failed to move memory dir (%w); rollback also failed: %v", err, rbErr)
+			}
+			return fmt.Errorf("failed to move memory dir from %s to %s: %w", oldDir, newDir, err)
+		}
 	}
 
 	return nil
