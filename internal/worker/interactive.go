@@ -254,9 +254,8 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
 	}
 
-	// Restore status
-	updateQuery := client.Sheep.Update().
-		Where(sheep.Name(sheepName)).
+	// Restore status — use ID, since the sheep may have been renamed during execution
+	updateQuery := client.Sheep.UpdateOneID(s.ID).
 		SetStatus(sheep.StatusIdle)
 
 	if result != nil && result.SessionID != "" {
