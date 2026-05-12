@@ -206,6 +206,8 @@
 			session_reuse: configData.session_reuse,
 			include_task_history: configData.include_task_history,
 			include_mcp_guide: configData.include_mcp_guide,
+			include_sheep_memory: configData.include_sheep_memory,
+			sheep_memory_prompt: configData.sheep_memory_prompt || '',
 			enable_file_browser: configData.enable_file_browser,
 			custom_prompt_claude: configData.custom_prompt_claude || '',
 			custom_prompt_opencode: configData.custom_prompt_opencode || '',
@@ -351,6 +353,26 @@
 					<input type="checkbox" bind:checked={configData.include_mcp_guide} />
 					<span>{configData.include_mcp_guide ? 'Enabled' : 'Disabled'}</span>
 				</label>
+			</div>
+
+			<div class="setting-row">
+				<label>Sheep Memory</label>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={configData.include_sheep_memory} />
+					<span>{configData.include_sheep_memory ? 'Enabled' : 'Disabled'}</span>
+				</label>
+				<span class="hint">양 이름 단위로 <code>~/.shepherd/sheep/&lt;name&gt;/</code> 에 누적되는 개인 기억. 프로젝트와 무관하게 양을 따라다니며 CLI(Claude/OpenCode/codex)에 중립이다.</span>
+			</div>
+
+			<div class="setting-row column">
+				<label>Sheep Memory — System Prompt</label>
+				<textarea
+					class="input textarea"
+					bind:value={configData.sheep_memory_prompt}
+					rows="12"
+					placeholder={`양에게 전달할 메모리 가이드라인. {{.MemoryDir}} 가 실제 디렉토리 경로로 치환됩니다.`}
+				></textarea>
+				<span class="hint"><code>{`{{.MemoryDir}}`}</code> 토큰은 작업 시점에 양의 실제 메모리 디렉토리 경로로 치환됩니다. 비워두면 메모리 섹션이 주입되지 않습니다.</span>
 			</div>
 
 			<div class="setting-row">

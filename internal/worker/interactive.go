@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -714,6 +715,11 @@ For web tasks, use browser tools instead of WebFetch.
 		}
 	}
 
+	if memText := buildSheepMemorySection(sheepName); memText != "" {
+		sb.WriteString(memText)
+		sb.WriteString("\n")
+	}
+
 	if config.GetBool("include_mcp_guide") {
 		sb.WriteString("If you need details of previous tasks, use get_history tool.\nFor full skill content, use skill_load MCP tool.\n")
 	}
@@ -779,6 +785,11 @@ For web search/crawling tasks, use browser tools instead of WebFetch.
 			sb.WriteString(skillsText)
 			sb.WriteString("\n")
 		}
+	}
+
+	if memText := buildSheepMemorySection(sheepName); memText != "" {
+		sb.WriteString(memText)
+		sb.WriteString("\n")
 	}
 
 	if config.GetBool("include_mcp_guide") {
@@ -885,6 +896,11 @@ IMPORTANT: For web search/crawling tasks, use browser tools instead of WebFetch.
 			sb.WriteString(skillsText)
 			sb.WriteString("\n")
 		}
+	}
+
+	if memText := buildSheepMemorySection(sheepName); memText != "" {
+		sb.WriteString(memText)
+		sb.WriteString("\n")
 	}
 
 	if config.GetBool("include_mcp_guide") {
@@ -1017,6 +1033,54 @@ func getProjectSkills(sheepName string) string {
 		sb.WriteString(sk.Content)
 		sb.WriteString("\n\n")
 	}
+	return sb.String()
+}
+
+// buildSheepMemorySection returns the per-sheep personal memory block:
+// rendered guidance prompt (sheep_memory_prompt with {{.MemoryDir}} substituted)
+// followed by the current MEMORY.md index, if any.
+//
+// When sheepName is empty (PreviewSystemPrompt with no sheep selected), a
+// <SHEEP_MEMORY_DIR> placeholder is shown so users can still preview how the
+// section will appear. Returns "" when the feature is disabled.
+func buildSheepMemorySection(sheepName string) string {
+	if !config.GetBool("include_sheep_memory") {
+		return ""
+	}
+
+	tmpl := strings.TrimSpace(config.GetString("sheep_memory_prompt"))
+	if tmpl == "" {
+		return ""
+	}
+
+	var memoryDir, indexContent string
+	if sheepName == "" {
+		memoryDir = "<SHEEP_MEMORY_DIR>"
+		indexContent = "_(양 미지정 — 미리보기에서는 인덱스가 표시되지 않습니다)_"
+	} else {
+		dir, err := config.EnsureSheepMemoryDir(sheepName)
+		if err != nil {
+			return ""
+		}
+		memoryDir = dir
+		if b, err := os.ReadFile(filepath.Join(dir, "MEMORY.md")); err == nil {
+			indexContent = strings.TrimSpace(string(b))
+		}
+		if indexContent == "" {
+			indexContent = "_(빈 인덱스 — 아직 기록된 기억이 없습니다.)_"
+		}
+	}
+
+	rendered := strings.ReplaceAll(tmpl, "{{.MemoryDir}}", memoryDir)
+
+	var sb strings.Builder
+	sb.WriteString(rendered)
+	if !strings.HasSuffix(rendered, "\n") {
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n## 현재 MEMORY.md\n")
+	sb.WriteString(indexContent)
+	sb.WriteString("\n")
 	return sb.String()
 }
 

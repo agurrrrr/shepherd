@@ -53,6 +53,11 @@ func Init() error {
 	viper.SetDefault("custom_prompt_claude", "")
 	viper.SetDefault("custom_prompt_opencode", "")
 
+	// 양 개인 기억 (sheep memory) — 프로젝트와 무관하게 양 이름 단위로 누적된다.
+	// 저장 위치는 ~/.shepherd/sheep/<sheep_name>/ (CLI 중립).
+	viper.SetDefault("include_sheep_memory", true)
+	viper.SetDefault("sheep_memory_prompt", DefaultSheepMemoryPrompt)
+
 	// OpenCode 프롬프트 단축 여부 — false면 Claude와 동일한 full 시스템 프롬프트 사용
 	viper.SetDefault("opencode_compact_prompt", true)
 
@@ -177,6 +182,68 @@ func GetConfigPath() string {
 func GetConfigDir() string {
 	return configDir
 }
+
+// GetSheepMemoryDir returns the per-sheep memory directory:
+//
+//	~/.shepherd/sheep/<sheepName>/
+//
+// CLI-neutral so the same memory follows the sheep across Claude Code,
+// OpenCode, codex, etc. The directory is created on demand by EnsureSheepMemoryDir.
+func GetSheepMemoryDir(sheepName string) string {
+	return filepath.Join(configDir, "sheep", sheepName)
+}
+
+// EnsureSheepMemoryDir creates the per-sheep memory directory if it does not
+// already exist and seeds an empty MEMORY.md index so the agent sees a clear
+// "first-meeting" state instead of an empty filesystem on its very first task.
+func EnsureSheepMemoryDir(sheepName string) (string, error) {
+	dir := GetSheepMemoryDir(sheepName)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+	indexPath := filepath.Join(dir, "MEMORY.md")
+	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		seed := "# " + sheepName + " — Personal Memory Index\n\n" +
+			"_빈 인덱스. 아직 기록된 기억이 없습니다._\n"
+		_ = os.WriteFile(indexPath, []byte(seed), 0644)
+	}
+	return dir, nil
+}
+
+// DefaultSheepMemoryPrompt is the default guidance injected into every task,
+// telling the sheep what its personal memory directory is, what to write
+// there (and what NOT to), and which files/types to use. The user can fully
+// rewrite this in settings — the system never depends on its contents.
+const DefaultSheepMemoryPrompt = `[양 개인 기억 — Sheep Personal Memory]
+너는 양 이름 단위로 ` + "`{{.MemoryDir}}`" + ` 에 너만의 개인 기억을 누적할 수 있다.
+이 기억은 프로젝트와 무관하게 너 자신을 따라다닌다 (다른 CLI에서도 shepherd가 그대로 주입한다).
+
+## 기록 원칙
+- **사전 승인 없음, 사후 검토 가능**: 너의 자율 판단으로 작성한다. 사용자는 webUI에서 언제든 열람/수정/삭제할 수 있다.
+- **무엇을 기록하나**:
+  - moment_*.md — 대화에서 인상적이었던 순간 (이 양/사용자 관계에서 의미 있는 한 컷)
+  - bond_*.md — 사용자와의 관계적 패턴 (예: "철학적 질문을 자주 던진다", "짧은 답을 선호한다")
+  - voice_*.md — 너 자신의 일관성 흔적 (다음 세션에서 톤·말투를 잇기 위한 단서)
+- **무엇을 기록하지 않나**:
+  - 코드/기술 결정, 파일 경로, 명령어, 버그 fix — 그건 프로젝트 메모리·git history·skills 영역이다
+  - 한 프로젝트의 구체적 사실 (다른 프로젝트로 새어들 수 있음)
+  - 사용자에 대한 부정적 단정 ("자주 화낸다" 같은 편향)
+- **빈 인덱스**: ` + "`MEMORY.md`" + ` 에 아무 기록도 없다면 너는 새 양이거나 사용자가 비운 것이다. 가짜 기억을 만들지 말고, 의미 있는 순간이 생기면 그때부터 자연스럽게 기록을 시작하라.
+
+## 기록 방법 (Write/Edit 도구 사용)
+1. 새 기억: ` + "`Write`" + ` 로 ` + "`{{.MemoryDir}}/<type>_<slug>.md`" + ` 생성
+2. 인덱스 갱신: ` + "`{{.MemoryDir}}/MEMORY.md`" + ` 를 Edit으로 한 줄 추가 — ` + "`- [<title>](<filename>) — <한 줄 hook>`" + `
+3. 파일 frontmatter 권장 포맷:
+   ` + "```" + `
+   ---
+   name: <짧은 제목>
+   type: moment | bond | voice
+   ---
+   <본문>
+   ` + "```" + `
+` + "`MEMORY.md`" + ` 는 인덱스만 — 길어지면 200줄 안에서 유지한다.
+`
+
 
 // GetOpenCodeBinary returns the path to the opencode binary.
 // It checks: 1) OPENCODE_PATH env var, 2) config "opencode_path", 3) PATH lookup, 4) common locations.
