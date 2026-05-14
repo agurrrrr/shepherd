@@ -52,10 +52,17 @@ func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sess
 	// Register running task
 	registerRunningTask(sheepName, cancel, cmd)
 
-	// Send prompt
-	_, err = ptmx.WriteString(buildPromptWithContext(sheepName, prompt) + "\n")
-	if err != nil {
-		return nil, fmt.Errorf("failed to send prompt: %w", err)
+	// Send prompt. claude TUI enables paste-bracketed input mode
+	// (`\x1b[?2004h`); inside that mode a bare \n is treated as an embedded
+	// newline within the input box and does NOT submit. We have to send the
+	// body, give the TUI a moment to render it, and then submit with \r
+	// (carriage return, which the TUI maps to Enter).
+	if _, err = ptmx.WriteString(buildPromptWithContext(sheepName, prompt)); err != nil {
+		return nil, fmt.Errorf("failed to send prompt body: %w", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err = ptmx.WriteString("\r"); err != nil {
+		return nil, fmt.Errorf("failed to submit prompt: %w", err)
 	}
 
 	// Collect output

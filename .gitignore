@@ -54,6 +54,9 @@ docs/
 k8s/
 prompts/
 
+# Local verification tools (not part of the shipped binary)
+cmd/probe/
+
 # Legacy build output
 webui/
 

@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +23,17 @@ import (
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/skill"
+)
+
+// claude TUI uses CSI cursor-forward (`\x1b[NC`) to gap words in its output.
+// We must replace those with literal spaces *before* stripping other escapes,
+// otherwise word boundaries collapse (e.g. "Bypass Permissions" → "BypassPermissions")
+// and downstream string-matching (menu auto-accept, prompt detection) fails.
+var (
+	cursorForwardRe = regexp.MustCompile(`\x1b\[(\d*)C`)
+	csiAnsiRe       = regexp.MustCompile(`\x1b\[[\d;?]*[A-Za-z]`)
+	oscAnsiRe       = regexp.MustCompile(`\x1b\][^\x07]*\x07`)
+	simpleEscRe     = regexp.MustCompile(`\x1b[=>]`)
 )
 
 // InputHandler is a function that gets user input when Claude asks a question.
@@ -1660,25 +1673,26 @@ func isInputPrompt(line string) bool {
 	return false
 }
 
-// stripAnsi removes ANSI escape codes from a string.
+// stripAnsi removes ANSI escape codes from a string while keeping word
+// boundaries intact. CSI cursor-forward sequences (`\x1b[NC`) are converted
+// to N literal spaces because claude's TUI uses them in place of inter-word
+// whitespace; without this conversion, downstream string matches against
+// rendered text would silently fail.
 func stripAnsi(s string) string {
-	// Simple ANSI removal (use regexp for more sophisticated handling)
-	result := s
-	for {
-		start := strings.Index(result, "\033[")
-		if start == -1 {
-			break
+	s = cursorForwardRe.ReplaceAllStringFunc(s, func(match string) string {
+		sub := cursorForwardRe.FindStringSubmatch(match)
+		n := 1
+		if len(sub) >= 2 && sub[1] != "" {
+			if v, err := strconv.Atoi(sub[1]); err == nil && v > 0 && v <= 200 {
+				n = v
+			}
 		}
-		end := start + 2
-		for end < len(result) && result[end] != 'm' && result[end] != 'K' && result[end] != 'H' && result[end] != 'J' {
-			end++
-		}
-		if end < len(result) {
-			end++
-		}
-		result = result[:start] + result[end:]
-	}
-	return result
+		return strings.Repeat(" ", n)
+	})
+	s = csiAnsiRe.ReplaceAllString(s, "")
+	s = oscAnsiRe.ReplaceAllString(s, "")
+	s = simpleEscRe.ReplaceAllString(s, "")
+	return s
 }
 
 // extractResultFromOutput extracts the main result from Claude's output.
