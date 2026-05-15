@@ -73,7 +73,13 @@ func (m *Manager) createSession(sheepName string, opts *SessionOptions) (*Sessio
 		return nil, fmt.Errorf("failed to create UserDataDir: %w", err)
 	}
 
+	// Leakless(false): go-rod's default behavior extracts a small watchdog
+	// binary to a temp dir at runtime; security scanners flag this as
+	// suspicious. We disable it and rely on the manager's normal shutdown
+	// path to close sessions. If shepherd is SIGKILL'd, chromium children
+	// may be reparented to init — accept that trade for clean audits.
 	l := launcher.New().
+		Leakless(false).
 		UserDataDir(userDataDir).
 		Headless(opts.Headless).
 		Set(flags.Flag("no-sandbox")).
