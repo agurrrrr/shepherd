@@ -3,7 +3,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { apiGet, apiPost, apiPatch, apiDelete } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
-	import { thinkingByProject } from '$lib/stores.js';
+	import { thinkingByProject, modelByProject } from '$lib/stores.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
 	import CommandInput from '$lib/components/CommandInput.svelte';
@@ -38,6 +38,23 @@
 	function toggleThinking(e) {
 		const checked = e.target.checked;
 		thinkingByProject.update((m) => ({ ...(m || {}), [projectName]: checked }));
+	}
+
+	// Global OpenCode model default; per-project override lives in $modelByProject.
+	let opencodeModelDefault = $state('');
+	let opencodeModelOptions = $state([]);
+	let modelSelected = $derived.by(() => {
+		const overrides = $modelByProject || {};
+		if (projectName && Object.prototype.hasOwnProperty.call(overrides, projectName)) {
+			const v = overrides[projectName];
+			if (v) return v;
+		}
+		return opencodeModelDefault;
+	});
+
+	function changeModel(e) {
+		const value = e.target.value;
+		modelByProject.update((m) => ({ ...(m || {}), [projectName]: value || null }));
 	}
 
 	// Task history
@@ -153,12 +170,17 @@
 	onDestroy(() => unsubs.forEach(fn => fn()));
 
 	async function loadProject() {
-		const [res, configRes] = await Promise.all([
+		const [res, configRes, modelRes] = await Promise.all([
 			apiGet(`/api/projects/${encodeURIComponent(projectName)}`),
-			apiGet('/api/config')
+			apiGet('/api/config'),
+			apiGet('/api/config/model-options')
 		]);
 		if (configRes?.data) {
 			opencodeThinkingDefault = !!configRes.data.opencode_thinking_default;
+			opencodeModelDefault = configRes.data.model_opencode || '';
+		}
+		if (modelRes?.data) {
+			opencodeModelOptions = modelRes.data.opencode || [];
 		}
 		if (res?.data) {
 			project = res.data;
@@ -266,6 +288,20 @@
 	function truncate(s, max) {
 		if (!s) return '';
 		return s.length > max ? s.slice(0, max) + '...' : s;
+	}
+
+	function truncateModel(label) {
+		if (!label) return '';
+		// "devstral-small-2 (local-llm/devstral-small-2)" → "devstral-small-2"
+		const paren = label.indexOf(' (');
+		if (paren !== -1) return label.slice(0, paren);
+		// "local-llm / devstral-small-2" → "devstral-small-2"
+		const sep = label.indexOf(' / ');
+		if (sep !== -1) return label.slice(sep + 3);
+		// "local-llm/devstral-small-2" → "devstral-small-2"
+		const slash = label.indexOf('/');
+		if (slash !== -1) return label.slice(slash + 1);
+		return label;
 	}
 
 	function formatTime(ts) {
@@ -432,6 +468,13 @@
 							/>
 							<span>🧠 Thinking</span>
 						</label>
+						<select class="model-select" value={modelSelected} onchange={changeModel}
+							title="Override OpenCode model for this project">
+							<option value="">Default</option>
+							{#each opencodeModelOptions as opt}
+								<option value={opt.id} title={opt.label}>{truncateModel(opt.label)}</option>
+							{/each}
+						</select>
 					{/if}
 					<span class="sheep-label">{sheepName}</span>
 					<StatusBadge status={sheepStatus} />
@@ -681,12 +724,13 @@
 		{#if activeTab === 'output'}
 			<div class="command-bar card">
 				{#if sheepName}
-					<CommandInput
-						projectName={project.name}
-						sheepName={sheepName}
-						sheepStatus={sheepStatus}
-						thinking={sheepProvider === 'opencode' ? thinkingChecked : null}
-					/>
+		<CommandInput
+					projectName={project.name}
+					sheepName={sheepName}
+					sheepStatus={sheepStatus}
+					thinking={sheepProvider === 'opencode' ? thinkingChecked : null}
+					model={sheepProvider === 'opencode' ? (modelSelected || null) : null}
+				/>
 				{:else}
 					<p class="text-muted command-disabled-text">Assign a sheep to this project to send tasks</p>
 				{/if}
@@ -815,6 +859,20 @@
 	}
 
 	.thinking-toggle:hover {
+		border-color: var(--accent);
+	}
+
+	.model-select {
+		padding: 2px 6px;
+		font-size: 12px;
+		border-radius: var(--radius);
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+		cursor: pointer;
+	}
+
+	.model-select:hover {
 		border-color: var(--accent);
 	}
 
