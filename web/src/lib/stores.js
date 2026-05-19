@@ -33,6 +33,10 @@ export const wireframeOptions = persisted('shepherd_wf_options', { compact: fals
 // project overrides are stored only when the user toggles them.
 export const thinkingByProject = persisted('shepherd_thinking_by_project', {});
 
+// Per-project OpenCode model override. Shape: { [projectName]: string|null }.
+// null means "follow the global default"; a non-empty string overrides it.
+export const modelByProject = persisted('shepherd_model_by_project', {});
+
 // App state
 export const isAuthenticated = writable(false);
 export const sheep = writable([]);

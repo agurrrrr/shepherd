@@ -188,6 +188,9 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 	// per-request overrides win over the global default.
 	opts.Thinking = GetTaskThinking(taskID)
 	defer ClearTaskThinking(taskID)
+	// Per-task model override (OpenCode only). Explicit selection from the UI.
+	opts.Model = GetTaskModel(taskID)
+	defer ClearTaskModel(taskID)
 
 	// Execute with rate limit retry
 	var result *worker.ExecuteResult

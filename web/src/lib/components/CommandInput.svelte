@@ -3,7 +3,9 @@
 
 	// `thinking`: tri-state — true/false override the server default, null means
 	// "do not include the field" so the server applies opencode_thinking_default.
-	let { projectName = '', sheepName = '', sheepStatus = 'idle', thinking = null } = $props();
+	// `model`: per-project model override for OpenCode. Empty string or null means
+	// "use the global default".
+	let { projectName = '', sheepName = '', sheepStatus = 'idle', thinking = null, model = null } = $props();
 
 	let prompt = $state('');
 	let loading = $state(false);
@@ -125,6 +127,9 @@
 				};
 				if (thinking !== null) {
 					taskBody.thinking = !!thinking;
+				}
+				if (model) {
+					taskBody.model = model;
 				}
 				result = await apiPost('/api/tasks', taskBody);
 			} else {

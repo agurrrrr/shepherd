@@ -53,6 +53,9 @@ type InteractiveOptions struct {
 	// Thinking enables provider-side reasoning. Currently only honored by
 	// the OpenCode path, which appends `--thinking` to the CLI invocation.
 	Thinking bool
+	// Model is an explicit model override for OpenCode. When non-empty, it
+	// takes precedence over both model_opencode and opencode_thinking_model.
+	Model string
 }
 
 // RunningTask contains information about a running task
@@ -311,7 +314,7 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 	//     reasoning_content blocks in the JSON event stream
 	// The flag alone does NOT activate reasoning (verified on opencode 1.3.17)
 	// — both pieces are required for the user to see traces.
-	args = append(args, opencodeModelArgs(opts.Thinking)...)
+	args = append(args, opencodeModelArgs(opts.Thinking, opts.Model)...)
 	if opts.Thinking {
 		args = append(args, "--thinking")
 	}
@@ -653,11 +656,14 @@ func claudeModelArgs() []string {
 }
 
 // opencodeModelArgs returns ["-m", "<name>"] for the OpenCode invocation.
-// Model ids are "<provider>/<model>". When thinking is requested and a
-// thinking-routed model is configured, that wins; otherwise the global
+// An explicit model override takes highest priority. When thinking is requested
+// and a thinking-routed model is configured, that wins; otherwise the global
 // override (model_opencode) is used. Returns nil when neither is set so
 // opencode falls back to its own config default.
-func opencodeModelArgs(thinking bool) []string {
+func opencodeModelArgs(thinking bool, modelOverride string) []string {
+	if modelOverride != "" {
+		return []string{"-m", modelOverride}
+	}
 	if thinking {
 		if m := strings.TrimSpace(config.GetString("opencode_thinking_model")); m != "" {
 			return []string{"-m", m}

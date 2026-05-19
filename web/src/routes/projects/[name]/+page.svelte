@@ -459,7 +459,7 @@
 						<option value="opencode">OpenCode</option>
 						<option value="auto">Auto</option>
 					</select>
-					{#if sheepProvider === 'opencode'}
+					{#if sheepProvider === 'opencode' || sheepProvider === 'auto'}
 						<label class="thinking-toggle" title="Enable OpenCode reasoning for this project">
 							<input
 								type="checkbox"
@@ -728,8 +728,8 @@
 					projectName={project.name}
 					sheepName={sheepName}
 					sheepStatus={sheepStatus}
-					thinking={sheepProvider === 'opencode' ? thinkingChecked : null}
-					model={sheepProvider === 'opencode' ? (modelSelected || null) : null}
+					thinking={(sheepProvider === 'opencode' || sheepProvider === 'auto') ? thinkingChecked : null}
+					model={(sheepProvider === 'opencode' || sheepProvider === 'auto') ? (modelSelected || null) : null}
 				/>
 				{:else}
 					<p class="text-muted command-disabled-text">Assign a sheep to this project to send tasks</p>

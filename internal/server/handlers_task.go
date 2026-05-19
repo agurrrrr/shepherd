@@ -128,7 +128,8 @@ func (s *Server) handleCreateTask(c *fiber.Ctx) error {
 		// Thinking is a tri-state: when omitted (nil), the global
 		// opencode_thinking_default applies. Pointer so JSON `false` is
 		// distinguishable from "field not sent".
-		Thinking *bool `json:"thinking,omitempty"`
+		Thinking *bool  `json:"thinking,omitempty"`
+		Model    string `json:"model,omitempty"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -196,6 +197,9 @@ func (s *Server) handleCreateTask(c *fiber.Ctx) error {
 	// since processing may begin synchronously.
 	if body.Thinking != nil {
 		queue.SetTaskThinking(t.ID, *body.Thinking)
+	}
+	if body.Model != "" {
+		queue.SetTaskModel(t.ID, body.Model)
 	}
 
 	// Trigger immediate processing
