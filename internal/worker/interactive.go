@@ -455,7 +455,9 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		if errMsg := extractOpenCodeError(fullOutput); errMsg != "" {
 			return nil, fmt.Errorf("OpenCode error: %s", errMsg)
 		}
-		return nil, fmt.Errorf("OpenCode returned empty result")
+		// Model completed with only tool calls and no text response.
+		// Treat as success rather than failing the task.
+		result.Result = "(작업 완료 - 텍스트 응답 없음)"
 	}
 
 	return result, nil
@@ -592,10 +594,12 @@ func parseOpenCodeLine(line string) (text string, sessionID string) {
 }
 
 // parseOpenCodeOutput parses the complete OpenCode JSON output.
-// Only "text" type events are used for the final result (not tool output).
+// Prioritizes "text" type events for the final result. Falls back to other
+// assistant message types if no text events are found (e.g. tool-call-only sessions).
 func parseOpenCodeOutput(output string) *ExecuteResult {
 	result := &ExecuteResult{}
 	var lastText string
+	var lastFallbackText string
 
 	for _, line := range strings.Split(output, "\n") {
 		if !strings.HasPrefix(line, "{") {
@@ -605,8 +609,12 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 			Type      string `json:"type"`
 			SessionID string `json:"sessionID"`
 			Part      struct {
-				Text string `json:"text"`
+				Type    string `json:"type"`
+				Text    string `json:"text"`
+				Content string `json:"content"`
 			} `json:"part"`
+			// Some OpenCode versions use top-level content field
+			Content string `json:"content"`
 		}
 		if json.Unmarshal([]byte(line), &msg) != nil {
 			continue
@@ -614,13 +622,27 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 		if msg.SessionID != "" {
 			result.SessionID = msg.SessionID
 		}
-		// Only text events count as final result (skip tool output)
+		// Primary: text type events are the canonical final result
 		if msg.Type == "text" && msg.Part.Text != "" {
 			lastText = msg.Part.Text
 		}
+		// Fallback: capture assistant message content from other event types
+		if lastText == "" {
+			if msg.Part.Text != "" {
+				lastFallbackText = msg.Part.Text
+			} else if msg.Part.Content != "" {
+				lastFallbackText = msg.Part.Content
+			} else if msg.Content != "" && msg.Type != "tool-result" && msg.Type != "tool_result" {
+				lastFallbackText = msg.Content
+			}
+		}
 	}
 
-	result.Result = lastText
+	if lastText != "" {
+		result.Result = lastText
+	} else if lastFallbackText != "" {
+		result.Result = lastFallbackText
+	}
 	return result
 }
 
