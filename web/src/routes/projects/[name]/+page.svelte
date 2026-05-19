@@ -466,9 +466,9 @@
 								checked={thinkingChecked}
 								onchange={toggleThinking}
 							/>
-							<span>🧠 Thinking</span>
+							<span>Thinking</span>
 						</label>
-						<select class="model-select" value={modelSelected} onchange={changeModel}
+						<select class="provider-select" value={modelSelected} onchange={changeModel}
 							title="Override OpenCode model for this project">
 							<option value="">Default</option>
 							{#each opencodeModelOptions as opt}
@@ -862,21 +862,7 @@
 		border-color: var(--accent);
 	}
 
-	.model-select {
-		padding: 2px 6px;
-		font-size: 12px;
-		border-radius: var(--radius);
-		background: var(--bg-tertiary);
-		color: var(--text-primary);
-		border: 1px solid var(--border);
-		cursor: pointer;
-	}
-
-	.model-select:hover {
-		border-color: var(--accent);
-	}
-
-	.sheep-label {
+		.sheep-label {
 		font-weight: 500;
 		font-size: 13px;
 		color: var(--accent);
