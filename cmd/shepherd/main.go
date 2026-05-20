@@ -3361,6 +3361,13 @@ var wikiCreateCategory string
 var wikiCreateTags string
 var wikiDeleteProject string
 var wikiInitProject string
+var wikiEditProject string
+var wikiEditAppend string
+var wikiEditSection string
+var wikiEditLine int
+var wikiEditLineText string
+var wikiEditFind string
+var wikiEditReplace string
 
 var wikiCmd = &cobra.Command{
 	Use:   "wiki",
@@ -3539,6 +3546,37 @@ var wikiInitCmd = &cobra.Command{
 	},
 }
 
+var wikiEditCmd = &cobra.Command{
+	Use:   "edit <slug>",
+	Short: "Partially edit a wiki page",
+	Long:  "Edit a wiki page without overwriting the entire content. Supports --append, --section, --line, and --find/--replace flags. A .bak backup of the original file is created automatically.",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		slug := args[0]
+		if wikiEditProject == "" {
+			fmt.Fprintln(os.Stderr, "Error: --project is required")
+			os.Exit(1)
+		}
+
+		opts := &wiki.PartialEditOptions{
+			Append:   wikiEditAppend,
+			Section:  wikiEditSection,
+			LineNum:  wikiEditLine,
+			Find:     wikiEditFind,
+			Replace:  wikiEditReplace,
+			LineText: wikiEditLineText,
+		}
+
+		page, err := wiki.PartiallyEditPage(wikiEditProject, slug, opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Edited wiki page: %s (%s)\n", slug, page.Title)
+	},
+}
+
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate(fmt.Sprintf("shepherd version {{.Version}} (built %s)\n", buildTime))
@@ -3697,6 +3735,13 @@ func init() {
 	wikiCreateCmd.Flags().StringVarP(&wikiCreateTags, "tags", "T", "", "Comma-separated tags")
 	wikiDeleteCmd.Flags().StringVarP(&wikiDeleteProject, "project", "p", "", "Project name (required)")
 	wikiInitCmd.Flags().StringVarP(&wikiInitProject, "project", "p", "", "Project name (required)")
+	wikiEditCmd.Flags().StringVarP(&wikiEditProject, "project", "p", "", "Project name (required)")
+	wikiEditCmd.Flags().StringVarP(&wikiEditAppend, "append", "a", "", "Append text to end of page")
+	wikiEditCmd.Flags().StringVarP(&wikiEditSection, "section", "s", "", "Replace content under section header (use with --line-text)")
+	wikiEditCmd.Flags().IntVarP(&wikiEditLine, "line", "l", 0, "Replace line at given number (1-indexed, use with --line-text)")
+	wikiEditCmd.Flags().StringVar(&wikiEditLineText, "line-text", "", "New text for --section or --line replacement")
+	wikiEditCmd.Flags().StringVarP(&wikiEditFind, "find", "f", "", "Pattern to find (regex, use with --replace)")
+	wikiEditCmd.Flags().StringVarP(&wikiEditReplace, "replace", "r", "", "Replacement text for --find")
 	wikiCmd.AddCommand(wikiListCmd)
 	wikiCmd.AddCommand(wikiShowCmd)
 	wikiCmd.AddCommand(wikiCreateCmd)
@@ -3704,6 +3749,7 @@ func init() {
 	wikiCmd.AddCommand(wikiSyncCmd)
 	wikiCmd.AddCommand(wikiLintCmd)
 	wikiCmd.AddCommand(wikiInitCmd)
+	wikiCmd.AddCommand(wikiEditCmd)
 	rootCmd.AddCommand(wikiCmd)
 }
 
