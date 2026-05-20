@@ -286,6 +286,9 @@ func (s *Server) handleToolsList(req *Request) {
 		},
 	}
 
+	// 위키 도구 추가 (모든 모드에서 사용 가능)
+	tools = append(tools, getWikiToolsList()...)
+
 	// 브라우저 도구 추가 (minimal 모드에서는 제외)
 	if !s.minimal {
 		tools = append(tools, getBrowserToolsList()...)

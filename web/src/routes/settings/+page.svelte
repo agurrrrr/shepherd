@@ -219,7 +219,11 @@
 			opencode_thinking_model: configData.opencode_thinking_model || '',
 			model_claude: configData.model_claude || '',
 			model_opencode: configData.model_opencode || '',
-			task_timeout: (configData.task_timeout || '').trim() || '4h'
+			task_timeout: (configData.task_timeout || '').trim() || '4h',
+			wiki_enabled: configData.wiki_enabled,
+			wiki_auto_ingest: configData.wiki_auto_ingest,
+			wiki_max_context_pages: parseInt(configData.wiki_max_context_pages) || 2,
+			wiki_max_page_content_chars: parseInt(configData.wiki_max_page_content_chars) || 2000
 		});
 		if (res?.success) {
 			saveMsg = 'Saved';
@@ -455,6 +459,36 @@
 					placeholder="OpenCode 실행 시 추가로 전달할 지시문을 입력하세요."
 				></textarea>
 				<span class="hint">Injected only when the task runs on OpenCode.</span>
+			</div>
+
+			<hr class="setting-divider" />
+
+			<div class="setting-section-title">Wiki</div>
+
+			<div class="setting-row">
+				<label>Wiki Enabled</label>
+				<div class="toggle">
+					<input type="checkbox" bind:checked={configData.wiki_enabled} />
+					<span>{configData.wiki_enabled ? 'Enabled' : 'Disabled'}</span>
+				</div>
+			</div>
+
+			<div class="setting-row">
+				<label>Auto Ingest</label>
+				<div class="toggle">
+					<input type="checkbox" bind:checked={configData.wiki_auto_ingest} />
+					<span>{configData.wiki_auto_ingest ? 'Enabled' : 'Disabled'}</span>
+				</div>
+			</div>
+
+			<div class="setting-row">
+				<label>Max Context Pages</label>
+				<input class="input" type="number" bind:value={configData.wiki_max_context_pages} min="1" max="20" />
+			</div>
+
+			<div class="setting-row">
+				<label>Max Page Content Chars</label>
+				<input class="input" type="number" bind:value={configData.wiki_max_page_content_chars} min="100" max="10000" step="100" />
 			</div>
 
 			<div class="setting-row readonly">

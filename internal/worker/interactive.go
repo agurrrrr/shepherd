@@ -735,6 +735,7 @@ func buildPromptCompact(sheepName, prompt string) string {
 		sb.WriteString(`[Available Shepherd MCP Tools]
 Task management: task_complete (task_id, summary), task_error (task_id, error), get_history (project_name, limit), get_status
 Skills: skill_load (skill_name) - load full skill content when needed
+Wiki: wiki_read_page (project_name, slug), wiki_list_pages (project_name), wiki_search (project_name, query)
 Browser automation: browser_session_start (sheep_name), browser_open, browser_click, browser_type, browser_get_text, browser_get_html, browser_screenshot, browser_session_stop
 For web tasks, use browser tools instead of WebFetch.
 
@@ -806,6 +807,11 @@ Task management:
 
 Skills:
 - skill_load: Load full content of a skill by name (use when you need detailed instructions)
+
+Wiki:
+- wiki_read_page: Read a wiki page (project_name, slug)
+- wiki_list_pages: List wiki pages (project_name)
+- wiki_search: Search wiki pages (project_name, query)
 
 Browser automation (PREFERRED over WebFetch for web tasks):
 - browser_session_start, browser_session_stop, browser_open, browser_close
@@ -903,6 +909,11 @@ Task management:
 
 Skills:
 - skill_load: Load full content of a skill by name (use when you need detailed instructions)
+
+Wiki:
+- wiki_read_page: Read a wiki page (project_name, slug)
+- wiki_list_pages: List wiki pages for a project (project_name)
+- wiki_search: Search wiki pages by query (project_name, query)
 
 Browser automation (PREFERRED over WebFetch for web tasks):
 - browser_session_start: Start browser session (sheep_name required)
@@ -1272,6 +1283,9 @@ func getProjectWikiContext(sheepName, prompt string) string {
 	if sheepName == "" {
 		return ""
 	}
+	if !config.GetBool("wiki_enabled") {
+		return ""
+	}
 
 	bgCtx := context.Background()
 	client := db.Client()
@@ -1316,9 +1330,17 @@ func getProjectWikiContext(sheepName, prompt string) string {
 		return scored[i].score > scored[j].score
 	})
 
-	limit := 2
+	limit := config.GetInt("wiki_max_context_pages")
+	if limit <= 0 {
+		limit = 2
+	}
 	if len(scored) < limit {
 		limit = len(scored)
+	}
+
+	maxChars := config.GetInt("wiki_max_page_content_chars")
+	if maxChars <= 0 {
+		maxChars = 2000
 	}
 
 	var sb strings.Builder
@@ -1335,15 +1357,15 @@ func getProjectWikiContext(sheepName, prompt string) string {
 		sb.WriteString(fmt.Sprintf("## %s\n", p.Slug))
 		content := strings.ReplaceAll(p.Content, "\r\n", "\n")
 		runeCount := utf8.RuneCountInString(content)
-		if runeCount > 2000 {
+		if runeCount > maxChars {
 			runes := []rune(content)
-			content = string(runes[:2000]) + "..."
+			content = string(runes[:maxChars]) + "..."
 		}
 		sb.WriteString(content)
 		sb.WriteString("\n\n")
 	}
 
-	sb.WriteString("For full wiki page content, use the wiki CLI: shepherd wiki show <project> <slug>\n")
+	sb.WriteString("For full wiki page content, use MCP tools: wiki_read_page (project_name, slug), wiki_search (project_name, query)\n")
 	return sb.String()
 }
 
