@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/skill"
+	"github.com/agurrrrr/shepherd/internal/wiki"
 )
 
 // claude TUI uses CSI cursor-forward (`\x1b[NC`) to gap words in its output.
@@ -710,7 +712,7 @@ func PreviewSystemPrompt(sheepName string) map[string]string {
 	}
 
 	return map[string]string{
-		"streaming": buildSystemContext(sheepName),
+		"streaming": buildSystemContext(sheepName, ""),
 		"compact":   buildPromptCompact(sheepName, "<USER_PROMPT>"),
 		"withGuide": buildPromptWithContext(sheepName, "<USER_PROMPT>"),
 		"opencode":  opencode,
@@ -755,6 +757,13 @@ For web tasks, use browser tools instead of WebFetch.
 		}
 	}
 
+	if sheepName != "" {
+		if wikiText := getProjectWikiContext(sheepName, prompt); wikiText != "" {
+			sb.WriteString(wikiText)
+			sb.WriteString("\n")
+		}
+	}
+
 	if memText := buildSheepMemorySection(sheepName); memText != "" {
 		sb.WriteString(memText)
 		sb.WriteString("\n")
@@ -775,7 +784,7 @@ For web tasks, use browser tools instead of WebFetch.
 
 // buildSystemContext returns the system-level context (MCP guide, task history, skills)
 // separated from the user prompt. Used by streaming mode to pass via --append-system-prompt.
-func buildSystemContext(sheepName string) string {
+func buildSystemContext(sheepName, prompt string) string {
 	var sb strings.Builder
 
 	if config.GetBool("include_mcp_guide") {
@@ -823,6 +832,13 @@ For web search/crawling tasks, use browser tools instead of WebFetch.
 	if sheepName != "" {
 		if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
 			sb.WriteString(skillsText)
+			sb.WriteString("\n")
+		}
+	}
+
+	if sheepName != "" {
+		if wikiText := getProjectWikiContext(sheepName, prompt); wikiText != "" {
+			sb.WriteString(wikiText)
 			sb.WriteString("\n")
 		}
 	}
@@ -934,6 +950,13 @@ IMPORTANT: For web search/crawling tasks, use browser tools instead of WebFetch.
 	if sheepName != "" {
 		if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
 			sb.WriteString(skillsText)
+			sb.WriteString("\n")
+		}
+	}
+
+	if sheepName != "" {
+		if wikiText := getProjectWikiContext(sheepName, prompt); wikiText != "" {
+			sb.WriteString(wikiText)
 			sb.WriteString("\n")
 		}
 	}
@@ -1174,6 +1197,156 @@ func truncateStr(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "..."
 }
 
+// commonStopwords is a small set of English stop words to filter out during
+// keyword extraction for wiki page relevance matching.
+var commonStopwords = map[string]struct{}{
+	"a": {}, "an": {}, "the": {}, "and": {}, "or": {}, "but": {}, "in": {},
+	"on": {}, "at": {}, "to": {}, "for": {}, "of": {}, "with": {}, "by": {},
+	"is": {}, "are": {}, "was": {}, "be": {}, "it": {}, "its": {}, "this": {},
+	"that": {}, "these": {}, "those": {}, "not": {}, "no": {}, "do": {},
+	"does": {}, "did": {}, "have": {}, "has": {}, "had": {}, "will": {},
+	"would": {}, "could": {}, "should": {}, "may": {}, "might": {}, "shall": {},
+	"can": {}, "from": {}, "as": {}, "into": {}, "how": {}, "what": {},
+	"when": {}, "where": {}, "which": {}, "who": {}, "why": {}, "all": {},
+	"each": {}, "every": {}, "both": {}, "few": {}, "more": {}, "most": {},
+	"other": {}, "some": {}, "such": {}, "than": {}, "too": {}, "very": {},
+	"just": {}, "about": {}, "also": {}, "been": {}, "being": {}, "get": {},
+	"make": {}, "like": {}, "see": {}, "use": {}, "used": {}, "using": {},
+}
+
+// extractKeywords extracts significant keywords from a prompt string.
+// Words are split by whitespace/punctuation, lowercased, stop-words removed,
+// and only words of length >= 2 are kept.
+func extractKeywords(prompt string) []string {
+	lower := strings.ToLower(prompt)
+	re := regexp.MustCompile(`[a-zㄱ-ㅎ가-힣]+`)
+	words := re.FindAllString(lower, -1)
+
+	var keywords []string
+	seen := make(map[string]struct{})
+	for _, w := range words {
+		if len(w) < 2 {
+			continue
+		}
+		if _, stop := commonStopwords[w]; stop {
+			continue
+		}
+		if _, dup := seen[w]; dup {
+			continue
+		}
+		seen[w] = struct{}{}
+		keywords = append(keywords, w)
+	}
+	return keywords
+}
+
+// wikiPageScore scores a wiki page against a set of keywords.
+// Matching checks slug, title, tags, and content fields.
+func wikiPageScore(page *ent.WikiPage, keywords []string) int {
+	score := 0
+	search := strings.ToLower(page.Content)
+
+	for _, kw := range keywords {
+		if strings.Contains(strings.ToLower(page.Slug), kw) {
+			score += 5
+		}
+		if strings.Contains(strings.ToLower(page.Title), kw) {
+			score += 4
+		}
+		for _, tag := range page.Tags {
+			if strings.Contains(strings.ToLower(tag), kw) {
+				score += 3
+			}
+		}
+		if strings.Contains(search, kw) {
+			score += 1
+		}
+	}
+	return score
+}
+
+// getProjectWikiContext returns a formatted wiki context block for the sheep's
+// project. It always includes the index (page listing), and selects up to 2
+// relevant pages based on keyword matching against the prompt.
+func getProjectWikiContext(sheepName, prompt string) string {
+	if sheepName == "" {
+		return ""
+	}
+
+	bgCtx := context.Background()
+	client := db.Client()
+
+	s, err := client.Sheep.Query().
+		Where(sheep.Name(sheepName)).
+		WithProject().
+		Only(bgCtx)
+	if err != nil || s.Edges.Project == nil {
+		return ""
+	}
+
+	projectName := s.Edges.Project.Name
+	pages, err := wiki.ListPages(projectName)
+	if err != nil || len(pages) == 0 {
+		return ""
+	}
+
+	keywords := extractKeywords(prompt)
+	if len(keywords) == 0 {
+		return ""
+	}
+
+	type scoredPage struct {
+		page  *ent.WikiPage
+		score int
+	}
+
+	var scored []scoredPage
+	for _, p := range pages {
+		sc := wikiPageScore(p, keywords)
+		if sc > 0 {
+			scored = append(scored, scoredPage{page: p, score: sc})
+		}
+	}
+
+	if len(scored) == 0 {
+		return ""
+	}
+
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
+	limit := 2
+	if len(scored) < limit {
+		limit = len(scored)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[Project Wiki - Reference knowledge for this project]\n")
+
+	allSlugs := make([]string, len(pages))
+	for i, p := range pages {
+		allSlugs[i] = p.Slug
+	}
+	sb.WriteString(fmt.Sprintf(" Pages: %s\n\n", strings.Join(allSlugs, ", ")))
+
+	for i := 0; i < limit; i++ {
+		p := scored[i].page
+		sb.WriteString(fmt.Sprintf("## %s\n", p.Slug))
+		content := strings.ReplaceAll(p.Content, "\r\n", "\n")
+		runeCount := utf8.RuneCountInString(content)
+		if runeCount > 2000 {
+			runes := []rune(content)
+			content = string(runes[:2000]) + "..."
+		}
+		sb.WriteString(content)
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString("For full wiki page content, use the wiki CLI: shepherd wiki show <project> <slug>\n")
+	return sb.String()
+}
+
 // GetMCPConfigJSON returns the MCP config JSON merging user's settings with shepherd.
 func GetMCPConfigJSON() string {
 	// Read user's ~/.claude/settings.json
@@ -1233,7 +1406,7 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 
 	// Separate system context from user prompt to prevent
 	// system instructions from overwhelming the user's actual request.
-	if sysCtx := buildSystemContext(sheepName); sysCtx != "" {
+	if sysCtx := buildSystemContext(sheepName, prompt); sysCtx != "" {
 		args = append(args, "--append-system-prompt", sysCtx)
 	}
 

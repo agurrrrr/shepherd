@@ -182,6 +182,34 @@ var (
 			},
 		},
 	}
+	// WikiPagesColumns holds the columns for the "wiki_pages" table.
+	WikiPagesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "slug", Type: field.TypeString, Unique: true},
+		{Name: "title", Type: field.TypeString},
+		{Name: "content", Type: field.TypeString, Size: 2147483647, Default: ""},
+		{Name: "category", Type: field.TypeEnum, Enums: []string{"architecture", "patterns", "troubleshooting", "deployment", "lessons", "entity", "custom"}, Default: "custom"},
+		{Name: "auto_generated", Type: field.TypeBool, Default: true},
+		{Name: "tags", Type: field.TypeJSON, Nullable: true},
+		{Name: "last_updated_by_task", Type: field.TypeTime, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "project_wiki_pages", Type: field.TypeInt, Nullable: true},
+	}
+	// WikiPagesTable holds the schema information for the "wiki_pages" table.
+	WikiPagesTable = &schema.Table{
+		Name:       "wiki_pages",
+		Columns:    WikiPagesColumns,
+		PrimaryKey: []*schema.Column{WikiPagesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "wiki_pages_projects_wiki_pages",
+				Columns:    []*schema.Column{WikiPagesColumns[10]},
+				RefColumns: []*schema.Column{ProjectsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		BrowserSessionsTable,
@@ -191,6 +219,7 @@ var (
 		SheepNamesTable,
 		SkillsTable,
 		TasksTable,
+		WikiPagesTable,
 	}
 )
 
@@ -201,4 +230,5 @@ func init() {
 	SkillsTable.ForeignKeys[0].RefTable = ProjectsTable
 	TasksTable.ForeignKeys[0].RefTable = ProjectsTable
 	TasksTable.ForeignKeys[1].RefTable = SheepTable
+	WikiPagesTable.ForeignKeys[0].RefTable = ProjectsTable
 }

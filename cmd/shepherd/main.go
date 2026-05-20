@@ -20,6 +20,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/daemon"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/llmproxy"
 	"github.com/agurrrrr/shepherd/internal/manager"
@@ -32,7 +33,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/skill"
 	"github.com/agurrrrr/shepherd/internal/spec"
 	"github.com/agurrrrr/shepherd/internal/tui"
-	"github.com/agurrrrr/shepherd/internal/envutil"
+	"github.com/agurrrrr/shepherd/internal/wiki"
 	"github.com/agurrrrr/shepherd/internal/worker"
 	"github.com/chzyer/readline"
 	"github.com/spf13/cobra"
@@ -390,10 +391,10 @@ var projectAssignCmd = &cobra.Command{
 
 // skill commands
 var (
-	skillAddFile    string
-	skillAddProject string
-	skillAddDesc    string
-	skillAddTags    string
+	skillAddFile     string
+	skillAddProject  string
+	skillAddDesc     string
+	skillAddTags     string
 	skillListProject string
 )
 
@@ -2800,6 +2801,24 @@ func runServeForeground() {
 		fmt.Println("🔑 JWT secret auto-generated and saved to config")
 	}
 
+	// Register wiki auto-ingest LLM callback (uses manager sheep for LLM calls)
+	wiki.SetLLMCallback(func(promptText string) (string, error) {
+		_, managerErr := worker.GetOrCreateManager()
+		if managerErr != nil {
+			return "", fmt.Errorf("manager sheep not available: %w", managerErr)
+		}
+		opts := worker.DefaultInteractiveOptions(
+			func(string) {},
+			nil,
+		)
+		opts.Timeout = 10 * time.Minute
+		res, err := worker.ExecuteInteractive(names.ManagerName, promptText, opts)
+		if err != nil {
+			return "", err
+		}
+		return res.Result, nil
+	})
+
 	// Start queue processor
 	processor := queue.NewProcessor(2 * time.Second)
 	processor.Start()
@@ -3331,6 +3350,195 @@ func resolveProjectPath(projectName string) (string, error) {
 	return "", fmt.Errorf("no project found for current directory. Use --project flag or run from a registered project directory")
 }
 
+// --- wiki commands ---
+
+var wikiListProject string
+var wikiShowProject string
+var wikiCreateProject string
+var wikiCreateTitle string
+var wikiCreateContent string
+var wikiCreateCategory string
+var wikiCreateTags string
+var wikiDeleteProject string
+var wikiInitProject string
+
+var wikiCmd = &cobra.Command{
+	Use:   "wiki",
+	Short: "Manage project wiki pages",
+	Long:  "Create, read, update, delete, sync, and lint wiki pages for projects.",
+}
+
+var wikiListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List wiki pages for a project",
+	Run: func(cmd *cobra.Command, args []string) {
+		if wikiListProject == "" {
+			fmt.Fprintln(os.Stderr, "Error: --project is required")
+			os.Exit(1)
+		}
+
+		pages, err := wiki.ListPages(wikiListProject)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(pages) == 0 {
+			fmt.Println("No wiki pages found.")
+			return
+		}
+
+		fmt.Printf("%-30s %-40s %-15s %s\n", "SLUG", "TITLE", "CATEGORY", "UPDATED")
+		fmt.Println(strings.Repeat("-", 110))
+		for _, p := range pages {
+			updated := p.UpdatedAt.Format("2006-01-02 15:04")
+			fmt.Printf("%-30s %-40s %-15s %s\n", p.Slug, p.Title, p.Category, updated)
+		}
+	},
+}
+
+var wikiShowCmd = &cobra.Command{
+	Use:   "show <slug>",
+	Short: "Show a wiki page",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		slug := args[0]
+		if wikiShowProject == "" {
+			fmt.Fprintln(os.Stderr, "Error: --project is required")
+			os.Exit(1)
+		}
+
+		page, err := wiki.GetPage(wikiShowProject, slug)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if page == nil {
+			fmt.Fprintf(os.Stderr, "Wiki page %q not found\n", slug)
+			os.Exit(1)
+		}
+
+		fmt.Printf("# %s\n\n", page.Title)
+		fmt.Printf("Category: %s\n", page.Category)
+		if len(page.Tags) > 0 {
+			fmt.Printf("Tags: %s\n", strings.Join(page.Tags, ", "))
+		}
+		fmt.Printf("Updated: %s\n\n---\n\n", page.UpdatedAt.Format("2006-01-02 15:04"))
+		fmt.Println(page.Content)
+	},
+}
+
+var wikiCreateCmd = &cobra.Command{
+	Use:   "create <slug>",
+	Short: "Create a wiki page",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		slug := args[0]
+		if wikiCreateProject == "" {
+			fmt.Fprintln(os.Stderr, "Error: --project is required")
+			os.Exit(1)
+		}
+		if wikiCreateTitle == "" {
+			fmt.Fprintln(os.Stderr, "Error: --title is required")
+			os.Exit(1)
+		}
+
+		var tags []string
+		if wikiCreateTags != "" {
+			tags = strings.Split(wikiCreateTags, ",")
+			for i := range tags {
+				tags[i] = strings.TrimSpace(tags[i])
+			}
+		}
+
+		_, err := wiki.CreatePage(wikiCreateProject, slug, wikiCreateTitle, wikiCreateCategory, wikiCreateContent, tags)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Created wiki page: %s (%s)\n", slug, wikiCreateTitle)
+	},
+}
+
+var wikiDeleteCmd = &cobra.Command{
+	Use:   "delete <slug>",
+	Short: "Delete a wiki page",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		slug := args[0]
+		if wikiDeleteProject == "" {
+			fmt.Fprintln(os.Stderr, "Error: --project is required")
+			os.Exit(1)
+		}
+
+		if err := wiki.DeletePage(wikiDeleteProject, slug); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Deleted wiki page: %s\n", slug)
+	},
+}
+
+var wikiSyncCmd = &cobra.Command{
+	Use:   "sync <project>",
+	Short: "Sync wiki pages from disk",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		projectName := args[0]
+
+		if err := wiki.SyncFromDisk(projectName); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Wiki sync complete for project: %s\n", projectName)
+	},
+}
+
+var wikiLintCmd = &cobra.Command{
+	Use:   "lint <project>",
+	Short: "Lint wiki pages for issues",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		projectName := args[0]
+
+		issues := wiki.Lint(projectName)
+		if len(issues) == 0 {
+			fmt.Println("No issues found.")
+			return
+		}
+
+		fmt.Printf("Found %d issue(s):\n\n", len(issues))
+		for _, issue := range issues {
+			fmt.Printf("[%s] %s: %s\n", strings.ToUpper(issue.Type), issue.Slug, issue.Message)
+		}
+	},
+}
+
+var wikiInitCmd = &cobra.Command{
+	Use:   "init <project>",
+	Short: "Initialize default wiki pages for a project",
+	Long:  "Creates default wiki pages (Architecture, Code Patterns, Troubleshooting, Lessons Learned) for the specified project. Existing pages are not overwritten.",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		projectName := args[0]
+
+		if wiki.WikiInitialized(projectName) {
+			fmt.Printf("Wiki for project '%s' is already initialized.\n", projectName)
+			return
+		}
+
+		if err := wiki.InitializeWiki(projectName); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to initialize wiki: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Wiki initialized for project '%s' (4 default pages created).\n", projectName)
+	},
+}
+
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate(fmt.Sprintf("shepherd version {{.Version}} (built %s)\n", buildTime))
@@ -3478,6 +3686,25 @@ func init() {
 	specCmd.AddCommand(specListCmd)
 	specCmd.AddCommand(specTypesCmd)
 	rootCmd.AddCommand(specCmd)
+
+	// Register wiki command
+	wikiListCmd.Flags().StringVarP(&wikiListProject, "project", "p", "", "Project name (required)")
+	wikiShowCmd.Flags().StringVarP(&wikiShowProject, "project", "p", "", "Project name (required)")
+	wikiCreateCmd.Flags().StringVarP(&wikiCreateProject, "project", "p", "", "Project name (required)")
+	wikiCreateCmd.Flags().StringVarP(&wikiCreateTitle, "title", "t", "", "Page title (required)")
+	wikiCreateCmd.Flags().StringVarP(&wikiCreateContent, "content", "c", "", "Page content")
+	wikiCreateCmd.Flags().StringVarP(&wikiCreateCategory, "category", "C", "", "Page category")
+	wikiCreateCmd.Flags().StringVarP(&wikiCreateTags, "tags", "T", "", "Comma-separated tags")
+	wikiDeleteCmd.Flags().StringVarP(&wikiDeleteProject, "project", "p", "", "Project name (required)")
+	wikiInitCmd.Flags().StringVarP(&wikiInitProject, "project", "p", "", "Project name (required)")
+	wikiCmd.AddCommand(wikiListCmd)
+	wikiCmd.AddCommand(wikiShowCmd)
+	wikiCmd.AddCommand(wikiCreateCmd)
+	wikiCmd.AddCommand(wikiDeleteCmd)
+	wikiCmd.AddCommand(wikiSyncCmd)
+	wikiCmd.AddCommand(wikiLintCmd)
+	wikiCmd.AddCommand(wikiInitCmd)
+	rootCmd.AddCommand(wikiCmd)
 }
 
 func main() {

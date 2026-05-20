@@ -167,6 +167,15 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/projects/:name/skills", s.handleListProjectSkills)
 	api.Post("/projects/:name/skills", s.handleCreateProjectSkill)
 
+	// Wiki management
+	api.Get("/wiki/pages", s.handleListWikiPages)
+	api.Get("/wiki/pages/:slug", s.handleGetWikiPage)
+	api.Post("/wiki/pages", s.handleCreateWikiPage)
+	api.Put("/wiki/pages/:slug", s.handleUpdateWikiPage)
+	api.Delete("/wiki/pages/:slug", s.handleDeleteWikiPage)
+	api.Post("/wiki/lint", s.handleWikiLint)
+	api.Post("/wiki/ingest/:task_id", s.handleWikiIngest)
+
 	// File upload
 	api.Post("/upload", s.handleUpload)
 

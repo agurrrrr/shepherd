@@ -10,6 +10,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/names"
+	"github.com/agurrrrr/shepherd/internal/wiki"
 )
 
 // AddResult holds the result of adding a project.
@@ -70,6 +71,8 @@ func AddWithResult(name, path, description string) *AddResult {
 		result.AssignedSheep = assignedSheep
 		result.SheepCreated = created
 	}
+
+	_ = wiki.InitializeWiki(name)
 
 	return result
 }

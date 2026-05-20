@@ -86,9 +86,17 @@
 	// Files tab key — changes to force FileBrowser remount on project switch
 	let filesKey = $state(0);
 
+	// Wiki
+	let wikiPages = $state([]);
+	let wikiLoaded = $state(false);
+	let wikiSelectedPage = $state(null);
+	let wikiEditing = $state(false);
+	let wikiEditContent = $state('');
+	let wikiEditTitle = $state('');
+
 	let unsubs = [];
 
-	const VALID_TABS = ['output', 'history', 'files', 'git', 'schedules', 'skills', 'specs'];
+	const VALID_TABS = ['output', 'history', 'files', 'git', 'schedules', 'skills', 'specs', 'wiki'];
 
 	// React to route param changes
 	$effect(() => {
@@ -270,6 +278,52 @@
 		}
 		if (tab === 'skills' && !skillsLoaded) {
 			loadProjectSkills();
+		}
+		if (tab === 'wiki' && !wikiLoaded) {
+			loadWikiPages();
+		}
+	}
+
+	// Wiki functions
+	async function loadWikiPages() {
+		const res = await apiGet(`/api/wiki/pages?project=${encodeURIComponent(projectName)}`);
+		if (res?.data) {
+			wikiPages = res.data;
+			if (res.data.length > 0 && !wikiSelectedPage) {
+				selectWikiPage(res.data[0]);
+			}
+		}
+		wikiLoaded = true;
+	}
+
+	function selectWikiPage(page) {
+		wikiSelectedPage = page;
+		wikiEditing = false;
+	}
+
+	function openWikiEdit() {
+		if (!wikiSelectedPage) return;
+		wikiEditing = true;
+		wikiEditContent = wikiSelectedPage.content || '';
+		wikiEditTitle = wikiSelectedPage.title || '';
+	}
+
+	function closeWikiEdit() {
+		wikiEditing = false;
+		wikiEditContent = '';
+		wikiEditTitle = '';
+	}
+
+	async function saveWikiPage() {
+		if (!wikiSelectedPage) return;
+		const res = await apiPatch(`/api/wiki/pages/${encodeURIComponent(wikiSelectedPage.slug)}?project=${encodeURIComponent(projectName)}`, {
+			content: wikiEditContent,
+			title: wikiEditTitle
+		});
+		if (res?.success) {
+			wikiEditing = false;
+			await loadWikiPages();
+			selectWikiPage(wikiSelectedPage);
 		}
 	}
 
@@ -514,6 +568,10 @@
 				onclick={() => switchTab('specs')}>
 				Specs
 			</button>
+			<button class="tab" class:active={activeTab === 'wiki'}
+				onclick={() => switchTab('wiki')}>
+				Wiki
+			</button>
 		</div>
 
 		<!-- Content area -->
@@ -653,6 +711,81 @@
 			{#if activeTab === 'specs'}
 				<div class="spec-fill">
 					<SpecViewer {projectName} />
+				</div>
+			{/if}
+
+			<!-- Wiki tab -->
+			{#if activeTab === 'wiki'}
+				<div class="wiki-fill">
+					<div class="wiki-layout">
+						<div class="wiki-sidebar">
+							<div class="wiki-sidebar-hdr">
+								<span class="wiki-sidebar-title">Pages</span>
+							</div>
+							{#if !wikiLoaded}
+								<p class="text-muted">Loading...</p>
+							{:else if wikiPages.length === 0}
+								<p class="text-muted">No wiki pages yet.</p>
+							{:else}
+								{#each wikiPages as page (page.slug)}
+									<button
+										class="wiki-page-item"
+										class:active={wikiSelectedPage && wikiSelectedPage.slug === page.slug}
+										onclick={() => selectWikiPage(page)}
+									>
+										<span class="wiki-page-slug">{page.slug}</span>
+										<span class="wiki-page-cat-badge">{page.category}</span>
+									</button>
+								{/each}
+							{/if}
+						</div>
+
+						<div class="wiki-main">
+							{#if !wikiSelectedPage}
+								<p class="text-muted">Select a page to view.</p>
+							{:else if wikiEditing}
+								<div class="wiki-editor">
+									<div class="wiki-editor-hdr">
+										<input
+											class="input wiki-title-input"
+											type="text"
+											bind:value={wikiEditTitle}
+											placeholder="Page title"
+										/>
+										<div class="wiki-editor-actions">
+											<button class="btn btn-sm" onclick={closeWikiEdit}>Cancel</button>
+											<button class="btn btn-sm btn-primary" onclick={saveWikiPage}>Save</button>
+										</div>
+									</div>
+									<textarea
+										class="wiki-content-textarea"
+										bind:value={wikiEditContent}
+										placeholder="Write in Markdown..."
+									></textarea>
+								</div>
+							{:else}
+								<div class="wiki-viewer">
+									<div class="wiki-viewer-hdr">
+										<div>
+											<h2 class="wiki-page-title">{wikiSelectedPage.title}</h2>
+											<div class="wiki-page-meta">
+												<span class="wiki-page-cat-badge">{wikiSelectedPage.category}</span>
+												{#if wikiSelectedPage.tags?.length > 0}
+													{#each wikiSelectedPage.tags as tag}
+														<span class="wiki-tag">{tag}</span>
+													{/each}
+												{/if}
+											</div>
+										</div>
+										<button class="btn btn-sm btn-primary" onclick={openWikiEdit}>Edit</button>
+									</div>
+									<div class="wiki-content-body">
+										{wikiSelectedPage.content}
+									</div>
+								</div>
+							{/if}
+						</div>
+					</div>
 				</div>
 			{/if}
 
@@ -1258,5 +1391,179 @@
 
 	.modal-hdr h2 {
 		font-size: 16px;
+	}
+
+	/* Wiki tab */
+	.wiki-fill {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.wiki-layout {
+		display: flex;
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	.wiki-sidebar {
+		width: 220px;
+		flex-shrink: 0;
+		border-right: 1px solid var(--border);
+		display: flex;
+		flex-direction: column;
+		overflow-y: auto;
+	}
+
+	.wiki-sidebar-hdr {
+		padding: 10px 12px 6px;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.wiki-sidebar-title {
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		letter-spacing: 0.05em;
+	}
+
+	.wiki-page-item {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		width: 100%;
+		padding: 7px 12px;
+		background: none;
+		border: none;
+		cursor: pointer;
+		text-align: left;
+		color: var(--text-primary);
+		font-size: 12px;
+		transition: background 0.15s;
+		border-left: 2px solid transparent;
+	}
+
+	.wiki-page-item:hover {
+		background: var(--bg-tertiary);
+	}
+
+	.wiki-page-item.active {
+		background: rgba(56, 139, 253, 0.08);
+		border-left-color: var(--accent);
+		color: var(--accent);
+		font-weight: 600;
+	}
+
+	.wiki-page-slug {
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.wiki-main {
+		flex: 1;
+		min-width: 0;
+		overflow-y: auto;
+		padding: 16px 20px;
+	}
+
+	.wiki-viewer-hdr {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		margin-bottom: 16px;
+		gap: 12px;
+	}
+
+	.wiki-page-title {
+		font-size: 20px;
+		font-weight: 600;
+		margin: 0;
+	}
+
+	.wiki-page-meta {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: 4px;
+	}
+
+	.wiki-page-cat-badge {
+		font-size: 10px;
+		padding: 1px 6px;
+		border-radius: 8px;
+		background: var(--bg-tertiary);
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		font-weight: 600;
+	}
+
+	.wiki-tag {
+		font-size: 10px;
+		padding: 1px 6px;
+		border-radius: 8px;
+		background: rgba(56, 139, 253, 0.12);
+		color: var(--accent);
+	}
+
+	.wiki-content-body {
+		font-size: 14px;
+		line-height: 1.7;
+		white-space: pre-wrap;
+		white-space: break-spaces;
+	}
+
+	.wiki-editor {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+
+	.wiki-editor-hdr {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-bottom: 10px;
+	}
+
+	.wiki-title-input {
+		flex: 1;
+		font-size: 16px;
+		font-weight: 600;
+	}
+
+	.wiki-editor-actions {
+		display: flex;
+		gap: 6px;
+	}
+
+	.btn-sm {
+		padding: 4px 10px;
+		font-size: 12px;
+	}
+
+	.wiki-content-textarea {
+		flex: 1;
+		min-height: 300px;
+		padding: 12px;
+		font-family: var(--font-mono, 'Fira Code', 'JetBrains Mono', monospace);
+		font-size: 13px;
+		line-height: 1.6;
+		border-radius: var(--radius);
+		border: 1px solid var(--border);
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		resize: vertical;
+	}
+
+	@media (max-width: 768px) {
+		.wiki-sidebar {
+			width: 160px;
+		}
 	}
 </style>

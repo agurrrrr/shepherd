@@ -44,9 +44,11 @@ type ProjectEdges struct {
 	Schedules []*Schedule `json:"schedules,omitempty"`
 	// Skills holds the value of the skills edge.
 	Skills []*Skill `json:"skills,omitempty"`
+	// WikiPages holds the value of the wiki_pages edge.
+	WikiPages []*WikiPage `json:"wiki_pages,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [4]bool
+	loadedTypes [5]bool
 }
 
 // SheepOrErr returns the Sheep value or an error if the edge
@@ -85,6 +87,15 @@ func (e ProjectEdges) SkillsOrErr() ([]*Skill, error) {
 		return e.Skills, nil
 	}
 	return nil, &NotLoadedError{edge: "skills"}
+}
+
+// WikiPagesOrErr returns the WikiPages value or an error if the edge
+// was not loaded in eager-loading.
+func (e ProjectEdges) WikiPagesOrErr() ([]*WikiPage, error) {
+	if e.loadedTypes[4] {
+		return e.WikiPages, nil
+	}
+	return nil, &NotLoadedError{edge: "wiki_pages"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -180,6 +191,11 @@ func (_m *Project) QuerySchedules() *ScheduleQuery {
 // QuerySkills queries the "skills" edge of the Project entity.
 func (_m *Project) QuerySkills() *SkillQuery {
 	return NewProjectClient(_m.config).QuerySkills(_m)
+}
+
+// QueryWikiPages queries the "wiki_pages" edge of the Project entity.
+func (_m *Project) QueryWikiPages() *WikiPageQuery {
+	return NewProjectClient(_m.config).QueryWikiPages(_m)
 }
 
 // Update returns a builder for updating this Project.

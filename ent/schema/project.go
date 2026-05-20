@@ -43,5 +43,6 @@ func (Project) Edges() []ent.Edge {
 		edge.To("tasks", Task.Type),
 		edge.To("schedules", Schedule.Type),
 		edge.To("skills", Skill.Type),
+		edge.To("wiki_pages", WikiPage.Type),
 	}
 }

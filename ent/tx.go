@@ -26,6 +26,8 @@ type Tx struct {
 	Skill *SkillClient
 	// Task is the client for interacting with the Task builders.
 	Task *TaskClient
+	// WikiPage is the client for interacting with the WikiPage builders.
+	WikiPage *WikiPageClient
 
 	// lazily loaded.
 	client     *Client
@@ -164,6 +166,7 @@ func (tx *Tx) init() {
 	tx.SheepName = NewSheepNameClient(tx.config)
 	tx.Skill = NewSkillClient(tx.config)
 	tx.Task = NewTaskClient(tx.config)
+	tx.WikiPage = NewWikiPageClient(tx.config)
 }
 
 // txDriver wraps the given dialect.Tx with a nop dialect.Driver implementation.

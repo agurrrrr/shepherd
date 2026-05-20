@@ -19,6 +19,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheepname"
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/ent/wikipage"
 )
 
 // ent aliases to avoid import conflicts in user's code.
@@ -86,6 +87,7 @@ func checkColumn(t, c string) error {
 			sheepname.Table:      sheepname.ValidColumn,
 			skill.Table:          skill.ValidColumn,
 			task.Table:           task.ValidColumn,
+			wikipage.Table:       wikipage.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

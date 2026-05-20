@@ -90,6 +90,12 @@ func Init() error {
 	// 파일 탐색기
 	viper.SetDefault("enable_file_browser", true)
 
+	// 위키 자동 ingest — 작업 완료 후 위키 페이지 자동 업데이트
+	viper.SetDefault("wiki_enabled", true)
+	viper.SetDefault("wiki_auto_ingest", true)
+	viper.SetDefault("wiki_max_context_pages", 2)
+	viper.SetDefault("wiki_max_page_content_chars", 2000)
+
 	// 서버 설정
 	viper.SetDefault("server_port", 8585)
 	viper.SetDefault("server_host", "0.0.0.0")
@@ -243,7 +249,6 @@ const DefaultSheepMemoryPrompt = `[양 개인 기억 — Sheep Personal Memory]
    ` + "```" + `
 ` + "`MEMORY.md`" + ` 는 인덱스만 — 길어지면 200줄 안에서 유지한다.
 `
-
 
 // GetOpenCodeBinary returns the path to the opencode binary.
 // It checks: 1) OPENCODE_PATH env var, 2) config "opencode_path", 3) PATH lookup, 4) common locations.

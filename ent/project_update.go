@@ -17,6 +17,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/ent/wikipage"
 )
 
 // ProjectUpdate is the builder for updating Project entities.
@@ -150,6 +151,21 @@ func (_u *ProjectUpdate) AddSkills(v ...*Skill) *ProjectUpdate {
 	return _u.AddSkillIDs(ids...)
 }
 
+// AddWikiPageIDs adds the "wiki_pages" edge to the WikiPage entity by IDs.
+func (_u *ProjectUpdate) AddWikiPageIDs(ids ...int) *ProjectUpdate {
+	_u.mutation.AddWikiPageIDs(ids...)
+	return _u
+}
+
+// AddWikiPages adds the "wiki_pages" edges to the WikiPage entity.
+func (_u *ProjectUpdate) AddWikiPages(v ...*WikiPage) *ProjectUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddWikiPageIDs(ids...)
+}
+
 // Mutation returns the ProjectMutation object of the builder.
 func (_u *ProjectUpdate) Mutation() *ProjectMutation {
 	return _u.mutation
@@ -222,6 +238,27 @@ func (_u *ProjectUpdate) RemoveSkills(v ...*Skill) *ProjectUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveSkillIDs(ids...)
+}
+
+// ClearWikiPages clears all "wiki_pages" edges to the WikiPage entity.
+func (_u *ProjectUpdate) ClearWikiPages() *ProjectUpdate {
+	_u.mutation.ClearWikiPages()
+	return _u
+}
+
+// RemoveWikiPageIDs removes the "wiki_pages" edge to WikiPage entities by IDs.
+func (_u *ProjectUpdate) RemoveWikiPageIDs(ids ...int) *ProjectUpdate {
+	_u.mutation.RemoveWikiPageIDs(ids...)
+	return _u
+}
+
+// RemoveWikiPages removes "wiki_pages" edges to WikiPage entities.
+func (_u *ProjectUpdate) RemoveWikiPages(v ...*WikiPage) *ProjectUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveWikiPageIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -466,6 +503,51 @@ func (_u *ProjectUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.WikiPagesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiPagesTable,
+			Columns: []string{project.WikiPagesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipage.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedWikiPagesIDs(); len(nodes) > 0 && !_u.mutation.WikiPagesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiPagesTable,
+			Columns: []string{project.WikiPagesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipage.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.WikiPagesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiPagesTable,
+			Columns: []string{project.WikiPagesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipage.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{project.Label}
@@ -604,6 +686,21 @@ func (_u *ProjectUpdateOne) AddSkills(v ...*Skill) *ProjectUpdateOne {
 	return _u.AddSkillIDs(ids...)
 }
 
+// AddWikiPageIDs adds the "wiki_pages" edge to the WikiPage entity by IDs.
+func (_u *ProjectUpdateOne) AddWikiPageIDs(ids ...int) *ProjectUpdateOne {
+	_u.mutation.AddWikiPageIDs(ids...)
+	return _u
+}
+
+// AddWikiPages adds the "wiki_pages" edges to the WikiPage entity.
+func (_u *ProjectUpdateOne) AddWikiPages(v ...*WikiPage) *ProjectUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddWikiPageIDs(ids...)
+}
+
 // Mutation returns the ProjectMutation object of the builder.
 func (_u *ProjectUpdateOne) Mutation() *ProjectMutation {
 	return _u.mutation
@@ -676,6 +773,27 @@ func (_u *ProjectUpdateOne) RemoveSkills(v ...*Skill) *ProjectUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveSkillIDs(ids...)
+}
+
+// ClearWikiPages clears all "wiki_pages" edges to the WikiPage entity.
+func (_u *ProjectUpdateOne) ClearWikiPages() *ProjectUpdateOne {
+	_u.mutation.ClearWikiPages()
+	return _u
+}
+
+// RemoveWikiPageIDs removes the "wiki_pages" edge to WikiPage entities by IDs.
+func (_u *ProjectUpdateOne) RemoveWikiPageIDs(ids ...int) *ProjectUpdateOne {
+	_u.mutation.RemoveWikiPageIDs(ids...)
+	return _u
+}
+
+// RemoveWikiPages removes "wiki_pages" edges to WikiPage entities.
+func (_u *ProjectUpdateOne) RemoveWikiPages(v ...*WikiPage) *ProjectUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveWikiPageIDs(ids...)
 }
 
 // Where appends a list predicates to the ProjectUpdate builder.
@@ -943,6 +1061,51 @@ func (_u *ProjectUpdateOne) sqlSave(ctx context.Context) (_node *Project, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(skill.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.WikiPagesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiPagesTable,
+			Columns: []string{project.WikiPagesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipage.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedWikiPagesIDs(); len(nodes) > 0 && !_u.mutation.WikiPagesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiPagesTable,
+			Columns: []string{project.WikiPagesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipage.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.WikiPagesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiPagesTable,
+			Columns: []string{project.WikiPagesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipage.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

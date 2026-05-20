@@ -22,6 +22,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheepname"
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/ent/wikipage"
 )
 
 // Client is the client that holds all ent builders.
@@ -43,6 +44,8 @@ type Client struct {
 	Skill *SkillClient
 	// Task is the client for interacting with the Task builders.
 	Task *TaskClient
+	// WikiPage is the client for interacting with the WikiPage builders.
+	WikiPage *WikiPageClient
 }
 
 // NewClient creates a new client configured with the given options.
@@ -61,6 +64,7 @@ func (c *Client) init() {
 	c.SheepName = NewSheepNameClient(c.config)
 	c.Skill = NewSkillClient(c.config)
 	c.Task = NewTaskClient(c.config)
+	c.WikiPage = NewWikiPageClient(c.config)
 }
 
 type (
@@ -160,6 +164,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		SheepName:      NewSheepNameClient(cfg),
 		Skill:          NewSkillClient(cfg),
 		Task:           NewTaskClient(cfg),
+		WikiPage:       NewWikiPageClient(cfg),
 	}, nil
 }
 
@@ -186,6 +191,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		SheepName:      NewSheepNameClient(cfg),
 		Skill:          NewSkillClient(cfg),
 		Task:           NewTaskClient(cfg),
+		WikiPage:       NewWikiPageClient(cfg),
 	}, nil
 }
 
@@ -216,6 +222,7 @@ func (c *Client) Close() error {
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.BrowserSession, c.Project, c.Schedule, c.Sheep, c.SheepName, c.Skill, c.Task,
+		c.WikiPage,
 	} {
 		n.Use(hooks...)
 	}
@@ -226,6 +233,7 @@ func (c *Client) Use(hooks ...Hook) {
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.BrowserSession, c.Project, c.Schedule, c.Sheep, c.SheepName, c.Skill, c.Task,
+		c.WikiPage,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -248,6 +256,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Skill.mutate(ctx, m)
 	case *TaskMutation:
 		return c.Task.mutate(ctx, m)
+	case *WikiPageMutation:
+		return c.WikiPage.mutate(ctx, m)
 	default:
 		return nil, fmt.Errorf("ent: unknown mutation type %T", m)
 	}
@@ -567,6 +577,22 @@ func (c *ProjectClient) QuerySkills(_m *Project) *SkillQuery {
 			sqlgraph.From(project.Table, project.FieldID, id),
 			sqlgraph.To(skill.Table, skill.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, project.SkillsTable, project.SkillsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryWikiPages queries the wiki_pages edge of a Project.
+func (c *ProjectClient) QueryWikiPages(_m *Project) *WikiPageQuery {
+	query := (&WikiPageClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(project.Table, project.FieldID, id),
+			sqlgraph.To(wikipage.Table, wikipage.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, project.WikiPagesTable, project.WikiPagesColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -1376,13 +1402,163 @@ func (c *TaskClient) mutate(ctx context.Context, m *TaskMutation) (Value, error)
 	}
 }
 
+// WikiPageClient is a client for the WikiPage schema.
+type WikiPageClient struct {
+	config
+}
+
+// NewWikiPageClient returns a client for the WikiPage from the given config.
+func NewWikiPageClient(c config) *WikiPageClient {
+	return &WikiPageClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `wikipage.Hooks(f(g(h())))`.
+func (c *WikiPageClient) Use(hooks ...Hook) {
+	c.hooks.WikiPage = append(c.hooks.WikiPage, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `wikipage.Intercept(f(g(h())))`.
+func (c *WikiPageClient) Intercept(interceptors ...Interceptor) {
+	c.inters.WikiPage = append(c.inters.WikiPage, interceptors...)
+}
+
+// Create returns a builder for creating a WikiPage entity.
+func (c *WikiPageClient) Create() *WikiPageCreate {
+	mutation := newWikiPageMutation(c.config, OpCreate)
+	return &WikiPageCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of WikiPage entities.
+func (c *WikiPageClient) CreateBulk(builders ...*WikiPageCreate) *WikiPageCreateBulk {
+	return &WikiPageCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *WikiPageClient) MapCreateBulk(slice any, setFunc func(*WikiPageCreate, int)) *WikiPageCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &WikiPageCreateBulk{err: fmt.Errorf("calling to WikiPageClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*WikiPageCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &WikiPageCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for WikiPage.
+func (c *WikiPageClient) Update() *WikiPageUpdate {
+	mutation := newWikiPageMutation(c.config, OpUpdate)
+	return &WikiPageUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *WikiPageClient) UpdateOne(_m *WikiPage) *WikiPageUpdateOne {
+	mutation := newWikiPageMutation(c.config, OpUpdateOne, withWikiPage(_m))
+	return &WikiPageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *WikiPageClient) UpdateOneID(id int) *WikiPageUpdateOne {
+	mutation := newWikiPageMutation(c.config, OpUpdateOne, withWikiPageID(id))
+	return &WikiPageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for WikiPage.
+func (c *WikiPageClient) Delete() *WikiPageDelete {
+	mutation := newWikiPageMutation(c.config, OpDelete)
+	return &WikiPageDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *WikiPageClient) DeleteOne(_m *WikiPage) *WikiPageDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *WikiPageClient) DeleteOneID(id int) *WikiPageDeleteOne {
+	builder := c.Delete().Where(wikipage.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &WikiPageDeleteOne{builder}
+}
+
+// Query returns a query builder for WikiPage.
+func (c *WikiPageClient) Query() *WikiPageQuery {
+	return &WikiPageQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeWikiPage},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a WikiPage entity by its id.
+func (c *WikiPageClient) Get(ctx context.Context, id int) (*WikiPage, error) {
+	return c.Query().Where(wikipage.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *WikiPageClient) GetX(ctx context.Context, id int) *WikiPage {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryProject queries the project edge of a WikiPage.
+func (c *WikiPageClient) QueryProject(_m *WikiPage) *ProjectQuery {
+	query := (&ProjectClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(wikipage.Table, wikipage.FieldID, id),
+			sqlgraph.To(project.Table, project.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, wikipage.ProjectTable, wikipage.ProjectColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *WikiPageClient) Hooks() []Hook {
+	return c.hooks.WikiPage
+}
+
+// Interceptors returns the client interceptors.
+func (c *WikiPageClient) Interceptors() []Interceptor {
+	return c.inters.WikiPage
+}
+
+func (c *WikiPageClient) mutate(ctx context.Context, m *WikiPageMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&WikiPageCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&WikiPageUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&WikiPageUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&WikiPageDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown WikiPage mutation op: %q", m.Op())
+	}
+}
+
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		BrowserSession, Project, Schedule, Sheep, SheepName, Skill, Task []ent.Hook
+		BrowserSession, Project, Schedule, Sheep, SheepName, Skill, Task,
+		WikiPage []ent.Hook
 	}
 	inters struct {
-		BrowserSession, Project, Schedule, Sheep, SheepName, Skill,
-		Task []ent.Interceptor
+		BrowserSession, Project, Schedule, Sheep, SheepName, Skill, Task,
+		WikiPage []ent.Interceptor
 	}
 )

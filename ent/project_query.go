@@ -18,6 +18,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/ent/wikipage"
 )
 
 // ProjectQuery is the builder for querying Project entities.
@@ -31,6 +32,7 @@ type ProjectQuery struct {
 	withTasks     *TaskQuery
 	withSchedules *ScheduleQuery
 	withSkills    *SkillQuery
+	withWikiPages *WikiPageQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -148,6 +150,28 @@ func (_q *ProjectQuery) QuerySkills() *SkillQuery {
 			sqlgraph.From(project.Table, project.FieldID, selector),
 			sqlgraph.To(skill.Table, skill.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, project.SkillsTable, project.SkillsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryWikiPages chains the current query on the "wiki_pages" edge.
+func (_q *ProjectQuery) QueryWikiPages() *WikiPageQuery {
+	query := (&WikiPageClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(project.Table, project.FieldID, selector),
+			sqlgraph.To(wikipage.Table, wikipage.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, project.WikiPagesTable, project.WikiPagesColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -351,6 +375,7 @@ func (_q *ProjectQuery) Clone() *ProjectQuery {
 		withTasks:     _q.withTasks.Clone(),
 		withSchedules: _q.withSchedules.Clone(),
 		withSkills:    _q.withSkills.Clone(),
+		withWikiPages: _q.withWikiPages.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -398,6 +423,17 @@ func (_q *ProjectQuery) WithSkills(opts ...func(*SkillQuery)) *ProjectQuery {
 		opt(query)
 	}
 	_q.withSkills = query
+	return _q
+}
+
+// WithWikiPages tells the query-builder to eager-load the nodes that are connected to
+// the "wiki_pages" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ProjectQuery) WithWikiPages(opts ...func(*WikiPageQuery)) *ProjectQuery {
+	query := (&WikiPageClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withWikiPages = query
 	return _q
 }
 
@@ -479,11 +515,12 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 	var (
 		nodes       = []*Project{}
 		_spec       = _q.querySpec()
-		loadedTypes = [4]bool{
+		loadedTypes = [5]bool{
 			_q.withSheep != nil,
 			_q.withTasks != nil,
 			_q.withSchedules != nil,
 			_q.withSkills != nil,
+			_q.withWikiPages != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -528,6 +565,13 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 		if err := _q.loadSkills(ctx, query, nodes,
 			func(n *Project) { n.Edges.Skills = []*Skill{} },
 			func(n *Project, e *Skill) { n.Edges.Skills = append(n.Edges.Skills, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withWikiPages; query != nil {
+		if err := _q.loadWikiPages(ctx, query, nodes,
+			func(n *Project) { n.Edges.WikiPages = []*WikiPage{} },
+			func(n *Project, e *WikiPage) { n.Edges.WikiPages = append(n.Edges.WikiPages, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -650,6 +694,37 @@ func (_q *ProjectQuery) loadSkills(ctx context.Context, query *SkillQuery, nodes
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "project_skills" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *ProjectQuery) loadWikiPages(ctx context.Context, query *WikiPageQuery, nodes []*Project, init func(*Project), assign func(*Project, *WikiPage)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Project)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.WikiPage(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(project.WikiPagesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.project_wiki_pages
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "project_wiki_pages" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "project_wiki_pages" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

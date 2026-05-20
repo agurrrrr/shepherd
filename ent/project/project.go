@@ -32,6 +32,8 @@ const (
 	EdgeSchedules = "schedules"
 	// EdgeSkills holds the string denoting the skills edge name in mutations.
 	EdgeSkills = "skills"
+	// EdgeWikiPages holds the string denoting the wiki_pages edge name in mutations.
+	EdgeWikiPages = "wiki_pages"
 	// Table holds the table name of the project in the database.
 	Table = "projects"
 	// SheepTable is the table that holds the sheep relation/edge.
@@ -62,6 +64,13 @@ const (
 	SkillsInverseTable = "skills"
 	// SkillsColumn is the table column denoting the skills relation/edge.
 	SkillsColumn = "project_skills"
+	// WikiPagesTable is the table that holds the wiki_pages relation/edge.
+	WikiPagesTable = "wiki_pages"
+	// WikiPagesInverseTable is the table name for the WikiPage entity.
+	// It exists in this package in order to avoid circular dependency with the "wikipage" package.
+	WikiPagesInverseTable = "wiki_pages"
+	// WikiPagesColumn is the table column denoting the wiki_pages relation/edge.
+	WikiPagesColumn = "project_wiki_pages"
 )
 
 // Columns holds all SQL columns for project fields.
@@ -178,6 +187,20 @@ func BySkills(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newSkillsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByWikiPagesCount orders the results by wiki_pages count.
+func ByWikiPagesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newWikiPagesStep(), opts...)
+	}
+}
+
+// ByWikiPages orders the results by wiki_pages terms.
+func ByWikiPages(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newWikiPagesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newSheepStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -204,5 +227,12 @@ func newSkillsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(SkillsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, SkillsTable, SkillsColumn),
+	)
+}
+func newWikiPagesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(WikiPagesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, WikiPagesTable, WikiPagesColumn),
 	)
 }

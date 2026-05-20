@@ -26,3 +26,6 @@ type Skill func(*sql.Selector)
 
 // Task is the predicate function for task builders.
 type Task func(*sql.Selector)
+
+// WikiPage is the predicate function for wikipage builders.
+type WikiPage func(*sql.Selector)

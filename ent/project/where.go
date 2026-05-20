@@ -457,6 +457,29 @@ func HasSkillsWith(preds ...predicate.Skill) predicate.Project {
 	})
 }
 
+// HasWikiPages applies the HasEdge predicate on the "wiki_pages" edge.
+func HasWikiPages() predicate.Project {
+	return predicate.Project(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, WikiPagesTable, WikiPagesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasWikiPagesWith applies the HasEdge predicate on the "wiki_pages" edge with a given conditions (other predicates).
+func HasWikiPagesWith(preds ...predicate.WikiPage) predicate.Project {
+	return predicate.Project(func(s *sql.Selector) {
+		step := newWikiPagesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Project) predicate.Project {
 	return predicate.Project(sql.AndPredicates(predicates...))

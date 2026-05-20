@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/agurrrrr/shepherd/ent/sheep"
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/i18n"
+	"github.com/agurrrrr/shepherd/internal/wiki"
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
 
@@ -299,6 +301,11 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 			p.OnTaskFail(taskID, sheepName, projectName, err.Error())
 		}
 		return
+	}
+
+	// Auto-ingest: trigger wiki update after successful task completion
+	if config.GetBool("wiki_auto_ingest") {
+		wiki.TriggerIngest(taskID, projectName, prompt, result.Result, result.FilesModified)
 	}
 
 	// Log cost if tracked
