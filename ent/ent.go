@@ -20,6 +20,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
+	"github.com/agurrrrr/shepherd/ent/wikipageversion"
 )
 
 // ent aliases to avoid import conflicts in user's code.
@@ -80,14 +81,15 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			browsersession.Table: browsersession.ValidColumn,
-			project.Table:        project.ValidColumn,
-			schedule.Table:       schedule.ValidColumn,
-			sheep.Table:          sheep.ValidColumn,
-			sheepname.Table:      sheepname.ValidColumn,
-			skill.Table:          skill.ValidColumn,
-			task.Table:           task.ValidColumn,
-			wikipage.Table:       wikipage.ValidColumn,
+			browsersession.Table:  browsersession.ValidColumn,
+			project.Table:         project.ValidColumn,
+			schedule.Table:        schedule.ValidColumn,
+			sheep.Table:           sheep.ValidColumn,
+			sheepname.Table:       sheepname.ValidColumn,
+			skill.Table:           skill.ValidColumn,
+			task.Table:            task.ValidColumn,
+			wikipage.Table:        wikipage.ValidColumn,
+			wikipageversion.Table: wikipageversion.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

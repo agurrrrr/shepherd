@@ -34,6 +34,8 @@ const (
 	EdgeSkills = "skills"
 	// EdgeWikiPages holds the string denoting the wiki_pages edge name in mutations.
 	EdgeWikiPages = "wiki_pages"
+	// EdgeWikiVersions holds the string denoting the wiki_versions edge name in mutations.
+	EdgeWikiVersions = "wiki_versions"
 	// Table holds the table name of the project in the database.
 	Table = "projects"
 	// SheepTable is the table that holds the sheep relation/edge.
@@ -71,6 +73,13 @@ const (
 	WikiPagesInverseTable = "wiki_pages"
 	// WikiPagesColumn is the table column denoting the wiki_pages relation/edge.
 	WikiPagesColumn = "project_wiki_pages"
+	// WikiVersionsTable is the table that holds the wiki_versions relation/edge.
+	WikiVersionsTable = "wiki_page_versions"
+	// WikiVersionsInverseTable is the table name for the WikiPageVersion entity.
+	// It exists in this package in order to avoid circular dependency with the "wikipageversion" package.
+	WikiVersionsInverseTable = "wiki_page_versions"
+	// WikiVersionsColumn is the table column denoting the wiki_versions relation/edge.
+	WikiVersionsColumn = "project_wiki_versions"
 )
 
 // Columns holds all SQL columns for project fields.
@@ -201,6 +210,20 @@ func ByWikiPages(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newWikiPagesStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByWikiVersionsCount orders the results by wiki_versions count.
+func ByWikiVersionsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newWikiVersionsStep(), opts...)
+	}
+}
+
+// ByWikiVersions orders the results by wiki_versions terms.
+func ByWikiVersions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newWikiVersionsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newSheepStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -234,5 +257,12 @@ func newWikiPagesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(WikiPagesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, WikiPagesTable, WikiPagesColumn),
+	)
+}
+func newWikiVersionsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(WikiVersionsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, WikiVersionsTable, WikiVersionsColumn),
 	)
 }

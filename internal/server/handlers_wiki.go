@@ -169,6 +169,38 @@ func (s *Server) handleWikiLint(c *fiber.Ctx) error {
 	})
 }
 
+// GET /api/wiki/pages/:slug/versions — get version history for a wiki page
+func (s *Server) handleWikiPageVersions(c *fiber.Ctx) error {
+	projectName := c.Query("project")
+	if projectName == "" {
+		return fail(c, fiber.StatusBadRequest, "project query parameter is required")
+	}
+
+	slug := c.Params("slug")
+
+	versions, err := wiki.PageVersionHistory(projectName, slug)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	var items []fiber.Map
+	for _, v := range versions {
+		items = append(items, fiber.Map{
+			"id":         v.ID,
+			"page_slug":  v.PageSlug,
+			"content":    v.Content,
+			"summary":    v.Summary,
+			"author":     v.Author,
+			"created_at": v.CreatedAt,
+		})
+	}
+	if items == nil {
+		items = []fiber.Map{}
+	}
+
+	return success(c, items)
+}
+
 // POST /api/wiki/ingest/:task_id — stub for manual ingest re-execution
 func (s *Server) handleWikiIngest(c *fiber.Ctx) error {
 	taskIDStr := c.Params("task_id")

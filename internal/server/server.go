@@ -173,6 +173,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Post("/wiki/pages", s.handleCreateWikiPage)
 	api.Put("/wiki/pages/:slug", s.handleUpdateWikiPage)
 	api.Delete("/wiki/pages/:slug", s.handleDeleteWikiPage)
+	api.Get("/wiki/pages/:slug/versions", s.handleWikiPageVersions)
 	api.Post("/wiki/lint", s.handleWikiLint)
 	api.Post("/wiki/ingest/:task_id", s.handleWikiIngest)
 

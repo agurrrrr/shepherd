@@ -210,6 +210,30 @@ var (
 			},
 		},
 	}
+	// WikiPageVersionsColumns holds the columns for the "wiki_page_versions" table.
+	WikiPageVersionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "page_slug", Type: field.TypeString},
+		{Name: "content", Type: field.TypeString, Size: 2147483647, Default: ""},
+		{Name: "summary", Type: field.TypeString, Default: "내용 변경"},
+		{Name: "author", Type: field.TypeString, Default: ""},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "project_wiki_versions", Type: field.TypeInt, Nullable: true},
+	}
+	// WikiPageVersionsTable holds the schema information for the "wiki_page_versions" table.
+	WikiPageVersionsTable = &schema.Table{
+		Name:       "wiki_page_versions",
+		Columns:    WikiPageVersionsColumns,
+		PrimaryKey: []*schema.Column{WikiPageVersionsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "wiki_page_versions_projects_wiki_versions",
+				Columns:    []*schema.Column{WikiPageVersionsColumns[6]},
+				RefColumns: []*schema.Column{ProjectsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		BrowserSessionsTable,
@@ -220,6 +244,7 @@ var (
 		SkillsTable,
 		TasksTable,
 		WikiPagesTable,
+		WikiPageVersionsTable,
 	}
 )
 
@@ -231,4 +256,5 @@ func init() {
 	TasksTable.ForeignKeys[0].RefTable = ProjectsTable
 	TasksTable.ForeignKeys[1].RefTable = SheepTable
 	WikiPagesTable.ForeignKeys[0].RefTable = ProjectsTable
+	WikiPageVersionsTable.ForeignKeys[0].RefTable = ProjectsTable
 }

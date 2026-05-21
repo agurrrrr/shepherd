@@ -3369,6 +3369,12 @@ var wikiEditLine int
 var wikiEditLineText string
 var wikiEditFind string
 var wikiEditReplace string
+var wikiEditSummary string
+var wikiEditAuthor string
+var wikiHistoryProject string
+var wikiHistoryShow int
+var wikiCreateSummary string
+var wikiCreateAuthor string
 
 var wikiCmd = &cobra.Command{
 	Use:   "wiki",
@@ -3466,7 +3472,10 @@ var wikiCreateCmd = &cobra.Command{
 			content = wiki.ProcessTemplate(template, data)
 		}
 
-		_, err := wiki.CreatePage(wikiCreateProject, slug, wikiCreateTitle, wikiCreateCategory, content, tags)
+		_, err := wiki.CreatePageWithOptions(wikiCreateProject, slug, wikiCreateTitle, wikiCreateCategory, content, tags, wiki.PageChangeOptions{
+			Summary: wikiCreateSummary,
+			Author:  wikiCreateAuthor,
+		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -3603,6 +3612,8 @@ var wikiEditCmd = &cobra.Command{
 			Find:     wikiEditFind,
 			Replace:  wikiEditReplace,
 			LineText: wikiEditLineText,
+			Summary:  wikiEditSummary,
+			Author:   wikiEditAuthor,
 		}
 
 		page, err := wiki.PartiallyEditPage(wikiEditProject, slug, opts)
@@ -3612,6 +3623,72 @@ var wikiEditCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Edited wiki page: %s (%s)\n", slug, page.Title)
+	},
+}
+
+var wikiHistoryCmd = &cobra.Command{
+	Use:   "history <slug>",
+	Short: "Show version history of a wiki page",
+	Long:  "Display the change history for a wiki page. Use --show <index> to display the content of a specific version.",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		slug := args[0]
+		if wikiHistoryProject == "" {
+			fmt.Fprintln(os.Stderr, "Error: --project is required")
+			os.Exit(1)
+		}
+
+		// Check if page exists
+		_, err := wiki.GetPage(wikiHistoryProject, slug)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		versions, err := wiki.PageVersionHistory(wikiHistoryProject, slug)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(versions) == 0 {
+			fmt.Printf("페이지 %q 에 대한 버전 히스토리가 없습니다.\n", slug)
+			return
+		}
+
+		// If --show is specified, display the content of that version
+		if wikiHistoryShow > 0 {
+			// Sort ascending for 1-indexed display
+			sorted := make([]*ent.WikiPageVersion, len(versions))
+			copy(sorted, versions)
+			for i := len(sorted) / 2; i < len(sorted); i++ {
+				j := len(sorted) - 1 - i
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+
+			if wikiHistoryShow > len(sorted) {
+				fmt.Fprintf(os.Stderr, "Error: version index %d out of range (1-%d)\n", wikiHistoryShow, len(sorted))
+				os.Exit(1)
+			}
+
+			v := sorted[wikiHistoryShow-1]
+			fmt.Printf("# %s (버전 %d)\n\n", slug, wikiHistoryShow)
+			fmt.Printf("Date:   %s\n", v.CreatedAt.Format("2006-01-02 15:04"))
+			fmt.Printf("Summary: %s\n", v.Summary)
+			if v.Author != "" {
+				fmt.Printf("Author: %s\n", v.Author)
+			}
+			fmt.Printf("\n---\n\n%s\n", v.Content)
+			return
+		}
+
+		// Display formatted history
+		output, err := wiki.PageVersionHistoryFormatted(wikiHistoryProject, slug)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Print(output)
 	},
 }
 
@@ -3772,6 +3849,8 @@ func init() {
 	wikiCreateCmd.Flags().StringVarP(&wikiCreateCategory, "category", "C", "", "Page category")
 	wikiCreateCmd.Flags().StringVarP(&wikiCreateTags, "tags", "T", "", "Comma-separated tags")
 	wikiCreateCmd.Flags().StringVarP(&wikiCreateTemplate, "template", "m", "", "Template name (config wiki.templates.<name> or .shepherd/templates/<name>.md)")
+	wikiCreateCmd.Flags().StringVarP(&wikiCreateSummary, "summary", "S", "", "Change summary for version history")
+	wikiCreateCmd.Flags().StringVar(&wikiCreateAuthor, "author", "", "Author name for version history")
 	wikiDeleteCmd.Flags().StringVarP(&wikiDeleteProject, "project", "p", "", "Project name (required)")
 	wikiInitCmd.Flags().StringVarP(&wikiInitProject, "project", "p", "", "Project name (required)")
 	wikiEditCmd.Flags().StringVarP(&wikiEditProject, "project", "p", "", "Project name (required)")
@@ -3781,6 +3860,10 @@ func init() {
 	wikiEditCmd.Flags().StringVar(&wikiEditLineText, "line-text", "", "New text for --section or --line replacement")
 	wikiEditCmd.Flags().StringVarP(&wikiEditFind, "find", "f", "", "Pattern to find (regex, use with --replace)")
 	wikiEditCmd.Flags().StringVarP(&wikiEditReplace, "replace", "r", "", "Replacement text for --find")
+	wikiEditCmd.Flags().StringVarP(&wikiEditSummary, "summary", "S", "", "Change summary for version history")
+	wikiEditCmd.Flags().StringVar(&wikiEditAuthor, "author", "", "Author name for version history")
+	wikiHistoryCmd.Flags().StringVarP(&wikiHistoryProject, "project", "p", "", "Project name (required)")
+	wikiHistoryCmd.Flags().IntVarP(&wikiHistoryShow, "show", "n", 0, "Show content of specific version (1-indexed)")
 	wikiCmd.AddCommand(wikiListCmd)
 	wikiCmd.AddCommand(wikiShowCmd)
 	wikiCmd.AddCommand(wikiCreateCmd)
@@ -3790,6 +3873,7 @@ func init() {
 	wikiCmd.AddCommand(wikiInitCmd)
 	wikiCmd.AddCommand(wikiEditCmd)
 	wikiCmd.AddCommand(wikiTemplatesCmd)
+	wikiCmd.AddCommand(wikiHistoryCmd)
 	rootCmd.AddCommand(wikiCmd)
 }
 

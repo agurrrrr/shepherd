@@ -28,6 +28,8 @@ type Tx struct {
 	Task *TaskClient
 	// WikiPage is the client for interacting with the WikiPage builders.
 	WikiPage *WikiPageClient
+	// WikiPageVersion is the client for interacting with the WikiPageVersion builders.
+	WikiPageVersion *WikiPageVersionClient
 
 	// lazily loaded.
 	client     *Client
@@ -167,6 +169,7 @@ func (tx *Tx) init() {
 	tx.Skill = NewSkillClient(tx.config)
 	tx.Task = NewTaskClient(tx.config)
 	tx.WikiPage = NewWikiPageClient(tx.config)
+	tx.WikiPageVersion = NewWikiPageVersionClient(tx.config)
 }
 
 // txDriver wraps the given dialect.Tx with a nop dialect.Driver implementation.

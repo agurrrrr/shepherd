@@ -19,20 +19,22 @@ import (
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
+	"github.com/agurrrrr/shepherd/ent/wikipageversion"
 )
 
 // ProjectQuery is the builder for querying Project entities.
 type ProjectQuery struct {
 	config
-	ctx           *QueryContext
-	order         []project.OrderOption
-	inters        []Interceptor
-	predicates    []predicate.Project
-	withSheep     *SheepQuery
-	withTasks     *TaskQuery
-	withSchedules *ScheduleQuery
-	withSkills    *SkillQuery
-	withWikiPages *WikiPageQuery
+	ctx              *QueryContext
+	order            []project.OrderOption
+	inters           []Interceptor
+	predicates       []predicate.Project
+	withSheep        *SheepQuery
+	withTasks        *TaskQuery
+	withSchedules    *ScheduleQuery
+	withSkills       *SkillQuery
+	withWikiPages    *WikiPageQuery
+	withWikiVersions *WikiPageVersionQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -172,6 +174,28 @@ func (_q *ProjectQuery) QueryWikiPages() *WikiPageQuery {
 			sqlgraph.From(project.Table, project.FieldID, selector),
 			sqlgraph.To(wikipage.Table, wikipage.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, project.WikiPagesTable, project.WikiPagesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryWikiVersions chains the current query on the "wiki_versions" edge.
+func (_q *ProjectQuery) QueryWikiVersions() *WikiPageVersionQuery {
+	query := (&WikiPageVersionClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(project.Table, project.FieldID, selector),
+			sqlgraph.To(wikipageversion.Table, wikipageversion.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, project.WikiVersionsTable, project.WikiVersionsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -366,16 +390,17 @@ func (_q *ProjectQuery) Clone() *ProjectQuery {
 		return nil
 	}
 	return &ProjectQuery{
-		config:        _q.config,
-		ctx:           _q.ctx.Clone(),
-		order:         append([]project.OrderOption{}, _q.order...),
-		inters:        append([]Interceptor{}, _q.inters...),
-		predicates:    append([]predicate.Project{}, _q.predicates...),
-		withSheep:     _q.withSheep.Clone(),
-		withTasks:     _q.withTasks.Clone(),
-		withSchedules: _q.withSchedules.Clone(),
-		withSkills:    _q.withSkills.Clone(),
-		withWikiPages: _q.withWikiPages.Clone(),
+		config:           _q.config,
+		ctx:              _q.ctx.Clone(),
+		order:            append([]project.OrderOption{}, _q.order...),
+		inters:           append([]Interceptor{}, _q.inters...),
+		predicates:       append([]predicate.Project{}, _q.predicates...),
+		withSheep:        _q.withSheep.Clone(),
+		withTasks:        _q.withTasks.Clone(),
+		withSchedules:    _q.withSchedules.Clone(),
+		withSkills:       _q.withSkills.Clone(),
+		withWikiPages:    _q.withWikiPages.Clone(),
+		withWikiVersions: _q.withWikiVersions.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -434,6 +459,17 @@ func (_q *ProjectQuery) WithWikiPages(opts ...func(*WikiPageQuery)) *ProjectQuer
 		opt(query)
 	}
 	_q.withWikiPages = query
+	return _q
+}
+
+// WithWikiVersions tells the query-builder to eager-load the nodes that are connected to
+// the "wiki_versions" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ProjectQuery) WithWikiVersions(opts ...func(*WikiPageVersionQuery)) *ProjectQuery {
+	query := (&WikiPageVersionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withWikiVersions = query
 	return _q
 }
 
@@ -515,12 +551,13 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 	var (
 		nodes       = []*Project{}
 		_spec       = _q.querySpec()
-		loadedTypes = [5]bool{
+		loadedTypes = [6]bool{
 			_q.withSheep != nil,
 			_q.withTasks != nil,
 			_q.withSchedules != nil,
 			_q.withSkills != nil,
 			_q.withWikiPages != nil,
+			_q.withWikiVersions != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -572,6 +609,13 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 		if err := _q.loadWikiPages(ctx, query, nodes,
 			func(n *Project) { n.Edges.WikiPages = []*WikiPage{} },
 			func(n *Project, e *WikiPage) { n.Edges.WikiPages = append(n.Edges.WikiPages, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withWikiVersions; query != nil {
+		if err := _q.loadWikiVersions(ctx, query, nodes,
+			func(n *Project) { n.Edges.WikiVersions = []*WikiPageVersion{} },
+			func(n *Project, e *WikiPageVersion) { n.Edges.WikiVersions = append(n.Edges.WikiVersions, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -725,6 +769,37 @@ func (_q *ProjectQuery) loadWikiPages(ctx context.Context, query *WikiPageQuery,
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "project_wiki_pages" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *ProjectQuery) loadWikiVersions(ctx context.Context, query *WikiPageVersionQuery, nodes []*Project, init func(*Project), assign func(*Project, *WikiPageVersion)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Project)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.WikiPageVersion(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(project.WikiVersionsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.project_wiki_versions
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "project_wiki_versions" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "project_wiki_versions" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

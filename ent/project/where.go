@@ -480,6 +480,29 @@ func HasWikiPagesWith(preds ...predicate.WikiPage) predicate.Project {
 	})
 }
 
+// HasWikiVersions applies the HasEdge predicate on the "wiki_versions" edge.
+func HasWikiVersions() predicate.Project {
+	return predicate.Project(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, WikiVersionsTable, WikiVersionsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasWikiVersionsWith applies the HasEdge predicate on the "wiki_versions" edge with a given conditions (other predicates).
+func HasWikiVersionsWith(preds ...predicate.WikiPageVersion) predicate.Project {
+	return predicate.Project(func(s *sql.Selector) {
+		step := newWikiVersionsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Project) predicate.Project {
 	return predicate.Project(sql.AndPredicates(predicates...))

@@ -16,6 +16,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
+	"github.com/agurrrrr/shepherd/ent/wikipageversion"
 )
 
 // ProjectCreate is the builder for creating a Project entity.
@@ -156,6 +157,21 @@ func (_c *ProjectCreate) AddWikiPages(v ...*WikiPage) *ProjectCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddWikiPageIDs(ids...)
+}
+
+// AddWikiVersionIDs adds the "wiki_versions" edge to the WikiPageVersion entity by IDs.
+func (_c *ProjectCreate) AddWikiVersionIDs(ids ...int) *ProjectCreate {
+	_c.mutation.AddWikiVersionIDs(ids...)
+	return _c
+}
+
+// AddWikiVersions adds the "wiki_versions" edges to the WikiPageVersion entity.
+func (_c *ProjectCreate) AddWikiVersions(v ...*WikiPageVersion) *ProjectCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddWikiVersionIDs(ids...)
 }
 
 // Mutation returns the ProjectMutation object of the builder.
@@ -346,6 +362,22 @@ func (_c *ProjectCreate) createSpec() (*Project, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(wikipage.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.WikiVersionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiVersionsTable,
+			Columns: []string{project.WikiVersionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipageversion.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

@@ -29,3 +29,6 @@ type Task func(*sql.Selector)
 
 // WikiPage is the predicate function for wikipage builders.
 type WikiPage func(*sql.Selector)
+
+// WikiPageVersion is the predicate function for wikipageversion builders.
+type WikiPageVersion func(*sql.Selector)

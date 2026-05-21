@@ -14,6 +14,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
+	"github.com/agurrrrr/shepherd/ent/wikipageversion"
 )
 
 // The init function reads all schema descriptors with runtime code
@@ -196,4 +197,26 @@ func init() {
 	wikipage.DefaultUpdatedAt = wikipageDescUpdatedAt.Default.(func() time.Time)
 	// wikipage.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	wikipage.UpdateDefaultUpdatedAt = wikipageDescUpdatedAt.UpdateDefault.(func() time.Time)
+	wikipageversionFields := schema.WikiPageVersion{}.Fields()
+	_ = wikipageversionFields
+	// wikipageversionDescPageSlug is the schema descriptor for page_slug field.
+	wikipageversionDescPageSlug := wikipageversionFields[0].Descriptor()
+	// wikipageversion.PageSlugValidator is a validator for the "page_slug" field. It is called by the builders before save.
+	wikipageversion.PageSlugValidator = wikipageversionDescPageSlug.Validators[0].(func(string) error)
+	// wikipageversionDescContent is the schema descriptor for content field.
+	wikipageversionDescContent := wikipageversionFields[1].Descriptor()
+	// wikipageversion.DefaultContent holds the default value on creation for the content field.
+	wikipageversion.DefaultContent = wikipageversionDescContent.Default.(string)
+	// wikipageversionDescSummary is the schema descriptor for summary field.
+	wikipageversionDescSummary := wikipageversionFields[2].Descriptor()
+	// wikipageversion.DefaultSummary holds the default value on creation for the summary field.
+	wikipageversion.DefaultSummary = wikipageversionDescSummary.Default.(string)
+	// wikipageversionDescAuthor is the schema descriptor for author field.
+	wikipageversionDescAuthor := wikipageversionFields[3].Descriptor()
+	// wikipageversion.DefaultAuthor holds the default value on creation for the author field.
+	wikipageversion.DefaultAuthor = wikipageversionDescAuthor.Default.(string)
+	// wikipageversionDescCreatedAt is the schema descriptor for created_at field.
+	wikipageversionDescCreatedAt := wikipageversionFields[4].Descriptor()
+	// wikipageversion.DefaultCreatedAt holds the default value on creation for the created_at field.
+	wikipageversion.DefaultCreatedAt = wikipageversionDescCreatedAt.Default.(func() time.Time)
 }

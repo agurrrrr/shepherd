@@ -16,6 +16,8 @@ type PartialEditOptions struct {
 	Find     string
 	Replace  string
 	LineText string
+	Summary  string
+	Author   string
 }
 
 func (o *PartialEditOptions) validate() error {
@@ -108,7 +110,10 @@ func PartiallyEditPage(projectName, slug string, opts *PartialEditOptions) (*ent
 		}
 	}
 
-	_, err = UpdatePage(projectName, slug, "", newContent, nil)
+	_, err = UpdatePageWithOptions(projectName, slug, "", newContent, nil, PageChangeOptions{
+		Summary: opts.Summary,
+		Author:  opts.Author,
+	})
 	if err != nil {
 		return nil, err
 	}

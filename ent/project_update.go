@@ -18,6 +18,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
+	"github.com/agurrrrr/shepherd/ent/wikipageversion"
 )
 
 // ProjectUpdate is the builder for updating Project entities.
@@ -166,6 +167,21 @@ func (_u *ProjectUpdate) AddWikiPages(v ...*WikiPage) *ProjectUpdate {
 	return _u.AddWikiPageIDs(ids...)
 }
 
+// AddWikiVersionIDs adds the "wiki_versions" edge to the WikiPageVersion entity by IDs.
+func (_u *ProjectUpdate) AddWikiVersionIDs(ids ...int) *ProjectUpdate {
+	_u.mutation.AddWikiVersionIDs(ids...)
+	return _u
+}
+
+// AddWikiVersions adds the "wiki_versions" edges to the WikiPageVersion entity.
+func (_u *ProjectUpdate) AddWikiVersions(v ...*WikiPageVersion) *ProjectUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddWikiVersionIDs(ids...)
+}
+
 // Mutation returns the ProjectMutation object of the builder.
 func (_u *ProjectUpdate) Mutation() *ProjectMutation {
 	return _u.mutation
@@ -259,6 +275,27 @@ func (_u *ProjectUpdate) RemoveWikiPages(v ...*WikiPage) *ProjectUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveWikiPageIDs(ids...)
+}
+
+// ClearWikiVersions clears all "wiki_versions" edges to the WikiPageVersion entity.
+func (_u *ProjectUpdate) ClearWikiVersions() *ProjectUpdate {
+	_u.mutation.ClearWikiVersions()
+	return _u
+}
+
+// RemoveWikiVersionIDs removes the "wiki_versions" edge to WikiPageVersion entities by IDs.
+func (_u *ProjectUpdate) RemoveWikiVersionIDs(ids ...int) *ProjectUpdate {
+	_u.mutation.RemoveWikiVersionIDs(ids...)
+	return _u
+}
+
+// RemoveWikiVersions removes "wiki_versions" edges to WikiPageVersion entities.
+func (_u *ProjectUpdate) RemoveWikiVersions(v ...*WikiPageVersion) *ProjectUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveWikiVersionIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -548,6 +585,51 @@ func (_u *ProjectUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.WikiVersionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiVersionsTable,
+			Columns: []string{project.WikiVersionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipageversion.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedWikiVersionsIDs(); len(nodes) > 0 && !_u.mutation.WikiVersionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiVersionsTable,
+			Columns: []string{project.WikiVersionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipageversion.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.WikiVersionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiVersionsTable,
+			Columns: []string{project.WikiVersionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipageversion.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{project.Label}
@@ -701,6 +783,21 @@ func (_u *ProjectUpdateOne) AddWikiPages(v ...*WikiPage) *ProjectUpdateOne {
 	return _u.AddWikiPageIDs(ids...)
 }
 
+// AddWikiVersionIDs adds the "wiki_versions" edge to the WikiPageVersion entity by IDs.
+func (_u *ProjectUpdateOne) AddWikiVersionIDs(ids ...int) *ProjectUpdateOne {
+	_u.mutation.AddWikiVersionIDs(ids...)
+	return _u
+}
+
+// AddWikiVersions adds the "wiki_versions" edges to the WikiPageVersion entity.
+func (_u *ProjectUpdateOne) AddWikiVersions(v ...*WikiPageVersion) *ProjectUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddWikiVersionIDs(ids...)
+}
+
 // Mutation returns the ProjectMutation object of the builder.
 func (_u *ProjectUpdateOne) Mutation() *ProjectMutation {
 	return _u.mutation
@@ -794,6 +891,27 @@ func (_u *ProjectUpdateOne) RemoveWikiPages(v ...*WikiPage) *ProjectUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveWikiPageIDs(ids...)
+}
+
+// ClearWikiVersions clears all "wiki_versions" edges to the WikiPageVersion entity.
+func (_u *ProjectUpdateOne) ClearWikiVersions() *ProjectUpdateOne {
+	_u.mutation.ClearWikiVersions()
+	return _u
+}
+
+// RemoveWikiVersionIDs removes the "wiki_versions" edge to WikiPageVersion entities by IDs.
+func (_u *ProjectUpdateOne) RemoveWikiVersionIDs(ids ...int) *ProjectUpdateOne {
+	_u.mutation.RemoveWikiVersionIDs(ids...)
+	return _u
+}
+
+// RemoveWikiVersions removes "wiki_versions" edges to WikiPageVersion entities.
+func (_u *ProjectUpdateOne) RemoveWikiVersions(v ...*WikiPageVersion) *ProjectUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveWikiVersionIDs(ids...)
 }
 
 // Where appends a list predicates to the ProjectUpdate builder.
@@ -1106,6 +1224,51 @@ func (_u *ProjectUpdateOne) sqlSave(ctx context.Context) (_node *Project, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(wikipage.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.WikiVersionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiVersionsTable,
+			Columns: []string{project.WikiVersionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipageversion.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedWikiVersionsIDs(); len(nodes) > 0 && !_u.mutation.WikiVersionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiVersionsTable,
+			Columns: []string{project.WikiVersionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipageversion.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.WikiVersionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.WikiVersionsTable,
+			Columns: []string{project.WikiVersionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(wikipageversion.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

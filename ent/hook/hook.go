@@ -105,6 +105,18 @@ func (f WikiPageFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, er
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.WikiPageMutation", m)
 }
 
+// The WikiPageVersionFunc type is an adapter to allow the use of ordinary
+// function as WikiPageVersion mutator.
+type WikiPageVersionFunc func(context.Context, *ent.WikiPageVersionMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f WikiPageVersionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.WikiPageVersionMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.WikiPageVersionMutation", m)
+}
+
 // Condition is a hook condition function.
 type Condition func(context.Context, ent.Mutation) bool
 

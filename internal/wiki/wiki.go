@@ -69,8 +69,19 @@ func pageFilePath(projectName string, slug string, category wikipage.Category) s
 	return filepath.Join(base, slug+".md")
 }
 
+// PageChangeOptions holds optional parameters for page creation/update.
+type PageChangeOptions struct {
+	Summary string // Change summary for version history
+	Author  string // Author of the change
+}
+
 // CreatePage creates a new wiki page for a project.
 func CreatePage(projectName, slug, title, category, content string, tags []string) (*ent.WikiPage, error) {
+	return CreatePageWithOptions(projectName, slug, title, category, content, tags, PageChangeOptions{})
+}
+
+// CreatePageWithOptions creates a new wiki page with version tracking options.
+func CreatePageWithOptions(projectName, slug, title, category, content string, tags []string, opts PageChangeOptions) (*ent.WikiPage, error) {
 	ctx := context.Background()
 	client := db.Client()
 
@@ -110,11 +121,25 @@ func CreatePage(projectName, slug, title, category, content string, tags []strin
 
 	_ = SyncToFile(wp, projectName)
 
+	// Save initial version
+	if content != "" {
+		summary := opts.Summary
+		if summary == "" {
+			summary = "초기 생성"
+		}
+		_, _ = SavePageVersion(projectName, slug, content, summary, opts.Author)
+	}
+
 	return findPageByProjectAndSlug(projectName, slug)
 }
 
 // UpdatePage updates an existing wiki page.
 func UpdatePage(projectName, slug, title, content string, tags []string) (*ent.WikiPage, error) {
+	return UpdatePageWithOptions(projectName, slug, title, content, tags, PageChangeOptions{})
+}
+
+// UpdatePageWithOptions updates an existing wiki page with version tracking.
+func UpdatePageWithOptions(projectName, slug, title, content string, tags []string, opts PageChangeOptions) (*ent.WikiPage, error) {
 	ctx := context.Background()
 	client := db.Client()
 
@@ -154,6 +179,11 @@ func UpdatePage(projectName, slug, title, content string, tags []string) (*ent.W
 		return nil, err
 	}
 	_ = SyncToFile(updated, projectName)
+
+	// Save version if content changed
+	if content != "" && content != existing.Content {
+		_, _ = SavePageVersion(projectName, slug, content, opts.Summary, opts.Author)
+	}
 
 	return updated, nil
 }
