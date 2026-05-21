@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -91,6 +92,8 @@ func CreatePage(projectName, slug, title, category, content string, tags []strin
 		cat = wikipage.Category(category)
 	}
 
+	WarnInvalidLinks(projectName, content)
+
 	wp, err := client.WikiPage.Create().
 		SetSlug(slug).
 		SetTitle(title).
@@ -121,6 +124,10 @@ func UpdatePage(projectName, slug, title, content string, tags []string) (*ent.W
 	}
 	if existing == nil {
 		return nil, fmt.Errorf("wiki page %q not found", slug)
+	}
+
+	if content != "" {
+		WarnInvalidLinks(projectName, content)
 	}
 
 	builder := client.WikiPage.UpdateOneID(existing.ID).
@@ -549,4 +556,90 @@ func GenerateIndex(projectName string) error {
 
 	indexPath := filepath.Join(wikiDir, "index.md")
 	return os.WriteFile(indexPath, []byte(sb.String()), 0644)
+}
+
+// markdownLinkRe matches [text](slug) style markdown links.
+var markdownLinkRe = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+
+// isWikiLink returns true if the link target looks like a wiki slug rather than
+// a URL, anchor, or relative path.
+func isWikiLink(target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return false
+	}
+	lower := strings.ToLower(target)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return false
+	}
+	if strings.HasPrefix(lower, "//") || strings.HasPrefix(lower, "mailto:") {
+		return false
+	}
+	if strings.HasPrefix(lower, "www.") {
+		return false
+	}
+	if target[0] == '#' || target[0] == '/' {
+		return false
+	}
+	return true
+}
+
+// ExtractMarkdownLinks extracts all wiki-like slug references from markdown content.
+// Returns only targets that look like internal page slugs (not URLs or anchors).
+func ExtractMarkdownLinks(content string) []string {
+	var slugs []string
+	matches := markdownLinkRe.FindAllStringSubmatch(content, -1)
+	for _, m := range matches {
+		if len(m) >= 3 && isWikiLink(m[2]) {
+			slugs = append(slugs, m[2])
+		}
+	}
+	return slugs
+}
+
+// ValidateCrossReferences checks all [text](slug) links in the given content
+// against the set of existing wiki pages for the project.
+// Returns a slice of slugs that do not correspond to any existing page.
+func ValidateCrossReferences(projectName, content string) ([]string, error) {
+	pages, err := ListPages(projectName)
+	if err != nil {
+		return nil, err
+	}
+
+	existing := make(map[string]bool, len(pages))
+	for _, p := range pages {
+		existing[p.Slug] = true
+	}
+
+	links := ExtractMarkdownLinks(content)
+	seen := make(map[string]bool)
+	var invalid []string
+	for _, slug := range links {
+		if seen[slug] {
+			continue
+		}
+		seen[slug] = true
+		if !existing[slug] {
+			invalid = append(invalid, slug)
+		}
+	}
+
+	return invalid, nil
+}
+
+// WarnInvalidLinks validates cross-references in content and prints a warning
+// to stderr if any invalid slugs are found. Returns the list of invalid slugs.
+func WarnInvalidLinks(projectName, content string) []string {
+	invalid, err := ValidateCrossReferences(projectName, content)
+	if err != nil || len(invalid) == 0 {
+		return invalid
+	}
+
+	quoted := make([]string, len(invalid))
+	for i, s := range invalid {
+		quoted[i] = fmt.Sprintf("%q", s)
+	}
+	fmt.Fprintf(os.Stderr, "⚠️ 페이지에 유효하지 않은 링크가 있습니다: %s\n", strings.Join(quoted, ", "))
+
+	return invalid
 }
