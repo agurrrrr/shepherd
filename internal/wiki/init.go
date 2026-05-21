@@ -9,102 +9,45 @@ import (
 
 // InitPage defines a default wiki page template.
 type InitPage struct {
-	Slug     string
-	Title    string
-	Category wikipage.Category
-	Content  string
+	Slug         string
+	Title        string
+	Category     wikipage.Category
+	TemplateName string
 }
 
 // defaultPages defines the initial wiki pages created for a new project.
+// Each page references a template name; content is resolved at init time
+// to allow per-project customization.
 var defaultPages = []InitPage{
 	{
-		Slug:     "architecture",
-		Title:    "Architecture",
-		Category: wikipage.CategoryArchitecture,
-		Content: `아직 기록된 아키텍처 정보가 없습니다.
-
-프로젝트 작업을 수행하면서 아래 항목들을 기록해 주세요:
-
-## 기술 스택
-- 언어 / 프레임워크:
-- 데이터베이스:
-- 외부 서비스:
-
-## 서비스 구조
-- 주요 컴포넌트와 역할:
-
-## 데이터 흐름
-- 요청 처리 파이프라인:
-
-## 배포 아키텍처
-- 인프라 구성:
-`,
+		Slug:         "architecture",
+		Title:        "Architecture",
+		Category:     wikipage.CategoryArchitecture,
+		TemplateName: "architecture",
 	},
 	{
-		Slug:     "patterns",
-		Title:    "Code Patterns",
-		Category: wikipage.CategoryPatterns,
-		Content: `아직 학습된 코드 패턴이 없습니다.
-
-프로젝트에서 반복적으로 나타나는 코드 패턴과 관례를 기록하세요:
-
-## 네이밍 규칙
-- 
-
-## 디렉토리 구조
-- 
-
-## 에러 처리 패턴
-- 
-
-## 테스트 관례
-- 
-
-## 코드 스타일 가이드
-- 
-`,
+		Slug:         "patterns",
+		Title:        "Code Patterns",
+		Category:     wikipage.CategoryPatterns,
+		TemplateName: "patterns",
 	},
 	{
-		Slug:     "troubleshooting",
-		Title:    "Troubleshooting",
-		Category: wikipage.CategoryTroubleshooting,
-		Content: `아직 기록된 문제 해결 사례가 없습니다.
-
-발생한 문제와 해결 방법을 기록하여 나중에 참조할 수 있게 하세요:
-
-## 빈번한 오류
-| 오류 메시지 | 원인 | 해결 방법 |
-|------------|------|----------|
-
-## 환경 설정 문제
-- 
-
-## 디버깅 팁
-- 
-`,
+		Slug:         "troubleshooting",
+		Title:        "Troubleshooting",
+		Category:     wikipage.CategoryTroubleshooting,
+		TemplateName: "troubleshooting",
 	},
 	{
-		Slug:     "lessons_learned",
-		Title:    "Lessons Learned",
-		Category: wikipage.CategoryLessons,
-		Content: `아직 기록된 교훈이 없습니다.
-
-작업 중 발견한 교훈과 개선 사항을 기록하세요:
-
-## 설계 교훈
-- 
-
-## 개발 과정 교훈
-- 
-
-## 배포 및 운영 교훈
-- 
-`,
+		Slug:         "lessons_learned",
+		Title:        "Lessons Learned",
+		Category:     wikipage.CategoryLessons,
+		TemplateName: "lessons_learned",
 	},
 }
 
 // InitializeWiki creates default wiki pages for a project.
 // Pages that already exist are skipped without error.
+// Templates are resolved per-page, allowing project-level or global overrides.
 func InitializeWiki(projectName string) error {
 	if projectName == "" {
 		return fmt.Errorf("project name is required")
@@ -125,7 +68,10 @@ func InitializeWiki(projectName string) error {
 			continue // Skip existing pages
 		}
 
-		_, err = CreatePage(projectName, page.Slug, page.Title, string(page.Category), page.Content, nil)
+		template := ResolveTemplate(projectName, page.TemplateName)
+		content := ProcessTemplate(template, NewTemplateData(page.Title, page.Slug))
+
+		_, err = CreatePage(projectName, page.Slug, page.Title, string(page.Category), content, nil)
 		if err != nil {
 			// Log but don't fail on individual page creation errors
 			continue

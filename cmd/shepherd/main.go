@@ -3359,6 +3359,7 @@ var wikiCreateTitle string
 var wikiCreateContent string
 var wikiCreateCategory string
 var wikiCreateTags string
+var wikiCreateTemplate string
 var wikiDeleteProject string
 var wikiInitProject string
 var wikiEditProject string
@@ -3458,7 +3459,14 @@ var wikiCreateCmd = &cobra.Command{
 			}
 		}
 
-		_, err := wiki.CreatePage(wikiCreateProject, slug, wikiCreateTitle, wikiCreateCategory, wikiCreateContent, tags)
+		content := wikiCreateContent
+		if wikiCreateTemplate != "" {
+			template := wiki.ResolveTemplate(wikiCreateProject, wikiCreateTemplate)
+			data := wiki.NewTemplateDataWithContent(wikiCreateTitle, slug, wikiCreateContent)
+			content = wiki.ProcessTemplate(template, data)
+		}
+
+		_, err := wiki.CreatePage(wikiCreateProject, slug, wikiCreateTitle, wikiCreateCategory, content, tags)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -3543,6 +3551,36 @@ var wikiInitCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Wiki initialized for project '%s' (4 default pages created).\n", projectName)
+	},
+}
+
+var wikiTemplatesCmd = &cobra.Command{
+	Use:   "templates <project>",
+	Short: "List available wiki templates for a project",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		projectName := args[0]
+
+		tpls := wiki.LoadProjectTemplates(projectName)
+		if len(tpls) == 0 {
+			fmt.Println("No project-level templates found.")
+			fmt.Println("\nBuilt-in templates:")
+			for name := range wiki.BuiltinTemplateNames() {
+				fmt.Printf("  - %s\n", name)
+			}
+			fmt.Println("\nTo add custom templates, create files in:")
+			fmt.Printf("  %s\n", wiki.ProjectTemplatesDir(projectName))
+			return
+		}
+
+		fmt.Println("Project templates:")
+		for _, name := range tpls {
+			fmt.Printf("  - %s\n", name)
+		}
+		fmt.Println("\nBuilt-in templates:")
+		for name := range wiki.BuiltinTemplateNames() {
+			fmt.Printf("  - %s\n", name)
+		}
 	},
 }
 
@@ -3733,6 +3771,7 @@ func init() {
 	wikiCreateCmd.Flags().StringVarP(&wikiCreateContent, "content", "c", "", "Page content")
 	wikiCreateCmd.Flags().StringVarP(&wikiCreateCategory, "category", "C", "", "Page category")
 	wikiCreateCmd.Flags().StringVarP(&wikiCreateTags, "tags", "T", "", "Comma-separated tags")
+	wikiCreateCmd.Flags().StringVarP(&wikiCreateTemplate, "template", "m", "", "Template name (config wiki.templates.<name> or .shepherd/templates/<name>.md)")
 	wikiDeleteCmd.Flags().StringVarP(&wikiDeleteProject, "project", "p", "", "Project name (required)")
 	wikiInitCmd.Flags().StringVarP(&wikiInitProject, "project", "p", "", "Project name (required)")
 	wikiEditCmd.Flags().StringVarP(&wikiEditProject, "project", "p", "", "Project name (required)")
@@ -3750,6 +3789,7 @@ func init() {
 	wikiCmd.AddCommand(wikiLintCmd)
 	wikiCmd.AddCommand(wikiInitCmd)
 	wikiCmd.AddCommand(wikiEditCmd)
+	wikiCmd.AddCommand(wikiTemplatesCmd)
 	rootCmd.AddCommand(wikiCmd)
 }
 
