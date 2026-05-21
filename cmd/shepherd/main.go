@@ -3381,6 +3381,10 @@ var wikiSearchTag string
 var wikiSearchCategory string
 var wikiSearchTitleOnly bool
 var wikiSearchCaseInsens bool
+var wikiExportFormat string
+var wikiExportOutput string
+var wikiImportForce bool
+var wikiImportDryRun bool
 
 var wikiCmd = &cobra.Command{
 	Use:   "wiki",
@@ -3764,6 +3768,68 @@ var wikiHistoryCmd = &cobra.Command{
 	},
 }
 
+var wikiExportCmd = &cobra.Command{
+	Use:   "export <project>",
+	Short: "Export wiki pages to files",
+	Long: `Export all wiki pages for a project to markdown or HTML files.
+
+Formats:
+  markdown  - Each page as a separate .md file (default)
+  single-md - All pages merged into one markdown file
+  html      - All pages converted to a single HTML document
+
+Examples:
+  shepherd wiki export myproject
+  shepherd wiki export myproject --format single-md --output wiki-export.md
+  shepherd wiki export myproject --format html --output wiki.html`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		projectName := args[0]
+
+		err := wiki.ExportAll(wiki.ExportOptions{
+			Project: projectName,
+			Format:  wikiExportFormat,
+			Output:  wikiExportOutput,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	},
+}
+
+var wikiImportCmd = &cobra.Command{
+	Use:   "import <project> <path>",
+	Short: "Import wiki pages from files",
+	Long: `Import wiki pages from markdown files into a project.
+
+When path is a directory, all .md files are imported. Files under an
+entities/ subdirectory are imported with the entity category.
+Frontmatter (title, tags) is automatically extracted.
+
+Examples:
+  shepherd wiki import myproject ./wiki-backup/
+  shepherd wiki import myproject ./page.md
+  shepherd wiki import myproject ./wiki-backup/ --force
+  shepherd wiki import myproject ./wiki-backup/ --dry-run`,
+	Args: cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		projectName := args[0]
+		inputPath := args[1]
+
+		err := wiki.ImportAll(wiki.ImportOptions{
+			Project: projectName,
+			Path:    inputPath,
+			Force:   wikiImportForce,
+			DryRun:  wikiImportDryRun,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	},
+}
+
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate(fmt.Sprintf("shepherd version {{.Version}} (built %s)\n", buildTime))
@@ -3942,6 +4008,10 @@ func init() {
 	wikiSearchCmd.Flags().StringVarP(&wikiSearchCategory, "category", "C", "", "Filter by category")
 	wikiSearchCmd.Flags().BoolVarP(&wikiSearchTitleOnly, "title-only", "T", false, "Search title only (exclude body)")
 	wikiSearchCmd.Flags().BoolVarP(&wikiSearchCaseInsens, "case-insensitive", "i", true, "Case insensitive search (default: true)")
+	wikiExportCmd.Flags().StringVarP(&wikiExportFormat, "format", "f", "markdown", "Export format: markdown, single-md, html")
+	wikiExportCmd.Flags().StringVarP(&wikiExportOutput, "output", "o", "", "Output path (default: current directory)")
+	wikiImportCmd.Flags().BoolVarP(&wikiImportForce, "force", "F", false, "Overwrite existing pages without confirmation")
+	wikiImportCmd.Flags().BoolVar(&wikiImportDryRun, "dry-run", false, "Preview import without making changes")
 	wikiCmd.AddCommand(wikiListCmd)
 	wikiCmd.AddCommand(wikiShowCmd)
 	wikiCmd.AddCommand(wikiCreateCmd)
@@ -3953,6 +4023,8 @@ func init() {
 	wikiCmd.AddCommand(wikiTemplatesCmd)
 	wikiCmd.AddCommand(wikiHistoryCmd)
 	wikiCmd.AddCommand(wikiSearchCmd)
+	wikiCmd.AddCommand(wikiExportCmd)
+	wikiCmd.AddCommand(wikiImportCmd)
 	wikiCmd.AddCommand(wikiHistoryCmd)
 	rootCmd.AddCommand(wikiCmd)
 }
