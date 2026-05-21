@@ -240,33 +240,31 @@ func LineCount(projectName, slug string) (int, error) {
 }
 
 // SearchPages searches for text across all wiki pages in a project.
+// Deprecated: Use SearchPagesAdvanced instead for advanced options.
 func SearchPages(projectName string, query string) ([]WikiSearchResult, error) {
-	pages, err := ListPages(projectName)
+	results, err := SearchPagesAdvanced(projectName, SearchOptions{
+		Query:           query,
+		CaseInsensitive: true,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	re, err := regexp.Compile(`(?i)` + query)
-	if err != nil {
-		return nil, fmt.Errorf("invalid search pattern: %w", err)
-	}
-
-	var results []WikiSearchResult
-	for _, page := range pages {
-		lines := strings.Split(page.Content, "\n")
-		for i, line := range lines {
-			if re.MatchString(line) {
-				results = append(results, WikiSearchResult{
-					Slug:    page.Slug,
-					Title:   page.Title,
-					LineNum: i + 1,
-					Line:    strings.TrimSpace(line),
+	var legacyResults []WikiSearchResult
+	for _, r := range results {
+		for _, m := range r.Matches {
+			if m.LineNum > 0 {
+				legacyResults = append(legacyResults, WikiSearchResult{
+					Slug:    r.Slug,
+					Title:   r.Title,
+					LineNum: m.LineNum,
+					Line:    m.Line,
 				})
 			}
 		}
 	}
 
-	return results, nil
+	return legacyResults, nil
 }
 
 // WikiSearchResult represents a single search result.

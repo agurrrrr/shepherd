@@ -3375,6 +3375,12 @@ var wikiHistoryProject string
 var wikiHistoryShow int
 var wikiCreateSummary string
 var wikiCreateAuthor string
+var wikiSearchProject string
+var wikiSearchRegex bool
+var wikiSearchTag string
+var wikiSearchCategory string
+var wikiSearchTitleOnly bool
+var wikiSearchCaseInsens bool
 
 var wikiCmd = &cobra.Command{
 	Use:   "wiki",
@@ -3439,6 +3445,72 @@ var wikiShowCmd = &cobra.Command{
 		}
 		fmt.Printf("Updated: %s\n\n---\n\n", page.UpdatedAt.Format("2006-01-02 15:04"))
 		fmt.Println(page.Content)
+	},
+}
+
+var wikiSearchCmd = &cobra.Command{
+	Use:   "search <query>",
+	Short: "Search wiki pages with advanced options",
+	Long: `Search wiki pages for a project with support for regex, tag/category filtering, and more.
+
+Examples:
+  shepherd wiki search "Go 1.25" --project shepherd
+  shepherd wiki search "vulnerab.*" --project shepherd --regex --tag security
+  shepherd wiki search "architecture" --project shepherd --title-only
+  shepherd wiki search "Kubernetes" --project shepherd --category deployment`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		query := args[0]
+		if wikiSearchProject == "" {
+			fmt.Fprintln(os.Stderr, "Error: --project is required")
+			os.Exit(1)
+		}
+
+		results, err := wiki.SearchPagesAdvanced(wikiSearchProject, wiki.SearchOptions{
+			Query:           query,
+			Regex:           wikiSearchRegex,
+			Tag:             wikiSearchTag,
+			Category:        wikiSearchCategory,
+			TitleOnly:       wikiSearchTitleOnly,
+			CaseInsensitive: wikiSearchCaseInsens,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(results) == 0 {
+			fmt.Printf("No results found for %q in project %q\n", query, wikiSearchProject)
+			return
+		}
+
+		totalMatches := 0
+		for _, r := range results {
+			totalMatches += len(r.Matches)
+		}
+
+		fmt.Printf("Search results for %q in %q (%d pages, %d matches):\n\n", query, wikiSearchProject, len(results), totalMatches)
+
+		for _, r := range results {
+			fmt.Printf("📄 %s\n", r.Slug)
+			fmt.Printf("   %s", r.Title)
+			if r.Category != "" {
+				fmt.Printf(" [%s]", r.Category)
+			}
+			if len(r.Tags) > 0 {
+				fmt.Printf(" [%s]", strings.Join(r.Tags, ", "))
+			}
+			fmt.Println()
+
+			for _, m := range r.Matches {
+				if m.LineNum == 0 {
+					fmt.Printf("   ↪ %s\n", m.Line)
+				} else {
+					fmt.Printf("   %4d: %s\n", m.LineNum, m.Line)
+				}
+			}
+			fmt.Println()
+		}
 	},
 }
 
@@ -3864,6 +3936,12 @@ func init() {
 	wikiEditCmd.Flags().StringVar(&wikiEditAuthor, "author", "", "Author name for version history")
 	wikiHistoryCmd.Flags().StringVarP(&wikiHistoryProject, "project", "p", "", "Project name (required)")
 	wikiHistoryCmd.Flags().IntVarP(&wikiHistoryShow, "show", "n", 0, "Show content of specific version (1-indexed)")
+	wikiSearchCmd.Flags().StringVarP(&wikiSearchProject, "project", "p", "", "Project name (required)")
+	wikiSearchCmd.Flags().BoolVarP(&wikiSearchRegex, "regex", "E", false, "Interpret query as a regular expression")
+	wikiSearchCmd.Flags().StringVarP(&wikiSearchTag, "tag", "t", "", "Filter by tag")
+	wikiSearchCmd.Flags().StringVarP(&wikiSearchCategory, "category", "C", "", "Filter by category")
+	wikiSearchCmd.Flags().BoolVarP(&wikiSearchTitleOnly, "title-only", "T", false, "Search title only (exclude body)")
+	wikiSearchCmd.Flags().BoolVarP(&wikiSearchCaseInsens, "case-insensitive", "i", true, "Case insensitive search (default: true)")
 	wikiCmd.AddCommand(wikiListCmd)
 	wikiCmd.AddCommand(wikiShowCmd)
 	wikiCmd.AddCommand(wikiCreateCmd)
@@ -3873,6 +3951,8 @@ func init() {
 	wikiCmd.AddCommand(wikiInitCmd)
 	wikiCmd.AddCommand(wikiEditCmd)
 	wikiCmd.AddCommand(wikiTemplatesCmd)
+	wikiCmd.AddCommand(wikiHistoryCmd)
+	wikiCmd.AddCommand(wikiSearchCmd)
 	wikiCmd.AddCommand(wikiHistoryCmd)
 	rootCmd.AddCommand(wikiCmd)
 }
