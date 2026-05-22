@@ -620,6 +620,10 @@
 										{#if t.cost_usd > 0}
 											<span class="task-cost mono">${t.cost_usd.toFixed(4)}</span>
 										{/if}
+										{#if t.prompt_tokens > 0 || t.completion_tokens > 0}
+											{@const totalTok = (t.prompt_tokens || 0) + (t.completion_tokens || 0)}
+											<span class="task-tokens mono">{totalTok.toLocaleString()} tokens</span>
+										{/if}
 										<span class="task-time mono">{formatTime(t.created_at)}</span>
 									</div>
 									{#if t.summary}
@@ -1125,6 +1129,15 @@
 		color: var(--text-secondary);
 		flex-shrink: 0;
 		background: rgba(56, 139, 253, 0.1);
+		padding: 1px 6px;
+		border-radius: 8px;
+	}
+
+	.task-tokens {
+		font-size: 11px;
+		color: var(--text-secondary);
+		flex-shrink: 0;
+		background: rgba(46, 204, 113, 0.1);
 		padding: 1px 6px;
 		border-radius: 8px;
 	}

@@ -1801,12 +1801,16 @@ func parseStreamOutput(output string) *ExecuteResult {
 		}
 
 		var msg struct {
-			Type         string  `json:"type"`
-			Subtype      string  `json:"subtype"`
-			SessionID    string  `json:"session_id"`
-			Result       string  `json:"result"`
-			TotalCostUSD float64 `json:"total_cost_usd"`
-			Message      struct {
+			Type             string  `json:"type"`
+			Subtype          string  `json:"subtype"`
+			SessionID        string  `json:"session_id"`
+			Result           string  `json:"result"`
+			TotalCostUSD     float64 `json:"total_cost_usd"`
+			InputTokens      int64   `json:"input_tokens"`
+			OutputTokens     int64   `json:"output_tokens"`
+			CacheReadTokens  int64   `json:"cache_read_input_tokens"`
+			CacheWriteTokens int64   `json:"cache_creation_input_tokens"`
+			Message          struct {
 				Content []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -1820,7 +1824,6 @@ func parseStreamOutput(output string) *ExecuteResult {
 
 		switch msg.Type {
 		case "result":
-			// Final result
 			if msg.Result != "" {
 				result.Result = msg.Result
 			}
@@ -1830,8 +1833,9 @@ func parseStreamOutput(output string) *ExecuteResult {
 			if msg.TotalCostUSD > 0 {
 				result.CostUSD = msg.TotalCostUSD
 			}
+			result.PromptTokens = msg.InputTokens + msg.CacheReadTokens + msg.CacheWriteTokens
+			result.CompletionTokens = msg.OutputTokens
 		case "assistant":
-			// Collect text response (fallback if no result)
 			for _, content := range msg.Message.Content {
 				if content.Type == "text" && content.Text != "" {
 					if result.Result == "" {

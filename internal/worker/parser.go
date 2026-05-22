@@ -7,24 +7,30 @@ import (
 
 // ExecuteResult contains the result of a Claude Code execution.
 type ExecuteResult struct {
-	SessionID     string   // Session ID (for next --resume)
-	Result        string   // Response text
-	FilesModified []string // List of modified files
-	CostUSD       float64  // Cost (USD)
+	SessionID        string   // Session ID (for next --resume)
+	Result           string   // Response text
+	FilesModified    []string // List of modified files
+	CostUSD          float64  // Cost (USD)
+	PromptTokens     int64    // Input token count
+	CompletionTokens int64    // Output token count
 }
 
 // claudeOutput represents the JSON output from Claude Code CLI.
 // Based on claude --output-format json output structure.
 type claudeOutput struct {
-	Type        string  `json:"type"`        // "result"
-	SessionID   string  `json:"session_id"`  // Session ID
-	Result      string  `json:"result"`      // Response text
-	CostUSD     float64 `json:"cost_usd"`    // Cost
-	TotalCost   float64 `json:"total_cost"`  // Total cost (alternative)
-	IsError     bool    `json:"is_error"`    // Whether error occurred
-	NumTurns    int     `json:"num_turns"`   // Number of turns
-	DurationMs  float64 `json:"duration_ms"` // Execution time
-	DurationAPI float64 `json:"duration_api_ms"`
+	Type             string  `json:"type"`        // "result"
+	SessionID        string  `json:"session_id"`  // Session ID
+	Result           string  `json:"result"`      // Response text
+	CostUSD          float64 `json:"cost_usd"`    // Cost
+	TotalCost        float64 `json:"total_cost"`  // Total cost (alternative)
+	IsError          bool    `json:"is_error"`    // Whether error occurred
+	NumTurns         int     `json:"num_turns"`   // Number of turns
+	DurationMs       float64 `json:"duration_ms"` // Execution time
+	DurationAPI      float64 `json:"duration_api_ms"`
+	InputTokens      int64   `json:"input_tokens"`  // Input tokens
+	OutputTokens     int64   `json:"output_tokens"` // Output tokens
+	CacheReadTokens  int64   `json:"cache_read_input_tokens"`
+	CacheWriteTokens int64   `json:"cache_creation_input_tokens"`
 }
 
 // ParseClaudeOutput parses the JSON output from Claude Code CLI.
@@ -43,10 +49,15 @@ func ParseClaudeOutput(output []byte) (*ExecuteResult, error) {
 		cost = co.TotalCost
 	}
 
+	promptTokens := co.InputTokens + co.CacheReadTokens + co.CacheWriteTokens
+	completionTokens := co.OutputTokens
+
 	return &ExecuteResult{
-		SessionID:     co.SessionID,
-		Result:        co.Result,
-		FilesModified: []string{}, // Add parsing from Claude output if needed
-		CostUSD:       cost,
+		SessionID:        co.SessionID,
+		Result:           co.Result,
+		FilesModified:    []string{},
+		CostUSD:          cost,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
 	}, nil
 }

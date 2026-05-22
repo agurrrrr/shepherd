@@ -224,6 +224,10 @@ func handleGetTaskDetail(args map[string]interface{}) (string, error) {
 	if t.CostUsd > 0 {
 		sb.WriteString(fmt.Sprintf("비용: $%.4f\n", t.CostUsd))
 	}
+	totalTokens := t.PromptTokens + t.CompletionTokens
+	if totalTokens > 0 {
+		sb.WriteString(fmt.Sprintf("토큰: %d (입력 %d + 출력 %d)\n", totalTokens, t.PromptTokens, t.CompletionTokens))
+	}
 
 	sb.WriteString("\n--- 요청 ---\n")
 	sb.WriteString(t.Prompt)

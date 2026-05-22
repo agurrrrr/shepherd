@@ -156,6 +156,8 @@ var (
 		{Name: "error", Type: field.TypeString, Nullable: true, Size: 2147483647},
 		{Name: "output", Type: field.TypeJSON, Nullable: true},
 		{Name: "cost_usd", Type: field.TypeFloat64, Nullable: true, Default: 0},
+		{Name: "prompt_tokens", Type: field.TypeInt64, Nullable: true, Default: 0},
+		{Name: "completion_tokens", Type: field.TypeInt64, Nullable: true, Default: 0},
 		{Name: "started_at", Type: field.TypeTime, Nullable: true},
 		{Name: "completed_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
@@ -170,13 +172,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "tasks_projects_tasks",
-				Columns:    []*schema.Column{TasksColumns[11]},
+				Columns:    []*schema.Column{TasksColumns[13]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "tasks_sheep_tasks",
-				Columns:    []*schema.Column{TasksColumns[12]},
+				Columns:    []*schema.Column{TasksColumns[14]},
 				RefColumns: []*schema.Column{SheepColumns[0]},
 				OnDelete:   schema.SetNull,
 			},

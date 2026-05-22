@@ -17,9 +17,10 @@ import (
 
 // activityItem aggregates per-project task count and cost in a time window.
 type activityItem struct {
-	Project string  `json:"project"`
-	Tasks   int     `json:"tasks"`
-	CostUSD float64 `json:"cost_usd"`
+	Project         string  `json:"project"`
+	Tasks           int     `json:"tasks"`
+	CostUSD         float64 `json:"cost_usd"`
+	TotalTokenCount int64   `json:"total_tokens"`
 }
 
 // activityWindow holds the per-project breakdown plus totals so the UI can
@@ -53,6 +54,7 @@ func projectActivity(ctx context.Context, client *ent.Client, since time.Time) (
 		}
 		agg[name].Tasks++
 		agg[name].CostUSD += t.CostUsd
+		agg[name].TotalTokenCount += t.PromptTokens + t.CompletionTokens
 	}
 
 	out := make([]activityItem, 0, len(agg))

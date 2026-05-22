@@ -96,6 +96,34 @@ func (_c *TaskCreate) SetNillableCostUsd(v *float64) *TaskCreate {
 	return _c
 }
 
+// SetPromptTokens sets the "prompt_tokens" field.
+func (_c *TaskCreate) SetPromptTokens(v int64) *TaskCreate {
+	_c.mutation.SetPromptTokens(v)
+	return _c
+}
+
+// SetNillablePromptTokens sets the "prompt_tokens" field if the given value is not nil.
+func (_c *TaskCreate) SetNillablePromptTokens(v *int64) *TaskCreate {
+	if v != nil {
+		_c.SetPromptTokens(*v)
+	}
+	return _c
+}
+
+// SetCompletionTokens sets the "completion_tokens" field.
+func (_c *TaskCreate) SetCompletionTokens(v int64) *TaskCreate {
+	_c.mutation.SetCompletionTokens(v)
+	return _c
+}
+
+// SetNillableCompletionTokens sets the "completion_tokens" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableCompletionTokens(v *int64) *TaskCreate {
+	if v != nil {
+		_c.SetCompletionTokens(*v)
+	}
+	return _c
+}
+
 // SetStartedAt sets the "started_at" field.
 func (_c *TaskCreate) SetStartedAt(v time.Time) *TaskCreate {
 	_c.mutation.SetStartedAt(v)
@@ -219,6 +247,14 @@ func (_c *TaskCreate) defaults() {
 		v := task.DefaultCostUsd
 		_c.mutation.SetCostUsd(v)
 	}
+	if _, ok := _c.mutation.PromptTokens(); !ok {
+		v := task.DefaultPromptTokens
+		_c.mutation.SetPromptTokens(v)
+	}
+	if _, ok := _c.mutation.CompletionTokens(); !ok {
+		v := task.DefaultCompletionTokens
+		_c.mutation.SetCompletionTokens(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := task.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -299,6 +335,14 @@ func (_c *TaskCreate) createSpec() (*Task, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.CostUsd(); ok {
 		_spec.SetField(task.FieldCostUsd, field.TypeFloat64, value)
 		_node.CostUsd = value
+	}
+	if value, ok := _c.mutation.PromptTokens(); ok {
+		_spec.SetField(task.FieldPromptTokens, field.TypeInt64, value)
+		_node.PromptTokens = value
+	}
+	if value, ok := _c.mutation.CompletionTokens(); ok {
+		_spec.SetField(task.FieldCompletionTokens, field.TypeInt64, value)
+		_node.CompletionTokens = value
 	}
 	if value, ok := _c.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)

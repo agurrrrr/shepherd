@@ -34,6 +34,10 @@ type Task struct {
 	Output []string `json:"output,omitempty"`
 	// 실행 비용 (USD)
 	CostUsd float64 `json:"cost_usd,omitempty"`
+	// 입력 토큰 수
+	PromptTokens int64 `json:"prompt_tokens,omitempty"`
+	// 출력 토큰 수
+	CompletionTokens int64 `json:"completion_tokens,omitempty"`
 	// 작업 시작 시간
 	StartedAt time.Time `json:"started_at,omitempty"`
 	// 작업 완료 시간
@@ -90,7 +94,7 @@ func (*Task) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case task.FieldCostUsd:
 			values[i] = new(sql.NullFloat64)
-		case task.FieldID:
+		case task.FieldID, task.FieldPromptTokens, task.FieldCompletionTokens:
 			values[i] = new(sql.NullInt64)
 		case task.FieldPrompt, task.FieldSummary, task.FieldStatus, task.FieldError:
 			values[i] = new(sql.NullString)
@@ -166,6 +170,18 @@ func (_m *Task) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field cost_usd", values[i])
 			} else if value.Valid {
 				_m.CostUsd = value.Float64
+			}
+		case task.FieldPromptTokens:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field prompt_tokens", values[i])
+			} else if value.Valid {
+				_m.PromptTokens = value.Int64
+			}
+		case task.FieldCompletionTokens:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field completion_tokens", values[i])
+			} else if value.Valid {
+				_m.CompletionTokens = value.Int64
 			}
 		case task.FieldStartedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -265,6 +281,12 @@ func (_m *Task) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("cost_usd=")
 	builder.WriteString(fmt.Sprintf("%v", _m.CostUsd))
+	builder.WriteString(", ")
+	builder.WriteString("prompt_tokens=")
+	builder.WriteString(fmt.Sprintf("%v", _m.PromptTokens))
+	builder.WriteString(", ")
+	builder.WriteString("completion_tokens=")
+	builder.WriteString(fmt.Sprintf("%v", _m.CompletionTokens))
 	builder.WriteString(", ")
 	builder.WriteString("started_at=")
 	builder.WriteString(_m.StartedAt.Format(time.ANSIC))

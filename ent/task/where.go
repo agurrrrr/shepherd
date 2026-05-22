@@ -75,6 +75,16 @@ func CostUsd(v float64) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldCostUsd, v))
 }
 
+// PromptTokens applies equality check predicate on the "prompt_tokens" field. It's identical to PromptTokensEQ.
+func PromptTokens(v int64) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldPromptTokens, v))
+}
+
+// CompletionTokens applies equality check predicate on the "completion_tokens" field. It's identical to CompletionTokensEQ.
+func CompletionTokens(v int64) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCompletionTokens, v))
+}
+
 // StartedAt applies equality check predicate on the "started_at" field. It's identical to StartedAtEQ.
 func StartedAt(v time.Time) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldStartedAt, v))
@@ -393,6 +403,106 @@ func CostUsdIsNil() predicate.Task {
 // CostUsdNotNil applies the NotNil predicate on the "cost_usd" field.
 func CostUsdNotNil() predicate.Task {
 	return predicate.Task(sql.FieldNotNull(FieldCostUsd))
+}
+
+// PromptTokensEQ applies the EQ predicate on the "prompt_tokens" field.
+func PromptTokensEQ(v int64) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldPromptTokens, v))
+}
+
+// PromptTokensNEQ applies the NEQ predicate on the "prompt_tokens" field.
+func PromptTokensNEQ(v int64) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldPromptTokens, v))
+}
+
+// PromptTokensIn applies the In predicate on the "prompt_tokens" field.
+func PromptTokensIn(vs ...int64) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldPromptTokens, vs...))
+}
+
+// PromptTokensNotIn applies the NotIn predicate on the "prompt_tokens" field.
+func PromptTokensNotIn(vs ...int64) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldPromptTokens, vs...))
+}
+
+// PromptTokensGT applies the GT predicate on the "prompt_tokens" field.
+func PromptTokensGT(v int64) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldPromptTokens, v))
+}
+
+// PromptTokensGTE applies the GTE predicate on the "prompt_tokens" field.
+func PromptTokensGTE(v int64) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldPromptTokens, v))
+}
+
+// PromptTokensLT applies the LT predicate on the "prompt_tokens" field.
+func PromptTokensLT(v int64) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldPromptTokens, v))
+}
+
+// PromptTokensLTE applies the LTE predicate on the "prompt_tokens" field.
+func PromptTokensLTE(v int64) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldPromptTokens, v))
+}
+
+// PromptTokensIsNil applies the IsNil predicate on the "prompt_tokens" field.
+func PromptTokensIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldPromptTokens))
+}
+
+// PromptTokensNotNil applies the NotNil predicate on the "prompt_tokens" field.
+func PromptTokensNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldPromptTokens))
+}
+
+// CompletionTokensEQ applies the EQ predicate on the "completion_tokens" field.
+func CompletionTokensEQ(v int64) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCompletionTokens, v))
+}
+
+// CompletionTokensNEQ applies the NEQ predicate on the "completion_tokens" field.
+func CompletionTokensNEQ(v int64) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldCompletionTokens, v))
+}
+
+// CompletionTokensIn applies the In predicate on the "completion_tokens" field.
+func CompletionTokensIn(vs ...int64) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldCompletionTokens, vs...))
+}
+
+// CompletionTokensNotIn applies the NotIn predicate on the "completion_tokens" field.
+func CompletionTokensNotIn(vs ...int64) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldCompletionTokens, vs...))
+}
+
+// CompletionTokensGT applies the GT predicate on the "completion_tokens" field.
+func CompletionTokensGT(v int64) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldCompletionTokens, v))
+}
+
+// CompletionTokensGTE applies the GTE predicate on the "completion_tokens" field.
+func CompletionTokensGTE(v int64) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldCompletionTokens, v))
+}
+
+// CompletionTokensLT applies the LT predicate on the "completion_tokens" field.
+func CompletionTokensLT(v int64) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldCompletionTokens, v))
+}
+
+// CompletionTokensLTE applies the LTE predicate on the "completion_tokens" field.
+func CompletionTokensLTE(v int64) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldCompletionTokens, v))
+}
+
+// CompletionTokensIsNil applies the IsNil predicate on the "completion_tokens" field.
+func CompletionTokensIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldCompletionTokens))
+}
+
+// CompletionTokensNotNil applies the NotNil predicate on the "completion_tokens" field.
+func CompletionTokensNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldCompletionTokens))
 }
 
 // StartedAtEQ applies the EQ predicate on the "started_at" field.

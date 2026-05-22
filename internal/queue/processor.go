@@ -290,13 +290,16 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 		p.OnStatusChange(sheepName, "idle")
 	}
 
-	// Complete task with cost
+	// Complete task with cost and tokens
 	costUSD := float64(0)
+	var promptTokens, completionTokens int64
 	if result != nil {
 		costUSD = result.CostUSD
+		promptTokens = result.PromptTokens
+		completionTokens = result.CompletionTokens
 	}
 
-	if err := CompleteTaskWithCost(taskID, result.Result, result.FilesModified, outputLines, costUSD); err != nil {
+	if err := CompleteTaskWithTokens(taskID, result.Result, result.FilesModified, outputLines, costUSD, promptTokens, completionTokens); err != nil {
 		if p.OnTaskFail != nil {
 			p.OnTaskFail(taskID, sheepName, projectName, err.Error())
 		}

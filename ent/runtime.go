@@ -165,8 +165,16 @@ func init() {
 	taskDescCostUsd := taskFields[6].Descriptor()
 	// task.DefaultCostUsd holds the default value on creation for the cost_usd field.
 	task.DefaultCostUsd = taskDescCostUsd.Default.(float64)
+	// taskDescPromptTokens is the schema descriptor for prompt_tokens field.
+	taskDescPromptTokens := taskFields[7].Descriptor()
+	// task.DefaultPromptTokens holds the default value on creation for the prompt_tokens field.
+	task.DefaultPromptTokens = taskDescPromptTokens.Default.(int64)
+	// taskDescCompletionTokens is the schema descriptor for completion_tokens field.
+	taskDescCompletionTokens := taskFields[8].Descriptor()
+	// task.DefaultCompletionTokens holds the default value on creation for the completion_tokens field.
+	task.DefaultCompletionTokens = taskDescCompletionTokens.Default.(int64)
 	// taskDescCreatedAt is the schema descriptor for created_at field.
-	taskDescCreatedAt := taskFields[9].Descriptor()
+	taskDescCreatedAt := taskFields[11].Descriptor()
 	// task.DefaultCreatedAt holds the default value on creation for the created_at field.
 	task.DefaultCreatedAt = taskDescCreatedAt.Default.(func() time.Time)
 	wikipageFields := schema.WikiPage{}.Fields()

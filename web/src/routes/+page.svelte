@@ -21,12 +21,12 @@
 		{ value: '7d', label: '7d' }
 	];
 
-	function fmtCost(n) {
+	function fmtTokens(n) {
 		const v = Number(n) || 0;
-		if (v === 0) return '$0';
-		if (v < 0.01) return '$' + v.toFixed(4);
-		if (v < 1) return '$' + v.toFixed(3);
-		return '$' + v.toFixed(2);
+		if (v === 0) return '0 tokens';
+		if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M tokens';
+		if (v >= 1000) return (v / 1000).toFixed(1) + 'K tokens';
+		return v.toLocaleString() + ' tokens';
 	}
 
 	onMount(async () => {
@@ -155,14 +155,15 @@
 			{/if}
 		</section>
 
-		<!-- Activity: per-project task count + cost across rolling windows -->
+		<!-- Activity: per-project task count + tokens across rolling windows -->
 		{@const activity = dashboard.activity?.[activityWindow] || { items: [], total: 0, total_cost: 0 }}
-		{@const activityMaxCost = activity.items.reduce((m, it) => Math.max(m, it.cost_usd || 0), 0)}
+		{@const activityMaxTokens = activity.items.reduce((m, it) => Math.max(m, it.total_tokens || 0), 0)}
+		{@const activityTotalTokens = activity.items.reduce((s, it) => s + (it.total_tokens || 0), 0)}
 		<section class="activity-section">
 			<div class="activity-head">
 				<SectionHeader
 					title="Activity"
-					subtitle={`${activity.total} tasks · ${fmtCost(activity.total_cost)}`}
+					subtitle={`${activity.total} tasks · ${fmtTokens(activityTotalTokens)}`}
 				/>
 				<Tabs
 					tabs={activityTabs}
@@ -174,12 +175,12 @@
 			{#if activity.items.length > 0}
 				<div class="activity-list card">
 					{#each activity.items as it (it.project)}
-						{@const ratio = activityMaxCost > 0 ? (it.cost_usd / activityMaxCost) : 0}
+						{@const ratio = activityMaxTokens > 0 ? (it.total_tokens / activityMaxTokens) : 0}
 						<div class="activity-row">
 							<span class="activity-bar" style="--ratio: {ratio}"></span>
 							<span class="activity-name" class:unassigned={it.project === '(unassigned)'}>{it.project}</span>
 							<span class="activity-tasks">{it.tasks}</span>
-							<span class="activity-cost">{fmtCost(it.cost_usd)}</span>
+							<span class="activity-cost">{fmtTokens(it.total_tokens)}</span>
 						</div>
 					{/each}
 				</div>

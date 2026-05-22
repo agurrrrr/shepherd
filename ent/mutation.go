@@ -5278,6 +5278,10 @@ type TaskMutation struct {
 	appendoutput         []string
 	cost_usd             *float64
 	addcost_usd          *float64
+	prompt_tokens        *int64
+	addprompt_tokens     *int64
+	completion_tokens    *int64
+	addcompletion_tokens *int64
 	started_at           *time.Time
 	completed_at         *time.Time
 	created_at           *time.Time
@@ -5759,6 +5763,146 @@ func (m *TaskMutation) ResetCostUsd() {
 	delete(m.clearedFields, task.FieldCostUsd)
 }
 
+// SetPromptTokens sets the "prompt_tokens" field.
+func (m *TaskMutation) SetPromptTokens(i int64) {
+	m.prompt_tokens = &i
+	m.addprompt_tokens = nil
+}
+
+// PromptTokens returns the value of the "prompt_tokens" field in the mutation.
+func (m *TaskMutation) PromptTokens() (r int64, exists bool) {
+	v := m.prompt_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPromptTokens returns the old "prompt_tokens" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldPromptTokens(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPromptTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPromptTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPromptTokens: %w", err)
+	}
+	return oldValue.PromptTokens, nil
+}
+
+// AddPromptTokens adds i to the "prompt_tokens" field.
+func (m *TaskMutation) AddPromptTokens(i int64) {
+	if m.addprompt_tokens != nil {
+		*m.addprompt_tokens += i
+	} else {
+		m.addprompt_tokens = &i
+	}
+}
+
+// AddedPromptTokens returns the value that was added to the "prompt_tokens" field in this mutation.
+func (m *TaskMutation) AddedPromptTokens() (r int64, exists bool) {
+	v := m.addprompt_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearPromptTokens clears the value of the "prompt_tokens" field.
+func (m *TaskMutation) ClearPromptTokens() {
+	m.prompt_tokens = nil
+	m.addprompt_tokens = nil
+	m.clearedFields[task.FieldPromptTokens] = struct{}{}
+}
+
+// PromptTokensCleared returns if the "prompt_tokens" field was cleared in this mutation.
+func (m *TaskMutation) PromptTokensCleared() bool {
+	_, ok := m.clearedFields[task.FieldPromptTokens]
+	return ok
+}
+
+// ResetPromptTokens resets all changes to the "prompt_tokens" field.
+func (m *TaskMutation) ResetPromptTokens() {
+	m.prompt_tokens = nil
+	m.addprompt_tokens = nil
+	delete(m.clearedFields, task.FieldPromptTokens)
+}
+
+// SetCompletionTokens sets the "completion_tokens" field.
+func (m *TaskMutation) SetCompletionTokens(i int64) {
+	m.completion_tokens = &i
+	m.addcompletion_tokens = nil
+}
+
+// CompletionTokens returns the value of the "completion_tokens" field in the mutation.
+func (m *TaskMutation) CompletionTokens() (r int64, exists bool) {
+	v := m.completion_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCompletionTokens returns the old "completion_tokens" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldCompletionTokens(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCompletionTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCompletionTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCompletionTokens: %w", err)
+	}
+	return oldValue.CompletionTokens, nil
+}
+
+// AddCompletionTokens adds i to the "completion_tokens" field.
+func (m *TaskMutation) AddCompletionTokens(i int64) {
+	if m.addcompletion_tokens != nil {
+		*m.addcompletion_tokens += i
+	} else {
+		m.addcompletion_tokens = &i
+	}
+}
+
+// AddedCompletionTokens returns the value that was added to the "completion_tokens" field in this mutation.
+func (m *TaskMutation) AddedCompletionTokens() (r int64, exists bool) {
+	v := m.addcompletion_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearCompletionTokens clears the value of the "completion_tokens" field.
+func (m *TaskMutation) ClearCompletionTokens() {
+	m.completion_tokens = nil
+	m.addcompletion_tokens = nil
+	m.clearedFields[task.FieldCompletionTokens] = struct{}{}
+}
+
+// CompletionTokensCleared returns if the "completion_tokens" field was cleared in this mutation.
+func (m *TaskMutation) CompletionTokensCleared() bool {
+	_, ok := m.clearedFields[task.FieldCompletionTokens]
+	return ok
+}
+
+// ResetCompletionTokens resets all changes to the "completion_tokens" field.
+func (m *TaskMutation) ResetCompletionTokens() {
+	m.completion_tokens = nil
+	m.addcompletion_tokens = nil
+	delete(m.clearedFields, task.FieldCompletionTokens)
+}
+
 // SetStartedAt sets the "started_at" field.
 func (m *TaskMutation) SetStartedAt(t time.Time) {
 	m.started_at = &t
@@ -6005,7 +6149,7 @@ func (m *TaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *TaskMutation) Fields() []string {
-	fields := make([]string, 0, 10)
+	fields := make([]string, 0, 12)
 	if m.prompt != nil {
 		fields = append(fields, task.FieldPrompt)
 	}
@@ -6026,6 +6170,12 @@ func (m *TaskMutation) Fields() []string {
 	}
 	if m.cost_usd != nil {
 		fields = append(fields, task.FieldCostUsd)
+	}
+	if m.prompt_tokens != nil {
+		fields = append(fields, task.FieldPromptTokens)
+	}
+	if m.completion_tokens != nil {
+		fields = append(fields, task.FieldCompletionTokens)
 	}
 	if m.started_at != nil {
 		fields = append(fields, task.FieldStartedAt)
@@ -6058,6 +6208,10 @@ func (m *TaskMutation) Field(name string) (ent.Value, bool) {
 		return m.Output()
 	case task.FieldCostUsd:
 		return m.CostUsd()
+	case task.FieldPromptTokens:
+		return m.PromptTokens()
+	case task.FieldCompletionTokens:
+		return m.CompletionTokens()
 	case task.FieldStartedAt:
 		return m.StartedAt()
 	case task.FieldCompletedAt:
@@ -6087,6 +6241,10 @@ func (m *TaskMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldOutput(ctx)
 	case task.FieldCostUsd:
 		return m.OldCostUsd(ctx)
+	case task.FieldPromptTokens:
+		return m.OldPromptTokens(ctx)
+	case task.FieldCompletionTokens:
+		return m.OldCompletionTokens(ctx)
 	case task.FieldStartedAt:
 		return m.OldStartedAt(ctx)
 	case task.FieldCompletedAt:
@@ -6151,6 +6309,20 @@ func (m *TaskMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetCostUsd(v)
 		return nil
+	case task.FieldPromptTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPromptTokens(v)
+		return nil
+	case task.FieldCompletionTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCompletionTokens(v)
+		return nil
 	case task.FieldStartedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -6183,6 +6355,12 @@ func (m *TaskMutation) AddedFields() []string {
 	if m.addcost_usd != nil {
 		fields = append(fields, task.FieldCostUsd)
 	}
+	if m.addprompt_tokens != nil {
+		fields = append(fields, task.FieldPromptTokens)
+	}
+	if m.addcompletion_tokens != nil {
+		fields = append(fields, task.FieldCompletionTokens)
+	}
 	return fields
 }
 
@@ -6193,6 +6371,10 @@ func (m *TaskMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case task.FieldCostUsd:
 		return m.AddedCostUsd()
+	case task.FieldPromptTokens:
+		return m.AddedPromptTokens()
+	case task.FieldCompletionTokens:
+		return m.AddedCompletionTokens()
 	}
 	return nil, false
 }
@@ -6208,6 +6390,20 @@ func (m *TaskMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddCostUsd(v)
+		return nil
+	case task.FieldPromptTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPromptTokens(v)
+		return nil
+	case task.FieldCompletionTokens:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCompletionTokens(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Task numeric field %s", name)
@@ -6231,6 +6427,12 @@ func (m *TaskMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(task.FieldCostUsd) {
 		fields = append(fields, task.FieldCostUsd)
+	}
+	if m.FieldCleared(task.FieldPromptTokens) {
+		fields = append(fields, task.FieldPromptTokens)
+	}
+	if m.FieldCleared(task.FieldCompletionTokens) {
+		fields = append(fields, task.FieldCompletionTokens)
 	}
 	if m.FieldCleared(task.FieldStartedAt) {
 		fields = append(fields, task.FieldStartedAt)
@@ -6267,6 +6469,12 @@ func (m *TaskMutation) ClearField(name string) error {
 	case task.FieldCostUsd:
 		m.ClearCostUsd()
 		return nil
+	case task.FieldPromptTokens:
+		m.ClearPromptTokens()
+		return nil
+	case task.FieldCompletionTokens:
+		m.ClearCompletionTokens()
+		return nil
 	case task.FieldStartedAt:
 		m.ClearStartedAt()
 		return nil
@@ -6301,6 +6509,12 @@ func (m *TaskMutation) ResetField(name string) error {
 		return nil
 	case task.FieldCostUsd:
 		m.ResetCostUsd()
+		return nil
+	case task.FieldPromptTokens:
+		m.ResetPromptTokens()
+		return nil
+	case task.FieldCompletionTokens:
+		m.ResetCompletionTokens()
 		return nil
 	case task.FieldStartedAt:
 		m.ResetStartedAt()

@@ -162,6 +162,60 @@ func (_u *TaskUpdate) ClearCostUsd() *TaskUpdate {
 	return _u
 }
 
+// SetPromptTokens sets the "prompt_tokens" field.
+func (_u *TaskUpdate) SetPromptTokens(v int64) *TaskUpdate {
+	_u.mutation.ResetPromptTokens()
+	_u.mutation.SetPromptTokens(v)
+	return _u
+}
+
+// SetNillablePromptTokens sets the "prompt_tokens" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillablePromptTokens(v *int64) *TaskUpdate {
+	if v != nil {
+		_u.SetPromptTokens(*v)
+	}
+	return _u
+}
+
+// AddPromptTokens adds value to the "prompt_tokens" field.
+func (_u *TaskUpdate) AddPromptTokens(v int64) *TaskUpdate {
+	_u.mutation.AddPromptTokens(v)
+	return _u
+}
+
+// ClearPromptTokens clears the value of the "prompt_tokens" field.
+func (_u *TaskUpdate) ClearPromptTokens() *TaskUpdate {
+	_u.mutation.ClearPromptTokens()
+	return _u
+}
+
+// SetCompletionTokens sets the "completion_tokens" field.
+func (_u *TaskUpdate) SetCompletionTokens(v int64) *TaskUpdate {
+	_u.mutation.ResetCompletionTokens()
+	_u.mutation.SetCompletionTokens(v)
+	return _u
+}
+
+// SetNillableCompletionTokens sets the "completion_tokens" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableCompletionTokens(v *int64) *TaskUpdate {
+	if v != nil {
+		_u.SetCompletionTokens(*v)
+	}
+	return _u
+}
+
+// AddCompletionTokens adds value to the "completion_tokens" field.
+func (_u *TaskUpdate) AddCompletionTokens(v int64) *TaskUpdate {
+	_u.mutation.AddCompletionTokens(v)
+	return _u
+}
+
+// ClearCompletionTokens clears the value of the "completion_tokens" field.
+func (_u *TaskUpdate) ClearCompletionTokens() *TaskUpdate {
+	_u.mutation.ClearCompletionTokens()
+	return _u
+}
+
 // SetStartedAt sets the "started_at" field.
 func (_u *TaskUpdate) SetStartedAt(v time.Time) *TaskUpdate {
 	_u.mutation.SetStartedAt(v)
@@ -359,6 +413,24 @@ func (_u *TaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.CostUsdCleared() {
 		_spec.ClearField(task.FieldCostUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.PromptTokens(); ok {
+		_spec.SetField(task.FieldPromptTokens, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedPromptTokens(); ok {
+		_spec.AddField(task.FieldPromptTokens, field.TypeInt64, value)
+	}
+	if _u.mutation.PromptTokensCleared() {
+		_spec.ClearField(task.FieldPromptTokens, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.CompletionTokens(); ok {
+		_spec.SetField(task.FieldCompletionTokens, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedCompletionTokens(); ok {
+		_spec.AddField(task.FieldCompletionTokens, field.TypeInt64, value)
+	}
+	if _u.mutation.CompletionTokensCleared() {
+		_spec.ClearField(task.FieldCompletionTokens, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)
@@ -578,6 +650,60 @@ func (_u *TaskUpdateOne) AddCostUsd(v float64) *TaskUpdateOne {
 // ClearCostUsd clears the value of the "cost_usd" field.
 func (_u *TaskUpdateOne) ClearCostUsd() *TaskUpdateOne {
 	_u.mutation.ClearCostUsd()
+	return _u
+}
+
+// SetPromptTokens sets the "prompt_tokens" field.
+func (_u *TaskUpdateOne) SetPromptTokens(v int64) *TaskUpdateOne {
+	_u.mutation.ResetPromptTokens()
+	_u.mutation.SetPromptTokens(v)
+	return _u
+}
+
+// SetNillablePromptTokens sets the "prompt_tokens" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillablePromptTokens(v *int64) *TaskUpdateOne {
+	if v != nil {
+		_u.SetPromptTokens(*v)
+	}
+	return _u
+}
+
+// AddPromptTokens adds value to the "prompt_tokens" field.
+func (_u *TaskUpdateOne) AddPromptTokens(v int64) *TaskUpdateOne {
+	_u.mutation.AddPromptTokens(v)
+	return _u
+}
+
+// ClearPromptTokens clears the value of the "prompt_tokens" field.
+func (_u *TaskUpdateOne) ClearPromptTokens() *TaskUpdateOne {
+	_u.mutation.ClearPromptTokens()
+	return _u
+}
+
+// SetCompletionTokens sets the "completion_tokens" field.
+func (_u *TaskUpdateOne) SetCompletionTokens(v int64) *TaskUpdateOne {
+	_u.mutation.ResetCompletionTokens()
+	_u.mutation.SetCompletionTokens(v)
+	return _u
+}
+
+// SetNillableCompletionTokens sets the "completion_tokens" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableCompletionTokens(v *int64) *TaskUpdateOne {
+	if v != nil {
+		_u.SetCompletionTokens(*v)
+	}
+	return _u
+}
+
+// AddCompletionTokens adds value to the "completion_tokens" field.
+func (_u *TaskUpdateOne) AddCompletionTokens(v int64) *TaskUpdateOne {
+	_u.mutation.AddCompletionTokens(v)
+	return _u
+}
+
+// ClearCompletionTokens clears the value of the "completion_tokens" field.
+func (_u *TaskUpdateOne) ClearCompletionTokens() *TaskUpdateOne {
+	_u.mutation.ClearCompletionTokens()
 	return _u
 }
 
@@ -808,6 +934,24 @@ func (_u *TaskUpdateOne) sqlSave(ctx context.Context) (_node *Task, err error) {
 	}
 	if _u.mutation.CostUsdCleared() {
 		_spec.ClearField(task.FieldCostUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.PromptTokens(); ok {
+		_spec.SetField(task.FieldPromptTokens, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedPromptTokens(); ok {
+		_spec.AddField(task.FieldPromptTokens, field.TypeInt64, value)
+	}
+	if _u.mutation.PromptTokensCleared() {
+		_spec.ClearField(task.FieldPromptTokens, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.CompletionTokens(); ok {
+		_spec.SetField(task.FieldCompletionTokens, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedCompletionTokens(); ok {
+		_spec.AddField(task.FieldCompletionTokens, field.TypeInt64, value)
+	}
+	if _u.mutation.CompletionTokensCleared() {
+		_spec.ClearField(task.FieldCompletionTokens, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)

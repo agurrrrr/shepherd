@@ -39,6 +39,14 @@ func (Task) Fields() []ent.Field {
 			Optional().
 			Default(0).
 			Comment("실행 비용 (USD)"),
+		field.Int64("prompt_tokens").
+			Optional().
+			Default(0).
+			Comment("입력 토큰 수"),
+		field.Int64("completion_tokens").
+			Optional().
+			Default(0).
+			Comment("출력 토큰 수"),
 		field.Time("started_at").
 			Optional().
 			Comment("작업 시작 시간"),

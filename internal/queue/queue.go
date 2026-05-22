@@ -235,6 +235,11 @@ func CompleteTask(id int, summary string, filesModified []string) error {
 
 // CompleteTaskWithCost marks a task as completed with summary, modified files, output, and cost.
 func CompleteTaskWithCost(id int, summary string, filesModified []string, output []string, costUSD float64) error {
+	return CompleteTaskWithTokens(id, summary, filesModified, output, costUSD, 0, 0)
+}
+
+// CompleteTaskWithTokens marks a task as completed with full token usage data.
+func CompleteTaskWithTokens(id int, summary string, filesModified []string, output []string, costUSD float64, promptTokens, completionTokens int64) error {
 	ctx := context.Background()
 	client := db.Client()
 
@@ -250,6 +255,12 @@ func CompleteTaskWithCost(id int, summary string, filesModified []string, output
 	}
 	if costUSD > 0 {
 		updateQuery = updateQuery.SetCostUsd(costUSD)
+	}
+	if promptTokens > 0 {
+		updateQuery = updateQuery.SetPromptTokens(promptTokens)
+	}
+	if completionTokens > 0 {
+		updateQuery = updateQuery.SetCompletionTokens(completionTokens)
 	}
 
 	count, err := updateQuery.Save(ctx)

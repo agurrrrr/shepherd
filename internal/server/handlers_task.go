@@ -76,27 +76,31 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 	}
 
 	type taskItem struct {
-		ID        int     `json:"id"`
-		Prompt    string  `json:"prompt"`
-		Status    string  `json:"status"`
-		Summary   string  `json:"summary,omitempty"`
-		Error     string  `json:"error,omitempty"`
-		CostUSD   float64 `json:"cost_usd,omitempty"`
-		Sheep     string  `json:"sheep,omitempty"`
-		Project   string  `json:"project,omitempty"`
-		CreatedAt string  `json:"created_at"`
+		ID               int     `json:"id"`
+		Prompt           string  `json:"prompt"`
+		Status           string  `json:"status"`
+		Summary          string  `json:"summary,omitempty"`
+		Error            string  `json:"error,omitempty"`
+		CostUSD          float64 `json:"cost_usd,omitempty"`
+		PromptTokens     int64   `json:"prompt_tokens,omitempty"`
+		CompletionTokens int64   `json:"completion_tokens,omitempty"`
+		Sheep            string  `json:"sheep,omitempty"`
+		Project          string  `json:"project,omitempty"`
+		CreatedAt        string  `json:"created_at"`
 	}
 
 	var items []taskItem
 	for _, t := range tasks {
 		item := taskItem{
-			ID:        t.ID,
-			Prompt:    t.Prompt,
-			Status:    string(t.Status),
-			Summary:   t.Summary,
-			Error:     t.Error,
-			CostUSD:   t.CostUsd,
-			CreatedAt: t.CreatedAt.Format("2006-01-02 15:04:05"),
+			ID:               t.ID,
+			Prompt:           t.Prompt,
+			Status:           string(t.Status),
+			Summary:          t.Summary,
+			Error:            t.Error,
+			CostUSD:          t.CostUsd,
+			PromptTokens:     t.PromptTokens,
+			CompletionTokens: t.CompletionTokens,
+			CreatedAt:        t.CreatedAt.Format("2006-01-02 15:04:05"),
 		}
 		if t.Edges.Sheep != nil {
 			item.Sheep = t.Edges.Sheep.Name
@@ -227,15 +231,17 @@ func (s *Server) handleGetTask(c *fiber.Ctx) error {
 	}
 
 	result := map[string]interface{}{
-		"id":             t.ID,
-		"prompt":         t.Prompt,
-		"status":         string(t.Status),
-		"summary":        t.Summary,
-		"error":          t.Error,
-		"files_modified": t.FilesModified,
-		"output":         t.Output,
-		"cost_usd":       t.CostUsd,
-		"created_at":     t.CreatedAt.Format("2006-01-02 15:04:05"),
+		"id":                t.ID,
+		"prompt":            t.Prompt,
+		"status":            string(t.Status),
+		"summary":           t.Summary,
+		"error":             t.Error,
+		"files_modified":    t.FilesModified,
+		"output":            t.Output,
+		"cost_usd":          t.CostUsd,
+		"prompt_tokens":     t.PromptTokens,
+		"completion_tokens": t.CompletionTokens,
+		"created_at":        t.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 	if !t.StartedAt.IsZero() {
 		result["started_at"] = t.StartedAt.Format("2006-01-02 15:04:05")

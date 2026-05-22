@@ -29,6 +29,10 @@ const (
 	FieldOutput = "output"
 	// FieldCostUsd holds the string denoting the cost_usd field in the database.
 	FieldCostUsd = "cost_usd"
+	// FieldPromptTokens holds the string denoting the prompt_tokens field in the database.
+	FieldPromptTokens = "prompt_tokens"
+	// FieldCompletionTokens holds the string denoting the completion_tokens field in the database.
+	FieldCompletionTokens = "completion_tokens"
 	// FieldStartedAt holds the string denoting the started_at field in the database.
 	FieldStartedAt = "started_at"
 	// FieldCompletedAt holds the string denoting the completed_at field in the database.
@@ -67,6 +71,8 @@ var Columns = []string{
 	FieldError,
 	FieldOutput,
 	FieldCostUsd,
+	FieldPromptTokens,
+	FieldCompletionTokens,
 	FieldStartedAt,
 	FieldCompletedAt,
 	FieldCreatedAt,
@@ -99,6 +105,10 @@ var (
 	PromptValidator func(string) error
 	// DefaultCostUsd holds the default value on creation for the "cost_usd" field.
 	DefaultCostUsd float64
+	// DefaultPromptTokens holds the default value on creation for the "prompt_tokens" field.
+	DefaultPromptTokens int64
+	// DefaultCompletionTokens holds the default value on creation for the "completion_tokens" field.
+	DefaultCompletionTokens int64
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 )
@@ -163,6 +173,16 @@ func ByError(opts ...sql.OrderTermOption) OrderOption {
 // ByCostUsd orders the results by the cost_usd field.
 func ByCostUsd(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCostUsd, opts...).ToFunc()
+}
+
+// ByPromptTokens orders the results by the prompt_tokens field.
+func ByPromptTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPromptTokens, opts...).ToFunc()
+}
+
+// ByCompletionTokens orders the results by the completion_tokens field.
+func ByCompletionTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCompletionTokens, opts...).ToFunc()
 }
 
 // ByStartedAt orders the results by the started_at field.
