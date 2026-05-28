@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -139,31 +141,91 @@ func OpenCodeConfigExists() bool {
 	return err == nil
 }
 
-// OpenCodeNativeConfigPath returns the path to OpenCode's native config.json.
+// OpenCodeNativeConfigPaths returns all possible paths to OpenCode's native config.json.
+// OpenCode may store config in multiple locations depending on OS and version.
+func OpenCodeNativeConfigPaths() []string {
+	var paths []string
+
+	// Primary: os.UserConfigDir (Go standard)
+	if configDir, err := os.UserConfigDir(); err == nil {
+		paths = append(paths, filepath.Join(configDir, "opencode", "config.json"))
+	}
+
+	// Windows-specific: APPDATA env var (may differ from UserConfigDir)
+	if runtime.GOOS == "windows" {
+		if appdata := os.Getenv("APPDATA"); appdata != "" {
+			p := filepath.Join(appdata, "opencode", "config.json")
+			if !containsPath(paths, p) {
+				paths = append(paths, p)
+			}
+		}
+	}
+
+	// Home-based fallbacks (OpenCode may use ~/.opencode/ pattern)
+	homeDir, _ := os.UserHomeDir()
+	homeBased := filepath.Join(homeDir, ".opencode", "config.json")
+	if !containsPath(paths, homeBased) {
+		paths = append(paths, homeBased)
+	}
+
+	// .config fallback
+	dotConfig := filepath.Join(homeDir, ".config", "opencode", "config.json")
+	if !containsPath(paths, dotConfig) {
+		paths = append(paths, dotConfig)
+	}
+
+	return paths
+}
+
+// containsPath checks if a path already exists in a slice.
+func containsPath(paths []string, p string) bool {
+	for _, existing := range paths {
+		if existing == p {
+			return true
+		}
+	}
+	return false
+}
+
+// OpenCodeNativeConfigPath returns the primary path to OpenCode's native config.json.
 // Linux: ~/.config/opencode/config.json
 // Windows: %APPDATA%\opencode\config.json
 // macOS: ~/Library/Application Support/opencode/config.json
+// Deprecated: Use OpenCodeNativeConfigPaths() for all possible locations.
 func OpenCodeNativeConfigPath() string {
-	if configDir, err := os.UserConfigDir(); err == nil {
-		return filepath.Join(configDir, "opencode", "config.json")
-	}
-	// fallback for systems where UserConfigDir fails
-	if runtime.GOOS == "windows" {
-		if appdata := os.Getenv("APPDATA"); appdata != "" {
-			return filepath.Join(appdata, "opencode", "config.json")
-		}
+	paths := OpenCodeNativeConfigPaths()
+	if len(paths) > 0 {
+		return paths[0]
 	}
 	homeDir, _ := os.UserHomeDir()
 	return filepath.Join(homeDir, ".config", "opencode", "config.json")
+}
+
+// stripUTF8BOM removes UTF-8 BOM (0xEF 0xBB 0xBF) from the beginning of data.
+func stripUTF8BOM(data []byte) []byte {
+	return bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+}
+
+// readOpenCodeConfigFile reads config from the first existing path.
+func readOpenCodeConfigFile() ([]byte, string, error) {
+	for _, configPath := range OpenCodeNativeConfigPaths() {
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			continue
+		}
+		data = stripUTF8BOM(data)
+		return data, configPath, nil
+	}
+	return nil, "", os.ErrNotExist
 }
 
 // ReadOpenCodeNativeModel reads the model from OpenCode's own config file.
 // This is the source of truth for which model OpenCode will use,
 // so Shepherd reads it directly instead of maintaining a separate copy.
 func ReadOpenCodeNativeModel() string {
-	configPath := OpenCodeNativeConfigPath()
-	data, err := os.ReadFile(configPath)
+	data, configPath, err := readOpenCodeConfigFile()
 	if err != nil {
+		log.Printf("[opencode] config not found (searched: %v): %v", OpenCodeNativeConfigPaths(), err)
 		return ""
 	}
 
@@ -171,6 +233,7 @@ func ReadOpenCodeNativeModel() string {
 		Model string `json:"model"`
 	}
 	if err := json.Unmarshal(data, &nativeConfig); err != nil {
+		log.Printf("[opencode] JSON parse failed for %s: %v", configPath, err)
 		return ""
 	}
 
@@ -189,9 +252,9 @@ type OpenCodeModelOption struct {
 // using it even if it points to a built-in provider not declared under
 // `provider.*.models.*`.
 func ListOpenCodeModels() []OpenCodeModelOption {
-	configPath := OpenCodeNativeConfigPath()
-	data, err := os.ReadFile(configPath)
+	data, configPath, err := readOpenCodeConfigFile()
 	if err != nil {
+		log.Printf("[opencode] ListOpenCodeModels: config not found: %v", err)
 		return nil
 	}
 
@@ -205,6 +268,7 @@ func ListOpenCodeModels() []OpenCodeModelOption {
 		} `json:"provider"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
+		log.Printf("[opencode] ListOpenCodeModels: JSON parse failed for %s: %v", configPath, err)
 		return nil
 	}
 
@@ -300,7 +364,7 @@ func DetectOpenCodeModel() string {
 type LocalLLMConfig = OpenCodeConfig
 
 func LoadLocalLLMConfig() (*OpenCodeConfig, error) { return LoadOpenCodeConfig() }
-func LocalLLMConfigPath() string                    { return OpenCodeConfigPath() }
-func LocalLLMConfigExists() bool                    { return OpenCodeConfigExists() }
-func DefaultLocalLLMConfig() *OpenCodeConfig        { return DefaultOpenCodeConfig() }
-func SaveLocalLLMConfig(c *OpenCodeConfig) error    { return SaveOpenCodeConfig(c) }
+func LocalLLMConfigPath() string                   { return OpenCodeConfigPath() }
+func LocalLLMConfigExists() bool                   { return OpenCodeConfigExists() }
+func DefaultLocalLLMConfig() *OpenCodeConfig       { return DefaultOpenCodeConfig() }
+func SaveLocalLLMConfig(c *OpenCodeConfig) error   { return SaveOpenCodeConfig(c) }
