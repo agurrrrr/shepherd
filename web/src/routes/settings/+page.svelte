@@ -1133,6 +1133,24 @@
 			max-width: none;
 		}
 
+		/* 모바일에서 input/select 높이를 줄임 */
+		.setting-row .input,
+		.setting-row select.input {
+			padding: 6px 10px;
+			line-height: 1.4;
+		}
+
+		.setting-row select.input {
+			/* iOS 네이티브 select 스타일 높이 보정 */
+			appearance: none;
+			-webkit-appearance: none;
+			height: 36px;
+		}
+
+		.setting-row textarea.input {
+			height: auto;
+		}
+
 		.setting-row:not(.column) > .hint {
 			flex: 0 0 100%;
 			margin-left: 0;
