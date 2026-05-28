@@ -90,6 +90,12 @@ func Init() error {
 	// 파일 탐색기
 	viper.SetDefault("enable_file_browser", true)
 
+	// 디스코드 웹훅 알림 — 작업 완료/실패 시 디스코드 채널로 알림 전송
+	viper.SetDefault("discord_notifications_enabled", false)
+	viper.SetDefault("discord_webhook_url", "")
+	viper.SetDefault("discord_notify_on_complete", true)
+	viper.SetDefault("discord_notify_on_fail", true)
+
 	// 위키 자동 ingest — 작업 완료 후 위키 페이지 자동 업데이트
 	viper.SetDefault("wiki_enabled", true)
 	viper.SetDefault("wiki_auto_ingest", true)

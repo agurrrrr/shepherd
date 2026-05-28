@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/discord"
 	"github.com/agurrrrr/shepherd/internal/mcp"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/scheduler"
@@ -28,6 +29,7 @@ type Server struct {
 	hub       *SSEHub
 	processor *queue.Processor
 	scheduler *scheduler.Scheduler
+	discord   *discord.TaskNotifier
 
 	// In-process MCP server used by /api/_internal/mcp/call to dispatch
 	// browser tool calls forwarded from stateless `shepherd mcp` children.
@@ -54,6 +56,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 		hub:       hub,
 		processor: processor,
 		scheduler: sched,
+		discord:   discord.NewTaskNotifier(),
 		mcpInner:  mcp.NewServer(false), // full mode — browser handlers live here
 	}
 
@@ -230,12 +233,16 @@ func (s *Server) WireProcessorCallbacks() {
 			"task_id": taskID, "sheep_name": sheepName,
 			"project_name": projectName, "summary": summary,
 		}})
+		// Discord notification
+		go s.sendDiscordComplete(taskID, sheepName, projectName, summary)
 	}
 	s.processor.OnTaskFail = func(taskID int, sheepName, projectName, errMsg string) {
 		s.hub.Broadcast(SSEEvent{Type: "task_fail", Data: map[string]interface{}{
 			"task_id": taskID, "sheep_name": sheepName,
 			"project_name": projectName, "error": errMsg,
 		}})
+		// Discord notification
+		go s.discord.SendTaskFail(taskID, sheepName, projectName, errMsg)
 	}
 	s.processor.OnTaskStop = func(taskID int, sheepName, projectName, reason string) {
 		s.hub.Broadcast(SSEEvent{Type: "task_stop", Data: map[string]interface{}{
@@ -269,6 +276,17 @@ func (s *Server) WireSchedulerCallbacks() {
 			"task_id":       taskID,
 		}})
 	}
+}
+
+// sendDiscordComplete sends a Discord notification for task completion.
+// It looks up task details from the DB to include cost and modified files.
+func (s *Server) sendDiscordComplete(taskID int, sheepName, projectName, summary string) {
+	task, err := queue.GetTask(taskID)
+	if err != nil {
+		return
+	}
+
+	s.discord.SendTaskComplete(taskID, sheepName, projectName, summary, task.CostUsd, task.FilesModified)
 }
 
 // --- Auth handlers ---

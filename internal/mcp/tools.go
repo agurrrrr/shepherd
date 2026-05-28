@@ -7,6 +7,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/discord"
 	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/skill"
@@ -115,6 +116,23 @@ func handleTaskComplete(args map[string]interface{}) (string, error) {
 		return "", err
 	}
 
+	// Discord notification
+	go func() {
+		task, err := queue.GetTask(taskID)
+		if err != nil {
+			return
+		}
+		sheepName := "-"
+		if task.Edges.Sheep != nil {
+			sheepName = task.Edges.Sheep.Name
+		}
+		projectName := "-"
+		if task.Edges.Project != nil {
+			projectName = task.Edges.Project.Name
+		}
+		discord.NewTaskNotifier().SendTaskComplete(taskID, sheepName, projectName, summary, task.CostUsd, task.FilesModified)
+	}()
+
 	return fmt.Sprintf("작업 #%d 완료됨", taskID), nil
 }
 
@@ -133,6 +151,23 @@ func handleTaskError(args map[string]interface{}) (string, error) {
 	if err := queue.FailTask(taskID, errMsg); err != nil {
 		return "", err
 	}
+
+	// Discord notification
+	go func() {
+		task, err := queue.GetTask(taskID)
+		if err != nil {
+			return
+		}
+		sheepName := "-"
+		if task.Edges.Sheep != nil {
+			sheepName = task.Edges.Sheep.Name
+		}
+		projectName := "-"
+		if task.Edges.Project != nil {
+			projectName = task.Edges.Project.Name
+		}
+		discord.NewTaskNotifier().SendTaskFail(taskID, sheepName, projectName, errMsg)
+	}()
 
 	return fmt.Sprintf("작업 #%d 실패 기록됨", taskID), nil
 }

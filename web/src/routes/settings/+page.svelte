@@ -223,7 +223,11 @@
 			wiki_enabled: configData.wiki_enabled,
 			wiki_auto_ingest: configData.wiki_auto_ingest,
 			wiki_max_context_pages: parseInt(configData.wiki_max_context_pages) || 2,
-			wiki_max_page_content_chars: parseInt(configData.wiki_max_page_content_chars) || 2000
+			wiki_max_page_content_chars: parseInt(configData.wiki_max_page_content_chars) || 2000,
+			discord_notifications_enabled: configData.discord_notifications_enabled,
+			discord_webhook_url: configData.discord_webhook_url || '',
+			discord_notify_on_complete: configData.discord_notify_on_complete,
+			discord_notify_on_fail: configData.discord_notify_on_fail
 		});
 		if (res?.success) {
 			saveMsg = 'Saved';
@@ -489,6 +493,45 @@
 			<div class="setting-row">
 				<label>Max Page Content Chars</label>
 				<input class="input" type="number" bind:value={configData.wiki_max_page_content_chars} min="100" max="10000" step="100" />
+			</div>
+
+			<hr class="setting-divider" />
+
+			<div class="setting-section-title">Discord Notifications</div>
+
+			<div class="setting-row">
+				<label>Enabled</label>
+				<div class="toggle">
+					<input type="checkbox" bind:checked={configData.discord_notifications_enabled} />
+					<span>{configData.discord_notifications_enabled ? 'Enabled' : 'Disabled'}</span>
+				</div>
+			</div>
+
+			<div class="setting-row column">
+				<label>Webhook URL</label>
+				<input
+					class="input"
+					type="text"
+					bind:value={configData.discord_webhook_url}
+					placeholder="https://discord.com/api/webhooks/..."
+				/>
+				<span class="hint">Discord 채널의 Incoming Webhook URL을 입력하세요. Server Setting > Integrations > Webhooks에서 생성할 수 있습니다.</span>
+			</div>
+
+			<div class="setting-row">
+				<label>Notify on Complete</label>
+				<div class="toggle">
+					<input type="checkbox" bind:checked={configData.discord_notify_on_complete} />
+					<span>{configData.discord_notify_on_complete ? 'Enabled' : 'Disabled'}</span>
+				</div>
+			</div>
+
+			<div class="setting-row">
+				<label>Notify on Fail</label>
+				<div class="toggle">
+					<input type="checkbox" bind:checked={configData.discord_notify_on_fail} />
+					<span>{configData.discord_notify_on_fail ? 'Enabled' : 'Disabled'}</span>
+				</div>
 			</div>
 
 			<div class="setting-row readonly">
@@ -771,6 +814,20 @@
 		letter-spacing: 0.5px;
 		padding-top: 12px;
 		border-top: 1px solid var(--border);
+	}
+
+	.setting-section-title {
+		font-size: 14px;
+		font-weight: 600;
+		color: var(--text-primary);
+		padding-top: 12px;
+		margin-bottom: 4px;
+	}
+
+	.setting-divider {
+		border: none;
+		border-top: 1px solid var(--border);
+		margin: 8px 0;
 	}
 
 	.toggle {

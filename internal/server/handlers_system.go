@@ -98,6 +98,10 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"wiki_auto_ingest":                config.GetBool("wiki_auto_ingest"),
 		"wiki_max_context_pages":          config.GetInt("wiki_max_context_pages"),
 		"wiki_max_page_content_chars":     config.GetInt("wiki_max_page_content_chars"),
+		"discord_notifications_enabled":   config.GetBool("discord_notifications_enabled"),
+		"discord_webhook_url":             config.GetString("discord_webhook_url"),
+		"discord_notify_on_complete":      config.GetBool("discord_notify_on_complete"),
+		"discord_notify_on_fail":          config.GetBool("discord_notify_on_fail"),
 	})
 }
 
@@ -176,6 +180,10 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"wiki_auto_ingest":                true,
 		"wiki_max_context_pages":          true,
 		"wiki_max_page_content_chars":     true,
+		"discord_notifications_enabled":   true,
+		"discord_webhook_url":             true,
+		"discord_notify_on_complete":      true,
+		"discord_notify_on_fail":          true,
 	}
 
 	for key, value := range body {
