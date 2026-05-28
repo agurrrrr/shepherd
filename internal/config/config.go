@@ -15,9 +15,10 @@ import (
 const DefaultTaskTimeout = 4 * time.Hour
 
 type Config struct {
-	MaxSheep int    `mapstructure:"max_sheep"`
-	DBPath   string `mapstructure:"db_path"`
-	LogLevel string `mapstructure:"log_level"`
+	MaxSheep           int    `mapstructure:"max_sheep"`
+	MaxConcurrentTasks int    `mapstructure:"max_concurrent_tasks"`
+	DBPath             string `mapstructure:"db_path"`
+	LogLevel           string `mapstructure:"log_level"`
 }
 
 var (
@@ -86,6 +87,11 @@ func Init() error {
 	// time.ParseDuration 형식 — 예: "4h", "30m", "8h30m".
 	// 무제한으로 두려면 "0", "-1", "unlimited", "none", "off" 중 하나로 지정.
 	viper.SetDefault("task_timeout", "4h")
+
+	// max_concurrent_tasks: 동시에 실행할 수 있는 최대 작업 수.
+	// 0이면 제한 없음 (전체 양이 동시에 작업 실행 가능).
+	// 이 설정은 API rate limit을 피하거나, 리소스를 분산할 때 유용하다.
+	viper.SetDefault("max_concurrent_tasks", 0)
 
 	// 파일 탐색기
 	viper.SetDefault("enable_file_browser", true)

@@ -202,6 +202,7 @@
 			language: configData.language,
 			default_provider: configData.default_provider,
 			max_sheep: parseInt(configData.max_sheep) || 12,
+			max_concurrent_tasks: parseInt(configData.max_concurrent_tasks) || 0,
 			auto_approve: configData.auto_approve,
 			session_reuse: configData.session_reuse,
 			include_task_history: configData.include_task_history,
@@ -313,6 +314,12 @@
 			<div class="setting-row">
 				<label>Max Sheep</label>
 				<input class="input" type="number" bind:value={configData.max_sheep} min="1" max="50" />
+			</div>
+
+			<div class="setting-row">
+				<label>Max Concurrent Tasks</label>
+				<input class="input" type="number" bind:value={configData.max_concurrent_tasks} min="0" max="50" />
+				<span class="hint">동시에 실행할 최대 작업 수. 0이면 제한 없음. 로컬 LLM 사용 시 1로 설정하면 순차 실행됩니다.</span>
 			</div>
 
 			<div class="setting-row">

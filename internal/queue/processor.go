@@ -103,12 +103,25 @@ func (p *Processor) processLoop() {
 
 // checkAndExecutePendingTasks checks for idle sheep with pending tasks and executes them.
 func (p *Processor) checkAndExecutePendingTasks() {
+	// Check concurrency limit before dispatching any tasks.
+	maxConcurrent := config.GetInt("max_concurrent_tasks")
+	if maxConcurrent > 0 {
+		counts, err := CountByStatus()
+		if err == nil {
+			running := counts["running"]
+			if running >= maxConcurrent {
+				return
+			}
+		}
+	}
+
 	// Query all sheep
 	sheepList, err := worker.List()
 	if err != nil {
 		return
 	}
 
+	dispatched := 0
 	for _, s := range sheepList {
 		// Only process sheep in idle status
 		if s.Status != sheep.StatusIdle {
@@ -131,6 +144,17 @@ func (p *Processor) checkAndExecutePendingTasks() {
 			continue
 		}
 
+		// Enforce concurrency limit during dispatch loop.
+		if maxConcurrent > 0 {
+			counts, err := CountByStatus()
+			if err == nil {
+				running := counts["running"]
+				if running+dispatched >= maxConcurrent {
+					break
+				}
+			}
+		}
+
 		// Use project name from task (MCP-specified project takes priority)
 		projectName := s.Edges.Project.Name
 		if task.Edges.Project != nil {
@@ -139,6 +163,7 @@ func (p *Processor) checkAndExecutePendingTasks() {
 
 		// Execute task (in goroutine)
 		go p.executeTask(s.Name, projectName, task.ID, task.Prompt)
+		dispatched++
 	}
 }
 
