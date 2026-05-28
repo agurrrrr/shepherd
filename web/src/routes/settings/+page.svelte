@@ -1133,22 +1133,33 @@
 			max-width: none;
 		}
 
-		/* 모바일에서 input/select 높이를 줄임 */
+		/* 모바일에서 input/select 높이 과다 문제 해결 */
 		.setting-row .input,
-		.setting-row select.input {
-			padding: 6px 10px;
-			line-height: 1.4;
+		.setting-row select.input,
+		.setting-row input.input,
+		.setting-row input[type="number"].input,
+		.setting-row input[type="text"].input {
+			padding: 4px 8px !important;
+			height: 34px !important;
+			min-height: 34px !important;
+			max-height: 34px !important;
+			line-height: 1.3 !important;
+			box-sizing: border-box !important;
 		}
 
 		.setting-row select.input {
-			/* iOS 네이티브 select 스타일 높이 보정 */
-			appearance: none;
-			-webkit-appearance: none;
-			height: 36px;
+			appearance: none !important;
+			-webkit-appearance: none !important;
+			background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239aa4af' d='M6 8L1 3h10z'/%3E%3C/svg%3E") !important;
+			background-repeat: no-repeat !important;
+			background-position: right 8px center !important;
+			padding-right: 28px !important;
 		}
 
 		.setting-row textarea.input {
-			height: auto;
+			height: auto !important;
+			min-height: auto !important;
+			padding: 6px 8px !important;
 		}
 
 		.setting-row:not(.column) > .hint {
