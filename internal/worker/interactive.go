@@ -1277,8 +1277,9 @@ func wikiPageScore(page *ent.WikiPage, keywords []string) int {
 }
 
 // getProjectWikiContext returns a formatted wiki context block for the sheep's
-// project. It always includes the index (page listing), and selects up to 2
-// relevant pages based on keyword matching against the prompt.
+// project. It always includes the page index and a read+write guide (read via
+// MCP, write via the `shepherd wiki` CLI), and inlines up to N relevant pages
+// selected by keyword matching against the prompt.
 func getProjectWikiContext(sheepName, prompt string) string {
 	if sheepName == "" {
 		return ""
@@ -1304,10 +1305,11 @@ func getProjectWikiContext(sheepName, prompt string) string {
 		return ""
 	}
 
+	// Score pages against the prompt to surface the most relevant ones inline.
+	// Even when nothing matches (empty keywords / no hits) we still emit the page
+	// index and the read+write guide below, so the agent always knows the wiki
+	// exists and how to record knowledge to it.
 	keywords := extractKeywords(prompt)
-	if len(keywords) == 0 {
-		return ""
-	}
 
 	type scoredPage struct {
 		page  *ent.WikiPage
@@ -1320,10 +1322,6 @@ func getProjectWikiContext(sheepName, prompt string) string {
 		if sc > 0 {
 			scored = append(scored, scoredPage{page: p, score: sc})
 		}
-	}
-
-	if len(scored) == 0 {
-		return ""
 	}
 
 	sort.Slice(scored, func(i, j int) bool {
@@ -1365,7 +1363,16 @@ func getProjectWikiContext(sheepName, prompt string) string {
 		sb.WriteString("\n\n")
 	}
 
-	sb.WriteString("For full wiki page content, use MCP tools: wiki_read_page (project_name, slug), wiki_search (project_name, query)\n")
+	// READ access is via MCP; there is NO write MCP tool — creating/updating wiki
+	// pages must go through the `shepherd wiki` CLI (run it with the Bash tool).
+	sb.WriteString("To READ wiki pages: MCP tools wiki_read_page (project_name, slug), wiki_search (project_name, query), wiki_list_pages (project_name).\n")
+	sb.WriteString(fmt.Sprintf("To CREATE/UPDATE wiki pages there is no MCP tool — run the `shepherd wiki` CLI via the Bash tool (project name: %q):\n", projectName))
+	sb.WriteString(fmt.Sprintf("- Create a page:        shepherd wiki create <slug> -p %q -t \"<title>\" -c \"<markdown content>\" [-C <category>] [-T tag1,tag2]\n", projectName))
+	sb.WriteString(fmt.Sprintf("- Append to a page:     shepherd wiki edit <slug> -p %q --append \"<markdown to append>\"\n", projectName))
+	sb.WriteString(fmt.Sprintf("- Replace a section:    shepherd wiki edit <slug> -p %q --section \"<header text>\" --line-text \"<new content>\"\n", projectName))
+	sb.WriteString(fmt.Sprintf("- Find & replace:       shepherd wiki edit <slug> -p %q --find \"<regex>\" --replace \"<text>\"\n", projectName))
+	sb.WriteString(fmt.Sprintf("- List pages / history: shepherd wiki list -p %q   |   shepherd wiki history <slug> -p %q\n", projectName, projectName))
+	sb.WriteString("When you learn something durable about this project (architecture decisions, gotchas, fixes, setup steps), record it in the wiki with the commands above so future tasks benefit.\n")
 	return sb.String()
 }
 
