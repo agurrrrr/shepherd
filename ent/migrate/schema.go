@@ -158,6 +158,7 @@ var (
 		{Name: "cost_usd", Type: field.TypeFloat64, Nullable: true, Default: 0},
 		{Name: "prompt_tokens", Type: field.TypeInt64, Nullable: true, Default: 0},
 		{Name: "completion_tokens", Type: field.TypeInt64, Nullable: true, Default: 0},
+		{Name: "owner_pid", Type: field.TypeInt, Nullable: true, Default: 0},
 		{Name: "started_at", Type: field.TypeTime, Nullable: true},
 		{Name: "completed_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
@@ -172,13 +173,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "tasks_projects_tasks",
-				Columns:    []*schema.Column{TasksColumns[13]},
+				Columns:    []*schema.Column{TasksColumns[14]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "tasks_sheep_tasks",
-				Columns:    []*schema.Column{TasksColumns[14]},
+				Columns:    []*schema.Column{TasksColumns[15]},
 				RefColumns: []*schema.Column{SheepColumns[0]},
 				OnDelete:   schema.SetNull,
 			},

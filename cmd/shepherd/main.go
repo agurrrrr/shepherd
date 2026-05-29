@@ -1518,7 +1518,7 @@ func autoInitProject() (string, string, error) {
 // runChatMode runs the interactive chat interface.
 func runChatMode() {
 	// Recover from abnormal termination before starting chat mode
-	recoverFromAbnormalTermination()
+	recoverFromAbnormalTermination(false)
 
 	// Current directory
 	cwd, _ := os.Getwd()
@@ -1861,7 +1861,7 @@ func printTaskLog() {
 // executeTask executes a task through the full workflow.
 func executeTask(prompt string) {
 	// Recover from abnormal termination before single task execution
-	recoverFromAbnormalTermination()
+	recoverFromAbnormalTermination(false)
 
 	fmt.Println("🐕 Shepherd is analyzing the task...")
 
@@ -2780,8 +2780,8 @@ var serveForegroundCmd = &cobra.Command{
 }
 
 func runServeForeground() {
-	// Recover stuck tasks/sheep
-	recoverFromAbnormalTermination()
+	// Recover stuck tasks/sheep — the daemon is the legitimate task owner.
+	recoverFromAbnormalTermination(true)
 
 	// Check auth setup
 	if config.GetString("auth_username") == "" {
@@ -2905,7 +2905,11 @@ func runServeForeground() {
 
 	fmt.Printf("\n🛑 Signal received (%v), shutting down...\n", sig)
 
-	// Cleanup
+	// Cleanup — kill child processes first so they don't outlive the daemon
+	// as orphans (long OpenCode runs survive their parent), then reconcile DB.
+	if killed := worker.CancelAllRunningTasks(); killed > 0 {
+		fmt.Printf(i18n.T().CLITaskProcessKilledFmt, killed)
+	}
 	sheepCount, _ := worker.RecoverStuckSheep()
 	if sheepCount > 0 {
 		fmt.Printf("🐏 %d sheep status recovered\n", sheepCount)
@@ -3095,7 +3099,7 @@ Key bindings:
   q         Quit`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Recover from abnormal termination before TUI starts
-		recoverFromAbnormalTermination()
+		recoverFromAbnormalTermination(false)
 
 		if err := tui.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, i18n.T().CLITUIErrorFmt, err)
@@ -3110,6 +3114,14 @@ var recoverCmd = &cobra.Command{
 	Short: i18n.T().CLIRecoverShort,
 	Long:  i18n.T().CLIRecoverLong,
 	Run: func(cmd *cobra.Command, args []string) {
+		// A live daemon owns the running tasks/sheep; recovering from a
+		// separate process would corrupt its state. Defer to the daemon.
+		if daemon.IsRunning() {
+			pid, _ := daemon.ReadPID()
+			fmt.Printf("⚠️  Shepherd daemon is running (PID: %d); recovery is handled by the daemon. Stop it first if you really need a manual recover.\n", pid)
+			return
+		}
+
 		sheepCount, err := worker.RecoverStuckSheep()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, i18n.T().CLISheepRecoverFailFmt, err)
@@ -4052,7 +4064,18 @@ func main() {
 }
 
 // recoverFromAbnormalTermination recovers stuck sheep and tasks from previous abnormal termination.
-func recoverFromAbnormalTermination() {
+//
+// isDaemon must be true only for the serve daemon — the sole legitimate owner
+// of running tasks. Other CLI entry points (chat, single-task, tui) share the
+// same SQLite DB; if they ran recovery while the daemon is alive they would
+// mark the daemon's genuinely-running tasks as "interrupted" and reset its
+// working sheep to idle, corrupting the queue. So non-daemon callers skip
+// recovery entirely whenever a live daemon is present.
+func recoverFromAbnormalTermination(isDaemon bool) {
+	if !isDaemon && daemon.IsRunning() {
+		return
+	}
+
 	sheepCount, err := worker.RecoverStuckSheep()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, i18n.T().CLIWarnSheepRecoverFmt, err)
@@ -4076,6 +4099,13 @@ func setupGracefulShutdown() {
 	go func() {
 		sig := <-sigChan
 		fmt.Printf(i18n.T().CLISignalReceivedFmt, sig)
+
+		// Kill child processes first so they don't survive as orphans (and
+		// keep mutating the repo) after the daemon exits. Must run before
+		// the DB is marked "interrupted" so process state matches DB state.
+		if killed := worker.CancelAllRunningTasks(); killed > 0 {
+			fmt.Printf(i18n.T().CLITaskProcessKilledFmt, killed)
+		}
 
 		count, _ := worker.RecoverStuckSheep()
 		if count > 0 {

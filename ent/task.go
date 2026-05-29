@@ -38,6 +38,8 @@ type Task struct {
 	PromptTokens int64 `json:"prompt_tokens,omitempty"`
 	// 출력 토큰 수
 	CompletionTokens int64 `json:"completion_tokens,omitempty"`
+	// 작업을 실행 중인 프로세스 PID (소유권/생존 판별용)
+	OwnerPid int `json:"owner_pid,omitempty"`
 	// 작업 시작 시간
 	StartedAt time.Time `json:"started_at,omitempty"`
 	// 작업 완료 시간
@@ -94,7 +96,7 @@ func (*Task) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case task.FieldCostUsd:
 			values[i] = new(sql.NullFloat64)
-		case task.FieldID, task.FieldPromptTokens, task.FieldCompletionTokens:
+		case task.FieldID, task.FieldPromptTokens, task.FieldCompletionTokens, task.FieldOwnerPid:
 			values[i] = new(sql.NullInt64)
 		case task.FieldPrompt, task.FieldSummary, task.FieldStatus, task.FieldError:
 			values[i] = new(sql.NullString)
@@ -182,6 +184,12 @@ func (_m *Task) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field completion_tokens", values[i])
 			} else if value.Valid {
 				_m.CompletionTokens = value.Int64
+			}
+		case task.FieldOwnerPid:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field owner_pid", values[i])
+			} else if value.Valid {
+				_m.OwnerPid = int(value.Int64)
 			}
 		case task.FieldStartedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -287,6 +295,9 @@ func (_m *Task) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("completion_tokens=")
 	builder.WriteString(fmt.Sprintf("%v", _m.CompletionTokens))
+	builder.WriteString(", ")
+	builder.WriteString("owner_pid=")
+	builder.WriteString(fmt.Sprintf("%v", _m.OwnerPid))
 	builder.WriteString(", ")
 	builder.WriteString("started_at=")
 	builder.WriteString(_m.StartedAt.Format(time.ANSIC))

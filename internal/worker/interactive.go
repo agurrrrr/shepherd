@@ -126,6 +126,29 @@ func StopTask(sheepName string) (*StopTaskResult, error) {
 	}, nil
 }
 
+// CancelAllRunningTasks cancels and force-kills the process group of every
+// running task, then clears the registry. Used during graceful shutdown so
+// child processes — notably long-lived OpenCode runs that survive their
+// parent — don't keep running as orphans against the repo. Returns the count
+// of tasks that were killed.
+func CancelAllRunningTasks() int {
+	runningTasksMu.Lock()
+	tasks := make([]*RunningTask, 0, len(runningTasks))
+	for name, t := range runningTasks {
+		tasks = append(tasks, t)
+		delete(runningTasks, name)
+	}
+	runningTasksMu.Unlock()
+
+	for _, t := range tasks {
+		if t.Cancel != nil {
+			t.Cancel()
+		}
+		killProcessGroup(t.Cmd)
+	}
+	return len(tasks)
+}
+
 // IsTaskRunning checks if a task is running for the specified sheep.
 func IsTaskRunning(sheepName string) bool {
 	runningTasksMu.RLock()

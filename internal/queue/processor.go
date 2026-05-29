@@ -128,6 +128,15 @@ func (p *Processor) checkAndExecutePendingTasks() {
 			continue
 		}
 
+		// Defence against double-dispatch: even if the DB shows this sheep
+		// idle (e.g. an external process reset its status), skip it when we
+		// already hold a live in-memory task for it. Without this, a second
+		// process would spawn on the same sheep, clobbering the first's
+		// process handle and mixing output streams.
+		if worker.IsTaskRunning(s.Name) {
+			continue
+		}
+
 		// Skip sheep without assigned project
 		if s.Edges.Project == nil {
 			continue

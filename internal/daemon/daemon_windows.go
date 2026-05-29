@@ -62,6 +62,16 @@ func GetStatus() (pid int, running bool) {
 	return pid, true
 }
 
+// IsPIDAlive reports whether a process with the given PID currently exists.
+// Used to decide whether a task's owning process is still running before
+// recovering it as "interrupted".
+func IsPIDAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	return isProcessAlive(pid)
+}
+
 // isProcessAlive checks if a process with the given PID exists on Windows
 // by attempting to open a handle to it.
 func isProcessAlive(pid int) bool {

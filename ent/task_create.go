@@ -124,6 +124,20 @@ func (_c *TaskCreate) SetNillableCompletionTokens(v *int64) *TaskCreate {
 	return _c
 }
 
+// SetOwnerPid sets the "owner_pid" field.
+func (_c *TaskCreate) SetOwnerPid(v int) *TaskCreate {
+	_c.mutation.SetOwnerPid(v)
+	return _c
+}
+
+// SetNillableOwnerPid sets the "owner_pid" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableOwnerPid(v *int) *TaskCreate {
+	if v != nil {
+		_c.SetOwnerPid(*v)
+	}
+	return _c
+}
+
 // SetStartedAt sets the "started_at" field.
 func (_c *TaskCreate) SetStartedAt(v time.Time) *TaskCreate {
 	_c.mutation.SetStartedAt(v)
@@ -255,6 +269,10 @@ func (_c *TaskCreate) defaults() {
 		v := task.DefaultCompletionTokens
 		_c.mutation.SetCompletionTokens(v)
 	}
+	if _, ok := _c.mutation.OwnerPid(); !ok {
+		v := task.DefaultOwnerPid
+		_c.mutation.SetOwnerPid(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := task.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -343,6 +361,10 @@ func (_c *TaskCreate) createSpec() (*Task, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.CompletionTokens(); ok {
 		_spec.SetField(task.FieldCompletionTokens, field.TypeInt64, value)
 		_node.CompletionTokens = value
+	}
+	if value, ok := _c.mutation.OwnerPid(); ok {
+		_spec.SetField(task.FieldOwnerPid, field.TypeInt, value)
+		_node.OwnerPid = value
 	}
 	if value, ok := _c.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)

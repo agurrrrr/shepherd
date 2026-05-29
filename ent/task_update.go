@@ -216,6 +216,33 @@ func (_u *TaskUpdate) ClearCompletionTokens() *TaskUpdate {
 	return _u
 }
 
+// SetOwnerPid sets the "owner_pid" field.
+func (_u *TaskUpdate) SetOwnerPid(v int) *TaskUpdate {
+	_u.mutation.ResetOwnerPid()
+	_u.mutation.SetOwnerPid(v)
+	return _u
+}
+
+// SetNillableOwnerPid sets the "owner_pid" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableOwnerPid(v *int) *TaskUpdate {
+	if v != nil {
+		_u.SetOwnerPid(*v)
+	}
+	return _u
+}
+
+// AddOwnerPid adds value to the "owner_pid" field.
+func (_u *TaskUpdate) AddOwnerPid(v int) *TaskUpdate {
+	_u.mutation.AddOwnerPid(v)
+	return _u
+}
+
+// ClearOwnerPid clears the value of the "owner_pid" field.
+func (_u *TaskUpdate) ClearOwnerPid() *TaskUpdate {
+	_u.mutation.ClearOwnerPid()
+	return _u
+}
+
 // SetStartedAt sets the "started_at" field.
 func (_u *TaskUpdate) SetStartedAt(v time.Time) *TaskUpdate {
 	_u.mutation.SetStartedAt(v)
@@ -431,6 +458,15 @@ func (_u *TaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.CompletionTokensCleared() {
 		_spec.ClearField(task.FieldCompletionTokens, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.OwnerPid(); ok {
+		_spec.SetField(task.FieldOwnerPid, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedOwnerPid(); ok {
+		_spec.AddField(task.FieldOwnerPid, field.TypeInt, value)
+	}
+	if _u.mutation.OwnerPidCleared() {
+		_spec.ClearField(task.FieldOwnerPid, field.TypeInt)
 	}
 	if value, ok := _u.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)
@@ -707,6 +743,33 @@ func (_u *TaskUpdateOne) ClearCompletionTokens() *TaskUpdateOne {
 	return _u
 }
 
+// SetOwnerPid sets the "owner_pid" field.
+func (_u *TaskUpdateOne) SetOwnerPid(v int) *TaskUpdateOne {
+	_u.mutation.ResetOwnerPid()
+	_u.mutation.SetOwnerPid(v)
+	return _u
+}
+
+// SetNillableOwnerPid sets the "owner_pid" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableOwnerPid(v *int) *TaskUpdateOne {
+	if v != nil {
+		_u.SetOwnerPid(*v)
+	}
+	return _u
+}
+
+// AddOwnerPid adds value to the "owner_pid" field.
+func (_u *TaskUpdateOne) AddOwnerPid(v int) *TaskUpdateOne {
+	_u.mutation.AddOwnerPid(v)
+	return _u
+}
+
+// ClearOwnerPid clears the value of the "owner_pid" field.
+func (_u *TaskUpdateOne) ClearOwnerPid() *TaskUpdateOne {
+	_u.mutation.ClearOwnerPid()
+	return _u
+}
+
 // SetStartedAt sets the "started_at" field.
 func (_u *TaskUpdateOne) SetStartedAt(v time.Time) *TaskUpdateOne {
 	_u.mutation.SetStartedAt(v)
@@ -952,6 +1015,15 @@ func (_u *TaskUpdateOne) sqlSave(ctx context.Context) (_node *Task, err error) {
 	}
 	if _u.mutation.CompletionTokensCleared() {
 		_spec.ClearField(task.FieldCompletionTokens, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.OwnerPid(); ok {
+		_spec.SetField(task.FieldOwnerPid, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedOwnerPid(); ok {
+		_spec.AddField(task.FieldOwnerPid, field.TypeInt, value)
+	}
+	if _u.mutation.OwnerPidCleared() {
+		_spec.ClearField(task.FieldOwnerPid, field.TypeInt)
 	}
 	if value, ok := _u.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)

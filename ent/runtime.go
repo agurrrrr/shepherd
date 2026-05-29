@@ -173,8 +173,12 @@ func init() {
 	taskDescCompletionTokens := taskFields[8].Descriptor()
 	// task.DefaultCompletionTokens holds the default value on creation for the completion_tokens field.
 	task.DefaultCompletionTokens = taskDescCompletionTokens.Default.(int64)
+	// taskDescOwnerPid is the schema descriptor for owner_pid field.
+	taskDescOwnerPid := taskFields[9].Descriptor()
+	// task.DefaultOwnerPid holds the default value on creation for the owner_pid field.
+	task.DefaultOwnerPid = taskDescOwnerPid.Default.(int)
 	// taskDescCreatedAt is the schema descriptor for created_at field.
-	taskDescCreatedAt := taskFields[11].Descriptor()
+	taskDescCreatedAt := taskFields[12].Descriptor()
 	// task.DefaultCreatedAt holds the default value on creation for the created_at field.
 	task.DefaultCreatedAt = taskDescCreatedAt.Default.(func() time.Time)
 	wikipageFields := schema.WikiPage{}.Fields()

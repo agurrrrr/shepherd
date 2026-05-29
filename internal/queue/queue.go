@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/internal/daemon"
 	"github.com/agurrrrr/shepherd/internal/db"
 )
 
@@ -217,6 +219,7 @@ func StartTask(id int) error {
 		Where(task.ID(id)).
 		SetStatus(task.StatusRunning).
 		SetStartedAt(time.Now()).
+		SetOwnerPid(os.Getpid()).
 		Save(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
@@ -412,20 +415,42 @@ func StatusToKorean(status task.Status) string {
 
 // RecoverStuckTasks marks running tasks as failed and stale pending tasks as stopped
 // after abnormal termination. This should be called on startup.
+//
+// A "running" row is only failed when its owning process is actually gone. The
+// owner_pid recorded by StartTask is checked against the live process table:
+//   - owner is a *different*, still-alive process (e.g. the daemon, while a
+//     separate CLI command runs recovery) → leave it untouched. Failing it here
+//     is the false-"interrupted" bug that corrupted the queue.
+//   - owner is this same process (graceful shutdown) or a dead/unknown PID →
+//     genuinely orphaned, recover it.
 func RecoverStuckTasks() (int, error) {
 	ctx := context.Background()
 	client := db.Client()
 	now := time.Now()
+	selfPID := os.Getpid()
 
-	// Change tasks in running status to failed
-	runningCount, err := client.Task.Update().
+	running, err := client.Task.Query().
 		Where(task.StatusEQ(task.StatusRunning)).
-		SetStatus(task.StatusFailed).
-		SetError("interrupted due to abnormal termination").
-		SetCompletedAt(now).
-		Save(ctx)
+		All(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to recover running tasks: %w", err)
+		return 0, fmt.Errorf("failed to query running tasks: %w", err)
+	}
+
+	runningCount := 0
+	for _, t := range running {
+		// Skip tasks still owned by a live, different process.
+		if t.OwnerPid != 0 && t.OwnerPid != selfPID && daemon.IsPIDAlive(t.OwnerPid) {
+			continue
+		}
+		_, err := client.Task.UpdateOneID(t.ID).
+			SetStatus(task.StatusFailed).
+			SetError("interrupted due to abnormal termination").
+			SetCompletedAt(now).
+			Save(ctx)
+		if err != nil {
+			return runningCount, fmt.Errorf("failed to recover task #%d: %w", t.ID, err)
+		}
+		runningCount++
 	}
 
 	// Cancel pending tasks created before this startup (stale from previous session)

@@ -52,6 +52,21 @@ func Stop() error {
 	return nil
 }
 
+// IsPIDAlive reports whether a process with the given PID currently exists.
+// Used to decide whether a task's owning process is still running before
+// recovering it as "interrupted".
+func IsPIDAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	// Signal 0 probes existence without actually signalling the process.
+	return process.Signal(syscall.Signal(0)) == nil
+}
+
 // GetStatus returns the daemon's PID and running status.
 func GetStatus() (pid int, running bool) {
 	pid, err := ReadPID()

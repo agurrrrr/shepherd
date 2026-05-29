@@ -116,6 +116,7 @@ type Messages struct {
 	CLISignalReceivedFmt     string // "\n⚠️  Signal received: %v, shutting down..."
 	CLISheepCleanedFmt       string // "🐏 %d sheep status cleaned"
 	CLITaskInterruptedFmt    string // "📋 %d task(s) interrupted"
+	CLITaskProcessKilledFmt  string // "🛑 %d running task process(es) killed"
 
 	// CLI flag descriptions
 	CLIFlagSheepName      string // "Specify sheep name"
@@ -232,6 +233,7 @@ var ko = &Messages{
 	CLISignalReceivedFmt:     "\n⚠️  신호 수신: %v, 종료 중...\n",
 	CLISheepCleanedFmt:       "🐏 %d마리 양 상태 정리됨\n",
 	CLITaskInterruptedFmt:    "📋 %d개 작업 중단됨\n",
+	CLITaskProcessKilledFmt:  "🛑 실행 중이던 작업 프로세스 %d개 종료됨\n",
 
 	CLIFlagSheepName:      "양 이름 지정",
 	CLIFlagRecallAll:      "모든 양 종료",
@@ -342,6 +344,7 @@ var en = &Messages{
 	CLISignalReceivedFmt:     "\n⚠️  Signal received: %v, shutting down...\n",
 	CLISheepCleanedFmt:       "🐏 %d sheep status cleaned\n",
 	CLITaskInterruptedFmt:    "📋 %d task(s) interrupted\n",
+	CLITaskProcessKilledFmt:  "🛑 %d running task process(es) killed\n",
 
 	CLIFlagSheepName:      "Specify sheep name",
 	CLIFlagRecallAll:      "Terminate all sheep",

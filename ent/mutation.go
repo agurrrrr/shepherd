@@ -5282,6 +5282,8 @@ type TaskMutation struct {
 	addprompt_tokens     *int64
 	completion_tokens    *int64
 	addcompletion_tokens *int64
+	owner_pid            *int
+	addowner_pid         *int
 	started_at           *time.Time
 	completed_at         *time.Time
 	created_at           *time.Time
@@ -5903,6 +5905,76 @@ func (m *TaskMutation) ResetCompletionTokens() {
 	delete(m.clearedFields, task.FieldCompletionTokens)
 }
 
+// SetOwnerPid sets the "owner_pid" field.
+func (m *TaskMutation) SetOwnerPid(i int) {
+	m.owner_pid = &i
+	m.addowner_pid = nil
+}
+
+// OwnerPid returns the value of the "owner_pid" field in the mutation.
+func (m *TaskMutation) OwnerPid() (r int, exists bool) {
+	v := m.owner_pid
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOwnerPid returns the old "owner_pid" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldOwnerPid(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOwnerPid is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOwnerPid requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOwnerPid: %w", err)
+	}
+	return oldValue.OwnerPid, nil
+}
+
+// AddOwnerPid adds i to the "owner_pid" field.
+func (m *TaskMutation) AddOwnerPid(i int) {
+	if m.addowner_pid != nil {
+		*m.addowner_pid += i
+	} else {
+		m.addowner_pid = &i
+	}
+}
+
+// AddedOwnerPid returns the value that was added to the "owner_pid" field in this mutation.
+func (m *TaskMutation) AddedOwnerPid() (r int, exists bool) {
+	v := m.addowner_pid
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearOwnerPid clears the value of the "owner_pid" field.
+func (m *TaskMutation) ClearOwnerPid() {
+	m.owner_pid = nil
+	m.addowner_pid = nil
+	m.clearedFields[task.FieldOwnerPid] = struct{}{}
+}
+
+// OwnerPidCleared returns if the "owner_pid" field was cleared in this mutation.
+func (m *TaskMutation) OwnerPidCleared() bool {
+	_, ok := m.clearedFields[task.FieldOwnerPid]
+	return ok
+}
+
+// ResetOwnerPid resets all changes to the "owner_pid" field.
+func (m *TaskMutation) ResetOwnerPid() {
+	m.owner_pid = nil
+	m.addowner_pid = nil
+	delete(m.clearedFields, task.FieldOwnerPid)
+}
+
 // SetStartedAt sets the "started_at" field.
 func (m *TaskMutation) SetStartedAt(t time.Time) {
 	m.started_at = &t
@@ -6149,7 +6221,7 @@ func (m *TaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *TaskMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 13)
 	if m.prompt != nil {
 		fields = append(fields, task.FieldPrompt)
 	}
@@ -6176,6 +6248,9 @@ func (m *TaskMutation) Fields() []string {
 	}
 	if m.completion_tokens != nil {
 		fields = append(fields, task.FieldCompletionTokens)
+	}
+	if m.owner_pid != nil {
+		fields = append(fields, task.FieldOwnerPid)
 	}
 	if m.started_at != nil {
 		fields = append(fields, task.FieldStartedAt)
@@ -6212,6 +6287,8 @@ func (m *TaskMutation) Field(name string) (ent.Value, bool) {
 		return m.PromptTokens()
 	case task.FieldCompletionTokens:
 		return m.CompletionTokens()
+	case task.FieldOwnerPid:
+		return m.OwnerPid()
 	case task.FieldStartedAt:
 		return m.StartedAt()
 	case task.FieldCompletedAt:
@@ -6245,6 +6322,8 @@ func (m *TaskMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldPromptTokens(ctx)
 	case task.FieldCompletionTokens:
 		return m.OldCompletionTokens(ctx)
+	case task.FieldOwnerPid:
+		return m.OldOwnerPid(ctx)
 	case task.FieldStartedAt:
 		return m.OldStartedAt(ctx)
 	case task.FieldCompletedAt:
@@ -6323,6 +6402,13 @@ func (m *TaskMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetCompletionTokens(v)
 		return nil
+	case task.FieldOwnerPid:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOwnerPid(v)
+		return nil
 	case task.FieldStartedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -6361,6 +6447,9 @@ func (m *TaskMutation) AddedFields() []string {
 	if m.addcompletion_tokens != nil {
 		fields = append(fields, task.FieldCompletionTokens)
 	}
+	if m.addowner_pid != nil {
+		fields = append(fields, task.FieldOwnerPid)
+	}
 	return fields
 }
 
@@ -6375,6 +6464,8 @@ func (m *TaskMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedPromptTokens()
 	case task.FieldCompletionTokens:
 		return m.AddedCompletionTokens()
+	case task.FieldOwnerPid:
+		return m.AddedOwnerPid()
 	}
 	return nil, false
 }
@@ -6405,6 +6496,13 @@ func (m *TaskMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddCompletionTokens(v)
 		return nil
+	case task.FieldOwnerPid:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOwnerPid(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Task numeric field %s", name)
 }
@@ -6433,6 +6531,9 @@ func (m *TaskMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(task.FieldCompletionTokens) {
 		fields = append(fields, task.FieldCompletionTokens)
+	}
+	if m.FieldCleared(task.FieldOwnerPid) {
+		fields = append(fields, task.FieldOwnerPid)
 	}
 	if m.FieldCleared(task.FieldStartedAt) {
 		fields = append(fields, task.FieldStartedAt)
@@ -6475,6 +6576,9 @@ func (m *TaskMutation) ClearField(name string) error {
 	case task.FieldCompletionTokens:
 		m.ClearCompletionTokens()
 		return nil
+	case task.FieldOwnerPid:
+		m.ClearOwnerPid()
+		return nil
 	case task.FieldStartedAt:
 		m.ClearStartedAt()
 		return nil
@@ -6515,6 +6619,9 @@ func (m *TaskMutation) ResetField(name string) error {
 		return nil
 	case task.FieldCompletionTokens:
 		m.ResetCompletionTokens()
+		return nil
+	case task.FieldOwnerPid:
+		m.ResetOwnerPid()
 		return nil
 	case task.FieldStartedAt:
 		m.ResetStartedAt()

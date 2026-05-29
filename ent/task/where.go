@@ -85,6 +85,11 @@ func CompletionTokens(v int64) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldCompletionTokens, v))
 }
 
+// OwnerPid applies equality check predicate on the "owner_pid" field. It's identical to OwnerPidEQ.
+func OwnerPid(v int) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldOwnerPid, v))
+}
+
 // StartedAt applies equality check predicate on the "started_at" field. It's identical to StartedAtEQ.
 func StartedAt(v time.Time) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldStartedAt, v))
@@ -503,6 +508,56 @@ func CompletionTokensIsNil() predicate.Task {
 // CompletionTokensNotNil applies the NotNil predicate on the "completion_tokens" field.
 func CompletionTokensNotNil() predicate.Task {
 	return predicate.Task(sql.FieldNotNull(FieldCompletionTokens))
+}
+
+// OwnerPidEQ applies the EQ predicate on the "owner_pid" field.
+func OwnerPidEQ(v int) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldOwnerPid, v))
+}
+
+// OwnerPidNEQ applies the NEQ predicate on the "owner_pid" field.
+func OwnerPidNEQ(v int) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldOwnerPid, v))
+}
+
+// OwnerPidIn applies the In predicate on the "owner_pid" field.
+func OwnerPidIn(vs ...int) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldOwnerPid, vs...))
+}
+
+// OwnerPidNotIn applies the NotIn predicate on the "owner_pid" field.
+func OwnerPidNotIn(vs ...int) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldOwnerPid, vs...))
+}
+
+// OwnerPidGT applies the GT predicate on the "owner_pid" field.
+func OwnerPidGT(v int) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldOwnerPid, v))
+}
+
+// OwnerPidGTE applies the GTE predicate on the "owner_pid" field.
+func OwnerPidGTE(v int) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldOwnerPid, v))
+}
+
+// OwnerPidLT applies the LT predicate on the "owner_pid" field.
+func OwnerPidLT(v int) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldOwnerPid, v))
+}
+
+// OwnerPidLTE applies the LTE predicate on the "owner_pid" field.
+func OwnerPidLTE(v int) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldOwnerPid, v))
+}
+
+// OwnerPidIsNil applies the IsNil predicate on the "owner_pid" field.
+func OwnerPidIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldOwnerPid))
+}
+
+// OwnerPidNotNil applies the NotNil predicate on the "owner_pid" field.
+func OwnerPidNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldOwnerPid))
 }
 
 // StartedAtEQ applies the EQ predicate on the "started_at" field.

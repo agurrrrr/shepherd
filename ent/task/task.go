@@ -33,6 +33,8 @@ const (
 	FieldPromptTokens = "prompt_tokens"
 	// FieldCompletionTokens holds the string denoting the completion_tokens field in the database.
 	FieldCompletionTokens = "completion_tokens"
+	// FieldOwnerPid holds the string denoting the owner_pid field in the database.
+	FieldOwnerPid = "owner_pid"
 	// FieldStartedAt holds the string denoting the started_at field in the database.
 	FieldStartedAt = "started_at"
 	// FieldCompletedAt holds the string denoting the completed_at field in the database.
@@ -73,6 +75,7 @@ var Columns = []string{
 	FieldCostUsd,
 	FieldPromptTokens,
 	FieldCompletionTokens,
+	FieldOwnerPid,
 	FieldStartedAt,
 	FieldCompletedAt,
 	FieldCreatedAt,
@@ -109,6 +112,8 @@ var (
 	DefaultPromptTokens int64
 	// DefaultCompletionTokens holds the default value on creation for the "completion_tokens" field.
 	DefaultCompletionTokens int64
+	// DefaultOwnerPid holds the default value on creation for the "owner_pid" field.
+	DefaultOwnerPid int
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 )
@@ -183,6 +188,11 @@ func ByPromptTokens(opts ...sql.OrderTermOption) OrderOption {
 // ByCompletionTokens orders the results by the completion_tokens field.
 func ByCompletionTokens(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCompletionTokens, opts...).ToFunc()
+}
+
+// ByOwnerPid orders the results by the owner_pid field.
+func ByOwnerPid(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOwnerPid, opts...).ToFunc()
 }
 
 // ByStartedAt orders the results by the started_at field.

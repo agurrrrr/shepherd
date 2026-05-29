@@ -47,6 +47,10 @@ func (Task) Fields() []ent.Field {
 			Optional().
 			Default(0).
 			Comment("출력 토큰 수"),
+		field.Int("owner_pid").
+			Optional().
+			Default(0).
+			Comment("작업을 실행 중인 프로세스 PID (소유권/생존 판별용)"),
 		field.Time("started_at").
 			Optional().
 			Comment("작업 시작 시간"),
