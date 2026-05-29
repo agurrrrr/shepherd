@@ -617,6 +617,25 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 			} `json:"part"`
 			// Some OpenCode versions use top-level content field
 			Content string `json:"content"`
+			// Token/cost metadata (step_finish, usage events)
+			Usage struct {
+				InputTokens      int64 `json:"input_tokens"`
+				OutputTokens     int64 `json:"output_tokens"`
+				CacheReadTokens  int64 `json:"cache_read_input_tokens"`
+				CacheWriteTokens int64 `json:"cache_creation_input_tokens"`
+			} `json:"usage"`
+			Meta struct {
+				InputTokens  int64   `json:"input_tokens"`
+				OutputTokens int64   `json:"output_tokens"`
+				CacheRead    int64   `json:"cache_read_input_tokens"`
+				CacheWrite   int64   `json:"cache_creation_input_tokens"`
+				Cost         float64 `json:"cost"`
+				CostUSD      float64 `json:"cost_usd"`
+				TotalCost    float64 `json:"total_cost"`
+			} `json:"meta"`
+			CostUSD float64 `json:"cost_usd"`
+			// Raw JSON for fallback parsing
+			Raw json.RawMessage
 		}
 		if json.Unmarshal([]byte(line), &msg) != nil {
 			continue
@@ -637,6 +656,26 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 			} else if msg.Content != "" && msg.Type != "tool-result" && msg.Type != "tool_result" {
 				lastFallbackText = msg.Content
 			}
+		}
+		// Extract token data from usage/meta
+		usageTokens := msg.Usage.InputTokens + msg.Usage.CacheReadTokens + msg.Usage.CacheWriteTokens
+		if usageTokens > 0 || msg.Usage.OutputTokens > 0 {
+			result.PromptTokens = usageTokens
+			result.CompletionTokens = msg.Usage.OutputTokens
+		}
+		metaTokens := msg.Meta.InputTokens + msg.Meta.CacheRead + msg.Meta.CacheWrite
+		if metaTokens > 0 || msg.Meta.OutputTokens > 0 {
+			result.PromptTokens = metaTokens
+			result.CompletionTokens = msg.Meta.OutputTokens
+		}
+		if msg.Meta.Cost > 0 {
+			result.CostUSD = msg.Meta.Cost
+		} else if msg.Meta.CostUSD > 0 {
+			result.CostUSD = msg.Meta.CostUSD
+		} else if msg.Meta.TotalCost > 0 {
+			result.CostUSD = msg.Meta.TotalCost
+		} else if msg.CostUSD > 0 {
+			result.CostUSD = msg.CostUSD
 		}
 	}
 
@@ -1822,6 +1861,12 @@ func parseStreamOutput(output string) *ExecuteResult {
 					Type string `json:"type"`
 					Text string `json:"text"`
 				} `json:"content"`
+				Usage struct {
+					InputTokens      int64 `json:"input_tokens"`
+					CacheReadTokens  int64 `json:"cache_read_input_tokens"`
+					CacheWriteTokens int64 `json:"cache_creation_input_tokens"`
+					OutputTokens     int64 `json:"output_tokens"`
+				} `json:"usage"`
 			} `json:"message"`
 		}
 
@@ -1840,8 +1885,28 @@ func parseStreamOutput(output string) *ExecuteResult {
 			if msg.TotalCostUSD > 0 {
 				result.CostUSD = msg.TotalCostUSD
 			}
-			result.PromptTokens = msg.InputTokens + msg.CacheReadTokens + msg.CacheWriteTokens
-			result.CompletionTokens = msg.OutputTokens
+			// Top-level token fields (if present)
+			topLevelTokens := msg.InputTokens + msg.CacheReadTokens + msg.CacheWriteTokens
+			if topLevelTokens > 0 || msg.OutputTokens > 0 {
+				result.PromptTokens = topLevelTokens
+				result.CompletionTokens = msg.OutputTokens
+			}
+			// Token fields inside message.usage
+			usageTokens := msg.Message.Usage.InputTokens + msg.Message.Usage.CacheReadTokens + msg.Message.Usage.CacheWriteTokens
+			if usageTokens > 0 || msg.Message.Usage.OutputTokens > 0 {
+				result.PromptTokens = usageTokens
+				result.CompletionTokens = msg.Message.Usage.OutputTokens
+			}
+		case "message_start":
+			// Extract input tokens from message.usage
+			if msg.Message.Usage.InputTokens > 0 || msg.Message.Usage.CacheReadTokens > 0 || msg.Message.Usage.CacheWriteTokens > 0 {
+				result.PromptTokens = msg.Message.Usage.InputTokens + msg.Message.Usage.CacheReadTokens + msg.Message.Usage.CacheWriteTokens
+			}
+		case "message_delta":
+			// Extract output tokens from message.usage
+			if msg.Message.Usage.OutputTokens > 0 {
+				result.CompletionTokens = msg.Message.Usage.OutputTokens
+			}
 		case "assistant":
 			for _, content := range msg.Message.Content {
 				if content.Type == "text" && content.Text != "" {
@@ -1970,4 +2035,38 @@ func extractFilesFromOutput(output string) []string {
 	}
 
 	return files
+}
+
+var (
+	tokensPattern = regexp.MustCompile(`(\d[\d,]*)\s*input.*?(\d[\d,]*)\s*output`)
+	costPattern   = regexp.MustCompile(`\$(\d+\.?\d*)`)
+)
+
+// extractTokensFromOutput extracts token counts and cost from Claude TUI summary lines.
+// Parses lines like "Tokens: 14,000 input + 1,234 output" and "Cost: $0.0012"
+func extractTokensFromOutput(output string) (promptTokens, completionTokens int64, costUSD float64) {
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		clean := strings.TrimSpace(stripAnsi(line))
+
+		// Match "X input + Y output" pattern
+		if matches := tokensPattern.FindStringSubmatch(clean); len(matches) == 3 {
+			if n, err := strconv.ParseInt(strings.ReplaceAll(matches[1], ",", ""), 10, 64); err == nil {
+				promptTokens = n
+			}
+			if n, err := strconv.ParseInt(strings.ReplaceAll(matches[2], ",", ""), 10, 64); err == nil {
+				completionTokens = n
+			}
+		}
+
+		// Match "Cost: $X.XX" pattern
+		if strings.Contains(clean, "Cost") {
+			if matches := costPattern.FindStringSubmatch(clean); len(matches) == 2 {
+				if n, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					costUSD = n
+				}
+			}
+		}
+	}
+	return
 }

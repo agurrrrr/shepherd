@@ -124,11 +124,11 @@ func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sess
 			// Detect and auto-approve Bypass Permissions menu
 			cleanRecent := stripAnsi(recentText)
 			if !bypassAccepted &&
-			   strings.Contains(cleanRecent, "Bypass Permissions mode") &&
-			   strings.Contains(cleanRecent, "Yes, I accept") {
+				strings.Contains(cleanRecent, "Bypass Permissions mode") &&
+				strings.Contains(cleanRecent, "Yes, I accept") {
 				bypassAccepted = true
 				time.Sleep(100 * time.Millisecond) // Wait for menu rendering
-				ptmx.WriteString("2\n") // Select "Yes, I accept"
+				ptmx.WriteString("2\n")            // Select "Yes, I accept"
 				mu.Lock()
 				recentOutput.Reset()
 				mu.Unlock()
@@ -138,7 +138,7 @@ func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sess
 
 			// Auto-handle Enter to confirm prompt
 			if strings.Contains(cleanRecent, "Enter to confirm") ||
-			   strings.Contains(cleanRecent, "to confirm · Esc") {
+				strings.Contains(cleanRecent, "to confirm · Esc") {
 				time.Sleep(50 * time.Millisecond)
 				ptmx.WriteString("\n")
 				mu.Lock()
@@ -184,10 +184,14 @@ func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sess
 	fullOutput := outputBuilder.String()
 	mu.Unlock()
 
-	// Parse result (simple result only in interactive mode)
+	// Parse result from PTY output
+	promptTokens, completionTokens, costUSD := extractTokensFromOutput(fullOutput)
 	result := &ExecuteResult{
-		Result:        extractResultFromOutput(fullOutput),
-		FilesModified: extractFilesFromOutput(fullOutput),
+		Result:           extractResultFromOutput(fullOutput),
+		FilesModified:    extractFilesFromOutput(fullOutput),
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		CostUSD:          costUSD,
 	}
 
 	return result, nil
