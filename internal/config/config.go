@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,10 +89,19 @@ func Init() error {
 	// 무제한으로 두려면 "0", "-1", "unlimited", "none", "off" 중 하나로 지정.
 	viper.SetDefault("task_timeout", "4h")
 
-	// max_concurrent_tasks: 동시에 실행할 수 있는 최대 작업 수.
+	// max_concurrent_tasks: 동시에 실행할 수 있는 최대 작업 수 (전역 천장).
 	// 0이면 제한 없음 (전체 양이 동시에 작업 실행 가능).
 	// 이 설정은 API rate limit을 피하거나, 리소스를 분산할 때 유용하다.
 	viper.SetDefault("max_concurrent_tasks", 0)
+
+	// concurrency_limits: provider+model 그룹별 동시 실행 제한.
+	// max_concurrent_tasks(전역 천장) 아래에서 그룹마다 추가로 제한을 건다.
+	// 키는 일반적으로 provider 이름("claude", "opencode")이며, 미래에 양별
+	// 모델이 도입되면 "claude/opus" 같은 provider/model 키도 지원한다
+	// (provider/model 키가 provider-only 키보다 우선). 값 <= 0 이면 그룹 제한 없음.
+	// 예: {"opencode": 1, "claude": 0} → 로컬 opencode는 순차(GPU 보호),
+	// 클라우드 claude는 무제한. (GetConcurrencyLimits 참고)
+	viper.SetDefault("concurrency_limits", map[string]interface{}{})
 
 	// 파일 탐색기
 	viper.SetDefault("enable_file_browser", true)
@@ -191,6 +201,38 @@ func GetTaskTimeout() time.Duration {
 		return 0
 	}
 	return d
+}
+
+// GetConcurrencyLimits returns the per-group concurrency limits keyed by group
+// (provider name like "claude"/"opencode", or a provider/model string like
+// "claude/opus"). Values are normalized to int; non-numeric or absent entries
+// are dropped. A returned value <= 0 for a key means "no limit for that group".
+// Callers resolve a task's group key and prefer an exact provider/model match,
+// falling back to the provider-only key. Returns nil when nothing is configured.
+func GetConcurrencyLimits() map[string]int {
+	raw := viper.GetStringMap("concurrency_limits")
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(raw))
+	for k, v := range raw {
+		switch n := v.(type) {
+		case int:
+			out[k] = n
+		case int64:
+			out[k] = int(n)
+		case float64:
+			out[k] = int(n)
+		case string:
+			if i, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
+				out[k] = i
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func GetConfigPath() string {

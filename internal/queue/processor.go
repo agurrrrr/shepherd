@@ -101,18 +101,76 @@ func (p *Processor) processLoop() {
 	}
 }
 
+// providerGroupKey returns the canonical concurrency-group key for a provider.
+// The key is generalized as provider+model so it stays correct once per-sheep
+// models are introduced; today model is a single global per-provider config
+// value, so every sheep on a provider shares one key. The runtime "auto"
+// provider currently routes to Claude, so it folds into Claude's group.
+func providerGroupKey(provider string) string {
+	p := provider
+	if p == "auto" {
+		p = "claude"
+	}
+	var model string
+	switch p {
+	case "claude":
+		model = strings.TrimSpace(config.GetString("model_claude"))
+	case "opencode":
+		model = strings.TrimSpace(config.GetString("model_opencode"))
+	}
+	if model == "" {
+		return p
+	}
+	return p + "/" + model
+}
+
+// groupConcurrencyLimit resolves the configured concurrency limit for a group.
+// It prefers an exact provider/model key, then falls back to the provider-only
+// key (which is what the settings UI configures today). 0 means no group limit.
+func groupConcurrencyLimit(limits map[string]int, groupKey, provider string) int {
+	if len(limits) == 0 {
+		return 0
+	}
+	if v, ok := limits[groupKey]; ok {
+		return v
+	}
+	p := provider
+	if p == "auto" {
+		p = "claude"
+	}
+	if v, ok := limits[p]; ok {
+		return v
+	}
+	return 0
+}
+
 // checkAndExecutePendingTasks checks for idle sheep with pending tasks and executes them.
+//
+// Two concurrency gates apply, and a task must pass BOTH to dispatch:
+//  1. Global ceiling   — max_concurrent_tasks across all running tasks.
+//  2. Per-group limit  — concurrency_limits[<provider+model group>], so e.g.
+//     local opencode can run sequentially (GPU protection) while cloud claude
+//     stays unlimited, without one starving the other.
 func (p *Processor) checkAndExecutePendingTasks() {
-	// Check concurrency limit before dispatching any tasks.
 	maxConcurrent := config.GetInt("max_concurrent_tasks")
-	if maxConcurrent > 0 {
-		counts, err := CountByStatus()
-		if err == nil {
-			running := counts["running"]
-			if running >= maxConcurrent {
-				return
-			}
-		}
+	groupLimits := config.GetConcurrencyLimits()
+
+	// Snapshot running tasks grouped by provider, then fold into group-key
+	// counts (auto → claude, etc.). One query per tick feeds both gates.
+	runningByProvider, err := CountRunningByProvider()
+	if err != nil {
+		return
+	}
+	totalRunning := 0
+	groupRunning := make(map[string]int)
+	for prov, n := range runningByProvider {
+		totalRunning += n
+		groupRunning[providerGroupKey(prov)] += n
+	}
+
+	// Global ceiling reached: nothing can dispatch this tick.
+	if maxConcurrent > 0 && totalRunning >= maxConcurrent {
+		return
 	}
 
 	// Query all sheep
@@ -122,6 +180,7 @@ func (p *Processor) checkAndExecutePendingTasks() {
 	}
 
 	dispatched := 0
+	dispatchedByGroup := make(map[string]int)
 	for _, s := range sheepList {
 		// Only process sheep in idle status
 		if s.Status != sheep.StatusIdle {
@@ -153,14 +212,17 @@ func (p *Processor) checkAndExecutePendingTasks() {
 			continue
 		}
 
-		// Enforce concurrency limit during dispatch loop.
-		if maxConcurrent > 0 {
-			counts, err := CountByStatus()
-			if err == nil {
-				running := counts["running"]
-				if running+dispatched >= maxConcurrent {
-					break
-				}
+		// Gate 1: global ceiling (accounts for in-loop dispatches).
+		if maxConcurrent > 0 && totalRunning+dispatched >= maxConcurrent {
+			break
+		}
+
+		// Gate 2: per-group limit. Saturating one group only skips that group;
+		// other providers' sheep may still dispatch this tick.
+		groupKey := providerGroupKey(string(s.Provider))
+		if limit := groupConcurrencyLimit(groupLimits, groupKey, string(s.Provider)); limit > 0 {
+			if groupRunning[groupKey]+dispatchedByGroup[groupKey] >= limit {
+				continue
 			}
 		}
 
@@ -173,6 +235,7 @@ func (p *Processor) checkAndExecutePendingTasks() {
 		// Execute task (in goroutine)
 		go p.executeTask(s.Name, projectName, task.ID, task.Prompt)
 		dispatched++
+		dispatchedByGroup[groupKey]++
 	}
 }
 

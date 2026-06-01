@@ -44,7 +44,11 @@
 			apiGet('/api/config/model-options'),
 			apiGet('/api/projects')
 		]);
-		if (configRes?.data) configData = configRes.data;
+		if (configRes?.data) {
+			configData = configRes.data;
+			// concurrency_limits may be null when nothing is configured yet.
+			if (!configData.concurrency_limits) configData.concurrency_limits = {};
+		}
 		if (mcpRes?.data) mcpStatus = mcpRes.data;
 		if (modelRes?.data) modelOptions = modelRes.data;
 		if (projRes?.data) projectsList = projRes.data;
@@ -195,6 +199,18 @@
 		mcpRegistering[provider] = false;
 	}
 
+	// Build a clean {provider: limit} map from the per-provider inputs.
+	// Only positive integers are kept; 0 / blank means "no limit for that group".
+	function buildConcurrencyLimits() {
+		const src = configData.concurrency_limits || {};
+		const out = {};
+		for (const key of Object.keys(src)) {
+			const n = parseInt(src[key]);
+			if (Number.isFinite(n) && n > 0) out[key] = n;
+		}
+		return out;
+	}
+
 	async function save() {
 		saving = true;
 		saveMsg = '';
@@ -203,6 +219,7 @@
 			default_provider: configData.default_provider,
 			max_sheep: parseInt(configData.max_sheep) || 12,
 			max_concurrent_tasks: parseInt(configData.max_concurrent_tasks) || 0,
+			concurrency_limits: buildConcurrencyLimits(),
 			auto_approve: configData.auto_approve,
 			session_reuse: configData.session_reuse,
 			include_task_history: configData.include_task_history,
@@ -319,7 +336,22 @@
 			<div class="setting-row">
 				<label>Max Concurrent Tasks</label>
 				<input class="input" type="number" bind:value={configData.max_concurrent_tasks} min="0" max="50" />
-				<span class="hint">동시에 실행할 최대 작업 수. 0이면 제한 없음. 로컬 LLM 사용 시 1로 설정하면 순차 실행됩니다.</span>
+				<span class="hint">전체 동시 실행 작업 수의 천장(ceiling). 0이면 제한 없음. 아래 provider별 제한과 함께 적용되며, 작업은 두 제한을 모두 통과해야 실행됩니다.</span>
+			</div>
+
+			<div class="setting-row">
+				<label>Per-Provider Limits</label>
+				<div class="conc-limits">
+					<div class="conc-row">
+						<span class="conc-label">🟠 Claude{configData.model_claude ? ` (${configData.model_claude})` : ''}</span>
+						<input class="input conc-input" type="number" bind:value={configData.concurrency_limits.claude} min="0" max="50" placeholder="0" />
+					</div>
+					<div class="conc-row">
+						<span class="conc-label">🟢 OpenCode{configData.model_opencode ? ` (${configData.model_opencode})` : ''}</span>
+						<input class="input conc-input" type="number" bind:value={configData.concurrency_limits.opencode} min="0" max="50" placeholder="0" />
+					</div>
+				</div>
+				<span class="hint">provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음(전역 천장만 적용). 예: 로컬 GPU를 쓰는 OpenCode를 <code>1</code>로 두면 순차 실행되고, 클라우드 Claude는 영향받지 않습니다. <code>auto</code> provider는 현재 Claude 그룹에 포함됩니다.</span>
 			</div>
 
 			<div class="setting-row">
@@ -780,6 +812,32 @@
 		flex: 0 0 calc(100% - 156px);
 		margin-left: 156px;
 		min-width: 0;
+	}
+
+	.conc-limits {
+		flex: 1 1 200px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		max-width: 320px;
+		min-width: 0;
+	}
+
+	.conc-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+	}
+
+	.conc-label {
+		font-size: 13px;
+		color: var(--text-secondary);
+	}
+
+	.setting-row .conc-input {
+		flex: 0 0 90px;
+		max-width: 90px;
 	}
 
 	.setting-row.column {

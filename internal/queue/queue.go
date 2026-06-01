@@ -395,6 +395,32 @@ func CountByStatus() (map[task.Status]int, error) {
 	return result, nil
 }
 
+// CountRunningByProvider returns the number of running tasks grouped by the
+// provider of their assigned sheep (e.g. "claude", "opencode", "auto"). Tasks
+// without a sheep edge are skipped. Used by the processor to enforce per-group
+// concurrency limits in addition to the global ceiling.
+func CountRunningByProvider() (map[string]int, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	tasks, err := client.Task.Query().
+		Where(task.StatusEQ(task.StatusRunning)).
+		WithSheep().
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count running tasks by provider: %w", err)
+	}
+
+	result := make(map[string]int)
+	for _, t := range tasks {
+		if t.Edges.Sheep == nil {
+			continue
+		}
+		result[string(t.Edges.Sheep.Provider)]++
+	}
+	return result, nil
+}
+
 // StatusToKorean converts task status to a display string.
 func StatusToKorean(status task.Status) string {
 	switch status {

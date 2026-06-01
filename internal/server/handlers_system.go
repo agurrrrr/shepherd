@@ -3,6 +3,8 @@ package server
 import (
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -77,6 +79,7 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"server_host":                     config.GetString("server_host"),
 		"max_sheep":                       config.GetInt("max_sheep"),
 		"max_concurrent_tasks":            config.GetInt("max_concurrent_tasks"),
+		"concurrency_limits":              config.GetConcurrencyLimits(),
 		"auto_approve":                    config.GetBool("auto_approve"),
 		"session_reuse":                   config.GetBool("session_reuse"),
 		"include_task_history":            config.GetBool("include_task_history"),
@@ -161,6 +164,7 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"workspace_path":                  true,
 		"max_sheep":                       true,
 		"max_concurrent_tasks":            true,
+		"concurrency_limits":              true,
 		"auto_approve":                    true,
 		"session_reuse":                   true,
 		"include_task_history":            true,
@@ -193,6 +197,14 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		if !allowed[key] {
 			continue
 		}
+
+		// concurrency_limits is a {group: limit} map. Normalize to a clean
+		// map of positive ints so the config file doesn't accumulate zeros,
+		// floats, or non-numeric junk from the client.
+		if key == "concurrency_limits" {
+			value = normalizeConcurrencyLimits(value)
+		}
+
 		if err := config.Set(key, value); err != nil {
 			return fail(c, fiber.StatusInternalServerError, "failed to save config: "+err.Error())
 		}
@@ -206,6 +218,44 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 	}
 
 	return success(c, nil)
+}
+
+// normalizeConcurrencyLimits coerces a client-supplied {group: limit} map into
+// a clean map[string]int containing only positive limits. Non-map input, blank
+// keys, and zero/negative/non-numeric values are dropped (a missing or zero
+// entry means "no group limit"). Returns an empty map so the stored value is
+// always a map, never nil.
+func normalizeConcurrencyLimits(value interface{}) map[string]int {
+	out := map[string]int{}
+	m, ok := value.(map[string]interface{})
+	if !ok {
+		return out
+	}
+	for k, v := range m {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		n := 0
+		switch t := v.(type) {
+		case float64:
+			n = int(t)
+		case int:
+			n = t
+		case int64:
+			n = int(t)
+		case string:
+			parsed, err := strconv.Atoi(strings.TrimSpace(t))
+			if err != nil {
+				continue
+			}
+			n = parsed
+		}
+		if n > 0 {
+			out[k] = n
+		}
+	}
+	return out
 }
 
 // POST /api/system/restart
