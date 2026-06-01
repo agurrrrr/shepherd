@@ -210,22 +210,34 @@ func GetTaskTimeout() time.Duration {
 // Callers resolve a task's group key and prefer an exact provider/model match,
 // falling back to the provider-only key. Returns nil when nothing is configured.
 func GetConcurrencyLimits() map[string]int {
-	raw := viper.GetStringMap("concurrency_limits")
-	if len(raw) == 0 {
-		return nil
-	}
-	out := make(map[string]int, len(raw))
-	for k, v := range raw {
-		switch n := v.(type) {
-		case int:
-			out[k] = n
-		case int64:
-			out[k] = int(n)
-		case float64:
-			out[k] = int(n)
-		case string:
-			if i, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
-				out[k] = i
+	// Read the raw value via viper.Get rather than viper.GetStringMap. When the
+	// value is written via viper.Set in the running process (e.g. right after
+	// the settings UI saves), it lives in the override layer as a typed
+	// map[string]int, which both viper.GetStringMap and cast.ToStringMap return
+	// as empty — so a freshly-saved value would read back empty (and the
+	// dispatch gate would ignore the limit) until a restart. viper.Get returns
+	// the override verbatim; we normalize the two shapes it can take ourselves:
+	// map[string]int when Set in-process, map[string]interface{} when parsed
+	// from the YAML file after a restart.
+	out := map[string]int{}
+	switch m := viper.Get("concurrency_limits").(type) {
+	case map[string]int:
+		for k, v := range m {
+			out[k] = v
+		}
+	case map[string]interface{}:
+		for k, v := range m {
+			switch n := v.(type) {
+			case int:
+				out[k] = n
+			case int64:
+				out[k] = int(n)
+			case float64:
+				out[k] = int(n)
+			case string:
+				if i, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
+					out[k] = i
+				}
 			}
 		}
 	}
