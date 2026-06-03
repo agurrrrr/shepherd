@@ -13,6 +13,14 @@ type ExecuteResult struct {
 	CostUSD          float64  // Cost (USD)
 	PromptTokens     int64    // Input token count
 	CompletionTokens int64    // Output token count
+
+	// Incomplete marks an OpenCode run that exited 0 but actually stalled
+	// mid-task (e.g. a local reasoning model leaked its next tool call into the
+	// reasoning/answer channel as plain text, or the turn was length-truncated).
+	// The caller turns this into an error so the task is recorded as failed
+	// instead of silently completed. See #5468.
+	Incomplete       bool
+	IncompleteReason string
 }
 
 // claudeOutput represents the JSON output from Claude Code CLI.

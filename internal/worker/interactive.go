@@ -465,7 +465,7 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		}
 		// Try to parse output even on error
 		result := parseOpenCodeOutput(fullOutput)
-		if result != nil && result.Result != "" {
+		if result != nil && result.Result != "" && !result.Incomplete {
 			result.SessionID = sid
 			return result, nil
 		}
@@ -474,6 +474,14 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 
 	result := parseOpenCodeOutput(fullOutput)
 	result.SessionID = sid
+
+	// Local reasoning models sometimes emit the next tool call as plain text in
+	// the reasoning/answer channel instead of a structured tool_use, then exit 0.
+	// OpenCode reports success, but the agent actually stalled mid-task. Fail the
+	// task so it is not silently recorded as completed. See #5468.
+	if result.Incomplete {
+		return nil, fmt.Errorf("incomplete: %s", result.IncompleteReason)
+	}
 
 	// Check for OpenCode error events in output (exit code 0 but error JSON)
 	if result.Result == "" {
@@ -618,6 +626,28 @@ func parseOpenCodeLine(line string) (text string, sessionID string) {
 	return text, sessionID
 }
 
+// looksLikeLeakedToolCall reports whether s contains tool-call markup that a
+// local reasoning model emitted as plain text (in the reasoning or answer
+// channel) instead of a structured tool_use. When this is the trailing content
+// of a turn with no real tool_use after it, the agent stalled mid-task even
+// though OpenCode exited 0. Covers the common open-model tool-call dialects.
+func looksLikeLeakedToolCall(s string) bool {
+	s = strings.ToLower(s)
+	markers := []string{
+		"<tool_call>", "</tool_call>",
+		"<tools_call>",
+		"<function=", "<function_call>",
+		"<|tool_call|>", "<|tool▁calls▁begin|>",
+		"[tool_call",
+	}
+	for _, m := range markers {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
+}
+
 // parseOpenCodeOutput parses the complete OpenCode JSON output.
 // Prioritizes "text" type events for the final result. Falls back to other
 // assistant message types if no text events are found (e.g. tool-call-only sessions).
@@ -625,6 +655,14 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 	result := &ExecuteResult{}
 	var lastText string
 	var lastFallbackText string
+	// Incomplete-run detection (see #5468):
+	//   pendingLeak  — trailing reasoning/answer text that looks like an
+	//                  unexecuted tool call; cleared by a real tool_use or a
+	//                  clean text answer that follows it.
+	//   lastFinish   — finish reason of the last step_finish event; "length"/
+	//                  "max_tokens" means the turn was truncated mid-generation.
+	var pendingLeak string
+	var lastFinish string
 
 	for _, line := range strings.Split(output, "\n") {
 		if !strings.HasPrefix(line, "{") {
@@ -657,6 +695,10 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 				TotalCost    float64 `json:"total_cost"`
 			} `json:"meta"`
 			CostUSD float64 `json:"cost_usd"`
+			// Finish/stop reason of a step (step_finish events). OpenCode/model
+			// versions disagree on the exact key, so probe the common spellings.
+			FinishReason  string `json:"finishReason"`
+			FinishReason2 string `json:"finish_reason"`
 			// Raw JSON for fallback parsing
 			Raw json.RawMessage
 		}
@@ -665,6 +707,31 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 		}
 		if msg.SessionID != "" {
 			result.SessionID = msg.SessionID
+		}
+		// Track incomplete-run signals in event order.
+		switch msg.Type {
+		case "text":
+			if msg.Part.Text != "" {
+				if looksLikeLeakedToolCall(msg.Part.Text) {
+					pendingLeak = msg.Part.Text
+				} else {
+					// A clean final answer means the model recovered/finished.
+					pendingLeak = ""
+				}
+			}
+		case "reasoning":
+			if msg.Part.Text != "" && looksLikeLeakedToolCall(msg.Part.Text) {
+				pendingLeak = msg.Part.Text
+			}
+		case "tool_use":
+			// A real structured tool call followed — the turn did not stall.
+			pendingLeak = ""
+		case "step_finish":
+			if msg.FinishReason != "" {
+				lastFinish = msg.FinishReason
+			} else if msg.FinishReason2 != "" {
+				lastFinish = msg.FinishReason2
+			}
 		}
 		// Primary: text type events are the canonical final result
 		if msg.Type == "text" && msg.Part.Text != "" {
@@ -707,6 +774,21 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 	} else if lastFallbackText != "" {
 		result.Result = lastFallbackText
 	}
+
+	// Decide whether the run actually completed. A leaked tool call is the
+	// strongest signal (the agent meant to keep working). A length-truncated
+	// turn with no final answer is the secondary one.
+	if pendingLeak != "" {
+		result.Incomplete = true
+		result.IncompleteReason = "tool call leaked into the reasoning/answer channel without execution (model misformatted its tool call): " +
+			truncateStr(strings.TrimSpace(pendingLeak), 200)
+	} else if (lastFinish == "length" || lastFinish == "max_tokens") && lastText == "" {
+		// Truncated mid-generation and never produced an answer in the canonical
+		// text channel (reasoning-only output does not count as a final response).
+		result.Incomplete = true
+		result.IncompleteReason = "model output was truncated (finish reason: " + lastFinish + ") with no final response"
+	}
+
 	return result
 }
 
