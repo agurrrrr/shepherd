@@ -25,6 +25,8 @@ const (
 	FieldStatus = "status"
 	// FieldError holds the string denoting the error field in the database.
 	FieldError = "error"
+	// FieldModel holds the string denoting the model field in the database.
+	FieldModel = "model"
 	// FieldOutput holds the string denoting the output field in the database.
 	FieldOutput = "output"
 	// FieldCostUsd holds the string denoting the cost_usd field in the database.
@@ -71,6 +73,7 @@ var Columns = []string{
 	FieldFilesModified,
 	FieldStatus,
 	FieldError,
+	FieldModel,
 	FieldOutput,
 	FieldCostUsd,
 	FieldPromptTokens,
@@ -173,6 +176,11 @@ func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 // ByError orders the results by the error field.
 func ByError(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldError, opts...).ToFunc()
+}
+
+// ByModel orders the results by the model field.
+func ByModel(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldModel, opts...).ToFunc()
 }
 
 // ByCostUsd orders the results by the cost_usd field.

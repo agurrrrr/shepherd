@@ -154,6 +154,7 @@ var (
 		{Name: "files_modified", Type: field.TypeJSON, Nullable: true},
 		{Name: "status", Type: field.TypeEnum, Enums: []string{"pending", "running", "completed", "failed", "stopped"}, Default: "pending"},
 		{Name: "error", Type: field.TypeString, Nullable: true, Size: 2147483647},
+		{Name: "model", Type: field.TypeString, Nullable: true},
 		{Name: "output", Type: field.TypeJSON, Nullable: true},
 		{Name: "cost_usd", Type: field.TypeFloat64, Nullable: true, Default: 0},
 		{Name: "prompt_tokens", Type: field.TypeInt64, Nullable: true, Default: 0},
@@ -173,13 +174,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "tasks_projects_tasks",
-				Columns:    []*schema.Column{TasksColumns[14]},
+				Columns:    []*schema.Column{TasksColumns[15]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "tasks_sheep_tasks",
-				Columns:    []*schema.Column{TasksColumns[15]},
+				Columns:    []*schema.Column{TasksColumns[16]},
 				RefColumns: []*schema.Column{SheepColumns[0]},
 				OnDelete:   schema.SetNull,
 			},

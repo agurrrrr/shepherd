@@ -624,6 +624,9 @@
 											{@const totalTok = (t.prompt_tokens || 0) + (t.completion_tokens || 0)}
 											<span class="task-tokens mono">{totalTok.toLocaleString()} tokens</span>
 										{/if}
+										{#if t.model}
+											<span class="task-model mono" title={t.model}>{truncateModel(t.model)}</span>
+										{/if}
 										<span class="task-time mono">{formatTime(t.created_at)}</span>
 									</div>
 									{#if t.summary}
@@ -1140,6 +1143,19 @@
 		background: rgba(46, 204, 113, 0.1);
 		padding: 1px 6px;
 		border-radius: 8px;
+	}
+
+	.task-model {
+		font-size: 11px;
+		color: var(--text-secondary);
+		flex-shrink: 0;
+		background: rgba(155, 89, 182, 0.12);
+		padding: 1px 6px;
+		border-radius: 8px;
+		max-width: 160px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.task-time {

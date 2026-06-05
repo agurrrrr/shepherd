@@ -395,11 +395,13 @@ func CountByStatus() (map[task.Status]int, error) {
 	return result, nil
 }
 
-// CountRunningByProvider returns the number of running tasks grouped by the
-// provider of their assigned sheep (e.g. "claude", "opencode", "auto"). Tasks
-// without a sheep edge are skipped. Used by the processor to enforce per-group
-// concurrency limits in addition to the global ceiling.
-func CountRunningByProvider() (map[string]int, error) {
+// CountRunningByGroup returns the number of running tasks grouped by their
+// canonical (provider+model) concurrency-group key (see groupKey). The model is
+// taken from each task's persisted per-task override, falling back to the global
+// per-provider default — so several local OpenCode systems are counted as
+// distinct groups. Tasks without a sheep edge are skipped. Used by the processor
+// to enforce per-group concurrency limits in addition to the global ceiling.
+func CountRunningByGroup() (map[string]int, error) {
 	ctx := context.Background()
 	client := db.Client()
 
@@ -408,7 +410,7 @@ func CountRunningByProvider() (map[string]int, error) {
 		WithSheep().
 		All(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to count running tasks by provider: %w", err)
+		return nil, fmt.Errorf("failed to count running tasks by group: %w", err)
 	}
 
 	result := make(map[string]int)
@@ -416,7 +418,7 @@ func CountRunningByProvider() (map[string]int, error) {
 		if t.Edges.Sheep == nil {
 			continue
 		}
-		result[string(t.Edges.Sheep.Provider)]++
+		result[groupKey(string(t.Edges.Sheep.Provider), t.Model)]++
 	}
 	return result, nil
 }

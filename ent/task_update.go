@@ -117,6 +117,26 @@ func (_u *TaskUpdate) ClearError() *TaskUpdate {
 	return _u
 }
 
+// SetModel sets the "model" field.
+func (_u *TaskUpdate) SetModel(v string) *TaskUpdate {
+	_u.mutation.SetModel(v)
+	return _u
+}
+
+// SetNillableModel sets the "model" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableModel(v *string) *TaskUpdate {
+	if v != nil {
+		_u.SetModel(*v)
+	}
+	return _u
+}
+
+// ClearModel clears the value of the "model" field.
+func (_u *TaskUpdate) ClearModel() *TaskUpdate {
+	_u.mutation.ClearModel()
+	return _u
+}
+
 // SetOutput sets the "output" field.
 func (_u *TaskUpdate) SetOutput(v []string) *TaskUpdate {
 	_u.mutation.SetOutput(v)
@@ -421,6 +441,12 @@ func (_u *TaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.ErrorCleared() {
 		_spec.ClearField(task.FieldError, field.TypeString)
 	}
+	if value, ok := _u.mutation.Model(); ok {
+		_spec.SetField(task.FieldModel, field.TypeString, value)
+	}
+	if _u.mutation.ModelCleared() {
+		_spec.ClearField(task.FieldModel, field.TypeString)
+	}
 	if value, ok := _u.mutation.Output(); ok {
 		_spec.SetField(task.FieldOutput, field.TypeJSON, value)
 	}
@@ -641,6 +667,26 @@ func (_u *TaskUpdateOne) SetNillableError(v *string) *TaskUpdateOne {
 // ClearError clears the value of the "error" field.
 func (_u *TaskUpdateOne) ClearError() *TaskUpdateOne {
 	_u.mutation.ClearError()
+	return _u
+}
+
+// SetModel sets the "model" field.
+func (_u *TaskUpdateOne) SetModel(v string) *TaskUpdateOne {
+	_u.mutation.SetModel(v)
+	return _u
+}
+
+// SetNillableModel sets the "model" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableModel(v *string) *TaskUpdateOne {
+	if v != nil {
+		_u.SetModel(*v)
+	}
+	return _u
+}
+
+// ClearModel clears the value of the "model" field.
+func (_u *TaskUpdateOne) ClearModel() *TaskUpdateOne {
+	_u.mutation.ClearModel()
 	return _u
 }
 
@@ -977,6 +1023,12 @@ func (_u *TaskUpdateOne) sqlSave(ctx context.Context) (_node *Task, err error) {
 	}
 	if _u.mutation.ErrorCleared() {
 		_spec.ClearField(task.FieldError, field.TypeString)
+	}
+	if value, ok := _u.mutation.Model(); ok {
+		_spec.SetField(task.FieldModel, field.TypeString, value)
+	}
+	if _u.mutation.ModelCleared() {
+		_spec.ClearField(task.FieldModel, field.TypeString)
 	}
 	if value, ok := _u.mutation.Output(); ok {
 		_spec.SetField(task.FieldOutput, field.TypeJSON, value)

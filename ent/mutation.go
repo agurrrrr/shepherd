@@ -5274,6 +5274,7 @@ type TaskMutation struct {
 	appendfiles_modified []string
 	status               *task.Status
 	error                *string
+	model                *string
 	output               *[]string
 	appendoutput         []string
 	cost_usd             *float64
@@ -5628,6 +5629,55 @@ func (m *TaskMutation) ErrorCleared() bool {
 func (m *TaskMutation) ResetError() {
 	m.error = nil
 	delete(m.clearedFields, task.FieldError)
+}
+
+// SetModel sets the "model" field.
+func (m *TaskMutation) SetModel(s string) {
+	m.model = &s
+}
+
+// Model returns the value of the "model" field in the mutation.
+func (m *TaskMutation) Model() (r string, exists bool) {
+	v := m.model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModel returns the old "model" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModel: %w", err)
+	}
+	return oldValue.Model, nil
+}
+
+// ClearModel clears the value of the "model" field.
+func (m *TaskMutation) ClearModel() {
+	m.model = nil
+	m.clearedFields[task.FieldModel] = struct{}{}
+}
+
+// ModelCleared returns if the "model" field was cleared in this mutation.
+func (m *TaskMutation) ModelCleared() bool {
+	_, ok := m.clearedFields[task.FieldModel]
+	return ok
+}
+
+// ResetModel resets all changes to the "model" field.
+func (m *TaskMutation) ResetModel() {
+	m.model = nil
+	delete(m.clearedFields, task.FieldModel)
 }
 
 // SetOutput sets the "output" field.
@@ -6221,7 +6271,7 @@ func (m *TaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *TaskMutation) Fields() []string {
-	fields := make([]string, 0, 13)
+	fields := make([]string, 0, 14)
 	if m.prompt != nil {
 		fields = append(fields, task.FieldPrompt)
 	}
@@ -6236,6 +6286,9 @@ func (m *TaskMutation) Fields() []string {
 	}
 	if m.error != nil {
 		fields = append(fields, task.FieldError)
+	}
+	if m.model != nil {
+		fields = append(fields, task.FieldModel)
 	}
 	if m.output != nil {
 		fields = append(fields, task.FieldOutput)
@@ -6279,6 +6332,8 @@ func (m *TaskMutation) Field(name string) (ent.Value, bool) {
 		return m.Status()
 	case task.FieldError:
 		return m.Error()
+	case task.FieldModel:
+		return m.Model()
 	case task.FieldOutput:
 		return m.Output()
 	case task.FieldCostUsd:
@@ -6314,6 +6369,8 @@ func (m *TaskMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldStatus(ctx)
 	case task.FieldError:
 		return m.OldError(ctx)
+	case task.FieldModel:
+		return m.OldModel(ctx)
 	case task.FieldOutput:
 		return m.OldOutput(ctx)
 	case task.FieldCostUsd:
@@ -6373,6 +6430,13 @@ func (m *TaskMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetError(v)
+		return nil
+	case task.FieldModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModel(v)
 		return nil
 	case task.FieldOutput:
 		v, ok := value.([]string)
@@ -6520,6 +6584,9 @@ func (m *TaskMutation) ClearedFields() []string {
 	if m.FieldCleared(task.FieldError) {
 		fields = append(fields, task.FieldError)
 	}
+	if m.FieldCleared(task.FieldModel) {
+		fields = append(fields, task.FieldModel)
+	}
 	if m.FieldCleared(task.FieldOutput) {
 		fields = append(fields, task.FieldOutput)
 	}
@@ -6564,6 +6631,9 @@ func (m *TaskMutation) ClearField(name string) error {
 	case task.FieldError:
 		m.ClearError()
 		return nil
+	case task.FieldModel:
+		m.ClearModel()
+		return nil
 	case task.FieldOutput:
 		m.ClearOutput()
 		return nil
@@ -6607,6 +6677,9 @@ func (m *TaskMutation) ResetField(name string) error {
 		return nil
 	case task.FieldError:
 		m.ResetError()
+		return nil
+	case task.FieldModel:
+		m.ResetModel()
 		return nil
 	case task.FieldOutput:
 		m.ResetOutput()

@@ -86,6 +86,7 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 		CompletionTokens int64   `json:"completion_tokens,omitempty"`
 		TotalTokens      int64   `json:"total_tokens"`
 		DurationSec      int64   `json:"duration_sec"`
+		Model            string  `json:"model,omitempty"`
 		Sheep            string  `json:"sheep,omitempty"`
 		Project          string  `json:"project,omitempty"`
 		CreatedAt        string  `json:"created_at"`
@@ -104,6 +105,7 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 			CompletionTokens: t.CompletionTokens,
 			TotalTokens:      t.PromptTokens + t.CompletionTokens,
 			DurationSec:      taskDurationSec(t),
+			Model:            t.Model,
 			CreatedAt:        t.CreatedAt.Format("2006-01-02 15:04:05"),
 		}
 		if t.Edges.Sheep != nil {
@@ -246,6 +248,7 @@ func (s *Server) handleGetTask(c *fiber.Ctx) error {
 		"prompt_tokens":     t.PromptTokens,
 		"completion_tokens": t.CompletionTokens,
 		"total_tokens":      t.PromptTokens + t.CompletionTokens,
+		"model":             t.Model,
 		"duration_sec":      taskDurationSec(t),
 		"created_at":        t.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
@@ -339,6 +342,10 @@ func (s *Server) handleRetryTask(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// Carry the per-task model override over to the retry so it lands in the
+	// same concurrency group and runs on the same model.
+	queue.SetTaskModel(newTask.ID, t.Model)
+
 	if s.processor != nil {
 		s.processor.ProcessPendingNow()
 	}
@@ -409,6 +416,7 @@ func (s *Server) handleRetryFromTask(c *fiber.Ctx) error {
 		if err != nil {
 			continue
 		}
+		queue.SetTaskModel(newTask.ID, ft.Model)
 		createdIDs = append(createdIDs, newTask.ID)
 	}
 

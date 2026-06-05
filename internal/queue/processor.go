@@ -101,22 +101,25 @@ func (p *Processor) processLoop() {
 	}
 }
 
-// providerGroupKey returns the canonical concurrency-group key for a provider.
-// The key is generalized as provider+model so it stays correct once per-sheep
-// models are introduced; today model is a single global per-provider config
-// value, so every sheep on a provider shares one key. The runtime "auto"
-// provider currently routes to Claude, so it folds into Claude's group.
-func providerGroupKey(provider string) string {
+// groupKey returns the canonical concurrency-group key for a task, computed
+// from its provider and its effective model. The effective model is the task's
+// own per-task override when set (so several local OpenCode systems each get
+// their own group), otherwise the global per-provider config default. The
+// runtime "auto" provider currently routes to Claude, so it folds into Claude's
+// group. An empty effective model yields a provider-only key (e.g. "opencode").
+func groupKey(provider, model string) string {
 	p := provider
 	if p == "auto" {
 		p = "claude"
 	}
-	var model string
-	switch p {
-	case "claude":
-		model = strings.TrimSpace(config.GetString("model_claude"))
-	case "opencode":
-		model = strings.TrimSpace(config.GetString("model_opencode"))
+	model = strings.TrimSpace(model)
+	if model == "" {
+		switch p {
+		case "claude":
+			model = strings.TrimSpace(config.GetString("model_claude"))
+		case "opencode":
+			model = strings.TrimSpace(config.GetString("model_opencode"))
+		}
 	}
 	if model == "" {
 		return p
@@ -155,17 +158,16 @@ func (p *Processor) checkAndExecutePendingTasks() {
 	maxConcurrent := config.GetInt("max_concurrent_tasks")
 	groupLimits := config.GetConcurrencyLimits()
 
-	// Snapshot running tasks grouped by provider, then fold into group-key
-	// counts (auto → claude, etc.). One query per tick feeds both gates.
-	runningByProvider, err := CountRunningByProvider()
+	// Snapshot running tasks already grouped by their (provider+model) key, so
+	// per-model OpenCode systems are counted independently. One query per tick
+	// feeds both gates.
+	groupRunning, err := CountRunningByGroup()
 	if err != nil {
 		return
 	}
 	totalRunning := 0
-	groupRunning := make(map[string]int)
-	for prov, n := range runningByProvider {
+	for _, n := range groupRunning {
 		totalRunning += n
-		groupRunning[providerGroupKey(prov)] += n
 	}
 
 	// Global ceiling reached: nothing can dispatch this tick.
@@ -217,11 +219,12 @@ func (p *Processor) checkAndExecutePendingTasks() {
 			break
 		}
 
-		// Gate 2: per-group limit. Saturating one group only skips that group;
-		// other providers' sheep may still dispatch this tick.
-		groupKey := providerGroupKey(string(s.Provider))
-		if limit := groupConcurrencyLimit(groupLimits, groupKey, string(s.Provider)); limit > 0 {
-			if groupRunning[groupKey]+dispatchedByGroup[groupKey] >= limit {
+		// Gate 2: per-group limit, keyed by this task's effective (provider+model)
+		// group. Saturating one group only skips that group; other groups' sheep
+		// may still dispatch this tick.
+		gKey := groupKey(string(s.Provider), task.Model)
+		if limit := groupConcurrencyLimit(groupLimits, gKey, string(s.Provider)); limit > 0 {
+			if groupRunning[gKey]+dispatchedByGroup[gKey] >= limit {
 				continue
 			}
 		}
@@ -235,7 +238,7 @@ func (p *Processor) checkAndExecutePendingTasks() {
 		// Execute task (in goroutine)
 		go p.executeTask(s.Name, projectName, task.ID, task.Prompt)
 		dispatched++
-		dispatchedByGroup[groupKey]++
+		dispatchedByGroup[gKey]++
 	}
 }
 
@@ -287,9 +290,9 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 	// per-request overrides win over the global default.
 	opts.Thinking = GetTaskThinking(taskID)
 	defer ClearTaskThinking(taskID)
-	// Per-task model override (OpenCode only). Explicit selection from the UI.
+	// Per-task model override (OpenCode only). Persisted on the task row, so it
+	// survives restarts and feeds the per-group concurrency accounting.
 	opts.Model = GetTaskModel(taskID)
-	defer ClearTaskModel(taskID)
 
 	// Execute with rate limit retry
 	var result *worker.ExecuteResult

@@ -30,6 +30,8 @@ type Task struct {
 	Status task.Status `json:"status,omitempty"`
 	// 에러 메시지
 	Error string `json:"error,omitempty"`
+	// 작업별 모델 오버라이드 (provider/model 형식, OpenCode 동시작업 그룹 집계에 사용)
+	Model string `json:"model,omitempty"`
 	// 작업 출력 로그
 	Output []string `json:"output,omitempty"`
 	// 실행 비용 (USD)
@@ -98,7 +100,7 @@ func (*Task) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case task.FieldID, task.FieldPromptTokens, task.FieldCompletionTokens, task.FieldOwnerPid:
 			values[i] = new(sql.NullInt64)
-		case task.FieldPrompt, task.FieldSummary, task.FieldStatus, task.FieldError:
+		case task.FieldPrompt, task.FieldSummary, task.FieldStatus, task.FieldError, task.FieldModel:
 			values[i] = new(sql.NullString)
 		case task.FieldStartedAt, task.FieldCompletedAt, task.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -158,6 +160,12 @@ func (_m *Task) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field error", values[i])
 			} else if value.Valid {
 				_m.Error = value.String
+			}
+		case task.FieldModel:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field model", values[i])
+			} else if value.Valid {
+				_m.Model = value.String
 			}
 		case task.FieldOutput:
 			if value, ok := values[i].(*[]byte); !ok {
@@ -283,6 +291,9 @@ func (_m *Task) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("error=")
 	builder.WriteString(_m.Error)
+	builder.WriteString(", ")
+	builder.WriteString("model=")
+	builder.WriteString(_m.Model)
 	builder.WriteString(", ")
 	builder.WriteString("output=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Output))

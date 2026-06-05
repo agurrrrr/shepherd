@@ -76,6 +76,20 @@ func (_c *TaskCreate) SetNillableError(v *string) *TaskCreate {
 	return _c
 }
 
+// SetModel sets the "model" field.
+func (_c *TaskCreate) SetModel(v string) *TaskCreate {
+	_c.mutation.SetModel(v)
+	return _c
+}
+
+// SetNillableModel sets the "model" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableModel(v *string) *TaskCreate {
+	if v != nil {
+		_c.SetModel(*v)
+	}
+	return _c
+}
+
 // SetOutput sets the "output" field.
 func (_c *TaskCreate) SetOutput(v []string) *TaskCreate {
 	_c.mutation.SetOutput(v)
@@ -345,6 +359,10 @@ func (_c *TaskCreate) createSpec() (*Task, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Error(); ok {
 		_spec.SetField(task.FieldError, field.TypeString, value)
 		_node.Error = value
+	}
+	if value, ok := _c.mutation.Model(); ok {
+		_spec.SetField(task.FieldModel, field.TypeString, value)
+		_node.Model = value
 	}
 	if value, ok := _c.mutation.Output(); ok {
 		_spec.SetField(task.FieldOutput, field.TypeJSON, value)

@@ -32,6 +32,9 @@ func (Task) Fields() []ent.Field {
 		field.Text("error").
 			Optional().
 			Comment("에러 메시지"),
+		field.String("model").
+			Optional().
+			Comment("작업별 모델 오버라이드 (provider/model 형식, OpenCode 동시작업 그룹 집계에 사용)"),
 		field.JSON("output", []string{}).
 			Optional().
 			Comment("작업 출력 로그"),

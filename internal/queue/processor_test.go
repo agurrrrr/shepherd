@@ -1,6 +1,52 @@
 package queue
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/spf13/viper"
+)
+
+func TestGroupKey(t *testing.T) {
+	// Isolate from any global per-provider model defaults so the per-task model
+	// is the only variable under test. Use viper.Set (in-memory override) rather
+	// than config.Set, which would persist to the user's config file.
+	viper.Set("model_claude", "")
+	viper.Set("model_opencode", "")
+	t.Cleanup(func() {
+		viper.Set("model_claude", "")
+		viper.Set("model_opencode", "")
+	})
+
+	tests := []struct {
+		name     string
+		provider string
+		model    string
+		want     string
+	}{
+		{"opencode with per-task model", "opencode", "local-llm/qwen2.5:14b", "opencode/local-llm/qwen2.5:14b"},
+		{"second opencode system is a distinct group", "opencode", "remote-b/devstral", "opencode/remote-b/devstral"},
+		{"opencode without model folds to provider key", "opencode", "", "opencode"},
+		{"auto provider folds into claude", "auto", "", "claude"},
+		{"claude with per-task model", "claude", "opus", "claude/opus"},
+		{"whitespace-only model treated as empty", "opencode", "   ", "opencode"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := groupKey(tt.provider, tt.model); got != tt.want {
+				t.Errorf("groupKey(%q, %q) = %q, want %q", tt.provider, tt.model, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("empty per-task model falls back to global opencode default", func(t *testing.T) {
+		viper.Set("model_opencode", "local-llm/devstral")
+		defer viper.Set("model_opencode", "")
+		if got := groupKey("opencode", ""); got != "opencode/local-llm/devstral" {
+			t.Errorf("groupKey fallback = %q, want %q", got, "opencode/local-llm/devstral")
+		}
+	})
+}
 
 func TestGroupConcurrencyLimit(t *testing.T) {
 	tests := []struct {

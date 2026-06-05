@@ -70,6 +70,11 @@ func Error(v string) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldError, v))
 }
 
+// Model applies equality check predicate on the "model" field. It's identical to ModelEQ.
+func Model(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldModel, v))
+}
+
 // CostUsd applies equality check predicate on the "cost_usd" field. It's identical to CostUsdEQ.
 func CostUsd(v float64) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldCostUsd, v))
@@ -348,6 +353,81 @@ func ErrorEqualFold(v string) predicate.Task {
 // ErrorContainsFold applies the ContainsFold predicate on the "error" field.
 func ErrorContainsFold(v string) predicate.Task {
 	return predicate.Task(sql.FieldContainsFold(FieldError, v))
+}
+
+// ModelEQ applies the EQ predicate on the "model" field.
+func ModelEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldModel, v))
+}
+
+// ModelNEQ applies the NEQ predicate on the "model" field.
+func ModelNEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldModel, v))
+}
+
+// ModelIn applies the In predicate on the "model" field.
+func ModelIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldModel, vs...))
+}
+
+// ModelNotIn applies the NotIn predicate on the "model" field.
+func ModelNotIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldModel, vs...))
+}
+
+// ModelGT applies the GT predicate on the "model" field.
+func ModelGT(v string) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldModel, v))
+}
+
+// ModelGTE applies the GTE predicate on the "model" field.
+func ModelGTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldModel, v))
+}
+
+// ModelLT applies the LT predicate on the "model" field.
+func ModelLT(v string) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldModel, v))
+}
+
+// ModelLTE applies the LTE predicate on the "model" field.
+func ModelLTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldModel, v))
+}
+
+// ModelContains applies the Contains predicate on the "model" field.
+func ModelContains(v string) predicate.Task {
+	return predicate.Task(sql.FieldContains(FieldModel, v))
+}
+
+// ModelHasPrefix applies the HasPrefix predicate on the "model" field.
+func ModelHasPrefix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasPrefix(FieldModel, v))
+}
+
+// ModelHasSuffix applies the HasSuffix predicate on the "model" field.
+func ModelHasSuffix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasSuffix(FieldModel, v))
+}
+
+// ModelIsNil applies the IsNil predicate on the "model" field.
+func ModelIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldModel))
+}
+
+// ModelNotNil applies the NotNil predicate on the "model" field.
+func ModelNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldModel))
+}
+
+// ModelEqualFold applies the EqualFold predicate on the "model" field.
+func ModelEqualFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldEqualFold(FieldModel, v))
+}
+
+// ModelContainsFold applies the ContainsFold predicate on the "model" field.
+func ModelContainsFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldContainsFold(FieldModel, v))
 }
 
 // OutputIsNil applies the IsNil predicate on the "output" field.

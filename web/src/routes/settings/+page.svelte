@@ -340,18 +340,21 @@
 			</div>
 
 			<div class="setting-row">
-				<label>Per-Provider Limits</label>
+				<label>Per-Group Limits</label>
 				<div class="conc-limits">
 					<div class="conc-row">
 						<span class="conc-label">🟠 Claude{configData.model_claude ? ` (${configData.model_claude})` : ''}</span>
-						<input class="input conc-input" type="number" bind:value={configData.concurrency_limits.claude} min="0" max="50" placeholder="0" />
+						<input class="input conc-input" type="number" bind:value={configData.concurrency_limits['claude']} min="0" max="50" placeholder="0" />
 					</div>
-					<div class="conc-row">
-						<span class="conc-label">🟢 OpenCode{configData.model_opencode ? ` (${configData.model_opencode})` : ''}</span>
-						<input class="input conc-input" type="number" bind:value={configData.concurrency_limits.opencode} min="0" max="50" placeholder="0" />
-					</div>
+					{#each modelOptions.opencode as opt}
+						{@const key = opt.id ? `opencode/${opt.id}` : 'opencode'}
+						<div class="conc-row">
+							<span class="conc-label" title={opt.id ? opt.id : 'OpenCode 모델 미지정 작업의 기본 그룹'}>🟢 {opt.id ? opt.label : 'OpenCode (모델 미지정 / 기본)'}</span>
+							<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
+						</div>
+					{/each}
 				</div>
-				<span class="hint">provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음(전역 천장만 적용). 예: 로컬 GPU를 쓰는 OpenCode를 <code>1</code>로 두면 순차 실행되고, 클라우드 Claude는 영향받지 않습니다. <code>auto</code> provider는 현재 Claude 그룹에 포함됩니다.</span>
+				<span class="hint">provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음(전역 천장만 적용). OpenCode 모델 목록은 <code>~/.config/opencode/config.json</code>에 등록된 모델을 자동 표시합니다. 여러 local-llm 시스템을 모델로 구분해 각각 한도를 둘 수 있고, 작업별로 선택한 모델이 그 그룹에 집계됩니다. 모델을 지정하지 않은 OpenCode 작업은 "기본" 그룹으로 묶입니다. <code>auto</code> provider는 Claude 그룹에 포함됩니다.</span>
 			</div>
 
 			<div class="setting-row">
