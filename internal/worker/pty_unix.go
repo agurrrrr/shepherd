@@ -40,6 +40,8 @@ func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sess
 		"TERM=xterm-256color",
 		"LANG=en_US.UTF-8",
 		"LC_ALL=en_US.UTF-8",
+		// Pin PWD to the real working dir; CleanEnv() strips the daemon's stale PWD.
+		"PWD="+projectPath,
 	)
 
 	// Start PTY
