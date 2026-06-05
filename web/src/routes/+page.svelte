@@ -29,6 +29,28 @@
 		return v.toLocaleString() + ' tokens';
 	}
 
+	// Compact token count for inline badges (no " tokens" suffix).
+	function fmtTokensShort(n) {
+		const v = Number(n) || 0;
+		if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+		if (v >= 1000) return (v / 1000).toFixed(1) + 'K';
+		return String(v);
+	}
+
+	// Human-readable elapsed time from a duration in seconds.
+	function fmtDuration(sec) {
+		const s = Math.max(0, Math.floor(Number(sec) || 0));
+		if (s < 60) return s + 's';
+		if (s < 3600) {
+			const m = Math.floor(s / 60);
+			const r = s % 60;
+			return r ? `${m}m ${r}s` : `${m}m`;
+		}
+		const h = Math.floor(s / 3600);
+		const m = Math.floor((s % 3600) / 60);
+		return m ? `${h}h ${m}m` : `${h}h`;
+	}
+
 	onMount(async () => {
 		await refreshData();
 		loaded = true;
@@ -220,6 +242,16 @@
 										<span class="recent-sheep">{task.sheep}</span>
 									{/if}
 									<span class="badge badge-{task.status}">{task.status}</span>
+									{#if task.duration_sec > 0}
+										<span class="recent-metric" title="실행 시간">
+											<Icon name="clock" size={12} />{fmtDuration(task.duration_sec)}
+										</span>
+									{/if}
+									{#if task.total_tokens > 0}
+										<span class="recent-metric" title="토큰 사용량">
+											<Icon name="zap" size={12} />{fmtTokensShort(task.total_tokens)}
+										</span>
+									{/if}
 								</div>
 								{#if task.status === 'failed' && task.error}
 									<span class="recent-error">{task.error}</span>
@@ -517,6 +549,15 @@
 		font-size: 11px;
 		color: var(--text-secondary);
 		font-family: var(--font-mono);
+	}
+
+	.recent-metric {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		font-size: 11px;
+		font-family: var(--font-mono);
+		color: var(--text-tertiary);
 	}
 
 	.recent-error {

@@ -84,6 +84,8 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 		CostUSD          float64 `json:"cost_usd,omitempty"`
 		PromptTokens     int64   `json:"prompt_tokens,omitempty"`
 		CompletionTokens int64   `json:"completion_tokens,omitempty"`
+		TotalTokens      int64   `json:"total_tokens"`
+		DurationSec      int64   `json:"duration_sec"`
 		Sheep            string  `json:"sheep,omitempty"`
 		Project          string  `json:"project,omitempty"`
 		CreatedAt        string  `json:"created_at"`
@@ -100,6 +102,8 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 			CostUSD:          t.CostUsd,
 			PromptTokens:     t.PromptTokens,
 			CompletionTokens: t.CompletionTokens,
+			TotalTokens:      t.PromptTokens + t.CompletionTokens,
+			DurationSec:      taskDurationSec(t),
 			CreatedAt:        t.CreatedAt.Format("2006-01-02 15:04:05"),
 		}
 		if t.Edges.Sheep != nil {
@@ -241,6 +245,8 @@ func (s *Server) handleGetTask(c *fiber.Ctx) error {
 		"cost_usd":          t.CostUsd,
 		"prompt_tokens":     t.PromptTokens,
 		"completion_tokens": t.CompletionTokens,
+		"total_tokens":      t.PromptTokens + t.CompletionTokens,
+		"duration_sec":      taskDurationSec(t),
 		"created_at":        t.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 	if !t.StartedAt.IsZero() {

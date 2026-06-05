@@ -95,6 +95,28 @@
 		return Math.floor(diff / 86400) + 'd ago';
 	}
 
+	// Human-readable elapsed time from a duration in seconds.
+	function fmtDuration(sec) {
+		const s = Math.max(0, Math.floor(Number(sec) || 0));
+		if (s < 60) return s + 's';
+		if (s < 3600) {
+			const m = Math.floor(s / 60);
+			const r = s % 60;
+			return r ? `${m}m ${r}s` : `${m}m`;
+		}
+		const h = Math.floor(s / 3600);
+		const m = Math.floor((s % 3600) / 60);
+		return m ? `${h}h ${m}m` : `${h}h`;
+	}
+
+	// Compact token count for inline badges.
+	function fmtTokensShort(n) {
+		const v = Number(n) || 0;
+		if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+		if (v >= 1000) return (v / 1000).toFixed(1) + 'K';
+		return String(v);
+	}
+
 	function statusIcon(status) {
 		switch (status) {
 			case 'completed': return { name: 'check-circle', tone: 'success' };
@@ -167,6 +189,18 @@
 							{/if}
 						</div>
 					</div>
+					<div class="row-metrics">
+						{#if t.duration_sec > 0}
+							<span class="metric" title="실행 시간">
+								<Icon name="clock" size={12} />{fmtDuration(t.duration_sec)}
+							</span>
+						{/if}
+						{#if t.total_tokens > 0}
+							<span class="metric" title="토큰 사용량">
+								<Icon name="zap" size={12} />{fmtTokensShort(t.total_tokens)}
+							</span>
+						{/if}
+					</div>
 					<span class="row-time">{timeAgo(t.created_at)}</span>
 				</div>
 			{/each}
@@ -226,6 +260,15 @@
 					{/if}
 					{#if selectedTask.completed_at}
 						<div class="meta-item"><span class="meta-label">Completed</span> {selectedTask.completed_at}</div>
+					{/if}
+					{#if selectedTask.duration_sec > 0}
+						<div class="meta-item"><span class="meta-label">Duration</span> {fmtDuration(selectedTask.duration_sec)}</div>
+					{/if}
+					{#if selectedTask.total_tokens > 0}
+						<div class="meta-item"><span class="meta-label">Tokens</span> {selectedTask.total_tokens.toLocaleString()} ({(selectedTask.prompt_tokens ?? 0).toLocaleString()} in / {(selectedTask.completion_tokens ?? 0).toLocaleString()} out)</div>
+					{/if}
+					{#if selectedTask.cost_usd > 0}
+						<div class="meta-item"><span class="meta-label">Cost</span> ${selectedTask.cost_usd.toFixed(4)}</div>
 					{/if}
 				</div>
 
@@ -381,6 +424,23 @@
 	.tag-sheep {
 		background: var(--bg-tertiary);
 		color: var(--text-secondary);
+	}
+
+	.row-metrics {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.metric {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		font-size: 11px;
+		font-family: var(--font-mono);
+		color: var(--text-tertiary);
+		white-space: nowrap;
 	}
 
 	.row-time {

@@ -141,25 +141,29 @@ func (s *Server) handleDashboard(c *fiber.Ctx) error {
 	}
 
 	type taskItem struct {
-		ID        int    `json:"id"`
-		Prompt    string `json:"prompt"`
-		Status    string `json:"status"`
-		Summary   string `json:"summary,omitempty"`
-		Error     string `json:"error,omitempty"`
-		Sheep     string `json:"sheep,omitempty"`
-		Project   string `json:"project,omitempty"`
-		CreatedAt string `json:"created_at"`
+		ID          int    `json:"id"`
+		Prompt      string `json:"prompt"`
+		Status      string `json:"status"`
+		Summary     string `json:"summary,omitempty"`
+		Error       string `json:"error,omitempty"`
+		Sheep       string `json:"sheep,omitempty"`
+		Project     string `json:"project,omitempty"`
+		CreatedAt   string `json:"created_at"`
+		TotalTokens int64  `json:"total_tokens"`
+		DurationSec int64  `json:"duration_sec"`
 	}
 
 	var recentItems []taskItem
 	for _, t := range recentTasks {
 		item := taskItem{
-			ID:        t.ID,
-			Prompt:    truncate(t.Prompt, 100),
-			Status:    string(t.Status),
-			Summary:   truncate(t.Summary, 120),
-			Error:     truncate(t.Error, 120),
-			CreatedAt: t.CreatedAt.Format("2006-01-02 15:04:05"),
+			ID:          t.ID,
+			Prompt:      truncate(t.Prompt, 100),
+			Status:      string(t.Status),
+			Summary:     truncate(t.Summary, 120),
+			Error:       truncate(t.Error, 120),
+			CreatedAt:   t.CreatedAt.Format("2006-01-02 15:04:05"),
+			TotalTokens: t.PromptTokens + t.CompletionTokens,
+			DurationSec: taskDurationSec(t),
 		}
 		if t.Edges.Sheep != nil {
 			item.Sheep = t.Edges.Sheep.Name
@@ -226,6 +230,29 @@ func (s *Server) handleDashboard(c *fiber.Ctx) error {
 			"7d": act7d,
 		},
 	})
+}
+
+// taskDurationSec returns how long a task ran, in whole seconds.
+//   - completed/failed/stopped: completed_at - started_at
+//   - running (no completed_at yet): now - started_at (live elapsed)
+//   - missing started_at: 0 (unknown)
+func taskDurationSec(t *ent.Task) int64 {
+	if t.StartedAt.IsZero() {
+		return 0
+	}
+	end := t.CompletedAt
+	if end.IsZero() {
+		if t.Status == entTask.StatusRunning {
+			end = time.Now()
+		} else {
+			return 0
+		}
+	}
+	d := end.Sub(t.StartedAt).Seconds()
+	if d < 0 {
+		return 0
+	}
+	return int64(d)
 }
 
 // truncate limits a string to maxLen characters.

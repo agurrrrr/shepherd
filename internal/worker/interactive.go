@@ -1987,7 +1987,17 @@ func parseStreamOutput(output string) *ExecuteResult {
 			OutputTokens     int64   `json:"output_tokens"`
 			CacheReadTokens  int64   `json:"cache_read_input_tokens"`
 			CacheWriteTokens int64   `json:"cache_creation_input_tokens"`
-			Message          struct {
+			// The final "result" event carries token totals in a TOP-LEVEL
+			// "usage" object (sibling of total_cost_usd), NOT under "message".
+			// Without this field the result event's tokens were never read and
+			// prompt/completion_tokens stayed 0 even though cost was captured.
+			Usage struct {
+				InputTokens      int64 `json:"input_tokens"`
+				OutputTokens     int64 `json:"output_tokens"`
+				CacheReadTokens  int64 `json:"cache_read_input_tokens"`
+				CacheWriteTokens int64 `json:"cache_creation_input_tokens"`
+			} `json:"usage"`
+			Message struct {
 				Content []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -2016,7 +2026,14 @@ func parseStreamOutput(output string) *ExecuteResult {
 			if msg.TotalCostUSD > 0 {
 				result.CostUSD = msg.TotalCostUSD
 			}
-			// Top-level token fields (if present)
+			// Top-level "usage" object on the result event (the canonical
+			// place Claude Code reports cumulative session token totals).
+			resultUsage := msg.Usage.InputTokens + msg.Usage.CacheReadTokens + msg.Usage.CacheWriteTokens
+			if resultUsage > 0 || msg.Usage.OutputTokens > 0 {
+				result.PromptTokens = resultUsage
+				result.CompletionTokens = msg.Usage.OutputTokens
+			}
+			// Top-level token fields (older/alternate shape, fields at root)
 			topLevelTokens := msg.InputTokens + msg.CacheReadTokens + msg.CacheWriteTokens
 			if topLevelTokens > 0 || msg.OutputTokens > 0 {
 				result.PromptTokens = topLevelTokens

@@ -110,6 +110,18 @@
 						<span>{formatDuration(task.started_at, task.completed_at)}</span>
 					</div>
 				{/if}
+				{#if task.total_tokens > 0}
+					<div class="meta-item">
+						<span class="meta-label">Tokens</span>
+						<span>{task.total_tokens.toLocaleString()} <span class="meta-sub">({(task.prompt_tokens ?? 0).toLocaleString()} in / {(task.completion_tokens ?? 0).toLocaleString()} out)</span></span>
+					</div>
+				{/if}
+				{#if task.cost_usd > 0}
+					<div class="meta-item">
+						<span class="meta-label">Cost</span>
+						<span>${task.cost_usd.toFixed(4)}</span>
+					</div>
+				{/if}
 			</div>
 
 			<div class="section card">
@@ -196,6 +208,11 @@
 		color: var(--text-secondary);
 		text-transform: uppercase;
 		font-weight: 500;
+	}
+
+	.meta-sub {
+		color: var(--text-tertiary);
+		font-size: 12px;
 	}
 
 	.section {
