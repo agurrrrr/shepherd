@@ -77,6 +77,23 @@ func TestParseOpenCodeOutput_Incomplete(t *testing.T) {
 			wantIncomplete: true,
 		},
 		{
+			name: "length truncation with part.reason (opencode 1.16.0 format)",
+			lines: []string{
+				`{"type":"reasoning","sessionID":"s1","part":{"type":"reasoning","text":"계속 생각 중"}}`,
+				`{"type":"step_finish","sessionID":"s1","part":{"type":"step-finish","reason":"length","tokens":{"total":100,"input":90,"output":10}}}`,
+			},
+			wantIncomplete: true,
+		},
+		{
+			name: "normal completion with part.reason (opencode 1.16.0 format)",
+			lines: []string{
+				`{"type":"text","sessionID":"s1","part":{"type":"text","text":"Hello! How can I help you today?"}}`,
+				`{"type":"step_finish","sessionID":"s1","part":{"type":"step-finish","reason":"stop","tokens":{"total":23074,"input":11,"output":44,"cache":{"write":0,"read":23019}},"cost":0}}`,
+			},
+			wantIncomplete: false,
+			wantResult:     "Hello! How can I help you today?",
+		},
+		{
 			name: "normal completion",
 			lines: []string{
 				`{"type":"tool_use","sessionID":"s1","part":{"type":"tool","tool":"bash","state":{"status":"completed"}}}`,

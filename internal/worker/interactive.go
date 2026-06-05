@@ -699,6 +699,7 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 				Type    string `json:"type"`
 				Text    string `json:"text"`
 				Content string `json:"content"`
+				Reason  string `json:"reason"`
 				Tokens  struct {
 					Total     int64 `json:"total"`
 					Input     int64 `json:"input"`
@@ -766,6 +767,8 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 				lastFinish = msg.FinishReason
 			} else if msg.FinishReason2 != "" {
 				lastFinish = msg.FinishReason2
+			} else if msg.Part.Reason != "" {
+				lastFinish = msg.Part.Reason
 			}
 		}
 		// Primary: text type events are the canonical final result
