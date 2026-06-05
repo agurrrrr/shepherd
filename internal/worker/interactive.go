@@ -699,6 +699,17 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 				Type    string `json:"type"`
 				Text    string `json:"text"`
 				Content string `json:"content"`
+				Tokens  struct {
+					Total     int64 `json:"total"`
+					Input     int64 `json:"input"`
+					Output    int64 `json:"output"`
+					Reasoning int64 `json:"reasoning"`
+					Cache     struct {
+						Write int64 `json:"write"`
+						Read  int64 `json:"read"`
+					} `json:"cache"`
+				} `json:"tokens"`
+				Cost float64 `json:"cost"`
 			} `json:"part"`
 			// Some OpenCode versions use top-level content field
 			Content string `json:"content"`
@@ -790,6 +801,20 @@ func parseOpenCodeOutput(output string) *ExecuteResult {
 			result.CostUSD = msg.Meta.TotalCost
 		} else if msg.CostUSD > 0 {
 			result.CostUSD = msg.CostUSD
+		}
+		// Extract token/cost from part.tokens (step_finish events, current opencode format)
+		if msg.Part.Tokens.Input > 0 || msg.Part.Tokens.Output > 0 {
+			result.PromptTokens = msg.Part.Tokens.Input
+			result.CompletionTokens = msg.Part.Tokens.Output
+		}
+		if msg.Part.Tokens.Cache.Read > 0 {
+			result.PromptTokens += msg.Part.Tokens.Cache.Read
+		}
+		if msg.Part.Tokens.Cache.Write > 0 {
+			result.PromptTokens += msg.Part.Tokens.Cache.Write
+		}
+		if msg.Part.Cost > 0 {
+			result.CostUSD = msg.Part.Cost
 		}
 	}
 

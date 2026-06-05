@@ -104,3 +104,63 @@ func TestParseOpenCodeOutput_Incomplete(t *testing.T) {
 		})
 	}
 }
+
+// TestParseOpenCodeOutput_PartTokens verifies that token/cost data from
+// part.tokens in step_finish events (current opencode --format json output)
+// is correctly extracted. This is the actual format emitted by opencode 1.3.x.
+func TestParseOpenCodeOutput_PartTokens(t *testing.T) {
+	tests := []struct {
+		name              string
+		lines             []string
+		wantPromptTok     int64
+		wantCompletionTok int64
+		wantCostUSD       float64
+	}{
+		{
+			name: "basic step_finish with part.tokens",
+			lines: []string{
+				`{"type":"text","sessionID":"s1","part":{"type":"text","text":"Hi!"}}`,
+				`{"type":"step_finish","sessionID":"s1","part":{"type":"step-finish","reason":"stop","tokens":{"total":29543,"input":29538,"output":5,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0.088689}}`,
+			},
+			wantPromptTok:     29538,
+			wantCompletionTok: 5,
+			wantCostUSD:       0.088689,
+		},
+		{
+			name: "step_finish with cache tokens",
+			lines: []string{
+				`{"type":"text","sessionID":"s1","part":{"type":"text","text":"result"}}`,
+				`{"type":"step_finish","sessionID":"s1","part":{"type":"step-finish","reason":"stop","tokens":{"total":50000,"input":30000,"output":1000,"reasoning":500,"cache":{"write":5000,"read":10000}},"cost":0.5}}`,
+			},
+			wantPromptTok:     45000, // input(30000) + cache.read(10000) + cache.write(5000)
+			wantCompletionTok: 1000,
+			wantCostUSD:       0.5,
+		},
+		{
+			name: "no tokens in step_finish",
+			lines: []string{
+				`{"type":"text","sessionID":"s1","part":{"type":"text","text":"done"}}`,
+				`{"type":"step_finish","sessionID":"s1","part":{"type":"step-finish","reason":"stop"}}`,
+			},
+			wantPromptTok:     0,
+			wantCompletionTok: 0,
+			wantCostUSD:       0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := strings.Join(tt.lines, "\n")
+			result := parseOpenCodeOutput(out)
+			if result.PromptTokens != tt.wantPromptTok {
+				t.Errorf("PromptTokens = %d, want %d", result.PromptTokens, tt.wantPromptTok)
+			}
+			if result.CompletionTokens != tt.wantCompletionTok {
+				t.Errorf("CompletionTokens = %d, want %d", result.CompletionTokens, tt.wantCompletionTok)
+			}
+			if result.CostUSD != tt.wantCostUSD {
+				t.Errorf("CostUSD = %f, want %f", result.CostUSD, tt.wantCostUSD)
+			}
+		})
+	}
+}
