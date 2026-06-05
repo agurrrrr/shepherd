@@ -95,18 +95,13 @@
 		return Math.floor(diff / 86400) + 'd ago';
 	}
 
-	// Human-readable elapsed time from a duration in seconds.
+	// Duration in HH:MM:SS format.
 	function fmtDuration(sec) {
 		const s = Math.max(0, Math.floor(Number(sec) || 0));
-		if (s < 60) return s + 's';
-		if (s < 3600) {
-			const m = Math.floor(s / 60);
-			const r = s % 60;
-			return r ? `${m}m ${r}s` : `${m}m`;
-		}
-		const h = Math.floor(s / 3600);
-		const m = Math.floor((s % 3600) / 60);
-		return m ? `${h}h ${m}m` : `${h}h`;
+		const hh = String(Math.floor(s / 3600)).padStart(2, '0');
+		const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+		const ss = String(s % 60).padStart(2, '0');
+		return `${hh}:${mm}:${ss}`;
 	}
 
 	// Compact token count for inline badges.
@@ -267,9 +262,7 @@
 					{#if selectedTask.total_tokens > 0}
 						<div class="meta-item"><span class="meta-label">Tokens</span> {selectedTask.total_tokens.toLocaleString()} ({(selectedTask.prompt_tokens ?? 0).toLocaleString()} in / {(selectedTask.completion_tokens ?? 0).toLocaleString()} out)</div>
 					{/if}
-					{#if selectedTask.cost_usd > 0}
-						<div class="meta-item"><span class="meta-label">Cost</span> ${selectedTask.cost_usd.toFixed(4)}</div>
-					{/if}
+	
 				</div>
 
 				{#if selectedTask.files_modified?.length}

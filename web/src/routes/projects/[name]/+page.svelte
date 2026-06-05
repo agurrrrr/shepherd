@@ -617,8 +617,12 @@
 												{retryFromId === t.id ? '...' : 'Retry All'}
 											</button>
 										{/if}
-										{#if t.cost_usd > 0}
-											<span class="task-cost mono">${t.cost_usd.toFixed(4)}</span>
+										{#if t.duration_sec > 0}
+											{@const dur = t.duration_sec}
+											{@const hh = String(Math.floor(dur / 3600)).padStart(2, '0')}
+											{@const mm = String(Math.floor((dur % 3600) / 60)).padStart(2, '0')}
+											{@const ss = String(dur % 60).padStart(2, '0')}
+											<span class="task-duration mono" title="Execution time">{hh}:{mm}:{ss}</span>
 										{/if}
 										{#if t.prompt_tokens > 0 || t.completion_tokens > 0}
 											{@const totalTok = (t.prompt_tokens || 0) + (t.completion_tokens || 0)}
@@ -1127,11 +1131,11 @@
 		white-space: nowrap;
 	}
 
-	.task-cost {
+	.task-duration {
 		font-size: 11px;
 		color: var(--text-secondary);
 		flex-shrink: 0;
-		background: rgba(56, 139, 253, 0.1);
+		background: rgba(230, 126, 34, 0.1);
 		padding: 1px 6px;
 		border-radius: 8px;
 	}
