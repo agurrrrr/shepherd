@@ -49,8 +49,10 @@ func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sess
 	}
 	defer ptmx.Close()
 
-	// Register running task
-	registerRunningTask(sheepName, cancel, cmd)
+	// Register running task. unregister with the returned token so a late finish
+	// can only remove our own entry, never a newer task's (stop+restart race).
+	rt := registerRunningTask(sheepName, cancel, cmd)
+	defer unregisterRunningTask(sheepName, rt)
 
 	// Send prompt. claude TUI enables paste-bracketed input mode
 	// (`\x1b[?2004h`); inside that mode a bare \n is treated as an embedded

@@ -157,15 +157,20 @@ func IsTaskRunning(sheepName string) bool {
 	return ok
 }
 
-// registerRunningTask registers a running task
-func registerRunningTask(sheepName string, cancel context.CancelFunc, cmd *exec.Cmd) {
+// registerRunningTask registers a running task and returns the registered
+// entry as an identity token. Pass that token to unregisterRunningTask so a
+// late-finishing task can only ever remove its OWN entry — never one that a
+// newer task (e.g. after a stop+restart) has since placed under the same name.
+func registerRunningTask(sheepName string, cancel context.CancelFunc, cmd *exec.Cmd) *RunningTask {
 	runningTasksMu.Lock()
 	defer runningTasksMu.Unlock()
-	runningTasks[sheepName] = &RunningTask{
+	rt := &RunningTask{
 		SheepName: sheepName,
 		Cancel:    cancel,
 		Cmd:       cmd,
 	}
+	runningTasks[sheepName] = rt
+	return rt
 }
 
 // SetRunningTaskID sets the task ID for the running task.
@@ -205,11 +210,20 @@ func GetRunningTaskOutput(sheepName string) (int, []string) {
 	return task.TaskID, output
 }
 
-// unregisterRunningTask unregisters a running task
-func unregisterRunningTask(sheepName string) {
+// unregisterRunningTask removes the running-task entry for sheepName, but only
+// if it is still the exact entry identified by token (the value returned from
+// registerRunningTask). Returns true when it removed its own entry, false when
+// another task had already replaced it — the stop+restart race where Task A
+// finishes after Task B has registered. In that case the caller MUST NOT touch
+// shared sheep state (status/session), because that state now belongs to Task B.
+func unregisterRunningTask(sheepName string, token *RunningTask) bool {
 	runningTasksMu.Lock()
 	defer runningTasksMu.Unlock()
-	delete(runningTasks, sheepName)
+	if t, ok := runningTasks[sheepName]; ok && t == token {
+		delete(runningTasks, sheepName)
+		return true
+	}
+	return false
 }
 
 // DefaultInteractiveOptions returns default interactive options. The timeout is
@@ -266,7 +280,10 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		ctx, cancel = context.WithCancel(bgCtx)
 	}
 	defer cancel()
-	defer unregisterRunningTask(sheepName)
+	// NOTE: the running-task entry is registered and unregistered INSIDE each
+	// execute* function (it owns the *exec.Cmd), using a self-guarded
+	// unregisterRunningTask. We intentionally do NOT unregister here: a blind
+	// defer would wipe out a newer task's entry in the stop+restart race.
 
 	var result *ExecuteResult
 	var execErr error
@@ -295,15 +312,20 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
 	}
 
-	// Restore status — use ID, since the sheep may have been renamed during execution
-	updateQuery := client.Sheep.UpdateOneID(s.ID).
-		SetStatus(sheep.StatusIdle)
+	// Restore status — use ID, since the sheep may have been renamed during execution.
+	// Skip this when another task is already running for this sheep: that means our
+	// run was stopped and a new task took over (stop+restart race). Flipping the
+	// sheep back to idle / overwriting the session would clobber the live task.
+	if !IsTaskRunning(sheepName) {
+		updateQuery := client.Sheep.UpdateOneID(s.ID).
+			SetStatus(sheep.StatusIdle)
 
-	if result != nil && result.SessionID != "" {
-		updateQuery = updateQuery.SetSessionID(result.SessionID)
+		if result != nil && result.SessionID != "" {
+			updateQuery = updateQuery.SetSessionID(result.SessionID)
+		}
+
+		_, _ = updateQuery.Save(bgCtx)
 	}
-
-	_, _ = updateQuery.Save(bgCtx)
 
 	// User cancelled
 	if ctx.Err() == context.Canceled {
@@ -369,8 +391,10 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 	// Auto-approve all permissions to prevent interactive prompts that block stdin
 	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
 
-	// Register running task
-	registerRunningTask(sheepName, cancel, cmd)
+	// Register running task. unregister with the returned token so a late finish
+	// can only remove our own entry, never a newer task's (stop+restart race).
+	rt := registerRunningTask(sheepName, cancel, cmd)
+	defer unregisterRunningTask(sheepName, rt)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1593,8 +1617,10 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 	cmd.Stdin = strings.NewReader(prompt)
 	envutil.SetCleanEnv(cmd)
 
-	// Register running task
-	registerRunningTask(sheepName, cancel, cmd)
+	// Register running task. unregister with the returned token so a late finish
+	// can only remove our own entry, never a newer task's (stop+restart race).
+	rt := registerRunningTask(sheepName, cancel, cmd)
+	defer unregisterRunningTask(sheepName, rt)
 
 	// stdout pipe
 	stdout, err := cmd.StdoutPipe()
