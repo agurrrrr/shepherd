@@ -97,6 +97,7 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"opencode_thinking_model":         config.GetString("opencode_thinking_model"),
 		"model_claude":                    config.GetString("model_claude"),
 		"model_opencode":                  config.GetString("model_opencode"),
+		"model_pi":                        config.GetString("model_pi"),
 		"task_timeout":                    config.GetString("task_timeout"),
 		"wiki_enabled":                    config.GetBool("wiki_enabled"),
 		"wiki_auto_ingest":                config.GetBool("wiki_auto_ingest"),
@@ -112,7 +113,8 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 // GET /api/config/model-options
 // Returns selectable models for each provider. Claude options are a curated
 // hard-coded list (CLI aliases + pinned versions), OpenCode options come from
-// the user's ~/.config/opencode/config.json.
+// the user's ~/.config/opencode/config.json, and Pi options come from
+// ~/.pi/agent/models.json.
 func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
 	type option struct {
 		ID    string `json:"id"`
@@ -135,9 +137,15 @@ func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
 		opencode = append(opencode, option{ID: m.ID, Label: m.Label})
 	}
 
+	pi := []option{{ID: "", Label: "Pi config default"}}
+	for _, m := range config.ListPiModels() {
+		pi = append(pi, option{ID: m.ID, Label: m.Label})
+	}
+
 	return success(c, map[string]interface{}{
 		"claude":   claude,
 		"opencode": opencode,
+		"pi":       pi,
 	})
 }
 
@@ -182,6 +190,7 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"opencode_thinking_model":         true,
 		"model_claude":                    true,
 		"model_opencode":                  true,
+		"model_pi":                        true,
 		"task_timeout":                    true,
 		"wiki_enabled":                    true,
 		"wiki_auto_ingest":                true,

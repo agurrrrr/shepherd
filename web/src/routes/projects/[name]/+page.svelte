@@ -40,16 +40,28 @@
 		thinkingByProject.update((m) => ({ ...(m || {}), [projectName]: checked }));
 	}
 
-	// Global OpenCode model default; per-project override lives in $modelByProject.
+	// Global model defaults per provider; per-project override lives in $modelByProject.
 	let opencodeModelDefault = $state('');
 	let opencodeModelOptions = $state([]);
+	let piModelDefault = $state('');
+	let piModelOptions = $state([]);
+
+	// Providers that take an explicit model + thinking toggle (Claude uses a fixed
+	// CLI model, so it has no per-project selector here).
+	let providerHasModel = $derived(
+		sheepProvider === 'opencode' || sheepProvider === 'auto' || sheepProvider === 'pi'
+	);
+	// Model option list and global default for the sheep's current provider.
+	let activeModelOptions = $derived(sheepProvider === 'pi' ? piModelOptions : opencodeModelOptions);
+	let activeModelDefault = $derived(sheepProvider === 'pi' ? piModelDefault : opencodeModelDefault);
+
 	let modelSelected = $derived.by(() => {
 		const overrides = $modelByProject || {};
 		if (projectName && Object.prototype.hasOwnProperty.call(overrides, projectName)) {
 			const v = overrides[projectName];
 			if (v) return v;
 		}
-		return opencodeModelDefault;
+		return activeModelDefault;
 	});
 
 	function changeModel(e) {
@@ -186,9 +198,11 @@
 		if (configRes?.data) {
 			opencodeThinkingDefault = !!configRes.data.opencode_thinking_default;
 			opencodeModelDefault = configRes.data.model_opencode || '';
+			piModelDefault = configRes.data.model_pi || '';
 		}
 		if (modelRes?.data) {
 			opencodeModelOptions = modelRes.data.opencode || [];
+			piModelOptions = modelRes.data.pi || [];
 		}
 		if (res?.data) {
 			project = res.data;
@@ -511,10 +525,11 @@
 						onchange={(e) => changeProvider(e.target.value)}>
 						<option value="claude">Claude</option>
 						<option value="opencode">OpenCode</option>
+						<option value="pi">Pi</option>
 						<option value="auto">Auto</option>
 					</select>
-					{#if sheepProvider === 'opencode' || sheepProvider === 'auto'}
-						<label class="thinking-toggle" title="Enable OpenCode reasoning for this project">
+					{#if providerHasModel}
+						<label class="thinking-toggle" title="Enable reasoning for this project">
 							<input
 								type="checkbox"
 								checked={thinkingChecked}
@@ -523,9 +538,9 @@
 							<span>Thinking</span>
 						</label>
 						<select class="provider-select" value={modelSelected} onchange={changeModel}
-							title="Override OpenCode model for this project">
+							title="Override model for this project">
 							<option value="">Default</option>
-							{#each opencodeModelOptions as opt}
+							{#each activeModelOptions as opt}
 								<option value={opt.id} title={opt.label}>{truncateModel(opt.label)}</option>
 							{/each}
 						</select>
@@ -872,8 +887,8 @@
 					projectName={project.name}
 					sheepName={sheepName}
 					sheepStatus={sheepStatus}
-					thinking={(sheepProvider === 'opencode' || sheepProvider === 'auto') ? thinkingChecked : null}
-					model={(sheepProvider === 'opencode' || sheepProvider === 'auto') ? (modelSelected || null) : null}
+					thinking={providerHasModel ? thinkingChecked : null}
+					model={providerHasModel ? (modelSelected || null) : null}
 				/>
 				{:else}
 					<p class="text-muted command-disabled-text">Assign a sheep to this project to send tasks</p>

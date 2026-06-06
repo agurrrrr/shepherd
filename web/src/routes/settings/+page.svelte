@@ -22,7 +22,7 @@
 	let previewMode = 'streaming'; // streaming | compact | withGuide
 	let previewOpen = false;
 
-	let modelOptions = { claude: [], opencode: [] };
+	let modelOptions = { claude: [], opencode: [], pi: [] };
 
 	// Backup / export / import state
 	let projectsList = [];
@@ -237,6 +237,7 @@
 			opencode_thinking_model: configData.opencode_thinking_model || '',
 			model_claude: configData.model_claude || '',
 			model_opencode: configData.model_opencode || '',
+			model_pi: configData.model_pi || '',
 			task_timeout: (configData.task_timeout || '').trim() || '4h',
 			wiki_enabled: configData.wiki_enabled,
 			wiki_auto_ingest: configData.wiki_auto_ingest,
@@ -330,6 +331,15 @@
 			</div>
 
 			<div class="setting-row">
+				<label>Pi Model</label>
+				<select class="input" bind:value={configData.model_pi}>
+					{#each optionsWithCurrent(modelOptions.pi, configData.model_pi) as opt}
+						<option value={opt.id}>{opt.label}</option>
+					{/each}
+				</select>
+			</div>
+
+			<div class="setting-row">
 				<label>Max Sheep</label>
 				<input class="input" type="number" bind:value={configData.max_sheep} min="1" max="50" />
 			</div>
@@ -351,6 +361,13 @@
 						{@const key = opt.id ? `opencode/${opt.id}` : 'opencode'}
 						<div class="conc-row">
 							<span class="conc-label" title={opt.id ? opt.id : 'OpenCode 모델 미지정 작업의 기본 그룹'}>🟢 {opt.id ? opt.label : 'OpenCode (모델 미지정 / 기본)'}</span>
+							<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
+						</div>
+					{/each}
+					{#each modelOptions.pi as opt}
+						{@const key = opt.id ? `pi/${opt.id}` : 'pi'}
+						<div class="conc-row">
+							<span class="conc-label" title={opt.id ? opt.id : 'Pi 모델 미지정 작업의 기본 그룹'}>🔵 {opt.id ? opt.label : 'Pi (모델 미지정 / 기본)'}</span>
 							<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
 						</div>
 					{/each}
