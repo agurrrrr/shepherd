@@ -916,6 +916,7 @@ func PreviewSystemPrompt(sheepName string) map[string]string {
 		"compact":   buildPromptCompact(sheepName, "<USER_PROMPT>"),
 		"withGuide": buildPromptWithContext(sheepName, "<USER_PROMPT>"),
 		"opencode":  opencode,
+		"pi":        buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_pi"),
 	}
 }
 

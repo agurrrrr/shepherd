@@ -229,6 +229,7 @@
 			enable_file_browser: configData.enable_file_browser,
 			custom_prompt_claude: configData.custom_prompt_claude || '',
 			custom_prompt_opencode: configData.custom_prompt_opencode || '',
+			custom_prompt_pi: configData.custom_prompt_pi || '',
 			opencode_compact_prompt: configData.opencode_compact_prompt,
 			opencode_thinking_default: configData.opencode_thinking_default,
 			opencode_thinking_proxy_enabled: configData.opencode_thinking_proxy_enabled,
@@ -525,6 +526,17 @@
 				<span class="hint">Injected only when the task runs on OpenCode.</span>
 			</div>
 
+			<div class="setting-row column">
+				<label>Custom Prompt — Pi</label>
+				<textarea
+					class="input textarea"
+					bind:value={configData.custom_prompt_pi}
+					rows="6"
+					placeholder="Pi 실행 시 추가로 전달할 지시문을 입력하세요."
+				></textarea>
+				<span class="hint">Injected only when the task runs on Pi.</span>
+			</div>
+
 			<hr class="setting-divider" />
 
 			<div class="setting-section-title">Wiki</div>
@@ -637,6 +649,7 @@
 						<button class="preview-tab" class:active={previewMode === 'streaming'} onclick={() => previewMode = 'streaming'}>Streaming (Claude --append-system-prompt)</button>
 						<button class="preview-tab" class:active={previewMode === 'withGuide'} onclick={() => previewMode = 'withGuide'}>With Guide (Claude Interactive)</button>
 						<button class="preview-tab" class:active={previewMode === 'opencode'} onclick={() => previewMode = 'opencode'}>OpenCode (Actual)</button>
+						<button class="preview-tab" class:active={previewMode === 'pi'} onclick={() => previewMode = 'pi'}>Pi</button>
 						<button class="preview-tab" class:active={previewMode === 'compact'} onclick={() => previewMode = 'compact'}>Compact</button>
 					</div>
 					<pre class="preview-body">{preview[previewMode] || '(empty)'}</pre>
@@ -653,7 +666,8 @@
 				<div class="mcp-providers">
 					{#each [
 						{ key: 'claude', label: 'Claude Code' },
-						{ key: 'opencode', label: 'OpenCode' }
+						{ key: 'opencode', label: 'OpenCode' },
+						{ key: 'pi', label: 'Pi' }
 					] as provider}
 						{@const status = mcpStatus[provider.key]}
 						<div class="mcp-provider">
