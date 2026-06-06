@@ -520,6 +520,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						case "claude":
 							nextProvider = "opencode"
 						case "opencode":
+							nextProvider = "pi"
+						case "pi":
 							nextProvider = "auto"
 						case "auto":
 							nextProvider = "claude"
@@ -660,6 +662,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					case "claude":
 						nextProvider = "opencode"
 					case "opencode":
+						nextProvider = "pi"
+					case "pi":
 						nextProvider = "auto"
 					case "auto":
 						nextProvider = "claude"
@@ -982,6 +986,8 @@ func (m Model) handleSettingsInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case "claude":
 				provider = "opencode"
 			case "opencode":
+				provider = "pi"
+			case "pi":
 				provider = "auto"
 			default:
 				provider = "claude"
@@ -2028,6 +2034,8 @@ func (m Model) renderSheepDetail(s *SheepState) string {
 		providerDisplay = "🤖 Claude"
 	case "opencode":
 		providerDisplay = "🟢 " + worker.GetOpenCodeDisplayName()
+	case "pi":
+		providerDisplay = "🟣 Pi"
 	case "auto":
 		providerDisplay = "⚡ Auto"
 	default:

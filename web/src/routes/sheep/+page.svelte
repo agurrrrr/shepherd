@@ -74,6 +74,7 @@
 					<select class="input" bind:value={newProvider}>
 						<option value="claude">Claude</option>
 						<option value="opencode">OpenCode</option>
+						<option value="pi">Pi</option>
 						<option value="auto">Auto</option>
 					</select>
 				</div>
@@ -107,6 +108,7 @@
 							onchange={(e) => changeProvider(s.name, e.target.value)}>
 							<option value="claude">Claude</option>
 							<option value="opencode">OpenCode</option>
+							<option value="pi">Pi</option>
 							<option value="auto">Auto</option>
 						</select>
 						<button class="btn btn-danger btn-sm" onclick={() => removeSheep(s.name)}>Remove</button>

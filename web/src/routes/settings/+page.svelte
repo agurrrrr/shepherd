@@ -306,6 +306,7 @@
 				<select class="input" bind:value={configData.default_provider}>
 					<option value="claude">Claude</option>
 					<option value="opencode">OpenCode</option>
+					<option value="pi">Pi</option>
 					<option value="auto">Auto</option>
 				</select>
 			</div>

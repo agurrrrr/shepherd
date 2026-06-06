@@ -172,7 +172,7 @@ var flockCmd = &cobra.Command{
 var setProviderCmd = &cobra.Command{
 	Use:   "set-provider <sheep-name> <provider>",
 	Short: "Change a sheep's AI provider",
-	Long:  "Changes the AI provider for a sheep (worker). (claude, opencode, auto)",
+	Long:  "Changes the AI provider for a sheep (worker). (claude, opencode, pi, auto)",
 	Args:  cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		name := args[0]
@@ -3854,7 +3854,7 @@ func init() {
 
 	// Register spawn command
 	spawnCmd.Flags().StringVarP(&spawnName, "name", "n", "", i18n.T().CLIFlagSheepName)
-	spawnCmd.Flags().StringVarP(&spawnProvider, "provider", "p", "claude", "AI provider (claude, opencode, auto)")
+	spawnCmd.Flags().StringVarP(&spawnProvider, "provider", "p", "claude", "AI provider (claude, opencode, pi, auto)")
 	rootCmd.AddCommand(spawnCmd)
 
 	// Register flock command

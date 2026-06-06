@@ -25,7 +25,7 @@ type Sheep struct {
 	Status sheep.Status `json:"status,omitempty"`
 	// Claude Code 세션 ID
 	SessionID string `json:"session_id,omitempty"`
-	// AI provider (claude, opencode, auto)
+	// AI provider (claude, opencode, pi, auto)
 	Provider sheep.Provider `json:"provider,omitempty"`
 	// 연속 실패 횟수 (서킷 브레이커)
 	ConsecutiveFailures int `json:"consecutive_failures,omitempty"`

@@ -305,6 +305,10 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		// OpenCode: always start fresh session (local LLMs have small context windows,
 		// reusing sessions causes token count to grow unboundedly)
 		result, execErr = executeWithOpenCode(ctx, sheepName, proj.Path, "", prompt, opts, cancel)
+	case sheep.ProviderPi:
+		// Pi is a Claude-class harness with a large context, so honor session reuse
+		// like Claude (subject to the session_reuse config above).
+		result, execErr = executeWithPi(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
 	case sheep.ProviderAuto:
 		// auto mode: use Claude by default
 		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)

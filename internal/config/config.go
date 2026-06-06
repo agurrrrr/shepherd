@@ -54,6 +54,7 @@ func Init() error {
 	viper.SetDefault("include_mcp_guide", true)
 	viper.SetDefault("custom_prompt_claude", "")
 	viper.SetDefault("custom_prompt_opencode", "")
+	viper.SetDefault("custom_prompt_pi", "")
 
 	// 양 개인 기억 (sheep memory) — 프로젝트와 무관하게 양 이름 단위로 누적된다.
 	// 저장 위치는 ~/.shepherd/sheep/<sheep_name>/ (CLI 중립).
@@ -83,6 +84,7 @@ func Init() error {
 	// 전역 모델 선택 (빈 문자열이면 각 CLI의 기본 모델 사용)
 	viper.SetDefault("model_claude", "")
 	viper.SetDefault("model_opencode", "")
+	viper.SetDefault("model_pi", "")
 
 	// 작업 실행 타임아웃 (Claude/OpenCode CLI 한 번 실행에 허용되는 최대 시간).
 	// time.ParseDuration 형식 — 예: "4h", "30m", "8h30m".
@@ -360,4 +362,50 @@ func GetOpenCodeBinary() string {
 	}
 
 	return "opencode" // fallback: hope it's in PATH
+}
+
+// GetPiBinary returns the path to the pi (pi-coding-agent) binary.
+// It checks: 1) PI_PATH env var, 2) config "pi_path", 3) PATH lookup, 4) common locations.
+func GetPiBinary() string {
+	// 1. Environment variable
+	if p := os.Getenv("PI_PATH"); p != "" {
+		return p
+	}
+
+	// 2. Config file
+	if p := viper.GetString("pi_path"); p != "" {
+		return p
+	}
+
+	// 3. PATH lookup
+	if p, err := exec.LookPath("pi"); err == nil {
+		return p
+	}
+
+	// 4. Common locations
+	home, _ := os.UserHomeDir()
+	var candidates []string
+	if runtime.GOOS == "windows" {
+		appdata := os.Getenv("APPDATA")
+		localAppdata := os.Getenv("LOCALAPPDATA")
+		candidates = []string{
+			filepath.Join(appdata, "npm", "pi.cmd"),
+			filepath.Join(localAppdata, "bun", "bin", "pi.exe"),
+			filepath.Join(home, ".bun", "bin", "pi.exe"),
+			filepath.Join(home, "scoop", "shims", "pi.exe"),
+		}
+	} else {
+		candidates = []string{
+			filepath.Join(home, ".bun/install/global/node_modules/@earendil-works/pi-coding-agent/bin/pi"),
+			filepath.Join(home, ".local/bin/pi"),
+			"/usr/local/bin/pi",
+		}
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+
+	return "pi" // fallback: hope it's in PATH
 }

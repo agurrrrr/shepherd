@@ -143,6 +143,7 @@ const DefaultProvider = ProviderClaude
 const (
 	ProviderClaude   Provider = "claude"
 	ProviderOpencode Provider = "opencode"
+	ProviderPi       Provider = "pi"
 	ProviderAuto     Provider = "auto"
 )
 
@@ -153,7 +154,7 @@ func (pr Provider) String() string {
 // ProviderValidator is a validator for the "provider" field enum values. It is called by the builders before save.
 func ProviderValidator(pr Provider) error {
 	switch pr {
-	case ProviderClaude, ProviderOpencode, ProviderAuto:
+	case ProviderClaude, ProviderOpencode, ProviderPi, ProviderAuto:
 		return nil
 	default:
 		return fmt.Errorf("sheep: invalid enum value for provider field: %q", pr)
