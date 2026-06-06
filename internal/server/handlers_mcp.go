@@ -248,10 +248,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as os from "node:os";
+import * as path from "node:path";
 
 function readRuntime(): { addr: string; mcpToken: string } {
-  const path = fs.pathModule.join(os.homedir(), ".shepherd", "runtime.json");
-  const raw = fs.readFileSync(path, "utf-8");
+  const runtimePath = path.join(os.homedir(), ".shepherd", "runtime.json");
+  const raw = fs.readFileSync(runtimePath, "utf-8");
   const info = JSON.parse(raw);
   return { addr: info.addr, mcpToken: info.mcp_token };
 }
