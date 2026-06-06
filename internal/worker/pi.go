@@ -55,10 +55,11 @@ type piContentBlock struct {
 
 // executeWithPi runs a task via the pi CLI in JSON event-stream mode.
 func executeWithPi(ctx context.Context, sheepName, projectPath, sessionID, prompt string, opts InteractiveOptions, cancel context.CancelFunc) (*ExecuteResult, error) {
-	// --mode json    → stream session events as JSON lines
-	// --approve (-a) → trust the project so pi loads CLAUDE.md/AGENTS.md/.pi config
-	//                  in non-interactive mode (otherwise they are silently ignored)
-	args := []string{"--mode", "json", "--approve"}
+	// --mode json → stream session events as JSON lines and run non-interactively
+	//               (the run processes the prompt and exits; no --print/-p needed).
+	//               CLAUDE.md/AGENTS.md are loaded by default — there is no
+	//               --approve flag (pi has no trust prompt in json mode).
+	args := []string{"--mode", "json"}
 	args = append(args, piModelArgs(opts.Model)...)
 	if opts.Thinking {
 		// pi takes a reasoning *level*; map our boolean toggle to a balanced default.
