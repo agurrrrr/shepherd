@@ -55,11 +55,18 @@ type piContentBlock struct {
 
 // executeWithPi runs a task via the pi CLI in JSON event-stream mode.
 func executeWithPi(ctx context.Context, sheepName, projectPath, sessionID, prompt string, opts InteractiveOptions, cancel context.CancelFunc) (*ExecuteResult, error) {
-	// --mode json → stream session events as JSON lines and run non-interactively
-	//               (the run processes the prompt and exits; no --print/-p needed).
+	// --print (-p)  → non-interactive mode: process the prompt and EXIT. This is
+	//               mandatory. Without it pi runs interactively and, after the
+	//               agent finishes, keeps the session open waiting for more input
+	//               on stdin — pi never exits, so cmd.Wait()/the stdout scanner
+	//               block forever and the task hangs as "running" until manually
+	//               stopped. `--mode json` only selects the output *format*; it
+	//               does NOT make pi non-interactive (an earlier assumption that
+	//               json mode exits on its own was wrong and caused the hang).
+	// --mode json  → stream session events as JSON lines (parsed below).
 	//               CLAUDE.md/AGENTS.md are loaded by default — there is no
 	//               --approve flag (pi has no trust prompt in json mode).
-	args := []string{"--mode", "json"}
+	args := []string{"--print", "--mode", "json"}
 	args = append(args, piModelArgs(opts.Model)...)
 	if opts.Thinking {
 		// pi takes a reasoning *level*; map our boolean toggle to a balanced default.
@@ -78,9 +85,9 @@ func executeWithPi(ctx context.Context, sheepName, projectPath, sessionID, promp
 
 	cmd := exec.CommandContext(ctx, config.GetPiBinary(), args...)
 	cmd.Dir = projectPath
-	// Close stdin so pi exits after processing the prompt instead of waiting
-	// for more input. Without this, pi inherits the parent's stdin and may
-	// hang indefinitely after the agent finishes its work.
+	// Give pi an empty, already-closed stdin so it never inherits the daemon's
+	// stdin (a TTY when started from a terminal). Belt-and-suspenders alongside
+	// --print: pi must not block on or read from an interactive terminal.
 	cmd.Stdin = strings.NewReader("")
 	envutil.SetCleanEnv(cmd)
 
