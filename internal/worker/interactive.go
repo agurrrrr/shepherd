@@ -324,7 +324,11 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		updateQuery := client.Sheep.UpdateOneID(s.ID).
 			SetStatus(sheep.StatusIdle)
 
-		if result != nil && result.SessionID != "" {
+		// If Claude can't find the session, clear the stale session ID so the
+		// next task won't retry with the same invalid --resume flag.
+		if execErr != nil && isStaleSessionError(execErr.Error()) {
+			updateQuery = updateQuery.SetSessionID("")
+		} else if result != nil && result.SessionID != "" {
 			updateQuery = updateQuery.SetSessionID(result.SessionID)
 		}
 
@@ -486,6 +490,7 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		// Check for rate limit
 		errStr := strings.ToLower(fullOutput + " " + err.Error())
 		if strings.Contains(errStr, "rate limit") ||
+			strings.Contains(errStr, "session limit") ||
 			strings.Contains(errStr, "429") ||
 			strings.Contains(errStr, "too many requests") ||
 			strings.Contains(errStr, "limit exceeded") {
@@ -1845,6 +1850,8 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		if strings.Contains(errStr, "rate limit") ||
 			strings.Contains(errStr, "you've hit your limit") ||
 			strings.Contains(errStr, "hit your limit") ||
+			strings.Contains(errStr, "hit your session limit") ||
+			strings.Contains(errStr, "session limit") ||
 			strings.Contains(errStr, "429") ||
 			strings.Contains(errStr, "too many requests") ||
 			strings.Contains(errStr, "limit exceeded") {
@@ -2330,4 +2337,14 @@ func extractTokensFromOutput(output string) (promptTokens, completionTokens int6
 		}
 	}
 	return
+}
+
+// isStaleSessionError returns true if the error indicates that the session ID
+// Claude Code is trying to resume is no longer valid (expired, deleted, or
+// never existed). When this happens, the sheep's session ID should be cleared
+// so the next task starts a fresh session.
+func isStaleSessionError(errMsg string) bool {
+	lower := strings.ToLower(errMsg)
+	return strings.Contains(lower, "--resume requires a valid session id") ||
+		strings.Contains(lower, "does not match any session")
 }

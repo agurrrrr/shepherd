@@ -583,6 +583,8 @@ func IsRateLimitError(errMsg string) bool {
 	lower := strings.ToLower(errMsg)
 	return strings.Contains(lower, "rate limit") ||
 		strings.Contains(lower, "hit your limit") ||
+		strings.Contains(lower, "hit your session limit") ||
+		strings.Contains(lower, "session limit") ||
 		strings.Contains(lower, "429") ||
 		strings.Contains(lower, "too many requests") ||
 		strings.Contains(lower, "limit exceeded")

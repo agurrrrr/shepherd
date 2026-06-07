@@ -164,6 +164,7 @@ func executeWithPi(ctx context.Context, sheepName, projectPath, sessionID, promp
 		}
 		errStr := strings.ToLower(fullOutput + " " + err.Error())
 		if strings.Contains(errStr, "rate limit") ||
+			strings.Contains(errStr, "session limit") ||
 			strings.Contains(errStr, "429") ||
 			strings.Contains(errStr, "too many requests") ||
 			strings.Contains(errStr, "limit exceeded") {
