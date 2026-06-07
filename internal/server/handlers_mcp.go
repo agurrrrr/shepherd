@@ -293,6 +293,11 @@ export default function (pi: ExtensionAPI) {
   let registered = false;
   let expanded = false;
   let toolNames: string[] = [];
+  // 기본 활성 도구(빌트인 + 게이트웨이)를 캡처해 둔다.
+  // session_start 는 turn 밖이라 getActiveTools() 가 빈 배열을 반환할 수 있으므로
+  // tool_call 이벤트에서 캡처한다. 만약 tool_call 이 오기 전에 expand 가 호출되면
+  // 현재 활성 도구로 폴백한다.
+  let baseActive: string[] | null = null; // null = 아직 캡처 안 됨
 
   const activeNames = (): string[] =>
     pi.getActiveTools().map((t: any) => (typeof t === "string" ? t : t?.name)).filter(Boolean);
@@ -368,23 +373,31 @@ export default function (pi: ExtensionAPI) {
     return toolNames;
   }
 
-  // 펼치기: shepherd 도구들을 활성 집합에 추가 (게이트웨이 shepherd 유지)
+  // 펼치기: shepherd 도구들을 활성 집합에 추가 (빌트인/게이트웨이 보존)
   async function expand(): Promise<string[]> {
     const names = await ensureRegistered();
-    const next = new Set(activeNames());
-    for (const n of names) next.add(n);
-    next.add("shepherd");
+    // baseActive 가 아직 캡처 안 되었다면 현재 활성 도구로 폴백
+    const base = baseActive != null && baseActive.length > 0 ? baseActive : activeNames();
+    // baseActive ∪ 현재활성 ∪ shepherd도구 ∪ 게이트웨이
+    const next = new Set<string>([...base, ...activeNames(), ...names, "shepherd"]);
     pi.setActiveTools([...next]);
     expanded = true;
     return names;
   }
 
-  // 접기: shepherd 도구들만 활성 집합에서 제거 (게이트웨이 shepherd는 남음)
+  // 접기: shepherd 도구들만 활성 집합에서 제거 (빌트인 + 게이트웨이 보존)
   function collapse(): void {
     const set = new Set(toolNames);
-    const remaining = activeNames().filter((n) => !set.has(n));
-    remaining.push("shepherd");
-    pi.setActiveTools([...new Set(remaining)]);
+    const base = baseActive != null && baseActive.length > 0 ? baseActive : [];
+    const keep = new Set<string>(
+      [...base, ...activeNames()].filter((n) => !set.has(n)),
+    );
+    // 게이트웨이 도구들은 항상 보존
+    keep.add("shepherd");
+    keep.add("atsel");
+    keep.add("nagar");
+    keep.add("dropthe_codes");
+    pi.setActiveTools([...keep]);
     expanded = false;
   }
 
@@ -480,6 +493,18 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("Shepherd error: " + (e?.message ?? e), "error");
       }
     },
+  });
+
+  // --- 첫 tool_call: 기본 활성 도구(빌트인 등) 캡처 -----------------------
+  // session_start 는 turn 밖이라 getActiveTools() 가 빈 배열을 반환할 수 있다.
+  // tool_call 이벤트는 turn 내에서 발생하므로 빌트인 도구 목록이 정확히 있다.
+  pi.on("tool_call", async () => {
+    if (baseActive == null || baseActive.length === 0) {
+      const current = activeNames();
+      if (current.length > 0) {
+        baseActive = current;
+      }
+    }
   });
 
   // --- 정리: 세션 종료 시 정리 -------------------------------------------
