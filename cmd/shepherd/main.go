@@ -913,11 +913,13 @@ var taskCmd = &cobra.Command{
 Subcommands:
   stop <id>       Stop a running task
   cancel-all      Cancel all running and pending tasks
+  detail <id>     Show detailed information about a task
 
 Examples:
   shepherd task "Fix the bug"
   shepherd task stop 123
-  shepherd task cancel-all`,
+  shepherd task cancel-all
+  shepherd task detail 123`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
 			cmd.Help()
@@ -1169,6 +1171,20 @@ var taskStopCmd = &cobra.Command{
 
 		_ = queue.FailTaskWithOutput(id, "stopped by user", result.OutputLines)
 		fmt.Printf("🛑 Task #%d stopped.\n", id)
+	},
+}
+
+var taskDetailCmd = &cobra.Command{
+	Use:   "detail <id>",
+	Short: "Show detailed information about a task",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		id, err := strconv.Atoi(args[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid task ID: %s\n", args[0])
+			os.Exit(1)
+		}
+		printTaskDetail(id)
 	},
 }
 
@@ -3940,6 +3956,7 @@ func init() {
 
 	// Register task command
 	taskCmd.AddCommand(taskStopCmd)
+	taskCmd.AddCommand(taskDetailCmd)
 	taskCmd.AddCommand(taskCancelAllCmd)
 	rootCmd.AddCommand(taskCmd)
 

@@ -78,6 +78,10 @@ func executeWithPi(ctx context.Context, sheepName, projectPath, sessionID, promp
 
 	cmd := exec.CommandContext(ctx, config.GetPiBinary(), args...)
 	cmd.Dir = projectPath
+	// Close stdin so pi exits after processing the prompt instead of waiting
+	// for more input. Without this, pi inherits the parent's stdin and may
+	// hang indefinitely after the agent finishes its work.
+	cmd.Stdin = strings.NewReader("")
 	envutil.SetCleanEnv(cmd)
 
 	// Register running task; unregister with the returned token so a late finish
