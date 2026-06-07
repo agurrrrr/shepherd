@@ -69,6 +69,16 @@ Usage:
 		}
 		// Arguments provided: treat as a task
 		prompt := strings.Join(args, " ")
+		// A bare task reference like "#5630" is a status query, not a new task.
+		// Chat mode already handles this via extractTaskID; mirror it here so a
+		// non-interactive `shepherd #5630` prints the task's status instead of
+		// enqueuing a task whose prompt is literally "#5630". Without this, a
+		// polling loop such as `until shepherd #5630 | grep completed` spawns an
+		// endless stream of zombie tasks.
+		if id := bareTaskRef(prompt); id > 0 {
+			printTaskDetail(id)
+			return
+		}
 		executeTask(prompt)
 	},
 }
@@ -1737,6 +1747,20 @@ func printFlock() {
 		}
 	}
 	fmt.Println()
+}
+
+// bareTaskRef returns the task ID when the entire input is nothing but a task
+// reference like "#5630" (optionally surrounded by whitespace). Unlike
+// extractTaskID, it deliberately does NOT match prompts that merely contain a
+// "#number" somewhere, so a legitimate single-task prompt is never mistaken for
+// a status query.
+func bareTaskRef(input string) int {
+	re := regexp.MustCompile(`^\s*#(\d+)\s*$`)
+	if matches := re.FindStringSubmatch(input); len(matches) > 1 {
+		id, _ := strconv.Atoi(matches[1])
+		return id
+	}
+	return 0
 }
 
 // extractTaskID extracts task ID from input like "#10", "task 10", "10번", "작업 10"
