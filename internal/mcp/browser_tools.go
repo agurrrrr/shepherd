@@ -1272,3 +1272,10 @@ func handleBrowserNetworkRequest(args map[string]interface{}) (string, error) {
 	result += fmt.Sprintf("  Timestamp: %s\n", entry.Timestamp.Format(time.RFC3339))
 	return result, nil
 }
+
+// ListBrowserToolDefs returns the list of browser tool definitions.
+// Exported for use by the embedded provider.
+func ListBrowserToolDefs() []Tool {
+	return getBrowserToolsList()
+}
+

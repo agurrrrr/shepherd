@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -15,9 +16,11 @@ import (
 
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/discord"
+	"github.com/agurrrrr/shepherd/internal/embedded"
 	"github.com/agurrrrr/shepherd/internal/mcp"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/scheduler"
+	"github.com/agurrrrr/shepherd/internal/worker"
 )
 
 // Version can be set by the caller to reflect in /api/health.
@@ -51,13 +54,18 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	})
 
 	hub := NewSSEHub()
+	mcpServer := mcp.NewServer(false) // full mode — browser handlers live here
+
+	// Initialize embedded provider executor (avoids import cycle: worker → mcp → queue → worker)
+	initEmbeddedExecutor(mcpServer)
+
 	s := &Server{
 		app:       app,
 		hub:       hub,
 		processor: processor,
 		scheduler: sched,
 		discord:   discord.NewTaskNotifier(),
-		mcpInner:  mcp.NewServer(false), // full mode — browser handlers live here
+		mcpInner:  mcpServer,
 	}
 
 	// Global middleware
@@ -438,4 +446,98 @@ func paramDecoded(c *fiber.Ctx, key string) string {
 		return raw
 	}
 	return decoded
+}
+
+// initEmbeddedExecutor registers the embedded executor with the worker package.
+// This bridges the MCP server (with its tool handlers) to the embedded agent loop.
+func initEmbeddedExecutor(mcpServer *mcp.Server) {
+	worker.SetEmbeddedExecutor(func(
+		ctx context.Context,
+		sheepName, projectPath string,
+		prompt string,
+		opts worker.InteractiveOptions,
+		cancel context.CancelFunc,
+	) (*worker.ExecuteResult, error) {
+		ep, err := config.GetActiveEmbeddedEndpoint()
+		if err != nil {
+			return nil, fmt.Errorf("embedded config error: %w", err)
+		}
+		if ep == nil {
+			return nil, fmt.Errorf("no active embedded endpoint configured. Add one in Settings > Embedded")
+		}
+		if ep.BaseURL == "" || ep.Model == "" {
+			return nil, fmt.Errorf("embedded endpoint %q is incomplete (base_url and model required)", ep.ID)
+		}
+
+		// Build system prompt
+		systemPrompt := worker.BuildSystemPromptForEmbedded(sheepName, projectPath)
+
+		// Collect MCP tool definitions
+		var mcpDefs []embedded.MCPToolDef
+		for _, t := range mcp.ListCoreToolDefs() {
+			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
+		}
+		for _, t := range mcp.ListWikiToolDefs() {
+			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
+		}
+		for _, t := range mcp.ListBrowserToolDefs() {
+			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
+		}
+
+		// Create tool registry
+		toolRegistry := embedded.NewToolRegistry(projectPath, sheepName, mcpDefs,
+			func(name string, args map[string]interface{}) (string, error) {
+				return mcpServer.ExecuteTool(name, args)
+			})
+		toolDefs := toolRegistry.OpenAIToolDefs()
+
+		// Run the embedded agent loop
+		result, err := embedded.Run(ctx, embedded.ExecuteOptions{
+			SheepName:      sheepName,
+			ProjectPath:    projectPath,
+			BaseURL:        ep.BaseURL,
+			APIKey:         ep.APIKey,
+			Model:          ep.Model,
+			SystemPrompt:   systemPrompt,
+			UserPrompt:     prompt,
+			Tools:          toolDefs,
+			OnOutput:       opts.OnOutput,
+			MaxIterations:  ep.MaxIterations,
+			ContextTokens:  ep.ContextTokens,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return &worker.ExecuteResult{
+			Result:           result.Result,
+			SessionID:        result.SessionID,
+			FilesModified:    result.FilesModified,
+			CostUSD:          result.CostUSD,
+			PromptTokens:     result.PromptTokens,
+			CompletionTokens: result.CompletionTokens,
+			Incomplete:       result.Incomplete,
+			IncompleteReason: result.IncompleteReason,
+		}, nil
+	})
+}
+
+// toEmbeddedMCPDef converts an mcp.Tool to embedded.MCPToolDef.
+func toEmbeddedMCPDef(t mcp.Tool) embedded.MCPToolDef {
+	properties := make(map[string]interface{})
+	for k, v := range t.InputSchema.Properties {
+		properties[k] = map[string]interface{}{
+			"type":        v.Type,
+			"description": v.Description,
+		}
+	}
+	return embedded.MCPToolDef{
+		Name:        t.Name,
+		Description: t.Description,
+		Parameters: map[string]interface{}{
+			"type":       t.InputSchema.Type,
+			"properties": properties,
+			"required":   t.InputSchema.Required,
+		},
+	}
 }

@@ -179,3 +179,10 @@ func handleWikiSearch(args map[string]interface{}) (string, error) {
 
 	return sb.String(), nil
 }
+
+// ListWikiToolDefs returns the list of wiki tool definitions.
+// Exported for use by the embedded provider.
+func ListWikiToolDefs() []Tool {
+	return getWikiToolsList()
+}
+

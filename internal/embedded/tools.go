@@ -1,0 +1,447 @@
+package embedded
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+)
+
+const maxOutputBytes = 64 * 1024 // 64KB output cap for bash
+
+// MCPToolDef is a tool definition from an external MCP source.
+type MCPToolDef struct {
+	Name        string
+	Description string
+	Parameters  map[string]interface{}
+}
+
+// MCPDispatcher dispatches tool calls to an external MCP server.
+type MCPDispatcher func(name string, args map[string]interface{}) (string, error)
+
+// ToolRegistry holds all tools available to the embedded agent loop.
+type ToolRegistry struct {
+	projectPath  string
+	sheepName    string
+	nativeTools  map[string]toolFunc
+	mcpDefs      []MCPToolDef
+	mcpDispatch  MCPDispatcher
+}
+
+type toolFunc func(args map[string]interface{}) (string, error)
+
+// NewToolRegistry creates a tool registry with native coding tools and optional MCP tools.
+func NewToolRegistry(projectPath, sheepName string, mcpDefs []MCPToolDef, mcpDispatch MCPDispatcher) *ToolRegistry {
+	tr := &ToolRegistry{
+		projectPath: projectPath,
+		sheepName:   sheepName,
+		mcpDefs:     mcpDefs,
+		mcpDispatch: mcpDispatch,
+		nativeTools: make(map[string]toolFunc),
+	}
+	tr.registerNativeTools()
+	return tr
+}
+
+// registerNativeTools registers the core coding tools (read, write, edit, bash, grep, glob).
+func (tr *ToolRegistry) registerNativeTools() {
+	tr.nativeTools["read_file"] = tr.readfile
+	tr.nativeTools["write_file"] = tr.writefile
+	tr.nativeTools["edit_file"] = tr.editfile
+	tr.nativeTools["bash"] = tr.execBash
+	tr.nativeTools["grep"] = tr.execGrep
+	tr.nativeTools["glob"] = tr.execGlob
+}
+
+// OpenAIToolDefs returns all tool definitions as OpenAI function-calling format.
+func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
+	var defs []OpenAIToolDef
+
+	// Native tools
+	nativeDefs := []OpenAIToolDef{
+		{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name:        "read_file",
+				Description: "Read the contents of a file. Supports text files and images. For large files, use offset/limit parameters.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path":   map[string]interface{}{"type": "string", "description": "Path to the file"},
+						"offset": map[string]interface{}{"type": "number", "description": "Line number to start from (1-indexed)"},
+						"limit":  map[string]interface{}{"type": "number", "description": "Maximum number of lines to read"},
+					},
+					"required": []string{"path"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name:        "write_file",
+				Description: "Create or overwrite a file with the given content.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path":    map[string]interface{}{"type": "string", "description": "Path to the file"},
+						"content": map[string]interface{}{"type": "string", "description": "Content to write"},
+					},
+					"required": []string{"path", "content"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name:        "edit_file",
+				Description: "Edit a file by replacing exact text. The old text must match uniquely in the file.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path":   map[string]interface{}{"type": "string", "description": "Path to the file"},
+						"oldText": map[string]interface{}{"type": "string", "description": "Exact text to find and replace"},
+						"newText": map[string]interface{}{"type": "string", "description": "Replacement text"},
+					},
+					"required": []string{"path", "oldText", "newText"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name:        "bash",
+				Description: "Execute a shell command in the project directory. Output is capped at 64KB.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"command": map[string]interface{}{"type": "string", "description": "Shell command to execute"},
+						"timeout": map[string]interface{}{"type": "number", "description": "Timeout in seconds (optional, default 120)"},
+					},
+					"required": []string{"command"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name:        "grep",
+				Description: "Search for a pattern in files using ripgrep. Falls back to Go regex if ripgrep is not available.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"pattern": map[string]interface{}{"type": "string", "description": "Pattern to search for"},
+						"glob":    map[string]interface{}{"type": "string", "description": "Glob pattern to filter files (optional)"},
+					},
+					"required": []string{"pattern"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name:        "glob",
+				Description: "Find files matching a glob pattern in the project directory.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"pattern": map[string]interface{}{"type": "string", "description": "Glob pattern (e.g., **/*.go)"},
+					},
+					"required": []string{"pattern"},
+				},
+			},
+		},
+	}
+	defs = append(defs, nativeDefs...)
+
+	// MCP tools (provided externally via NewToolRegistry)
+	for _, t := range tr.mcpDefs {
+		defs = append(defs, OpenAIToolDef{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name:        t.Name,
+				Description: t.Description,
+				Parameters:  t.Parameters,
+			},
+		})
+	}
+
+	return defs
+}
+
+// Dispatch executes a tool call by name and arguments.
+func (tr *ToolRegistry) Dispatch(name string, args map[string]interface{}) (string, error) {
+	// Check native tools first
+	if fn, ok := tr.nativeTools[name]; ok {
+		return fn(args)
+	}
+
+	// Fall back to MCP tools
+	if tr.mcpDispatch != nil {
+		// Inject sheep_name for browser tools
+		args["sheep_name"] = tr.sheepName
+		return tr.mcpDispatch(name, args)
+	}
+
+	return "", fmt.Errorf("unknown tool: %s", name)
+}
+
+// -- Native tool implementations --
+
+func (tr *ToolRegistry) safePath(p string) (string, error) {
+	// Prevent path traversal outside project directory
+	cleaned := filepath.Clean(p)
+	if cleaned == "." || cleaned == "/" {
+		cleaned = tr.projectPath
+	}
+	if !filepath.IsAbs(cleaned) {
+		cleaned = filepath.Join(tr.projectPath, cleaned)
+	}
+	// Ensure the path is within project directory
+	rel, err := filepath.Rel(tr.projectPath, cleaned)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("path %q is outside project directory", p)
+	}
+	return cleaned, nil
+}
+
+func (tr *ToolRegistry) readfile(args map[string]interface{}) (string, error) {
+	pathStr, _ := args["path"].(string)
+	if pathStr == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	path, err := tr.safePath(pathStr)
+	if err != nil {
+		return "", err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", path, err)
+	}
+
+	content := string(data)
+
+	// Handle offset/limit for large files
+	if offsetVal, ok := args["offset"].(float64); ok && offsetVal > 0 {
+		lines := strings.Split(content, "\n")
+		offset := int(offsetVal)
+		if offset > len(lines) {
+			return "", fmt.Errorf("offset %d exceeds file length %d", offset, len(lines))
+		}
+		lines = lines[offset-1:]
+
+		if limitVal, ok := args["limit"].(float64); ok && limitVal > 0 {
+			limit := int(limitVal)
+			if limit < len(lines) {
+				lines = lines[:limit]
+			}
+		}
+		content = strings.Join(lines, "\n")
+	}
+
+	return content, nil
+}
+
+func (tr *ToolRegistry) writefile(args map[string]interface{}) (string, error) {
+	pathStr, _ := args["path"].(string)
+	content, _ := args["content"].(string)
+	if pathStr == "" || content == "" {
+		return "", fmt.Errorf("path and content are required")
+	}
+	path, err := tr.safePath(pathStr)
+	if err != nil {
+		return "", err
+	}
+
+	// Create parent directories if needed
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return "", fmt.Errorf("create directory: %w", err)
+	}
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("write %s: %w", path, err)
+	}
+	return fmt.Sprintf("Wrote %d bytes to %s", len(content), path), nil
+}
+
+func (tr *ToolRegistry) editfile(args map[string]interface{}) (string, error) {
+	pathStr, _ := args["path"].(string)
+	oldText, _ := args["oldText"].(string)
+	newText, _ := args["newText"].(string)
+	if pathStr == "" || oldText == "" {
+		return "", fmt.Errorf("path, oldText, and newText are required")
+	}
+	path, err := tr.safePath(pathStr)
+	if err != nil {
+		return "", err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", path, err)
+	}
+
+	content := string(data)
+
+	// Check uniqueness
+	count := strings.Count(content, oldText)
+	if count == 0 {
+		return "", fmt.Errorf("text not found in %s", path)
+	}
+	if count > 1 {
+		return "", fmt.Errorf("text appears %d times in %s, must be unique", count, path)
+	}
+
+	newContent := strings.Replace(content, oldText, newText, 1)
+	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+		return "", fmt.Errorf("write %s: %w", path, err)
+	}
+	return fmt.Sprintf("Edited %s (replaced %d bytes with %d bytes)", path, len(oldText), len(newText)), nil
+}
+
+func (tr *ToolRegistry) execBash(args map[string]interface{}) (string, error) {
+	command, _ := args["command"].(string)
+	if command == "" {
+		return "", fmt.Errorf("command is required")
+	}
+
+	timeout := 120 // default 2 minutes
+	if timeoutVal, ok := args["timeout"].(float64); ok && timeoutVal > 0 {
+		timeout = int(timeoutVal)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd.Dir = tr.projectPath
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		output := stderr.String()
+		if ctx.Err() != nil {
+			output = fmt.Sprintf("command timed out after %ds", timeout)
+		} else if exitErr, ok := err.(*exec.ExitError); ok {
+			output = fmt.Sprintf("exit %d: %s", exitErr.ExitCode(), strings.TrimSpace(stderr.String()))
+		} else {
+			output = fmt.Sprintf("error: %s", err)
+		}
+		// Still return stdout if available
+		if stdout.Len() > 0 {
+			output = stdout.String() + "\n" + output
+		}
+		return tr.capOutput(output), nil
+	}
+
+	return tr.capOutput(stdout.String()), nil
+}
+
+func (tr *ToolRegistry) execGrep(args map[string]interface{}) (string, error) {
+	pattern, _ := args["pattern"].(string)
+	if pattern == "" {
+		return "", fmt.Errorf("pattern is required")
+	}
+
+	globPattern, _ := args["glob"].(string)
+
+	// Try ripgrep first
+	cmd := exec.Command("rg", "--color=never", "-n", pattern)
+	if globPattern != "" {
+		cmd.Args = append(cmd.Args, "-g", globPattern)
+	}
+	cmd.Dir = tr.projectPath
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// ripgrep not found or error, fall back to Go regex
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 127 {
+			// rg not found
+		} else if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			// rg found no matches
+			return "No matches found", nil
+		}
+	} else {
+		return tr.capOutput(stdout.String()), nil
+	}
+
+	// Fallback: Go regex search
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", fmt.Errorf("invalid regex pattern: %w", err)
+	}
+
+	var results []string
+	filePattern := "*"
+	if globPattern != "" {
+		filePattern = globPattern
+	}
+
+	matches, _ := filepath.Glob(filepath.Join(tr.projectPath, filePattern))
+	for _, m := range matches {
+		info, err := os.Stat(m)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(m)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		for i, line := range lines {
+			if re.MatchString(line) {
+				results = append(results, fmt.Sprintf("%s:%d:%s", filepath.Base(m), i+1, line))
+			}
+		}
+	}
+
+	if len(results) == 0 {
+		return "No matches found", nil
+	}
+	return tr.capOutput(strings.Join(results, "\n")), nil
+}
+
+func (tr *ToolRegistry) execGlob(args map[string]interface{}) (string, error) {
+	pattern, _ := args["pattern"].(string)
+	if pattern == "" {
+		return "", fmt.Errorf("pattern is required")
+	}
+
+	matches, err := filepath.Glob(filepath.Join(tr.projectPath, pattern))
+	if err != nil {
+		return "", fmt.Errorf("glob error: %w", err)
+	}
+
+	// Also try recursive glob
+	if strings.Contains(pattern, "**") {
+		// Use find for recursive matching
+		cmd := exec.Command("find", tr.projectPath, "-type", "f", "-name", strings.ReplaceAll(pattern, "**/", ""))
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+		if err := cmd.Run(); err == nil {
+			matches = strings.Split(strings.TrimSpace(stdout.String()), "\n")
+		}
+	}
+
+	if len(matches) == 0 {
+		return "No files found", nil
+	}
+	return strings.Join(matches, "\n"), nil
+}
+
+func (tr *ToolRegistry) capOutput(s string) string {
+	if len(s) > maxOutputBytes {
+		return s[:maxOutputBytes] + fmt.Sprintf("\n\n... [output truncated, %d total bytes]", len(s))
+	}
+	return s
+}

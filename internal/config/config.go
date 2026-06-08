@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 // DefaultTaskTimeout is the fallback when task_timeout is unset or invalid.
@@ -85,6 +87,9 @@ func Init() error {
 	viper.SetDefault("model_claude", "")
 	viper.SetDefault("model_opencode", "")
 	viper.SetDefault("model_pi", "")
+
+	// 임베디드 (in-process 로컬 LLM) 프로바이더
+	viper.SetDefault("embedded_active_id", "")
 
 	// 작업 실행 타임아웃 (Claude/OpenCode CLI 한 번 실행에 허용되는 최대 시간).
 	// time.ParseDuration 형식 — 예: "4h", "30m", "8h30m".
@@ -408,4 +413,151 @@ func GetPiBinary() string {
 	}
 
 	return "pi" // fallback: hope it's in PATH
+}
+
+// EmbeddedConfigFile returns the path to the embedded endpoints config file.
+func EmbeddedConfigFile() string {
+	return filepath.Join(configDir, "embedded.yaml")
+}
+
+// LoadEmbeddedConfig loads the embedded endpoint configuration from
+// ~/.shepherd/embedded.yaml. Returns an empty config when the file does not
+// exist (meaning no embedded endpoints are configured yet).
+func LoadEmbeddedConfig() (*EmbeddedConfig, error) {
+	path := EmbeddedConfigFile()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return &EmbeddedConfig{Endpoints: []EmbeddedEndpoint{}}, nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read embedded config: %w", err)
+	}
+
+	cfg, err := UnmarshalEmbeddedYAML(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse embedded config: %w", err)
+	}
+	return cfg, nil
+}
+
+// SaveEmbeddedConfig writes the embedded endpoint configuration to disk.
+func SaveEmbeddedConfig(cfg *EmbeddedConfig) error {
+	data, err := MarshalEmbeddedYAML(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal embedded config: %w", err)
+	}
+	return os.WriteFile(EmbeddedConfigFile(), data, 0644)
+}
+
+// EmbeddedEndpoint is a single LLM endpoint entry.
+type EmbeddedEndpoint struct {
+	ID            string `mapstructure:"id"`
+	Label         string `mapstructure:"label"`
+	BaseURL       string `mapstructure:"base_url"`
+	APIKey        string `mapstructure:"api_key"`
+	Model         string `mapstructure:"model"`
+	Enabled       bool   `mapstructure:"enabled"`
+	Thinking      bool   `mapstructure:"thinking"`
+	MaxIterations int    `mapstructure:"max_iterations"`
+	ContextTokens int    `mapstructure:"context_tokens"`
+}
+
+// EmbeddedConfig is the top-level config for embedded endpoints.
+type EmbeddedConfig struct {
+	Endpoints []EmbeddedEndpoint `mapstructure:"endpoints"`
+}
+
+// UnmarshalEmbeddedYAML parses embedded config from YAML data.
+func UnmarshalEmbeddedYAML(data []byte) (*EmbeddedConfig, error) {
+	var cfg EmbeddedConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// MarshalEmbeddedYAML serializes embedded config to YAML.
+func MarshalEmbeddedYAML(cfg *EmbeddedConfig) ([]byte, error) {
+	return yaml.Marshal(cfg)
+}
+
+// EmbeddedEndpointJSON is a JSON-friendly representation of an embedded endpoint
+// for API responses (avoids yaml-specific types).
+type EmbeddedEndpointJSON struct {
+	ID            string `json:"id"`
+	Label         string `json:"label"`
+	BaseURL       string `json:"base_url"`
+	APIKey        string `json:"api_key"`
+	Model         string `json:"model"`
+	Enabled       bool   `json:"enabled"`
+	Thinking      bool   `json:"thinking"`
+	MaxIterations int    `json:"max_iterations"`
+	ContextTokens int    `json:"context_tokens"`
+}
+
+// EndpointsToJSON converts embedded endpoints to JSON-friendly slice.
+func EndpointsToJSON(endpoints []EmbeddedEndpoint) []EmbeddedEndpointJSON {
+	result := make([]EmbeddedEndpointJSON, len(endpoints))
+	for i, ep := range endpoints {
+		result[i] = EmbeddedEndpointJSON{
+			ID:            ep.ID,
+			Label:         ep.Label,
+			BaseURL:       ep.BaseURL,
+			APIKey:        ep.APIKey,
+			Model:         ep.Model,
+			Enabled:       ep.Enabled,
+			Thinking:      ep.Thinking,
+			MaxIterations: ep.MaxIterations,
+			ContextTokens: ep.ContextTokens,
+		}
+	}
+	return result
+}
+
+// EndpointsFromJSON converts JSON endpoints back to embedded endpoints.
+func EndpointsFromJSON(jsonEps []EmbeddedEndpointJSON) []EmbeddedEndpoint {
+	result := make([]EmbeddedEndpoint, len(jsonEps))
+	for i, ep := range jsonEps {
+		result[i] = EmbeddedEndpoint{
+			ID:            ep.ID,
+			Label:         ep.Label,
+			BaseURL:       ep.BaseURL,
+			APIKey:        ep.APIKey,
+			Model:         ep.Model,
+			Enabled:       ep.Enabled,
+			Thinking:      ep.Thinking,
+			MaxIterations: ep.MaxIterations,
+			ContextTokens: ep.ContextTokens,
+		}
+	}
+	return result
+}
+
+// GetActiveEmbeddedEndpoint returns the currently active embedded endpoint,
+// or nil when the active ID is not set or the endpoint is disabled.
+func GetActiveEmbeddedEndpoint() (*EmbeddedEndpoint, error) {
+	activeID := viper.GetString("embedded_active_id")
+	if activeID == "" {
+		return nil, nil
+	}
+
+	cfg, err := LoadEmbeddedConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ep := range cfg.Endpoints {
+		if ep.ID == activeID && ep.Enabled {
+			return &ep, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// SetActiveEmbeddedEndpoint sets the active embedded endpoint ID.
+func SetActiveEmbeddedEndpoint(id string) error {
+	viper.Set("embedded_active_id", id)
+	return viper.WriteConfigAs(configFile)
 }
