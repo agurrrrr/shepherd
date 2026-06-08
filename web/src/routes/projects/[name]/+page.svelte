@@ -171,6 +171,20 @@
 			}
 		}));
 
+		// SSE reconnect: events broadcast while disconnected are lost, so refetch
+		// the authoritative sheep status (otherwise a finished task can leave the
+		// UI stuck on "working" with the Stop button showing).
+		unsubs.push(onSSE('reconnect', () => resyncSheep()));
+
+		// Mobile browsers suspend EventSource when backgrounded and may not fire
+		// onerror, so the reconnect event can be missed too. Re-sync whenever the
+		// tab becomes visible again as a safety net.
+		if (typeof document !== 'undefined') {
+			const onVisible = () => { if (document.visibilityState === 'visible') resyncSheep(); };
+			document.addEventListener('visibilitychange', onVisible);
+			unsubs.push(() => document.removeEventListener('visibilitychange', onVisible));
+		}
+
 		// SSE: task events -> refresh history
 		unsubs.push(onSSE('task_complete', (data) => {
 			if (data.project_name === projectName && tasksLoaded) loadTasks();
@@ -219,6 +233,17 @@
 			await loadLatestOutput();
 		}
 		loading = false;
+	}
+
+	// Refetch authoritative sheep status/provider after a missed-events window
+	// (SSE reconnect or tab refocus). Cheap and idempotent.
+	async function resyncSheep() {
+		if (!sheepName) return;
+		const sheepRes = await apiGet(`/api/sheep/${encodeURIComponent(sheepName)}`);
+		if (sheepRes?.data) {
+			sheepStatus = sheepRes.data.status;
+			sheepProvider = sheepRes.data.provider || 'claude';
+		}
 	}
 
 	async function changeProvider(provider) {

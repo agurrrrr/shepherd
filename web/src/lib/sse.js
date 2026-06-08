@@ -4,6 +4,11 @@ import { accessToken } from './stores.js';
 let eventSource = null;
 let reconnectTimer = null;
 let reconnectDelay = 1000;
+// Tracks whether we have ever opened a connection. Used to distinguish the
+// initial connect from a reconnect-after-drop so we can fire a synthetic
+// 'reconnect' event — listeners use it to re-sync state that may have changed
+// while disconnected (e.g. a task finished and its status_change was missed).
+let hasConnected = false;
 
 /** @type {Record<string, ((event: any) => void)[]>} */
 const listeners = {};
@@ -29,6 +34,11 @@ export function connectSSE() {
 
 	eventSource.onopen = () => {
 		reconnectDelay = 1000;
+		// Re-sync after a dropped connection: any events broadcast while we were
+		// disconnected (EventSource has no replay here) are lost, so notify
+		// listeners to refetch authoritative state. Skipped on the first connect.
+		if (hasConnected) emit('reconnect', {});
+		hasConnected = true;
 	};
 
 	eventSource.onerror = () => {
@@ -49,6 +59,8 @@ export function disconnectSSE() {
 		clearTimeout(reconnectTimer);
 		reconnectTimer = null;
 	}
+	// Next connectSSE() is a fresh start, not a reconnect.
+	hasConnected = false;
 }
 
 /**
