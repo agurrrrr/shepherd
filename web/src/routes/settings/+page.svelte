@@ -1,4 +1,5 @@
 <script>
+	import { onMount } from 'svelte';
 	import { apiGet, apiPatch, apiPost } from '$lib/api.js';
 
 	import CommonSettings from '$lib/components/Settings/CommonSettings.svelte';
@@ -52,8 +53,8 @@
 		if (e.detail) mcpStatus = e.detail;
 	}
 
-	// Load all settings data with error handling (runs after mount in Svelte 5 runes mode)
-	$effect(async () => {
+	// Load all settings data with error handling (runs after mount)
+	onMount(async () => {
 		try {
 			const [configRes, mcpRes, modelRes, projRes] = await Promise.all([
 				apiGet('/api/config'),
