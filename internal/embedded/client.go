@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 )
 
 // Client communicates with an OpenAI-compatible LLM API.
@@ -183,8 +182,8 @@ func (c *Client) ChatStream(ctx context.Context, req *ChatRequest, cb func(*Stre
 func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatMessage, string, *ChatUsage, error) {
 	var (
 		contentBuilder strings.Builder
-		toolCalls      []ToolCall
-		toolCallMu     sync.Mutex
+		byIndex        = make(map[int]*ToolCall)
+		order          []int
 		finishReason   string
 		usage          *ChatUsage
 	)
@@ -206,23 +205,26 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 			contentBuilder.WriteString(event.Delta.Content)
 		}
 
-		// Accumulate tool calls
+		// Accumulate tool calls by their stream Index. The first chunk for an
+		// index carries ID/Type/Name; subsequent chunks carry only argument
+		// fragments (with empty ID/Name), so we must merge on Index alone.
 		for _, deltaTC := range event.Delta.ToolCalls {
-			toolCallMu.Lock()
-			defer toolCallMu.Unlock()
-
-			// Extend existing tool call or create new
-			found := false
-			for i, tc := range toolCalls {
-				if tc.ID == deltaTC.ID && tc.Func.Name == deltaTC.Func.Name {
-					toolCalls[i].Func.Args += deltaTC.Func.Args
-					found = true
-					break
-				}
+			tc, ok := byIndex[deltaTC.Index]
+			if !ok {
+				tc = &ToolCall{Type: "function"}
+				byIndex[deltaTC.Index] = tc
+				order = append(order, deltaTC.Index)
 			}
-			if !found {
-				toolCalls = append(toolCalls, deltaTC)
+			if deltaTC.ID != "" {
+				tc.ID = deltaTC.ID
 			}
+			if deltaTC.Type != "" {
+				tc.Type = deltaTC.Type
+			}
+			if deltaTC.Func.Name != "" {
+				tc.Func.Name = deltaTC.Func.Name
+			}
+			tc.Func.Args += deltaTC.Func.Args
 		}
 
 		return nil
@@ -230,6 +232,11 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 
 	if err != nil {
 		return nil, "", nil, err
+	}
+
+	toolCalls := make([]ToolCall, 0, len(order))
+	for _, idx := range order {
+		toolCalls = append(toolCalls, *byIndex[idx])
 	}
 
 	content := contentBuilder.String()

@@ -312,6 +312,13 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 	case sheep.ProviderEmbedded:
 		// Embedded: in-process agent loop, no subprocess
 		result, execErr = executeWithEmbedded(ctx, sheepName, proj.Path, prompt, opts, cancel)
+		// The embedded loop reports API errors / stalls via result.Incomplete with
+		// err==nil. Without this, an aborted run (e.g. the model endpoint returns a
+		// 400) is silently recorded as a completed task with an empty result. Surface
+		// it as a failure so the reason is preserved, mirroring opencode/pi. See #5468.
+		if execErr == nil && result != nil && result.Incomplete {
+			execErr = fmt.Errorf("incomplete: %s", result.IncompleteReason)
+		}
 	case sheep.ProviderAuto:
 		// auto mode: use Claude by default
 		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)

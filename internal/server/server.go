@@ -554,13 +554,22 @@ func toEmbeddedMCPDef(t mcp.Tool) embedded.MCPToolDef {
 			"description": v.Description,
 		}
 	}
+	// JSON Schema requires `required` to be an array. A nil slice marshals to
+	// `null`, which strict tool-template parsers (e.g. llama.cpp) reject with a
+	// 400 ("type must be array, but is null"), aborting the whole request before
+	// any inference runs. Tools with no required params (e.g. get_status) hit
+	// this, so always emit an empty array instead of null.
+	required := t.InputSchema.Required
+	if required == nil {
+		required = []string{}
+	}
 	return embedded.MCPToolDef{
 		Name:        t.Name,
 		Description: t.Description,
 		Parameters: map[string]interface{}{
 			"type":       t.InputSchema.Type,
 			"properties": properties,
-			"required":   t.InputSchema.Required,
+			"required":   required,
 		},
 	}
 }

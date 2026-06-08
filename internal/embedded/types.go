@@ -95,11 +95,22 @@ type StreamOptions struct {
 
 // ChatDelta is a streaming delta from the model.
 type ChatDelta struct {
-	Role      string     `json:"role,omitempty"`
-	Content   string     `json:"content,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Role      string          `json:"role,omitempty"`
+	Content   string          `json:"content,omitempty"`
+	ToolCalls []DeltaToolCall `json:"tool_calls,omitempty"`
 	// Reasoning models
 	ReasoningContent string `json:"reasoning_content,omitempty"`
+}
+
+// DeltaToolCall is a streaming tool-call fragment. OpenAI-compatible providers
+// split a single tool call across many chunks keyed by Index: only the first
+// chunk carries ID/Type/Name, later chunks carry argument fragments with empty
+// ID and Name. Accumulation must therefore key on Index, not ID+Name.
+type DeltaToolCall struct {
+	Index int              `json:"index"`
+	ID    string           `json:"id"`
+	Type  string           `json:"type"`
+	Func  ToolCallFunction `json:"function"`
 }
 
 // ChatChoice is a choice in the response.
