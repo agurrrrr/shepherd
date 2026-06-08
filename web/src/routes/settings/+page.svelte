@@ -222,17 +222,21 @@
 	}
 
 	function openEmbeddedEditor(ep = null) {
-		embeddedEditing = ep ? { ...ep } : {
-			id: '',
-			label: '',
-			base_url: 'http://127.0.0.1:8080/v1',
-			api_key: '',
-			model: '',
-			enabled: true,
-			thinking: false,
-			max_iterations: 40,
-			context_tokens: 32768
-		};
+		if (ep) {
+			embeddedEditing = { ...ep, _existing: true };
+		} else {
+			embeddedEditing = {
+				id: '',
+				label: '',
+				base_url: 'http://127.0.0.1:8080/v1',
+				api_key: '',
+				model: '',
+				enabled: true,
+				thinking: false,
+				max_iterations: 40,
+				context_tokens: 32768
+			};
+		}
 	}
 
 	function closeEmbeddedEditor() {
