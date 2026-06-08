@@ -134,15 +134,18 @@
 	});
 
 	function getToolIcon(text) {
-		if (text.includes('TodoWrite')) return '☑️';
-		if (text.includes('Bash')) return '⌨️';
-		if (text.includes('Read')) return '📖';
-		if (text.includes('Edit')) return '✏️';
-		if (text.includes('Write')) return '📝';
-		if (text.includes('Grep')) return '🔍';
-		if (text.includes('Glob')) return '📂';
-		if (text.includes('Task')) return '📋';
-		if (text.includes('AskUserQuestion')) return '❓';
+		// Lowercased so it matches both PascalCase (Claude/opencode: Bash, Read)
+		// and the embedded provider's snake_case names (bash, read_file, ...).
+		const t = text.toLowerCase();
+		if (t.includes('todowrite')) return '☑️';
+		if (t.includes('bash')) return '⌨️';
+		if (t.includes('read')) return '📖';
+		if (t.includes('edit')) return '✏️';
+		if (t.includes('write')) return '📝';
+		if (t.includes('grep')) return '🔍';
+		if (t.includes('glob')) return '📂';
+		if (t.includes('task')) return '📋';
+		if (t.includes('askuserquestion')) return '❓';
 		return '🔧';
 	}
 

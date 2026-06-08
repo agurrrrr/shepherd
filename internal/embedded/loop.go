@@ -103,6 +103,13 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 			// Execute each tool call
 			for _, tc := range msg.ToolCalls {
+				// Show the tool call (name + command/args) BEFORE running it, in the
+				// "🔧 name → detail" format the web UI parses (OutputViewer.svelte).
+				if opts.OnOutput != nil {
+					parsedArgs, _ := normalizeJSON(tc.Func.Args)
+					opts.OnOutput("\n" + toolCallHeader(tc.Func.Name, parsedArgs) + "\n")
+				}
+
 				result, err := dispatchTool(ctx, toolRegistry, tc, opts)
 				var resultStr string
 				if err != nil {
@@ -111,13 +118,12 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					resultStr = result
 				}
 
-				// Stream the tool result preview
+				// Stream the result preview as an indented block (rendered as a
+				// monospace result box by the web UI).
 				if opts.OnOutput != nil {
-					preview := resultStr
-					if len(preview) > 500 {
-						preview = preview[:500] + "..."
+					if out := indentResult(resultStr); out != "" {
+						opts.OnOutput(out)
 					}
-					opts.OnOutput(fmt.Sprintf("\n🔧 %s: %s\n", tc.Func.Name, preview))
 				}
 
 				messages = append(messages, ChatMessage{
@@ -149,6 +155,11 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 						continue
 					}
 
+					// Show the recovered tool call before running it.
+					if opts.OnOutput != nil {
+						opts.OnOutput("\n" + toolCallHeader(tc.Func.Name, args) + "\n")
+					}
+
 					result, err := toolRegistry.Dispatch(tc.Func.Name, args)
 					var resultStr string
 					if err != nil {
@@ -158,7 +169,9 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					}
 
 					if opts.OnOutput != nil {
-						opts.OnOutput(fmt.Sprintf("\n🔧 [%s recovered] %s: %s\n", tc.Func.Name, tc.Func.Name, truncate(resultStr, 500)))
+						if out := indentResult(resultStr); out != "" {
+							opts.OnOutput(out)
+						}
 					}
 
 					messages = append(messages, ChatMessage{
@@ -273,4 +286,47 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// toolArgSummary extracts a short, human-readable summary of a tool call's
+// arguments for live output — e.g. the bash command, search pattern, or target
+// file path. Returns "" when no well-known argument is present.
+func toolArgSummary(args map[string]interface{}) string {
+	if args == nil {
+		return ""
+	}
+	for _, key := range []string{"command", "pattern", "path", "file_path", "query", "url"} {
+		if v, ok := args[key].(string); ok && v != "" {
+			return truncate(v, 80)
+		}
+	}
+	return ""
+}
+
+// toolCallHeader builds the "🔧 name → detail" header line that the web UI
+// (OutputViewer.svelte) parses to display a tool call. The arrow separator and
+// detail are omitted when there is no summarizable argument.
+func toolCallHeader(name string, args map[string]interface{}) string {
+	if summary := toolArgSummary(args); summary != "" {
+		return fmt.Sprintf("🔧 %s → %s", name, summary)
+	}
+	return fmt.Sprintf("🔧 %s", name)
+}
+
+// indentResult formats a tool result preview as an indented block so the web UI
+// renders it as a monospace result box (it classifies lines starting with 2+
+// spaces as "result"). Returns "" when there is no visible output.
+func indentResult(s string) string {
+	s = strings.TrimRight(s, "\n")
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	s = truncate(s, 500)
+	var b strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		b.WriteString("  ")
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
