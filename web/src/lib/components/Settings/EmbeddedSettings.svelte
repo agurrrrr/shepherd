@@ -457,6 +457,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			flex: none;
 		}
 		.setting-row .input {
+			flex: none;
 			max-width: none;
 		}
 	}

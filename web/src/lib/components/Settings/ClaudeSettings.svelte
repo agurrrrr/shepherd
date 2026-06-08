@@ -137,6 +137,7 @@
 			flex: none;
 		}
 		.setting-row .input {
+			flex: none;
 			max-width: none;
 		}
 		.setting-row:not(.column) > .hint {

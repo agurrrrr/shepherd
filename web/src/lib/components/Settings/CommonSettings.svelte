@@ -281,6 +281,7 @@
 		}
 
 		.setting-row .input {
+			flex: none;
 			max-width: none;
 		}
 
