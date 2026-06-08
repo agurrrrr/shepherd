@@ -420,6 +420,14 @@ func (s *Server) handleUpdateEmbeddedEndpoint(c *fiber.Ctx) error {
 		if ep.ID == id {
 			updated := embeddedEndpointFromJSON(body)
 			updated.ID = id
+			// Preserve the stored API key when the client sends back the
+			// masked placeholder (or an empty value). The edit form is
+			// populated from the masked GET response, so without this guard
+			// the real key would be overwritten with "Fi2M****243c", causing
+			// 401 Invalid API Key at inference time.
+			if body.APIKey == "" || body.APIKey == maskAPIKey(ep.APIKey) {
+				updated.APIKey = ep.APIKey
+			}
 			cfg.Endpoints[i] = updated
 
 			if err := config.SaveEmbeddedConfig(cfg); err != nil {
