@@ -2,6 +2,7 @@ package embedded
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -94,8 +95,11 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				}
 			}
 
-			// Add assistant message with tool calls to history
-			messages = append(messages, *msg)
+		// Add assistant message with tool calls to history.
+		// Sanitize args first: malformed JSON in tool_calls causes llama.cpp to
+		// return HTTP 500 on the very next request (its grammar engine rejects them).
+		sanitized := sanitizeToolCallArgs(*msg)
+		messages = append(messages, sanitized)
 
 			// Execute each tool call
 			for _, tc := range msg.ToolCalls {
@@ -228,6 +232,39 @@ func dispatchTool(ctx context.Context, tr *ToolRegistry, tc ToolCall, opts Execu
 	args["sheep_name"] = opts.SheepName
 
 	return tr.Dispatch(tc.Func.Name, args)
+}
+
+// sanitizeToolCallArgs ensures every tool call in the message carries valid JSON
+// arguments. If the args are truncated/malformed (a Qwen3 streaming artifact),
+// this repairs or replaces them so the next API request does not embed broken
+// JSON that causes llama.cpp to return HTTP 500.
+func sanitizeToolCallArgs(msg ChatMessage) ChatMessage {
+	if len(msg.ToolCalls) == 0 {
+		return msg
+	}
+	sanitized := msg
+	sanitized.ToolCalls = make([]ToolCall, len(msg.ToolCalls))
+	copy(sanitized.ToolCalls, msg.ToolCalls)
+
+	for i, tc := range sanitized.ToolCalls {
+		if tc.Func.Args == "" {
+			sanitized.ToolCalls[i].Func.Args = "{}"
+			continue
+		}
+		var probe map[string]interface{}
+		if json.Unmarshal([]byte(tc.Func.Args), &probe) == nil {
+			continue // already valid JSON
+		}
+		// Attempt structural repair
+		repaired := repairTruncatedJSON(tc.Func.Args)
+		if json.Unmarshal([]byte(repaired), &probe) == nil {
+			sanitized.ToolCalls[i].Func.Args = repaired
+			continue
+		}
+		// Last resort: empty object (avoids HTTP 500 from llama.cpp grammar parser)
+		sanitized.ToolCalls[i].Func.Args = "{}"
+	}
+	return sanitized
 }
 
 // truncate cuts a string to maxLen and adds "..." if truncated.
