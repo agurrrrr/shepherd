@@ -1615,4 +1615,20 @@
 		margin: 0 0 16px;
 		font-size: 16px;
 	}
+
+	/* Modal 내부에서 setting-row 스타일 오버라이드 — 외부 폼의 좁은 max-width 제거 */
+	.modal-card .setting-row > label:not(.toggle) {
+		flex: 0 0 120px;
+	}
+
+	.modal-card .setting-row .input {
+		flex: 1 1 auto;
+		max-width: none;
+		min-width: 0;
+	}
+
+	.modal-card .setting-row:not(.column) > .hint {
+		flex: 0 0 calc(100% - 136px);
+		margin-left: 136px;
+	}
 </style>
