@@ -41,9 +41,9 @@
 		{ value: 'embedded', label: 'Embedded' }
 	];
 
-	let visibleTabs = $derived(
-		settingsTabs.filter(t => t.value === 'common' || providerEnabled[t.value] || activeTab === t.value)
-	);
+	// 모든 탭을 항상 노출한다. 사용유무 토글이 각 provider 탭 안으로 이동했으므로,
+	// 탭을 숨기면 한 번 끈 provider를 다시 켤 방법이 사라진다. 상태는 ON/OFF 뱃지로 구분.
+	let visibleTabs = $derived(settingsTabs);
 
 	// Embedded endpoint sync
 	async function reloadEmbeddedEndpoints() {
@@ -204,19 +204,19 @@
 
 		<div class="settings-form card">
 			{#if activeTab === 'common'}
-				<CommonSettings {configData} {providerEnabled} {modelOptions} />
+				<CommonSettings {configData} />
 			{/if}
 			{#if activeTab === 'claude'}
-				<ClaudeSettings {configData} modelOptions={modelOptions.claude} />
+				<ClaudeSettings {configData} {providerEnabled} modelOptions={modelOptions.claude} />
 			{/if}
 			{#if activeTab === 'opencode'}
-				<OpenCodeSettings {configData} modelOptions={modelOptions.opencode} />
+				<OpenCodeSettings {configData} {providerEnabled} modelOptions={modelOptions.opencode} />
 			{/if}
 			{#if activeTab === 'pi'}
-				<PiSettings {configData} modelOptions={modelOptions.pi} />
+				<PiSettings {configData} {providerEnabled} modelOptions={modelOptions.pi} />
 			{/if}
 			{#if activeTab === 'embedded'}
-				<EmbeddedSettings {configData} reloadEndpoints={reloadEmbeddedEndpoints} />
+				<EmbeddedSettings {configData} {providerEnabled} reloadEndpoints={reloadEmbeddedEndpoints} />
 			{/if}
 
 			<!-- Save/Restart actions -->
@@ -233,19 +233,35 @@
 			</div>
 		</div>
 
-		<!-- Extra sections below the form -->
-		<div style="margin-top:24px">
-			<PreviewSection />
-		</div>
-		<div style="margin-top:24px">
-			<MCPSection {mcpStatus} {mcpLoaded} />
-		</div>
-		<div style="margin-top:24px">
-			<SkillSyncSection />
-		</div>
-		<div style="margin-top:24px">
-			<DataManagement {projectsList} />
-		</div>
+		<!-- System Prompt Preview — provider 탭별로 표시 -->
+		{#if activeTab === 'claude'}
+			<div style="margin-top:24px">
+				<PreviewSection provider="claude" />
+			</div>
+		{/if}
+		{#if activeTab === 'opencode'}
+			<div style="margin-top:24px">
+				<PreviewSection provider="opencode" />
+			</div>
+		{/if}
+		{#if activeTab === 'pi'}
+			<div style="margin-top:24px">
+				<PreviewSection provider="pi" />
+			</div>
+		{/if}
+
+		<!-- 공통 관리 섹션 — 공통 탭에만 표시 -->
+		{#if activeTab === 'common'}
+			<div style="margin-top:24px">
+				<MCPSection {mcpStatus} {mcpLoaded} />
+			</div>
+			<div style="margin-top:24px">
+				<SkillSyncSection />
+			</div>
+			<div style="margin-top:24px">
+				<DataManagement {projectsList} />
+			</div>
+		{/if}
 	{/if}
 </div>
 

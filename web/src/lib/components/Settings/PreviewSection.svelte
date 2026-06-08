@@ -1,10 +1,29 @@
 <script>
 	import { apiGet } from '$lib/api.js';
 
+	/** @type {'claude' | 'opencode' | 'pi'} */
+	export let provider = 'claude';
+
+	// 프로바이더별로 노출할 프리뷰 모드 집합
+	const MODE_SETS = {
+		claude: [
+			{ key: 'streaming', label: 'Streaming (--append-system-prompt)' },
+			{ key: 'withGuide', label: 'With Guide (Interactive)' }
+		],
+		opencode: [
+			{ key: 'opencode', label: 'OpenCode (Actual)' },
+			{ key: 'compact', label: 'Compact' }
+		],
+		pi: [{ key: 'pi', label: 'Pi' }]
+	};
+
+	$: modes = MODE_SETS[provider] || MODE_SETS.claude;
+	$: if (modes && !modes.some((m) => m.key === mode)) mode = modes[0].key;
+
 	let preview = null;
 	let loading = false;
 	let error = '';
-	let mode = 'streaming'; // streaming | compact | withGuide | opencode | pi
+	let mode = (MODE_SETS[provider] || MODE_SETS.claude)[0].key;
 	let open = false;
 
 	async function loadPreview() {
@@ -29,7 +48,7 @@
 
 <div class="preview-section card">
 	<div class="preview-header">
-		<h2 class="section-title">System Prompt Preview</h2>
+		<h2 class="section-title">System Prompt Preview — {provider.charAt(0).toUpperCase() + provider.slice(1)}</h2>
 		<button class="btn btn-sm btn-outline" onclick={toggle}>
 			{open ? 'Hide' : 'Show'}
 		</button>
@@ -44,11 +63,9 @@
 			<p class="preview-error">{error}</p>
 		{:else if preview}
 			<div class="preview-tabs">
-				<button class="preview-tab" class:active={mode === 'streaming'} onclick={() => mode = 'streaming'}>Streaming (Claude --append-system-prompt)</button>
-				<button class="preview-tab" class:active={mode === 'withGuide'} onclick={() => mode = 'withGuide'}>With Guide (Claude Interactive)</button>
-				<button class="preview-tab" class:active={mode === 'opencode'} onclick={() => mode = 'opencode'}>OpenCode (Actual)</button>
-				<button class="preview-tab" class:active={mode === 'pi'} onclick={() => mode = 'pi'}>Pi</button>
-				<button class="preview-tab" class:active={mode === 'compact'} onclick={() => mode = 'compact'}>Compact</button>
+				{#each modes as m}
+					<button class="preview-tab" class:active={mode === m.key} onclick={() => mode = m.key}>{m.label}</button>
+				{/each}
 			</div>
 			<pre class="preview-body">{preview[mode] || '(empty)'}</pre>
 			<button class="btn btn-sm btn-outline" onclick={loadPreview}>Refresh</button>

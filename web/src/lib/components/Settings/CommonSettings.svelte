@@ -1,10 +1,6 @@
 <script>
 	/** @type {{ language: string, default_provider: string, max_sheep: number, max_concurrent_tasks: number, concurrency_limits: Record<string, number>, task_timeout: string, auto_approve: boolean, enable_file_browser: boolean, session_reuse: boolean, include_task_history: boolean, include_mcp_guide: boolean, include_sheep_memory: boolean, sheep_memory_prompt: string, wiki_enabled: boolean, wiki_auto_ingest: boolean, wiki_max_context_pages: number, wiki_max_page_content_chars: number, discord_notifications_enabled: boolean, discord_webhook_url: string, discord_notify_on_complete: boolean, discord_notify_on_fail: boolean, server_host: string, server_port: number, workspace_path: string, model_claude: string }} */
 	export let configData;
-	/** @type {{ claude: boolean, opencode: boolean, pi: boolean, embedded: boolean }} */
-	export let providerEnabled;
-	/** @type {{ opencode: Array<{id: string, label: string}>, pi: Array<{id: string, label: string}> }} */
-	export let modelOptions;
 </script>
 
 <!-- Language -->
@@ -28,38 +24,7 @@
 	</select>
 </div>
 
-<!-- Provider Enable/Disable -->
-<div class="setting-section">Provider 사용유무</div>
-<p class="hint">끄면 프로젝트 화면의 provider 선택지에서 숨겨지고, 해당 provider로의 작업 실행이 차단됩니다.</p>
-
-<div class="setting-row">
-	<label>🟠 Claude</label>
-	<label class="toggle">
-		<input type="checkbox" bind:checked={providerEnabled.claude} />
-		<span>{providerEnabled.claude ? '사용' : '사용 안 함'}</span>
-	</label>
-</div>
-<div class="setting-row">
-	<label>🟢 OpenCode</label>
-	<label class="toggle">
-		<input type="checkbox" bind:checked={providerEnabled.opencode} />
-		<span>{providerEnabled.opencode ? '사용' : '사용 안 함'}</span>
-	</label>
-</div>
-<div class="setting-row">
-	<label>🔵 Pi</label>
-	<label class="toggle">
-		<input type="checkbox" bind:checked={providerEnabled.pi} />
-		<span>{providerEnabled.pi ? '사용' : '사용 안 함'}</span>
-	</label>
-</div>
-<div class="setting-row">
-	<label>🟣 Embedded</label>
-	<label class="toggle">
-		<input type="checkbox" bind:checked={providerEnabled.embedded} />
-		<span>{providerEnabled.embedded ? '사용' : '사용 안 함'}</span>
-	</label>
-</div>
+<p class="hint">각 Provider의 사용유무 · 모델 · Custom Prompt · 동시 실행 제한은 위쪽의 해당 Provider 탭에서 설정합니다.</p>
 
 <!-- Max Sheep -->
 <div class="setting-row">
@@ -72,32 +37,6 @@
 	<label>Max Concurrent Tasks</label>
 	<input class="input" type="number" bind:value={configData.max_concurrent_tasks} min="0" max="50" />
 	<span class="hint">전체 동시 실행 작업 수의 천장(ceiling). 0이면 제한 없음.</span>
-</div>
-
-<!-- Per-Group Limits -->
-<div class="setting-row">
-	<label>Per-Group Limits</label>
-	<div class="conc-limits">
-		<div class="conc-row">
-			<span class="conc-label">🟠 Claude{configData.model_claude ? ` (${configData.model_claude})` : ''}</span>
-			<input class="input conc-input" type="number" bind:value={configData.concurrency_limits['claude']} min="0" max="50" placeholder="0" />
-		</div>
-		{#each modelOptions.opencode as opt}
-			{@const key = opt.id ? `opencode/${opt.id}` : 'opencode'}
-			<div class="conc-row">
-				<span class="conc-label" title={opt.id ? opt.id : 'OpenCode 모델 미지정 작업의 기본 그룹'}>🟢 {opt.id ? opt.label : 'OpenCode (모델 미지정 / 기본)'}</span>
-				<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
-			</div>
-		{/each}
-		{#each modelOptions.pi as opt}
-			{@const key = opt.id ? `pi/${opt.id}` : 'pi'}
-			<div class="conc-row">
-				<span class="conc-label" title={opt.id ? opt.id : 'Pi 모델 미지정 작업의 기본 그룹'}>🔵 {opt.id ? opt.label : 'Pi (모델 미지정 / 기본)'}</span>
-				<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
-			</div>
-		{/each}
-	</div>
-	<span class="hint">provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음. <code>auto</code> provider는 Claude 그룹에 포함됩니다.</span>
 </div>
 
 <!-- Task Timeout -->
@@ -264,32 +203,6 @@
 		flex: 0 0 calc(100% - 156px);
 		margin-left: 156px;
 		min-width: 0;
-	}
-
-	.conc-limits {
-		flex: 1 1 200px;
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		max-width: 320px;
-		min-width: 0;
-	}
-
-	.conc-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
-	}
-
-	.conc-label {
-		font-size: 13px;
-		color: var(--text-secondary);
-	}
-
-	.setting-row .conc-input {
-		flex: 0 0 90px;
-		max-width: 90px;
 	}
 
 	.setting-row.column {

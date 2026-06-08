@@ -2,10 +2,14 @@
 	import { onMount } from 'svelte';
 import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 
+	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
+
 	/** @type {{ embedded_active_id: string, custom_prompt_embedded: string }} */
 	export let configData;
 	/** @type {() => Promise<void>} */
 	export let reloadEndpoints;
+	/** @type {{ claude: boolean, opencode: boolean, pi: boolean, embedded: boolean }} */
+	export let providerEnabled;
 
 	let embeddedEndpoints = [];
 	let loaded = false;
@@ -119,6 +123,8 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	// Load endpoints on mount
 	onMount(loadEndpoints);
 </script>
+
+<ProviderEnableToggle {providerEnabled} provider="embedded" label="🟣 Embedded" />
 
 <p class="hint">OpenAI 호환 API 서버(llama.cpp, vLLM, Ollama 등)를 직접 연결합니다. 서브프로세스 없이 in-process 에이전트 루프가 실행됩니다.</p>
 

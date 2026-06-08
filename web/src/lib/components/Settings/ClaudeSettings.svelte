@@ -1,8 +1,12 @@
 <script>
-	/** @type {{ model_claude: string, custom_prompt_claude: string }} */
+	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
+
+	/** @type {{ model_claude: string, custom_prompt_claude: string, concurrency_limits: Record<string, number> }} */
 	export let configData;
 	/** @type {Array<{id: string, label: string}>} */
 	export let modelOptions;
+	/** @type {{ claude: boolean, opencode: boolean, pi: boolean, embedded: boolean }} */
+	export let providerEnabled;
 
 	// If the configured model is not present in the select's options, append it.
 	function optionsWithCurrent(opts, current) {
@@ -12,6 +16,8 @@
 	}
 </script>
 
+<ProviderEnableToggle {providerEnabled} provider="claude" label="🟠 Claude" />
+
 <div class="setting-row">
 	<label>Claude Model</label>
 	<select class="input" bind:value={configData.model_claude}>
@@ -19,6 +25,16 @@
 			<option value={opt.id}>{opt.label}</option>
 		{/each}
 	</select>
+</div>
+<div class="setting-row">
+	<label>Per-Group Limit</label>
+	<div class="conc-limits">
+		<div class="conc-row">
+			<span class="conc-label">🟠 Claude{configData.model_claude ? ` (${configData.model_claude})` : ''}</span>
+			<input class="input conc-input" type="number" bind:value={configData.concurrency_limits['claude']} min="0" max="50" placeholder="0" />
+		</div>
+	</div>
+	<span class="hint">동시 실행 제한. 0이면 제한 없음. <code>auto</code> provider는 Claude 그룹에 포함됩니다.</span>
 </div>
 <div class="setting-row column">
 	<label>Custom Prompt — Claude</label>
@@ -50,6 +66,38 @@
 		flex: 1 1 200px;
 		max-width: 240px;
 		min-width: 0;
+	}
+
+	.setting-row:not(.column) > .hint {
+		flex: 0 0 calc(100% - 156px);
+		margin-left: 156px;
+		min-width: 0;
+	}
+
+	.conc-limits {
+		flex: 1 1 200px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		max-width: 320px;
+		min-width: 0;
+	}
+
+	.conc-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+	}
+
+	.conc-label {
+		font-size: 13px;
+		color: var(--text-secondary);
+	}
+
+	.setting-row .conc-input {
+		flex: 0 0 90px;
+		max-width: 90px;
 	}
 
 	.setting-row.column {
@@ -90,6 +138,10 @@
 		}
 		.setting-row .input {
 			max-width: none;
+		}
+		.setting-row:not(.column) > .hint {
+			flex: 0 0 100%;
+			margin-left: 0;
 		}
 	}
 </style>

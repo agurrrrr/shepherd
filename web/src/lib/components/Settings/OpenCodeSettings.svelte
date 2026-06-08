@@ -1,8 +1,12 @@
 <script>
-	/** @type {{ model_opencode: string, custom_prompt_opencode: string, opencode_compact_prompt: boolean, opencode_thinking_default: boolean, opencode_thinking_proxy_enabled: boolean, opencode_thinking_proxy_port: number, opencode_thinking_proxy_target: string, opencode_thinking_model: string }} */
+	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
+
+	/** @type {{ model_opencode: string, custom_prompt_opencode: string, opencode_compact_prompt: boolean, opencode_thinking_default: boolean, opencode_thinking_proxy_enabled: boolean, opencode_thinking_proxy_port: number, opencode_thinking_proxy_target: string, opencode_thinking_model: string, concurrency_limits: Record<string, number> }} */
 	export let configData;
 	/** @type {Array<{id: string, label: string}>} */
 	export let modelOptions;
+	/** @type {{ claude: boolean, opencode: boolean, pi: boolean, embedded: boolean }} */
+	export let providerEnabled;
 
 	function optionsWithCurrent(opts, current) {
 		if (!current) return opts;
@@ -11,6 +15,8 @@
 	}
 </script>
 
+<ProviderEnableToggle {providerEnabled} provider="opencode" label="🟢 OpenCode" />
+
 <div class="setting-row">
 	<label>OpenCode Model</label>
 	<select class="input" bind:value={configData.model_opencode}>
@@ -18,6 +24,19 @@
 			<option value={opt.id}>{opt.label}</option>
 		{/each}
 	</select>
+</div>
+<div class="setting-row">
+	<label>Per-Group Limits</label>
+	<div class="conc-limits">
+		{#each modelOptions as opt}
+			{@const key = opt.id ? `opencode/${opt.id}` : 'opencode'}
+			<div class="conc-row">
+				<span class="conc-label" title={opt.id ? opt.id : 'OpenCode 모델 미지정 작업의 기본 그룹'}>🟢 {opt.id ? opt.label : 'OpenCode (모델 미지정 / 기본)'}</span>
+				<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
+			</div>
+		{/each}
+	</div>
+	<span class="hint">provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음.</span>
 </div>
 <div class="setting-row">
 	<label>Compact Prompt</label>
@@ -95,6 +114,32 @@
 		flex: 0 0 calc(100% - 156px);
 		margin-left: 156px;
 		min-width: 0;
+	}
+
+	.conc-limits {
+		flex: 1 1 200px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		max-width: 320px;
+		min-width: 0;
+	}
+
+	.conc-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+	}
+
+	.conc-label {
+		font-size: 13px;
+		color: var(--text-secondary);
+	}
+
+	.setting-row .conc-input {
+		flex: 0 0 90px;
+		max-width: 90px;
 	}
 
 	.setting-row.column {
