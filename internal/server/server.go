@@ -507,11 +507,13 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
 		}
 
-		// Create tool registry
-		toolRegistry := embedded.NewToolRegistry(projectPath, sheepName, mcpDefs,
-			func(name string, args map[string]interface{}) (string, error) {
-				return mcpServer.ExecuteTool(name, args)
-			})
+		// Dispatcher that routes MCP tool calls to the running MCP server.
+		mcpDispatch := func(name string, args map[string]interface{}) (string, error) {
+			return mcpServer.ExecuteTool(name, args)
+		}
+
+		// Create tool registry (used here to derive the tool definitions the model sees)
+		toolRegistry := embedded.NewToolRegistry(projectPath, sheepName, mcpDefs, mcpDispatch)
 		toolDefs := toolRegistry.OpenAIToolDefs()
 
 		// Run the embedded agent loop
@@ -527,6 +529,8 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			OnOutput:       opts.OnOutput,
 			MaxIterations:  ep.MaxIterations,
 			ContextTokens:  ep.ContextTokens,
+			MCPDefs:        mcpDefs,
+			MCPDispatch:    mcpDispatch,
 		})
 		if err != nil {
 			return nil, err

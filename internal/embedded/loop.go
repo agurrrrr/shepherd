@@ -29,7 +29,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	}
 
 	client := NewClient(baseURL, opts.APIKey, opts.Model)
-	toolRegistry := NewToolRegistry(opts.ProjectPath, opts.SheepName, nil, nil) // MCP tools injected externally
+	toolRegistry := NewToolRegistry(opts.ProjectPath, opts.SheepName, opts.MCPDefs, opts.MCPDispatch)
 
 	// Override tool definitions if provided
 	var toolDefs []OpenAIToolDef

@@ -171,6 +171,12 @@ type ExecuteOptions struct {
 	OnOutput       func(output string)
 	MaxIterations  int
 	ContextTokens  int
+
+	// MCPDefs / MCPDispatch wire external MCP tools into the agent loop. Without
+	// MCPDispatch set, the loop can only execute native tools and any MCP tool
+	// call (e.g. browser_session_start) fails with "unknown tool".
+	MCPDefs     []MCPToolDef
+	MCPDispatch MCPDispatcher
 }
 
 // DefaultMaxIterations is the default maximum number of agent loop iterations.
