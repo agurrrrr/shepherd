@@ -78,6 +78,14 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			totalCompletionTokens += usage.CompletionTokens
 		}
 
+		// Surface the model's "thinking" (reasoning_content) for this turn so the
+		// live output shows what the model is reasoning about, like Claude does.
+		if opts.OnOutput != nil {
+			if think := strings.TrimSpace(msg.ReasoningContent); think != "" {
+				opts.OnOutput("💭 " + think)
+			}
+		}
+
 		// Handle tool calls (native function-calling)
 		if len(msg.ToolCalls) > 0 {
 			// Check for repeated tool+args (loop detection)
@@ -101,13 +109,21 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		sanitized := sanitizeToolCallArgs(*msg)
 		messages = append(messages, sanitized)
 
+			// Surface any narration the model wrote alongside its tool calls (the
+			// "말하는 거" — e.g. "Let me check the docs first.").
+			if opts.OnOutput != nil {
+				if narration := strings.TrimSpace(msg.Content); narration != "" {
+					opts.OnOutput(narration)
+				}
+			}
+
 			// Execute each tool call
 			for _, tc := range msg.ToolCalls {
 				// Show the tool call (name + command/args) BEFORE running it, in the
 				// "🔧 name → detail" format the web UI parses (OutputViewer.svelte).
 				if opts.OnOutput != nil {
 					parsedArgs, _ := normalizeJSON(tc.Func.Args)
-					opts.OnOutput("\n" + toolCallHeader(tc.Func.Name, parsedArgs) + "\n")
+					opts.OnOutput(toolCallHeader(tc.Func.Name, parsedArgs))
 				}
 
 				result, err := dispatchTool(ctx, toolRegistry, tc, opts)
@@ -157,7 +173,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 					// Show the recovered tool call before running it.
 					if opts.OnOutput != nil {
-						opts.OnOutput("\n" + toolCallHeader(tc.Func.Name, args) + "\n")
+						opts.OnOutput(toolCallHeader(tc.Func.Name, args))
 					}
 
 					result, err := toolRegistry.Dispatch(tc.Func.Name, args)
@@ -322,11 +338,9 @@ func indentResult(s string) string {
 		return ""
 	}
 	s = truncate(s, 500)
-	var b strings.Builder
-	for _, line := range strings.Split(s, "\n") {
-		b.WriteString("  ")
-		b.WriteString(line)
-		b.WriteByte('\n')
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = "  " + line
 	}
-	return b.String()
+	return strings.Join(lines, "\n")
 }

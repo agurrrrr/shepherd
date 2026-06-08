@@ -181,11 +181,12 @@ func (c *Client) ChatStream(ctx context.Context, req *ChatRequest, cb func(*Stre
 // Returns the assembled message, finish reason, and token usage.
 func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatMessage, string, *ChatUsage, error) {
 	var (
-		contentBuilder strings.Builder
-		byIndex        = make(map[int]*ToolCall)
-		order          []int
-		finishReason   string
-		usage          *ChatUsage
+		contentBuilder   strings.Builder
+		reasoningBuilder strings.Builder
+		byIndex          = make(map[int]*ToolCall)
+		order            []int
+		finishReason     string
+		usage            *ChatUsage
 	)
 
 	err := c.ChatStream(ctx, req, func(event *StreamEvent) error {
@@ -203,6 +204,10 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 
 		if event.Delta.Content != "" {
 			contentBuilder.WriteString(event.Delta.Content)
+		}
+
+		if event.Delta.ReasoningContent != "" {
+			reasoningBuilder.WriteString(event.Delta.ReasoningContent)
 		}
 
 		// Accumulate tool calls by their stream Index. The first chunk for an
@@ -241,9 +246,10 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 
 	content := contentBuilder.String()
 	msg := &ChatMessage{
-		Role:      ChatRoleAssistant,
-		Content:   content,
-		ToolCalls: toolCalls,
+		Role:             ChatRoleAssistant,
+		Content:          content,
+		ToolCalls:        toolCalls,
+		ReasoningContent: reasoningBuilder.String(),
 	}
 
 	return msg, finishReason, usage, nil

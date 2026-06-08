@@ -44,6 +44,10 @@ type ChatMessage struct {
 	Name      string     `json:"name,omitempty"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string    `json:"tool_call_id,omitempty"`
+	// ReasoningContent holds the model's "thinking" (reasoning_content) for the
+	// turn. It is surfaced to live output but never sent back to the server
+	// (json:"-"), so it does not pollute the chat history.
+	ReasoningContent string `json:"-"`
 }
 
 // ToolCall represents a tool call from the model.
