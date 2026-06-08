@@ -103,11 +103,11 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				}
 			}
 
-		// Add assistant message with tool calls to history.
-		// Sanitize args first: malformed JSON in tool_calls causes llama.cpp to
-		// return HTTP 500 on the very next request (its grammar engine rejects them).
-		sanitized := sanitizeToolCallArgs(*msg)
-		messages = append(messages, sanitized)
+			// Add assistant message with tool calls to history.
+			// Sanitize args first: malformed JSON in tool_calls causes llama.cpp to
+			// return HTTP 500 on the very next request (its grammar engine rejects them).
+			sanitized := sanitizeToolCallArgs(*msg)
+			messages = append(messages, sanitized)
 
 			// Surface any narration the model wrote alongside its tool calls (the
 			// "말하는 거" — e.g. "Let me check the docs first.").
@@ -144,7 +144,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 				messages = append(messages, ChatMessage{
 					Role:       ChatRoleTool,
-					Content:    resultStr,
+					Content:    truncateToolResult(resultStr),
 					ToolCallID: tc.ID,
 				})
 			}
@@ -192,7 +192,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 					messages = append(messages, ChatMessage{
 						Role:       ChatRoleTool,
-						Content:    resultStr,
+						Content:    truncateToolResult(resultStr),
 						ToolCallID: tc.ID,
 					})
 				}
@@ -200,20 +200,26 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			}
 		}
 
-		// Pure text response — check for empty consecutive responses
+		// Pure text response — check for empty consecutive responses.
+		// Do NOT add the empty message to history: it wastes context and does not
+		// help the model recover. Instead, inject a nudge so the model knows it
+		// should produce output.
 		if strings.TrimSpace(msg.Content) == "" {
 			consecutiveEmpty++
 			if consecutiveEmpty >= 3 {
 				return &ExecuteResult{
-					Result:           msg.Content,
+					Result:           "",
 					Incomplete:       true,
 					IncompleteReason: "empty response loop detected",
 					PromptTokens:     totalPromptTokens,
 					CompletionTokens: totalCompletionTokens,
 				}, nil
 			}
-			// Add empty message and retry
-			messages = append(messages, *msg)
+			// Add a nudge to prompt the model to continue.
+			messages = append(messages, ChatMessage{
+				Role:    ChatRoleUser,
+				Content: "Please continue with the task.",
+			})
 			continue
 		}
 		consecutiveEmpty = 0
@@ -302,6 +308,18 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// truncateToolResult limits tool output stored in message history to 8 000
+// characters. Very large outputs (e.g. full file contents printed by bash)
+// blow up the context window quickly; truncating here keeps the conversation
+// manageable while still giving the model the most important prefix.
+func truncateToolResult(s string) string {
+	const maxToolResultChars = 8000
+	if len(s) <= maxToolResultChars {
+		return s
+	}
+	return s[:maxToolResultChars] + fmt.Sprintf("\n...[truncated %d chars]", len(s)-maxToolResultChars)
 }
 
 // toolArgSummary extracts a short, human-readable summary of a tool call's

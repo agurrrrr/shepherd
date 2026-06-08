@@ -11,15 +11,15 @@ import (
 
 // Endpoint represents a configured LLM endpoint (OpenAI-compatible).
 type Endpoint struct {
-	ID             string `mapstructure:"id"`
-	Label          string `mapstructure:"label"`
-	BaseURL        string `mapstructure:"base_url"`
-	APIKey         string `mapstructure:"api_key"`
-	Model          string `mapstructure:"model"`
-	Enabled        bool   `mapstructure:"enabled"`
-	Thinking       bool   `mapstructure:"thinking"`
-	MaxIterations  int    `mapstructure:"max_iterations"`
-	ContextTokens  int    `mapstructure:"context_tokens"`
+	ID            string `mapstructure:"id"`
+	Label         string `mapstructure:"label"`
+	BaseURL       string `mapstructure:"base_url"`
+	APIKey        string `mapstructure:"api_key"`
+	Model         string `mapstructure:"model"`
+	Enabled       bool   `mapstructure:"enabled"`
+	Thinking      bool   `mapstructure:"thinking"`
+	MaxIterations int    `mapstructure:"max_iterations"`
+	ContextTokens int    `mapstructure:"context_tokens"`
 }
 
 // Config holds embedded provider settings loaded from embedded.yaml.
@@ -39,11 +39,11 @@ const (
 
 // ChatMessage represents a message in the chat history.
 type ChatMessage struct {
-	Role      ChatRole   `json:"role"`
-	Content   string     `json:"content"`
-	Name      string     `json:"name,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string    `json:"tool_call_id,omitempty"`
+	Role       ChatRole   `json:"role"`
+	Content    string     `json:"content"`
+	Name       string     `json:"name,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 	// ReasoningContent holds the model's "thinking" (reasoning_content) for the
 	// turn. It is surfaced to live output but never sent back to the server
 	// (json:"-"), so it does not pollute the chat history.
@@ -52,9 +52,9 @@ type ChatMessage struct {
 
 // ToolCall represents a tool call from the model.
 type ToolCall struct {
-	ID   string                 `json:"id"`
-	Type string                 `json:"type"`
-	Func ToolCallFunction       `json:"function"`
+	ID   string           `json:"id"`
+	Type string           `json:"type"`
+	Func ToolCallFunction `json:"function"`
 }
 
 // ToolCallFunction is the function details in a tool call.
@@ -65,8 +65,8 @@ type ToolCallFunction struct {
 
 // OpenAIToolDef is an OpenAI-format tool definition.
 type OpenAIToolDef struct {
-	Type     string          `json:"type"`
-	Function OpenAIFunction  `json:"function"`
+	Type     string         `json:"type"`
+	Function OpenAIFunction `json:"function"`
 }
 
 // OpenAIFunction is the function definition within a tool.
@@ -78,16 +78,16 @@ type OpenAIFunction struct {
 
 // ChatRequest is the request body for /chat/completions.
 type ChatRequest struct {
-	Model         string                `json:"model"`
-	Messages      []ChatMessage         `json:"messages"`
-	Tools         []OpenAIToolDef       `json:"tools,omitempty"`
-	ToolChoice    interface{}           `json:"tool_choice,omitempty"`
-	Temperature   float32               `json:"temperature,omitempty"`
-	MaxTokens     int                   `json:"max_tokens,omitempty"`
-	Stream        bool                  `json:"stream"`
-	StreamOptions *StreamOptions        `json:"stream_options,omitempty"`
+	Model         string          `json:"model"`
+	Messages      []ChatMessage   `json:"messages"`
+	Tools         []OpenAIToolDef `json:"tools,omitempty"`
+	ToolChoice    interface{}     `json:"tool_choice,omitempty"`
+	Temperature   float32         `json:"temperature,omitempty"`
+	MaxTokens     int             `json:"max_tokens,omitempty"`
+	Stream        bool            `json:"stream"`
+	StreamOptions *StreamOptions  `json:"stream_options,omitempty"`
 	// Ollama-specific
-	Options       map[string]interface{} `json:"options,omitempty"`
+	Options map[string]interface{} `json:"options,omitempty"`
 	// Thinking/reasoning
 	ExtraProperties map[string]interface{} `json:"-"`
 }
@@ -119,10 +119,10 @@ type DeltaToolCall struct {
 
 // ChatChoice is a choice in the response.
 type ChatChoice struct {
-	Index        int       `json:"index"`
-	Delta        ChatDelta `json:"delta"`
+	Index        int         `json:"index"`
+	Delta        ChatDelta   `json:"delta"`
 	Message      ChatMessage `json:"message"`
-	FinishReason string    `json:"finish_reason,omitempty"`
+	FinishReason string      `json:"finish_reason,omitempty"`
 }
 
 // ChatUsage is token usage from a response.
@@ -134,8 +134,8 @@ type ChatUsage struct {
 
 // ChatResponse is the complete response from /chat/completions.
 type ChatResponse struct {
-	ID      string      `json:"id"`
-	Model   string      `json:"model"`
+	ID      string       `json:"id"`
+	Model   string       `json:"model"`
 	Choices []ChatChoice `json:"choices"`
 	Usage   ChatUsage    `json:"usage"`
 }
@@ -164,17 +164,17 @@ type ExecuteResult struct {
 
 // ExecuteOptions contains options for embedded execution.
 type ExecuteOptions struct {
-	SheepName      string
-	ProjectPath    string
-	BaseURL        string // OpenAI-compatible base URL (with /v1 suffix)
-	APIKey         string // API key (empty allowed for local servers)
-	Model          string // Model name
-	SystemPrompt   string
-	UserPrompt     string
-	Tools          []OpenAIToolDef
-	OnOutput       func(output string)
-	MaxIterations  int
-	ContextTokens  int
+	SheepName     string
+	ProjectPath   string
+	BaseURL       string // OpenAI-compatible base URL (with /v1 suffix)
+	APIKey        string // API key (empty allowed for local servers)
+	Model         string // Model name
+	SystemPrompt  string
+	UserPrompt    string
+	Tools         []OpenAIToolDef
+	OnOutput      func(output string)
+	MaxIterations int
+	ContextTokens int
 
 	// MCPDefs / MCPDispatch wire external MCP tools into the agent loop. Without
 	// MCPDispatch set, the loop can only execute native tools and any MCP tool
@@ -223,41 +223,62 @@ func parseSSE(reader io.Reader) ([]*SSEEvent, error) {
 	return events, nil
 }
 
-// trimMessages truncates the message list to stay within context token limits.
-// Uses a simple heuristic: each message is roughly estimated at 100 tokens.
-func trimMessages(messages []ChatMessage, maxTokens int) []ChatMessage {
-	if len(messages) <= 1 {
-		return messages
+// estimateMessageTokens estimates the token count for a single message.
+// Includes Content, ToolCalls (function name + JSON args), and overhead.
+func estimateMessageTokens(msg ChatMessage) int {
+	size := len(msg.Content)
+	for _, tc := range msg.ToolCalls {
+		// name + args JSON + per-call overhead
+		size += len(tc.Func.Name) + len(tc.Func.Args) + 64
 	}
+	// /4 to convert bytes → tokens (rough), +50 per-message overhead
+	return size/4 + 50
+}
 
-	// Estimate tokens: rough heuristic of 1 token per 4 bytes
-	estimateTokens := func(msg ChatMessage) int {
-		return len(msg.Content)/4 + 50
+// trimMessages truncates the message list to stay within context token limits.
+// Removes complete "turns" (assistant message + its tool results) from the
+// oldest position, preserving the system prompt and the first user message.
+func trimMessages(messages []ChatMessage, maxTokens int) []ChatMessage {
+	if len(messages) <= 2 {
+		return messages
 	}
 
 	totalTokens := 0
 	for _, msg := range messages {
-		totalTokens += estimateTokens(msg)
+		totalTokens += estimateMessageTokens(msg)
 	}
 
-	if totalTokens < maxTokens {
+	// Leave 25% headroom for the model's reply
+	limit := maxTokens * 3 / 4
+	if totalTokens <= limit {
 		return messages
 	}
 
-	// Keep system message (index 0) and user message, trim from the middle
-	// (oldest tool call results first)
+	// Always preserve: [0] system, [1] user (original request)
 	system := messages[0]
-	remaining := messages[1:]
+	userMsg := messages[1]
+	candidates := messages[2:] // older turns are at the front
 
-	for len(remaining) > 1 {
-		totalTokens -= estimateTokens(remaining[0])
-		remaining = remaining[1:]
-		if totalTokens < maxTokens {
-			break
+	for len(candidates) > 0 && totalTokens > limit {
+		// Find how many messages belong to the next "turn":
+		// one assistant message + all immediately following tool results.
+		groupEnd := 1
+		if candidates[0].Role == ChatRoleAssistant {
+			for groupEnd < len(candidates) && candidates[groupEnd].Role == ChatRoleTool {
+				groupEnd++
+			}
 		}
+		// Remove the group
+		for i := 0; i < groupEnd; i++ {
+			totalTokens -= estimateMessageTokens(candidates[i])
+		}
+		candidates = candidates[groupEnd:]
 	}
 
-	return append([]ChatMessage{system}, remaining...)
+	result := make([]ChatMessage, 0, 2+len(candidates))
+	result = append(result, system, userMsg)
+	result = append(result, candidates...)
+	return result
 }
 
 // ValidateEndpoint checks if an endpoint is properly configured.
