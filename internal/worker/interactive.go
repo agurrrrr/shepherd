@@ -999,46 +999,26 @@ For web tasks, use browser tools instead of WebFetch.
 	return sb.String()
 }
 
+// mcpGuideText is a concise behavioral note for shepherd's MCP tools. The full
+// tool list and parameter schemas are already exposed to the agent through MCP
+// registration, so re-enumerating every tool (and its parameters) in the system
+// prompt is redundant. We keep only the non-obvious usage guidance here.
+const mcpGuideText = `[Shepherd MCP — usage notes]
+These tools are already registered via MCP; the full list and parameters live in the tool definitions. Only the non-obvious guidance is noted here:
+- For web/browser tasks, prefer the browser_* tools over WebFetch. Every browser_* tool requires the sheep_name parameter.
+- Typical browser flow: browser_session_start -> browser_open -> browser_get_text / browser_click / browser_type -> browser_session_stop.
+- Use get_history for details of previous tasks, and skill_load to load a skill's full content when its summary isn't enough.
+- Use wiki_read_page / wiki_search to read project wiki knowledge.
+
+`
+
 // buildSystemContext returns the system-level context (MCP guide, task history, skills)
 // separated from the user prompt. Used by streaming mode to pass via --append-system-prompt.
 func buildSystemContext(sheepName, prompt string) string {
 	var sb strings.Builder
 
 	if config.GetBool("include_mcp_guide") {
-		sb.WriteString(`For browser automation tasks, always use shepherd MCP tools:
-- browser_session_start: Start browser session (sheep_name required)
-- browser_open: Open URL
-- browser_click, browser_type: Element interaction
-- browser_get_text, browser_get_html: Information extraction
-- browser_screenshot: Capture screenshot
-- browser_session_stop: End session
-
-[Available Shepherd MCP Tools]
-Task management:
-- task_start: Queue a task (sheep_name, project_name, prompt)
-- task_complete: Record task completion (task_id, summary)
-- task_error: Record task error (task_id, error)
-- get_history: Query project task history (project_name, limit)
-- get_status: Get overall system status
-
-Skills:
-- skill_load: Load full content of a skill by name (use when you need detailed instructions)
-
-Wiki:
-- wiki_read_page: Read a wiki page (project_name, slug)
-- wiki_list_pages: List wiki pages (project_name)
-- wiki_search: Search wiki pages (project_name, query)
-
-Browser automation (PREFERRED over WebFetch for web tasks):
-- browser_session_start, browser_session_stop, browser_open, browser_close
-- browser_click, browser_type, browser_select, browser_check, browser_hover
-- browser_scroll, browser_get_text, browser_get_html, browser_get_attribute
-- browser_get_url, browser_get_title, browser_eval, browser_screenshot, browser_pdf
-- browser_wait_selector, browser_wait_hidden, browser_wait_load, browser_wait_idle
-- browser_navigate, browser_reload, browser_back, browser_forward, browser_list_pages
-
-For web search/crawling tasks, use browser tools instead of WebFetch.
-`)
+		sb.WriteString(mcpGuideText)
 	}
 
 	if config.GetBool("include_task_history") {
@@ -1070,71 +1050,6 @@ For web search/crawling tasks, use browser tools instead of WebFetch.
 		sb.WriteString("\n")
 	}
 
-	if config.GetBool("include_mcp_guide") {
-		sb.WriteString(`For browser automation tasks, always use shepherd MCP tools.
-
-IMPORTANT: ALL browser tools require sheep_name parameter. Always pass sheep_name with every browser tool call.
-
-- browser_session_start: Start browser session (sheep_name required)
-- browser_open: Open URL (sheep_name, url required)
-- browser_navigate: Navigate to URL (sheep_name, url required)
-- browser_click: Click element (sheep_name, selector required)
-- browser_type: Type text (sheep_name, selector, text required)
-- browser_get_text: Extract text (sheep_name, selector required)
-- browser_get_html: Get HTML (sheep_name required)
-- browser_screenshot: Capture screenshot (sheep_name required)
-- browser_session_stop: End session (sheep_name required)
-- browser_list_pages: List pages (sheep_name required)
-- browser_wait_load: Wait for page load (sheep_name required)
-- browser_close, browser_reload, browser_back, browser_forward: (sheep_name required)
-- browser_select, browser_check, browser_hover: (sheep_name, selector required)
-- browser_scroll: (sheep_name required)
-- browser_get_attribute: (sheep_name, selector, attribute required)
-- browser_get_url, browser_get_title: (sheep_name required)
-- browser_eval: (sheep_name, js required)
-- browser_wait_selector, browser_wait_hidden: (sheep_name, selector required)
-- browser_wait_idle: (sheep_name required)
-- browser_pdf: (sheep_name required)
-- browser_console_start, browser_console_messages: (sheep_name required)
-- browser_network_start, browser_network_requests: (sheep_name required)
-- browser_network_request: (sheep_name, request_id required)
-
-Example: When crawling a webpage
-1. Start session with browser_session_start (sheep_name)
-2. Open URL with browser_open (sheep_name, url)
-3. Extract content with browser_get_text (sheep_name, selector)
-4. End with browser_session_stop (sheep_name)
-
-[Available Shepherd MCP Tools]
-Task management:
-- task_start: Queue a task (sheep_name, project_name, prompt)
-- task_complete: Record task completion (task_id, summary)
-- task_error: Record task error (task_id, error)
-- get_history: Query project task history (project_name, limit)
-- get_status: Get overall system status
-
-Skills:
-- skill_load: Load full content of a skill by name (use when you need detailed instructions)
-
-Wiki:
-- wiki_read_page: Read a wiki page (project_name, slug)
-- wiki_list_pages: List wiki pages (project_name)
-- wiki_search: Search wiki pages (project_name, query)
-
-Browser automation (PREFERRED over WebFetch for web tasks):
-- browser_session_start, browser_session_stop, browser_open, browser_close
-- browser_click, browser_type, browser_select, browser_check, browser_hover
-- browser_scroll, browser_get_text, browser_get_html, browser_get_attribute
-- browser_get_url, browser_get_title, browser_eval, browser_screenshot, browser_pdf
-- browser_wait_selector, browser_wait_hidden, browser_wait_load, browser_wait_idle
-- browser_navigate, browser_reload, browser_back, browser_forward, browser_list_pages
-- browser_console_start, browser_console_messages
-- browser_network_start, browser_network_requests, browser_network_request
-
-For web search/crawling tasks, use browser tools instead of WebFetch.
-`)
-	}
-
 	if cp := strings.TrimSpace(config.GetString("custom_prompt_claude")); cp != "" {
 		sb.WriteString("\n[User Custom Instructions]\n")
 		sb.WriteString(cp)
@@ -1158,89 +1073,7 @@ func buildPromptWithContextUsing(sheepName, prompt, customPromptKey string) stri
 	var sb strings.Builder
 
 	if config.GetBool("include_mcp_guide") {
-		sb.WriteString(`[System Instructions]
-For browser automation tasks, always use shepherd MCP tools.
-
-IMPORTANT: ALL browser tools require sheep_name parameter. Always pass sheep_name with every browser tool call.
-
-- browser_session_start: Start browser session (sheep_name required)
-- browser_open: Open URL (sheep_name, url required)
-- browser_navigate: Navigate to URL (sheep_name, url required)
-- browser_click: Click element (sheep_name, selector required)
-- browser_type: Type text (sheep_name, selector, text required)
-- browser_get_text: Extract text (sheep_name, selector required)
-- browser_get_html: Get HTML (sheep_name required)
-- browser_screenshot: Capture screenshot (sheep_name required)
-- browser_session_stop: End session (sheep_name required)
-- browser_list_pages: List pages (sheep_name required)
-- browser_wait_load: Wait for page load (sheep_name required)
-- browser_close, browser_reload, browser_back, browser_forward: (sheep_name required)
-- browser_select, browser_check, browser_hover: (sheep_name, selector required)
-- browser_scroll: (sheep_name required)
-- browser_get_attribute: (sheep_name, selector, attribute required)
-- browser_get_url, browser_get_title: (sheep_name required)
-- browser_eval: (sheep_name, js required)
-- browser_wait_selector, browser_wait_hidden: (sheep_name, selector required)
-- browser_wait_idle: (sheep_name required)
-- browser_pdf: (sheep_name required)
-- browser_console_start, browser_console_messages: (sheep_name required)
-- browser_network_start, browser_network_requests: (sheep_name required)
-- browser_network_request: (sheep_name, request_id required)
-
-Example: When crawling a webpage
-1. Start session with browser_session_start (sheep_name)
-2. Open URL with browser_open (sheep_name, url)
-3. Extract content with browser_get_text (sheep_name, selector)
-4. End with browser_session_stop (sheep_name)
-
-[Available Shepherd MCP Tools]
-Task management:
-- task_start: Queue a task (sheep_name, project_name, prompt)
-- task_complete: Record task completion (task_id, summary)
-- task_error: Record task error (task_id, error)
-- get_history: Query project task history (project_name, limit)
-- get_status: Get overall system status
-
-Skills:
-- skill_load: Load full content of a skill by name (use when you need detailed instructions)
-
-Wiki:
-- wiki_read_page: Read a wiki page (project_name, slug)
-- wiki_list_pages: List wiki pages for a project (project_name)
-- wiki_search: Search wiki pages by query (project_name, query)
-
-Browser automation (PREFERRED over WebFetch for web tasks):
-- browser_session_start: Start browser session (sheep_name required)
-- browser_session_stop: End browser session (sheep_name)
-- browser_list_pages: List open pages (sheep_name)
-- browser_open: Open URL in browser (sheep_name, url)
-- browser_close: Close current page (sheep_name)
-- browser_navigate: Navigate to URL (sheep_name, url)
-- browser_reload, browser_back, browser_forward: Navigation (sheep_name)
-- browser_click: Click element (sheep_name, selector)
-- browser_type: Type text into element (sheep_name, selector, text)
-- browser_select: Select option (sheep_name, selector, value)
-- browser_check: Toggle checkbox (sheep_name, selector)
-- browser_hover: Hover over element (sheep_name, selector)
-- browser_scroll: Scroll page (sheep_name)
-- browser_get_text: Extract text content (sheep_name, selector)
-- browser_get_html: Get HTML content (sheep_name)
-- browser_get_attribute: Get element attribute (sheep_name, selector, attribute)
-- browser_get_url: Get current URL (sheep_name)
-- browser_get_title: Get page title (sheep_name)
-- browser_eval: Execute JavaScript (sheep_name, js)
-- browser_wait_selector: Wait for element (sheep_name, selector, timeout)
-- browser_wait_hidden: Wait for element to hide (sheep_name, selector)
-- browser_wait_load: Wait for page load (sheep_name)
-- browser_wait_idle: Wait for network idle (sheep_name)
-- browser_screenshot: Capture screenshot (sheep_name)
-- browser_pdf: Generate PDF (sheep_name)
-- browser_console_start, browser_console_messages: Console (sheep_name)
-- browser_network_start, browser_network_requests, browser_network_request: Network (sheep_name)
-
-IMPORTANT: For web search/crawling tasks, use browser tools instead of WebFetch.
-
-`)
+		sb.WriteString(mcpGuideText)
 	}
 
 	// Add recent task context
