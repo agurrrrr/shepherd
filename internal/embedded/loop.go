@@ -92,11 +92,11 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			for _, tc := range msg.ToolCalls {
 				key := tc.Func.Name + "::" + tc.Func.Args
 				loopGuard[key]++
-				if loopGuard[key] > 3 {
+				if loopGuard[key] > 5 {
 					return &ExecuteResult{
 						Result:           msg.Content,
 						Incomplete:       true,
-						IncompleteReason: fmt.Sprintf("repeated tool call detected: %s (3+ times)", tc.Func.Name),
+						IncompleteReason: fmt.Sprintf("repeated tool call detected: %s (5+ times)", tc.Func.Name),
 						PromptTokens:     totalPromptTokens,
 						CompletionTokens: totalCompletionTokens,
 					}, nil
