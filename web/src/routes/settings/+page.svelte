@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { apiGet, apiPatch, apiPost, apiDelete, apiDownload, apiUpload } from '$lib/api.js';
+	import { apiGet, apiPatch, apiPost, apiPut, apiDelete, apiDownload, apiUpload } from '$lib/api.js';
 
 	let configData = {};
 	let loaded = false;
@@ -260,11 +260,7 @@
 
 		let res;
 		if (isEdit) {
-			res = await fetch(`/api/config/embedded/${encodeURIComponent(body.id)}`, {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(body)
-			}).then(r => r.json());
+			res = await apiPut(`/api/config/embedded/${encodeURIComponent(body.id)}`, body);
 		} else {
 			res = await apiPost('/api/config/embedded', body);
 		}
@@ -279,9 +275,7 @@
 
 	async function deleteEmbeddedEndpoint(id) {
 		if (!confirm('Delete this endpoint?')) return;
-		const res = await fetch(`/api/config/embedded/${encodeURIComponent(id)}`, {
-			method: 'DELETE'
-		}).then(r => r.json());
+		const res = await apiDelete(`/api/config/embedded/${encodeURIComponent(id)}`);
 		if (res?.success || res?.message) {
 			await loadEmbeddedEndpoints();
 		} else {
@@ -290,9 +284,7 @@
 	}
 
 	async function setActiveEndpoint(id) {
-		const res = await fetch(`/api/config/embedded/${encodeURIComponent(id)}/set-active`, {
-			method: 'POST'
-		}).then(r => r.json());
+		const res = await apiPost(`/api/config/embedded/${encodeURIComponent(id)}/set-active`, {});
 		if (res?.success || res?.message) {
 			configData.embedded_active_id = id;
 			await loadEmbeddedEndpoints();

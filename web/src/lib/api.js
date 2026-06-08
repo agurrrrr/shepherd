@@ -55,6 +55,14 @@ export function apiPatch(url, body) {
 	return request(url, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+/**
+ * @param {string} url
+ * @param {object} body
+ */
+export function apiPut(url, body) {
+	return request(url, { method: 'PUT', body: JSON.stringify(body) });
+}
+
 /** @param {string} url */
 export function apiDelete(url) {
 	return request(url, { method: 'DELETE' });
