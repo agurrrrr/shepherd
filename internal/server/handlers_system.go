@@ -76,6 +76,10 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 	return success(c, map[string]interface{}{
 		"language":                        config.GetString("language"),
 		"default_provider":                config.GetString("default_provider"),
+		"provider_enabled_claude":         config.GetBool("provider_enabled_claude"),
+		"provider_enabled_opencode":       config.GetBool("provider_enabled_opencode"),
+		"provider_enabled_pi":             config.GetBool("provider_enabled_pi"),
+		"provider_enabled_embedded":       config.GetBool("provider_enabled_embedded"),
 		"workspace_path":                  config.GetString("workspace_path"),
 		"server_port":                     config.GetInt("server_port"),
 		"server_host":                     config.GetString("server_host"),
@@ -194,6 +198,10 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 	allowed := map[string]bool{
 		"language":                        true,
 		"default_provider":                true,
+		"provider_enabled_claude":         true,
+		"provider_enabled_opencode":       true,
+		"provider_enabled_pi":             true,
+		"provider_enabled_embedded":       true,
 		"workspace_path":                  true,
 		"max_sheep":                       true,
 		"max_concurrent_tasks":            true,

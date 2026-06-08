@@ -52,13 +52,22 @@
 	// selector (the configured endpoints) but no Thinking toggle — its thinking
 	// is configured per endpoint in Settings.
 	let providerHasModel = $derived(
-		sheepProvider === 'opencode' || sheepProvider === 'auto' ||
+		sheepProvider === 'opencode' ||
 		sheepProvider === 'pi' || sheepProvider === 'embedded'
 	);
 	// Thinking toggle applies only to the CLI-harness providers, not embedded.
 	let providerHasThinking = $derived(
-		sheepProvider === 'opencode' || sheepProvider === 'auto' || sheepProvider === 'pi'
+		sheepProvider === 'opencode' || sheepProvider === 'pi'
 	);
+
+	// Provider 사용유무 (설정에서 끄면 선택지에서 숨김). 기본 모두 켜짐.
+	let providerEnabled = $state({ claude: true, opencode: true, pi: true, embedded: true });
+	const PROVIDER_OPTIONS = [
+		{ value: 'claude', label: 'Claude' },
+		{ value: 'opencode', label: 'OpenCode' },
+		{ value: 'pi', label: 'Pi' },
+		{ value: 'embedded', label: 'Embedded' }
+	];
 	// Model option list and global default for the sheep's current provider.
 	let activeModelOptions = $derived(
 		sheepProvider === 'pi' ? piModelOptions :
@@ -229,6 +238,12 @@
 			opencodeThinkingDefault = !!configRes.data.opencode_thinking_default;
 			opencodeModelDefault = configRes.data.model_opencode || '';
 			piModelDefault = configRes.data.model_pi || '';
+			providerEnabled = {
+				claude: configRes.data.provider_enabled_claude !== false,
+				opencode: configRes.data.provider_enabled_opencode !== false,
+				pi: configRes.data.provider_enabled_pi !== false,
+				embedded: configRes.data.provider_enabled_embedded !== false
+			};
 		}
 		if (modelRes?.data) {
 			opencodeModelOptions = modelRes.data.opencode || [];
@@ -565,11 +580,11 @@
 				{#if sheepName}
 					<select class="provider-select" value={sheepProvider}
 						onchange={(e) => changeProvider(e.target.value)}>
-						<option value="claude">Claude</option>
-						<option value="opencode">OpenCode</option>
-						<option value="pi">Pi</option>
-						<option value="embedded">Embedded</option>
-						<option value="auto">Auto</option>
+						{#each PROVIDER_OPTIONS as opt}
+							{#if providerEnabled[opt.value] || sheepProvider === opt.value}
+								<option value={opt.value}>{opt.label}{!providerEnabled[opt.value] ? ' (off)' : ''}</option>
+							{/if}
+						{/each}
 					</select>
 					{#if providerHasThinking}
 						<label class="thinking-toggle" title="Enable reasoning for this project">

@@ -24,6 +24,22 @@
 
 	let modelOptions = { claude: [], opencode: [], pi: [] };
 
+	// Settings 탭: 공통 설정 + 프로바이더별 탭
+	let activeTab = 'common';
+	let providerEnabled = { claude: true, opencode: true, pi: true, embedded: true };
+	const settingsTabs = [
+		{ value: 'common', label: '공통' },
+		{ value: 'claude', label: 'Claude' },
+		{ value: 'opencode', label: 'OpenCode' },
+		{ value: 'pi', label: 'Pi' },
+		{ value: 'embedded', label: 'Embedded' }
+	];
+
+	// Show provider tabs only if enabled (or if currently active so user can re-enable)
+	let visibleTabs = $derived(
+		settingsTabs.filter(t => t.value === 'common' || providerEnabled[t.value] || activeTab === t.value)
+	);
+
 	// Embedded endpoints state
 	let embeddedEndpoints = [];
 	let embeddedLoaded = false;
@@ -56,6 +72,12 @@
 			configData = configRes.data;
 			// concurrency_limits may be null when nothing is configured yet.
 			if (!configData.concurrency_limits) configData.concurrency_limits = {};
+			providerEnabled = {
+				claude: configRes.data.provider_enabled_claude !== false,
+				opencode: configRes.data.provider_enabled_opencode !== false,
+				pi: configRes.data.provider_enabled_pi !== false,
+				embedded: configRes.data.provider_enabled_embedded !== false
+			};
 		}
 		if (mcpRes?.data) mcpStatus = mcpRes.data;
 		if (modelRes?.data) modelOptions = modelRes.data;
@@ -332,6 +354,10 @@
 		const res = await apiPatch('/api/config', {
 			language: configData.language,
 			default_provider: configData.default_provider,
+			provider_enabled_claude: providerEnabled.claude,
+			provider_enabled_opencode: providerEnabled.opencode,
+			provider_enabled_pi: providerEnabled.pi,
+			provider_enabled_embedded: providerEnabled.embedded,
 			max_sheep: parseInt(configData.max_sheep) || 12,
 			max_concurrent_tasks: parseInt(configData.max_concurrent_tasks) || 0,
 			concurrency_limits: buildConcurrencyLimits(),
@@ -411,328 +437,360 @@
 	{#if !loaded}
 		<p class="text-muted">Loading...</p>
 	{:else}
+		<!-- Tab Navigation -->
+		<div class="settings-tabs">
+			{#each visibleTabs as tab}
+				<button
+					class="settings-tab"
+					class:active={activeTab === tab.value}
+					onclick={() => activeTab = tab.value}
+				>
+					{tab.label}
+					{#if tab.value !== 'common'}
+						{#if !providerEnabled[tab.value]}
+							<span class="tab-badge tab-badge-off">OFF</span>
+						{:else}
+							<span class="tab-badge tab-badge-on">ON</span>
+						{/if}
+					{/if}
+				</button>
+			{/each}
+		</div>
+
 		<div class="settings-form card">
-			<div class="setting-row">
-				<label>Language</label>
-				<select class="input" bind:value={configData.language}>
-					<option value="ko">한국어</option>
-					<option value="en">English</option>
-				</select>
-			</div>
+			<!-- ==================== Common Tab ==================== -->
+			{#if activeTab === 'common'}
+				<div class="setting-row">
+					<label>Language</label>
+					<select class="input" bind:value={configData.language}>
+						<option value="ko">한국어</option>
+						<option value="en">English</option>
+					</select>
+				</div>
 
-			<div class="setting-row">
-				<label>Default Provider</label>
-				<select class="input" bind:value={configData.default_provider}>
-					<option value="claude">Claude</option>
-					<option value="opencode">OpenCode</option>
-					<option value="pi">Pi</option>
-					<option value="embedded">Embedded (로컬 LLM)</option>
-					<option value="auto">Auto</option>
-				</select>
-			</div>
+				<div class="setting-row">
+					<label>Default Provider</label>
+					<select class="input" bind:value={configData.default_provider}>
+						<option value="claude">Claude</option>
+						<option value="opencode">OpenCode</option>
+						<option value="pi">Pi</option>
+						<option value="embedded">Embedded (로컬 LLM)</option>
+						<option value="auto">Auto</option>
+					</select>
+				</div>
 
-			<div class="setting-row">
-				<label>Claude Model</label>
-				<select class="input" bind:value={configData.model_claude}>
-					{#each optionsWithCurrent(modelOptions.claude, configData.model_claude) as opt}
-						<option value={opt.id}>{opt.label}</option>
-					{/each}
-				</select>
-			</div>
+				<!-- Provider Enable/Disable -->
+				<div class="setting-section">Provider 사용유무</div>
+				<p class="hint">끄면 프로젝트 화면의 provider 선택지에서 숨겨지고, 해당 provider로의 작업 실행이 차단됩니다.</p>
 
-			<div class="setting-row">
-				<label>OpenCode Model</label>
-				<select class="input" bind:value={configData.model_opencode}>
-					{#each optionsWithCurrent(modelOptions.opencode, configData.model_opencode) as opt}
-						<option value={opt.id}>{opt.label}</option>
-					{/each}
-				</select>
-			</div>
+				<div class="setting-row">
+					<label>🟠 Claude</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={providerEnabled.claude} />
+						<span>{providerEnabled.claude ? '사용' : '사용 안 함'}</span>
+					</label>
+				</div>
+				<div class="setting-row">
+					<label>🟢 OpenCode</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={providerEnabled.opencode} />
+						<span>{providerEnabled.opencode ? '사용' : '사용 안 함'}</span>
+					</label>
+				</div>
+				<div class="setting-row">
+					<label>🔵 Pi</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={providerEnabled.pi} />
+						<span>{providerEnabled.pi ? '사용' : '사용 안 함'}</span>
+					</label>
+				</div>
+				<div class="setting-row">
+					<label>🟣 Embedded</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={providerEnabled.embedded} />
+						<span>{providerEnabled.embedded ? '사용' : '사용 안 함'}</span>
+					</label>
+				</div>
 
-			<div class="setting-row">
-				<label>Pi Model</label>
-				<select class="input" bind:value={configData.model_pi}>
-					{#each optionsWithCurrent(modelOptions.pi, configData.model_pi) as opt}
-						<option value={opt.id}>{opt.label}</option>
-					{/each}
-				</select>
-			</div>
+				<div class="setting-row">
+					<label>Max Sheep</label>
+					<input class="input" type="number" bind:value={configData.max_sheep} min="1" max="50" />
+				</div>
 
-			<div class="setting-row">
-				<label>Max Sheep</label>
-				<input class="input" type="number" bind:value={configData.max_sheep} min="1" max="50" />
-			</div>
+				<div class="setting-row">
+					<label>Max Concurrent Tasks</label>
+					<input class="input" type="number" bind:value={configData.max_concurrent_tasks} min="0" max="50" />
+					<span class="hint">전체 동시 실행 작업 수의 천장(ceiling). 0이면 제한 없음.</span>
+				</div>
 
-			<div class="setting-row">
-				<label>Max Concurrent Tasks</label>
-				<input class="input" type="number" bind:value={configData.max_concurrent_tasks} min="0" max="50" />
-				<span class="hint">전체 동시 실행 작업 수의 천장(ceiling). 0이면 제한 없음. 아래 provider별 제한과 함께 적용되며, 작업은 두 제한을 모두 통과해야 실행됩니다.</span>
-			</div>
-
-			<div class="setting-row">
-				<label>Per-Group Limits</label>
-				<div class="conc-limits">
-					<div class="conc-row">
-						<span class="conc-label">🟠 Claude{configData.model_claude ? ` (${configData.model_claude})` : ''}</span>
-						<input class="input conc-input" type="number" bind:value={configData.concurrency_limits['claude']} min="0" max="50" placeholder="0" />
+				<div class="setting-row">
+					<label>Per-Group Limits</label>
+					<div class="conc-limits">
+						<div class="conc-row">
+							<span class="conc-label">🟠 Claude{configData.model_claude ? ` (${configData.model_claude})` : ''}</span>
+							<input class="input conc-input" type="number" bind:value={configData.concurrency_limits['claude']} min="0" max="50" placeholder="0" />
+						</div>
+						{#each modelOptions.opencode as opt}
+							{@const key = opt.id ? `opencode/${opt.id}` : 'opencode'}
+							<div class="conc-row">
+								<span class="conc-label" title={opt.id ? opt.id : 'OpenCode 모델 미지정 작업의 기본 그룹'}>🟢 {opt.id ? opt.label : 'OpenCode (모델 미지정 / 기본)'}</span>
+								<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
+							</div>
+						{/each}
+						{#each modelOptions.pi as opt}
+							{@const key = opt.id ? `pi/${opt.id}` : 'pi'}
+							<div class="conc-row">
+								<span class="conc-label" title={opt.id ? opt.id : 'Pi 모델 미지정 작업의 기본 그룹'}>🔵 {opt.id ? opt.label : 'Pi (모델 미지정 / 기본)'}</span>
+								<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
+							</div>
+						{/each}
 					</div>
-					{#each modelOptions.opencode as opt}
-						{@const key = opt.id ? `opencode/${opt.id}` : 'opencode'}
-						<div class="conc-row">
-							<span class="conc-label" title={opt.id ? opt.id : 'OpenCode 모델 미지정 작업의 기본 그룹'}>🟢 {opt.id ? opt.label : 'OpenCode (모델 미지정 / 기본)'}</span>
-							<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
-						</div>
-					{/each}
-					{#each modelOptions.pi as opt}
-						{@const key = opt.id ? `pi/${opt.id}` : 'pi'}
-						<div class="conc-row">
-							<span class="conc-label" title={opt.id ? opt.id : 'Pi 모델 미지정 작업의 기본 그룹'}>🔵 {opt.id ? opt.label : 'Pi (모델 미지정 / 기본)'}</span>
-							<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
-						</div>
-					{/each}
+					<span class="hint">provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음. <code>auto</code> provider는 Claude 그룹에 포함됩니다.</span>
 				</div>
-				<span class="hint">provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음(전역 천장만 적용). OpenCode 모델 목록은 <code>~/.config/opencode/config.json</code>에 등록된 모델을 자동 표시합니다. 여러 local-llm 시스템을 모델로 구분해 각각 한도를 둘 수 있고, 작업별로 선택한 모델이 그 그룹에 집계됩니다. 모델을 지정하지 않은 OpenCode 작업은 "기본" 그룹으로 묶입니다. <code>auto</code> provider는 Claude 그룹에 포함됩니다.</span>
-			</div>
 
-			<div class="setting-row">
-				<label>Task Timeout</label>
-				<input class="input" type="text" bind:value={configData.task_timeout} placeholder="4h" />
-				<span class="hint">Per-task execution cap (e.g. <code>30m</code>, <code>4h</code>, <code>8h30m</code>). Use <code>unlimited</code>, <code>0</code>, or <code>-1</code> to disable the deadline. Default: 4h.</span>
-			</div>
-
-			<div class="setting-row">
-				<label>Auto Approve</label>
-				<label class="toggle">
-					<input type="checkbox" bind:checked={configData.auto_approve} />
-					<span>{configData.auto_approve ? 'Enabled' : 'Disabled'}</span>
-				</label>
-			</div>
-
-			<div class="setting-row">
-				<label>File Browser</label>
-				<label class="toggle">
-					<input type="checkbox" bind:checked={configData.enable_file_browser} />
-					<span>{configData.enable_file_browser ? 'Enabled' : 'Disabled'}</span>
-				</label>
-			</div>
-
-			<div class="setting-section">Prompt Injection</div>
-
-			<div class="setting-row">
-				<label>Session Reuse</label>
-				<label class="toggle">
-					<input type="checkbox" bind:checked={configData.session_reuse} />
-					<span>{configData.session_reuse ? 'Reuse' : 'Fresh'}</span>
-				</label>
-			</div>
-
-			<div class="setting-row">
-				<label>Task History</label>
-				<label class="toggle">
-					<input type="checkbox" bind:checked={configData.include_task_history} />
-					<span>{configData.include_task_history ? 'Enabled' : 'Disabled'}</span>
-				</label>
-			</div>
-
-			<div class="setting-row">
-				<label>MCP Guide</label>
-				<label class="toggle">
-					<input type="checkbox" bind:checked={configData.include_mcp_guide} />
-					<span>{configData.include_mcp_guide ? 'Enabled' : 'Disabled'}</span>
-				</label>
-			</div>
-
-			<div class="setting-row">
-				<label>Sheep Memory</label>
-				<label class="toggle">
-					<input type="checkbox" bind:checked={configData.include_sheep_memory} />
-					<span>{configData.include_sheep_memory ? 'Enabled' : 'Disabled'}</span>
-				</label>
-				<span class="hint">양 이름 단위로 <code>~/.shepherd/sheep/&lt;name&gt;/</code> 에 누적되는 개인 기억. 프로젝트와 무관하게 양을 따라다니며 CLI(Claude/OpenCode/codex)에 중립이다.</span>
-			</div>
-
-			<div class="setting-row column">
-				<label>Sheep Memory — System Prompt</label>
-				<textarea
-					class="input textarea"
-					bind:value={configData.sheep_memory_prompt}
-					rows="12"
-					placeholder={`양에게 전달할 메모리 가이드라인. {{.MemoryDir}} 가 실제 디렉토리 경로로 치환됩니다.`}
-				></textarea>
-				<span class="hint"><code>{`{{.MemoryDir}}`}</code> 토큰은 작업 시점에 양의 실제 메모리 디렉토리 경로로 치환됩니다. 비워두면 메모리 섹션이 주입되지 않습니다.</span>
-			</div>
-
-			<div class="setting-row">
-				<label>OpenCode Compact</label>
-				<label class="toggle">
-					<input type="checkbox" bind:checked={configData.opencode_compact_prompt} />
-					<span>{configData.opencode_compact_prompt ? 'Compact' : 'Full (same as Claude)'}</span>
-				</label>
-			</div>
-
-			<div class="setting-row">
-				<label>OpenCode Thinking (default)</label>
-				<label class="toggle">
-					<input type="checkbox" bind:checked={configData.opencode_thinking_default} />
-					<span>{configData.opencode_thinking_default ? 'On' : 'Off'}</span>
-				</label>
-				<span class="hint">Default reasoning mode for OpenCode tasks. Per-project toggle on the project page overrides this.</span>
-			</div>
-
-			<div class="setting-row">
-				<label>Thinking Proxy</label>
-				<label class="toggle">
-					<input type="checkbox" bind:checked={configData.opencode_thinking_proxy_enabled} />
-					<span>{configData.opencode_thinking_proxy_enabled ? 'Enabled' : 'Disabled'}</span>
-				</label>
-				<span class="hint">Loopback proxy that injects <code>chat_template_kwargs.enable_thinking</code> into OpenAI-compatible chat completions before forwarding to the upstream server. Required because opencode strips that field. Restart the daemon after toggling.</span>
-			</div>
-
-			<div class="setting-row">
-				<label>Thinking Proxy Port</label>
-				<input
-					class="input"
-					type="number"
-					min="1024"
-					max="65535"
-					bind:value={configData.opencode_thinking_proxy_port}
-				/>
-				<span class="hint">127.0.0.1:&lt;port&gt; that the proxy listens on. Use this URL as <code>baseURL</code> in your opencode config thinking provider entry.</span>
-			</div>
-
-			<div class="setting-row">
-				<label>Thinking Proxy Target</label>
-				<input
-					class="input"
-					type="text"
-					placeholder="http://127.0.0.1:8083/v1"
-					bind:value={configData.opencode_thinking_proxy_target}
-				/>
-				<span class="hint">Real OpenAI-compatible endpoint the proxy forwards to (your llama-server, etc.). Include scheme, host, port, and any path prefix.</span>
-			</div>
-
-			<div class="setting-row">
-				<label>Thinking Model</label>
-				<input
-					class="input"
-					type="text"
-					placeholder="qwen3.6-thinking/qwen3.6-27b"
-					bind:value={configData.opencode_thinking_model}
-				/>
-				<span class="hint"><code>provider/model</code> id used when the per-project Thinking toggle is on. The provider entry in opencode config should set <code>baseURL</code> to the proxy.</span>
-			</div>
-
-			<div class="setting-row column">
-				<label>Custom Prompt — Claude</label>
-				<textarea
-					class="input textarea"
-					bind:value={configData.custom_prompt_claude}
-					rows="6"
-					placeholder="Claude Code 실행 시 추가로 전달할 지시문을 입력하세요."
-				></textarea>
-				<span class="hint">Injected only when the task runs on Claude Code.</span>
-			</div>
-
-			<div class="setting-row column">
-				<label>Custom Prompt — OpenCode</label>
-				<textarea
-					class="input textarea"
-					bind:value={configData.custom_prompt_opencode}
-					rows="6"
-					placeholder="OpenCode 실행 시 추가로 전달할 지시문을 입력하세요."
-				></textarea>
-				<span class="hint">Injected only when the task runs on OpenCode.</span>
-			</div>
-
-			<div class="setting-row column">
-				<label>Custom Prompt — Pi</label>
-				<textarea
-					class="input textarea"
-					bind:value={configData.custom_prompt_pi}
-					rows="6"
-					placeholder="Pi 실행 시 추가로 전달할 지시문을 입력하세요."
-				></textarea>
-				<span class="hint">Injected only when the task runs on Pi.</span>
-			</div>
-
-			<hr class="setting-divider" />
-
-			<div class="setting-section-title">Wiki</div>
-
-			<div class="setting-row">
-				<label>Wiki Enabled</label>
-				<div class="toggle">
-					<input type="checkbox" bind:checked={configData.wiki_enabled} />
-					<span>{configData.wiki_enabled ? 'Enabled' : 'Disabled'}</span>
+				<div class="setting-row">
+					<label>Task Timeout</label>
+					<input class="input" type="text" bind:value={configData.task_timeout} placeholder="4h" />
+					<span class="hint">Per-task execution cap (e.g. <code>30m</code>, <code>4h</code>). <code>unlimited</code> or <code>0</code> to disable. Default: 4h.</span>
 				</div>
-			</div>
 
-			<div class="setting-row">
-				<label>Auto Ingest</label>
-				<div class="toggle">
-					<input type="checkbox" bind:checked={configData.wiki_auto_ingest} />
-					<span>{configData.wiki_auto_ingest ? 'Enabled' : 'Disabled'}</span>
+				<div class="setting-row">
+					<label>Auto Approve</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={configData.auto_approve} />
+						<span>{configData.auto_approve ? 'Enabled' : 'Disabled'}</span>
+					</label>
 				</div>
-			</div>
 
-			<div class="setting-row">
-				<label>Max Context Pages</label>
-				<input class="input" type="number" bind:value={configData.wiki_max_context_pages} min="1" max="20" />
-			</div>
-
-			<div class="setting-row">
-				<label>Max Page Content Chars</label>
-				<input class="input" type="number" bind:value={configData.wiki_max_page_content_chars} min="100" max="10000" step="100" />
-			</div>
-
-			<hr class="setting-divider" />
-
-			<div class="setting-section-title">Discord Notifications</div>
-
-			<div class="setting-row">
-				<label>Enabled</label>
-				<div class="toggle">
-					<input type="checkbox" bind:checked={configData.discord_notifications_enabled} />
-					<span>{configData.discord_notifications_enabled ? 'Enabled' : 'Disabled'}</span>
+				<div class="setting-row">
+					<label>File Browser</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={configData.enable_file_browser} />
+						<span>{configData.enable_file_browser ? 'Enabled' : 'Disabled'}</span>
+					</label>
 				</div>
-			</div>
 
-			<div class="setting-row column">
-				<label>Webhook URL</label>
-				<input
-					class="input"
-					type="text"
-					bind:value={configData.discord_webhook_url}
-					placeholder="https://discord.com/api/webhooks/..."
-				/>
-				<span class="hint">Discord 채널의 Incoming Webhook URL을 입력하세요. Server Setting > Integrations > Webhooks에서 생성할 수 있습니다.</span>
-			</div>
+				<div class="setting-section">Prompt Injection</div>
 
-			<div class="setting-row">
-				<label>Notify on Complete</label>
-				<div class="toggle">
-					<input type="checkbox" bind:checked={configData.discord_notify_on_complete} />
-					<span>{configData.discord_notify_on_complete ? 'Enabled' : 'Disabled'}</span>
+				<div class="setting-row">
+					<label>Session Reuse</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={configData.session_reuse} />
+						<span>{configData.session_reuse ? 'Reuse' : 'Fresh'}</span>
+					</label>
 				</div>
-			</div>
 
-			<div class="setting-row">
-				<label>Notify on Fail</label>
-				<div class="toggle">
-					<input type="checkbox" bind:checked={configData.discord_notify_on_fail} />
-					<span>{configData.discord_notify_on_fail ? 'Enabled' : 'Disabled'}</span>
+				<div class="setting-row">
+					<label>Task History</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={configData.include_task_history} />
+						<span>{configData.include_task_history ? 'Enabled' : 'Disabled'}</span>
+					</label>
 				</div>
-			</div>
 
-			<hr class="setting-divider" />
+				<div class="setting-row">
+					<label>MCP Guide</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={configData.include_mcp_guide} />
+						<span>{configData.include_mcp_guide ? 'Enabled' : 'Disabled'}</span>
+					</label>
+				</div>
 
-			<div class="setting-section-title">Embedded Provider (로컬 LLM)</div>
-			<p class="hint">OpenAI 호환 API 서버(llama.cpp, vLLM, Ollama 등)를 직접 연결합니다. 서브프로세스 없이 in-process 에이전트 루프가 실행됩니다.</p>
+				<div class="setting-row">
+					<label>Sheep Memory</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={configData.include_sheep_memory} />
+						<span>{configData.include_sheep_memory ? 'Enabled' : 'Disabled'}</span>
+					</label>
+					<span class="hint">양 이름 단위로 <code>~/.shepherd/sheep/&lt;name&gt;/</code> 에 누적되는 개인 기억.</span>
+				</div>
 
-			{#if !embeddedLoaded}
-				<p class="text-muted">Loading...</p>
-			{:else}
-				<!-- Active endpoint selector -->
+				<div class="setting-row column">
+					<label>Sheep Memory — System Prompt</label>
+					<textarea
+						class="input textarea"
+						bind:value={configData.sheep_memory_prompt}
+						rows="10"
+						placeholder={`양에게 전달할 메모리 가이드라인. {{.MemoryDir}} 가 실제 디렉토리 경로로 치환됩니다.`}
+					></textarea>
+					<span class="hint"><code>{`{{.MemoryDir}}`}</code> 토큰은 작업 시점에 양의 실제 메모리 디렉토리 경로로 치환됩니다.</span>
+				</div>
+
+				<hr class="setting-divider" />
+				<div class="setting-section-title">Wiki</div>
+				<div class="setting-row">
+					<label>Wiki Enabled</label>
+					<div class="toggle">
+						<input type="checkbox" bind:checked={configData.wiki_enabled} />
+						<span>{configData.wiki_enabled ? 'Enabled' : 'Disabled'}</span>
+					</div>
+				</div>
+				<div class="setting-row">
+					<label>Auto Ingest</label>
+					<div class="toggle">
+						<input type="checkbox" bind:checked={configData.wiki_auto_ingest} />
+						<span>{configData.wiki_auto_ingest ? 'Enabled' : 'Disabled'}</span>
+					</div>
+				</div>
+				<div class="setting-row">
+					<label>Max Context Pages</label>
+					<input class="input" type="number" bind:value={configData.wiki_max_context_pages} min="1" max="20" />
+				</div>
+				<div class="setting-row">
+					<label>Max Page Content Chars</label>
+					<input class="input" type="number" bind:value={configData.wiki_max_page_content_chars} min="100" max="10000" step="100" />
+				</div>
+
+				<hr class="setting-divider" />
+				<div class="setting-section-title">Discord Notifications</div>
+				<div class="setting-row">
+					<label>Enabled</label>
+					<div class="toggle">
+						<input type="checkbox" bind:checked={configData.discord_notifications_enabled} />
+						<span>{configData.discord_notifications_enabled ? 'Enabled' : 'Disabled'}</span>
+					</div>
+				</div>
+				<div class="setting-row column">
+					<label>Webhook URL</label>
+					<input class="input" type="text" bind:value={configData.discord_webhook_url} placeholder="https://discord.com/api/webhooks/..." />
+					<span class="hint">Discord Incoming Webhook URL을 입력하세요.</span>
+				</div>
+				<div class="setting-row">
+					<label>Notify on Complete</label>
+					<div class="toggle">
+						<input type="checkbox" bind:checked={configData.discord_notify_on_complete} />
+						<span>{configData.discord_notify_on_complete ? 'Enabled' : 'Disabled'}</span>
+					</div>
+				</div>
+				<div class="setting-row">
+					<label>Notify on Fail</label>
+					<div class="toggle">
+						<input type="checkbox" bind:checked={configData.discord_notify_on_fail} />
+						<span>{configData.discord_notify_on_fail ? 'Enabled' : 'Disabled'}</span>
+					</div>
+				</div>
+
+				<hr class="setting-divider" />
+				<div class="setting-row readonly">
+					<label>Server Host</label>
+					<span class="mono">{configData.server_host}:{configData.server_port}</span>
+				</div>
+				<div class="setting-row readonly">
+					<label>Workspace</label>
+					<span class="mono">{configData.workspace_path || '(not set)'}</span>
+				</div>
+			{/if}
+
+			<!-- ==================== Claude Tab ==================== -->
+			{#if activeTab === 'claude'}
+				<div class="setting-row">
+					<label>Claude Model</label>
+					<select class="input" bind:value={configData.model_claude}>
+						{#each optionsWithCurrent(modelOptions.claude, configData.model_claude) as opt}
+							<option value={opt.id}>{opt.label}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="setting-row column">
+					<label>Custom Prompt — Claude</label>
+					<textarea
+						class="input textarea"
+						bind:value={configData.custom_prompt_claude}
+						rows="6"
+						placeholder="Claude Code 실행 시 추가로 전달할 지시문을 입력하세요."
+					></textarea>
+					<span class="hint">Injected only when the task runs on Claude Code.</span>
+				</div>
+			{/if}
+
+			<!-- ==================== OpenCode Tab ==================== -->
+			{#if activeTab === 'opencode'}
+				<div class="setting-row">
+					<label>OpenCode Model</label>
+					<select class="input" bind:value={configData.model_opencode}>
+						{#each optionsWithCurrent(modelOptions.opencode, configData.model_opencode) as opt}
+							<option value={opt.id}>{opt.label}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="setting-row">
+					<label>Compact Prompt</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={configData.opencode_compact_prompt} />
+						<span>{configData.opencode_compact_prompt ? 'Compact' : 'Full (same as Claude)'}</span>
+					</label>
+				</div>
+				<div class="setting-row">
+					<label>Thinking (default)</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={configData.opencode_thinking_default} />
+						<span>{configData.opencode_thinking_default ? 'On' : 'Off'}</span>
+					</label>
+					<span class="hint">Default reasoning mode. Per-project toggle on the project page overrides this.</span>
+				</div>
+
+				<div class="setting-section">Thinking Proxy</div>
+				<p class="hint">Injects <code>chat_template_kwargs.enable_thinking</code> into completions before forwarding. Required because opencode strips that field. Restart after toggling.</p>
+				<div class="setting-row">
+					<label>Enabled</label>
+					<label class="toggle">
+						<input type="checkbox" bind:checked={configData.opencode_thinking_proxy_enabled} />
+						<span>{configData.opencode_thinking_proxy_enabled ? 'Enabled' : 'Disabled'}</span>
+					</label>
+				</div>
+				<div class="setting-row">
+					<label>Proxy Port</label>
+					<input class="input" type="number" min="1024" max="65535" bind:value={configData.opencode_thinking_proxy_port} />
+					<span class="hint">127.0.0.1:&lt;port&gt;. Use this as <code>baseURL</code> in opencode config.</span>
+				</div>
+				<div class="setting-row">
+					<label>Proxy Target</label>
+					<input class="input" type="text" placeholder="http://127.0.0.1:8083/v1" bind:value={configData.opencode_thinking_proxy_target} />
+					<span class="hint">Real OpenAI-compatible endpoint (llama-server, etc.).</span>
+				</div>
+				<div class="setting-row">
+					<label>Thinking Model</label>
+					<input class="input" type="text" placeholder="qwen3.6-thinking/qwen3.6-27b" bind:value={configData.opencode_thinking_model} />
+					<span class="hint"><code>provider/model</code> id for the Thinking toggle.</span>
+				</div>
+				<div class="setting-row column">
+					<label>Custom Prompt — OpenCode</label>
+					<textarea
+						class="input textarea"
+						bind:value={configData.custom_prompt_opencode}
+						rows="6"
+						placeholder="OpenCode 실행 시 추가로 전달할 지시문을 입력하세요."
+					></textarea>
+					<span class="hint">Injected only when the task runs on OpenCode.</span>
+				</div>
+			{/if}
+
+			<!-- ==================== Pi Tab ==================== -->
+			{#if activeTab === 'pi'}
+				<div class="setting-row">
+					<label>Pi Model</label>
+					<select class="input" bind:value={configData.model_pi}>
+						{#each optionsWithCurrent(modelOptions.pi, configData.model_pi) as opt}
+							<option value={opt.id}>{opt.label}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="setting-row column">
+					<label>Custom Prompt — Pi</label>
+					<textarea
+						class="input textarea"
+						bind:value={configData.custom_prompt_pi}
+						rows="6"
+						placeholder="Pi 실행 시 추가로 전달할 지시문을 입력하세요."
+					></textarea>
+					<span class="hint">Injected only when the task runs on Pi.</span>
+				</div>
+			{/if}
+
+			<!-- ==================== Embedded Tab ==================== -->
+			{#if activeTab === 'embedded'}
+				<p class="hint">OpenAI 호환 API 서버(llama.cpp, vLLM, Ollama 등)를 직접 연결합니다. 서브프로세스 없이 in-process 에이전트 루프가 실행됩니다.</p>
+
 				<div class="setting-row">
 					<label>Active Endpoint</label>
 					<select class="input" bind:value={configData.embedded_active_id}>
@@ -743,7 +801,6 @@
 					</select>
 				</div>
 
-				<!-- Custom prompt for embedded -->
 				<div class="setting-row column">
 					<label>Custom Prompt — Embedded</label>
 					<textarea
@@ -754,14 +811,15 @@
 					></textarea>
 				</div>
 
-				<!-- Endpoint list -->
 				<div class="embedded-endpoints">
 					<div class="embedded-header">
 						<h3>Endpoints</h3>
 						<button class="btn btn-sm btn-outline" onclick={() => openEmbeddedEditor(null)}>+ Add</button>
 					</div>
 
-					{#if embeddedEndpoints.length === 0}
+					{#if !embeddedLoaded}
+						<p class="text-muted">Loading...</p>
+					{:else if embeddedEndpoints.length === 0}
 						<p class="text-muted">No endpoints configured yet.</p>
 					{:else}
 						{#each embeddedEndpoints as ep}
@@ -791,73 +849,64 @@
 						{/each}
 					{/if}
 				</div>
-			{/if}
 
-			<!-- Embedded endpoint editor modal -->
-			{#if embeddedEditing}
-				<div class="modal-overlay" onclick={closeEmbeddedEditor}>
-					<div class="modal-card" onclick={(e) => e.stopPropagation()}>
-						<h3>{embeddedEditing._existing ? 'Edit Endpoint' : 'Add Endpoint'}</h3>
-						<div class="setting-row">
-							<label>ID</label>
-							<input class="input" type="text" bind:value={embeddedEditing.id} placeholder="local-qwen" disabled={!!embeddedEditing._existing} />
-						</div>
-						<div class="setting-row">
-							<label>Label</label>
-							<input class="input" type="text" bind:value={embeddedEditing.label} placeholder="Qwen3 27B" />
-						</div>
-						<div class="setting-row">
-							<label>Base URL</label>
-							<input class="input" type="text" bind:value={embeddedEditing.base_url} placeholder="http://127.0.0.1:8080/v1" />
-						</div>
-						<div class="setting-row">
-							<label>API Key</label>
-							<input class="input" type="password" bind:value={embeddedEditing.api_key} placeholder="Leave empty for local servers" />
-						</div>
-						<div class="setting-row">
-							<label>Model</label>
-							<input class="input" type="text" bind:value={embeddedEditing.model} placeholder="qwen3-27b" />
-						</div>
-						<div class="setting-row">
-							<label>Max Iterations</label>
-							<input class="input" type="number" bind:value={embeddedEditing.max_iterations} min="1" max="200" />
-						</div>
-						<div class="setting-row">
-							<label>Context Tokens</label>
-							<input class="input" type="number" bind:value={embeddedEditing.context_tokens} min="1024" max="131072" step="1024" />
-						</div>
-						<div class="setting-row">
-							<label>Thinking</label>
-							<label class="toggle">
-								<input type="checkbox" bind:checked={embeddedEditing.thinking} />
-								<span>{embeddedEditing.thinking ? 'On' : 'Off'}</span>
-							</label>
-						</div>
-						<div class="setting-row">
-							<label>Enabled</label>
-							<label class="toggle">
-								<input type="checkbox" bind:checked={embeddedEditing.enabled} />
-								<span>{embeddedEditing.enabled ? 'Enabled' : 'Disabled'}</span>
-							</label>
-						</div>
-						<div class="embedded-editor-actions">
-							<button class="btn btn-primary" onclick={saveEmbeddedEndpoint}>Save</button>
-							<button class="btn btn-outline" onclick={closeEmbeddedEditor}>Cancel</button>
+				<!-- Embedded endpoint editor modal -->
+				{#if embeddedEditing}
+					<div class="modal-overlay" onclick={closeEmbeddedEditor}>
+						<div class="modal-card" onclick={(e) => e.stopPropagation()}>
+							<h3>{embeddedEditing._existing ? 'Edit Endpoint' : 'Add Endpoint'}</h3>
+							<div class="setting-row">
+								<label>ID</label>
+								<input class="input" type="text" bind:value={embeddedEditing.id} placeholder="local-qwen" disabled={!!embeddedEditing._existing} />
+							</div>
+							<div class="setting-row">
+								<label>Label</label>
+								<input class="input" type="text" bind:value={embeddedEditing.label} placeholder="Qwen3 27B" />
+							</div>
+							<div class="setting-row">
+								<label>Base URL</label>
+								<input class="input" type="text" bind:value={embeddedEditing.base_url} placeholder="http://127.0.0.1:8080/v1" />
+							</div>
+							<div class="setting-row">
+								<label>API Key</label>
+								<input class="input" type="password" bind:value={embeddedEditing.api_key} placeholder="Leave empty for local servers" />
+							</div>
+							<div class="setting-row">
+								<label>Model</label>
+								<input class="input" type="text" bind:value={embeddedEditing.model} placeholder="qwen3-27b" />
+							</div>
+							<div class="setting-row">
+								<label>Max Iterations</label>
+								<input class="input" type="number" bind:value={embeddedEditing.max_iterations} min="1" max="200" />
+							</div>
+							<div class="setting-row">
+								<label>Context Tokens</label>
+								<input class="input" type="number" bind:value={embeddedEditing.context_tokens} min="1024" max="131072" step="1024" />
+							</div>
+							<div class="setting-row">
+								<label>Thinking</label>
+								<label class="toggle">
+									<input type="checkbox" bind:checked={embeddedEditing.thinking} />
+									<span>{embeddedEditing.thinking ? 'On' : 'Off'}</span>
+								</label>
+							</div>
+							<div class="setting-row">
+								<label>Enabled</label>
+								<label class="toggle">
+									<input type="checkbox" bind:checked={embeddedEditing.enabled} />
+									<span>{embeddedEditing.enabled ? 'Enabled' : 'Disabled'}</span>
+								</label>
+							</div>
+							<div class="embedded-editor-actions">
+								<button class="btn btn-primary" onclick={saveEmbeddedEndpoint}>Save</button>
+								<button class="btn btn-outline" onclick={closeEmbeddedEditor}>Cancel</button>
+							</div>
 						</div>
 					</div>
-				</div>
+				{/if}
 			{/if}
 
-			<div class="setting-row readonly">
-				<label>Server Host</label>
-				<span class="mono">{configData.server_host}:{configData.server_port}</span>
-			</div>
-
-			<div class="setting-row readonly">
-				<label>Workspace</label>
-				<span class="mono">{configData.workspace_path || '(not set)'}</span>
-			</div>
-
+			<!-- Save/Restart actions (always visible) -->
 			<div class="setting-actions">
 				<button class="btn btn-primary" onclick={save} disabled={saving}>
 					{saving ? 'Saving...' : 'Save Settings'}
@@ -871,6 +920,7 @@
 			</div>
 		</div>
 
+		<!-- ==================== Below Settings Form ==================== -->
 		<div class="preview-section card">
 			<div class="preview-header">
 				<h2 class="section-title">System Prompt Preview</h2>
@@ -1627,4 +1677,64 @@
 		flex: 0 0 calc(100% - 136px);
 		margin-left: 136px;
 	}
+	/* — Tab bar — */
+	.settings-tabs {
+		display: flex;
+		gap: 4px;
+		margin-bottom: 16px;
+		border-bottom: 2px solid var(--border);
+		padding-bottom: 0;
+	}
+	.settings-tab {
+		padding: 8px 16px;
+		font-size: 14px;
+		font-weight: 500;
+		background: transparent;
+		color: var(--text-secondary);
+		border: none;
+		border-bottom: 2px solid transparent;
+		margin-bottom: -2px;
+		cursor: pointer;
+		transition: color 0.15s, border-color 0.15s;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.settings-tab:hover {
+		color: var(--text-primary);
+	}
+	.settings-tab.active {
+		color: var(--accent);
+		border-bottom-color: var(--accent);
+		font-weight: 600;
+	}
+	.tab-badge {
+		font-size: 10px;
+		font-weight: 700;
+		padding: 1px 6px;
+		border-radius: 8px;
+		letter-spacing: 0.5px;
+	}
+	.tab-badge-on {
+		background: color-mix(in srgb, var(--success) 20%, transparent);
+		color: var(--success);
+	}
+	.tab-badge-off {
+		background: color-mix(in srgb, var(--danger) 20%, transparent);
+		color: var(--danger);
+	}
+
+	@media (max-width: 768px) {
+		.settings-tabs {
+			overflow-x: auto;
+			-webkit-overflow-scrolling: touch;
+			padding-bottom: 4px;
+		}
+		.settings-tab {
+			white-space: nowrap;
+			padding: 6px 10px;
+			font-size: 13px;
+		}
+	}
+
 </style>

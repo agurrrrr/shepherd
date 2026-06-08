@@ -216,6 +216,19 @@ func (p *Processor) checkAndExecutePendingTasks() {
 			continue
 		}
 
+		// Gate 0: provider must be enabled in settings. A disabled provider
+		// blocks execution; fail the task with a clear reason so it surfaces
+		// instead of sitting pending forever (the project UI also hides
+		// disabled providers, so this mainly catches MCP/queued/retry paths).
+		if !config.IsProviderEnabled(string(s.Provider)) {
+			reason := fmt.Sprintf("provider '%s' is disabled in settings", string(s.Provider))
+			_ = FailTask(task.ID, reason)
+			if p.OnTaskFail != nil {
+				p.OnTaskFail(task.ID, s.Name, s.Edges.Project.Name, reason)
+			}
+			continue
+		}
+
 		// Gate 1: global ceiling (accounts for in-loop dispatches).
 		if maxConcurrent > 0 && totalRunning+dispatched >= maxConcurrent {
 			break

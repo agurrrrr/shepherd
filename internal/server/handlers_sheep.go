@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
 
@@ -103,6 +104,10 @@ func (s *Server) handleUpdateSheepProvider(c *fiber.Ctx) error {
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+
+	if !config.IsProviderEnabled(body.Provider) {
+		return fail(c, fiber.StatusBadRequest, "provider '"+body.Provider+"' is disabled in settings")
 	}
 
 	if err := worker.UpdateProvider(name, body.Provider); err != nil {

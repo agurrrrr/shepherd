@@ -10,6 +10,7 @@ import (
 	entProject "github.com/agurrrrr/shepherd/ent/project"
 	entSheep "github.com/agurrrrr/shepherd/ent/sheep"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/queue"
@@ -190,6 +191,11 @@ func (s *Server) handleCreateTask(c *fiber.Ctx) error {
 
 	if sheep == nil {
 		return fail(c, fiber.StatusBadRequest, "sheep_name or project_name is required")
+	}
+
+	// Block task creation when the sheep's provider is disabled in settings.
+	if !config.IsProviderEnabled(string(sheep.Provider)) {
+		return fail(c, fiber.StatusBadRequest, "provider '"+string(sheep.Provider)+"' is disabled in settings")
 	}
 
 	var t *ent.Task

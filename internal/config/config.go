@@ -50,6 +50,13 @@ func Init() error {
 	viper.SetDefault("default_provider", "claude")
 	viper.SetDefault("workspace_path", "")
 
+	// provider_enabled_*: 프로바이더 사용유무. false면 프로젝트 화면의 provider
+	// 선택지에서 숨겨지고, 해당 프로바이더로의 작업 실행이 차단된다. 기본 모두 켜짐.
+	viper.SetDefault("provider_enabled_claude", true)
+	viper.SetDefault("provider_enabled_opencode", true)
+	viper.SetDefault("provider_enabled_pi", true)
+	viper.SetDefault("provider_enabled_embedded", true)
+
 	// 프롬프트 주입 설정
 	viper.SetDefault("session_reuse", true)
 	viper.SetDefault("include_task_history", true)
@@ -252,6 +259,23 @@ func GetConcurrencyLimits() map[string]int {
 		return nil
 	}
 	return out
+}
+
+// IsProviderEnabled reports whether the given provider is enabled for use.
+// Disabled providers are hidden from project provider selectors and blocked
+// from task execution. The runtime "auto" provider folds into Claude. Unknown
+// providers default to enabled (fail-open) so a typo can't silently block work.
+func IsProviderEnabled(provider string) bool {
+	p := provider
+	if p == "auto" {
+		p = "claude"
+	}
+	switch p {
+	case "claude", "opencode", "pi", "embedded":
+		return GetBool("provider_enabled_" + p)
+	default:
+		return true
+	}
 }
 
 func GetConfigPath() string {
