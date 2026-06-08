@@ -99,6 +99,14 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/config/system-prompt-preview", s.handleSystemPromptPreview)
 	api.Get("/config/model-options", s.handleGetModelOptions)
 
+	// Embedded provider endpoints
+	api.Get("/config/embedded", s.handleGetEmbeddedEndpoints)
+	api.Post("/config/embedded", s.handleCreateEmbeddedEndpoint)
+	api.Put("/config/embedded/:id", s.handleUpdateEmbeddedEndpoint)
+	api.Delete("/config/embedded/:id", s.handleDeleteEmbeddedEndpoint)
+	api.Post("/config/embedded/:id/set-active", s.handleSetActiveEndpoint)
+	api.Post("/config/embedded/test", s.handleTestEmbeddedEndpoint)
+
 	// Backup & portable task history
 	api.Get("/settings/db-backup", s.handleDownloadDBBackup)
 	api.Get("/settings/tasks-export", s.handleExportTasks)

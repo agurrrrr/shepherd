@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { apiGet, apiPatch, apiPost, apiDownload, apiUpload } from '$lib/api.js';
+	import { apiGet, apiPatch, apiPost, apiDelete, apiDownload, apiUpload } from '$lib/api.js';
 
 	let configData = {};
 	let loaded = false;
@@ -24,6 +24,13 @@
 
 	let modelOptions = { claude: [], opencode: [], pi: [] };
 
+	// Embedded endpoints state
+	let embeddedEndpoints = [];
+	let embeddedLoaded = false;
+	let embeddedEditing = null; // null = not editing, object = editing/creating
+	let embeddedTestBusy = {};
+	let embeddedTestResult = {};
+
 	// Backup / export / import state
 	let projectsList = [];
 	let backupBusy = false;
@@ -38,11 +45,12 @@
 	let importMsg = '';
 
 	onMount(async () => {
-		const [configRes, mcpRes, modelRes, projRes] = await Promise.all([
+		const [configRes, mcpRes, modelRes, projRes, embeddedRes] = await Promise.all([
 			apiGet('/api/config'),
 			apiGet('/api/mcp/status'),
 			apiGet('/api/config/model-options'),
-			apiGet('/api/projects')
+			apiGet('/api/projects'),
+			apiGet('/api/config/embedded')
 		]);
 		if (configRes?.data) {
 			configData = configRes.data;
@@ -52,6 +60,10 @@
 		if (mcpRes?.data) mcpStatus = mcpRes.data;
 		if (modelRes?.data) modelOptions = modelRes.data;
 		if (projRes?.data) projectsList = projRes.data;
+		if (embeddedRes?.data) {
+			embeddedEndpoints = embeddedRes.data.endpoints || [];
+			embeddedLoaded = true;
+		}
 		mcpLoaded = true;
 		loaded = true;
 	});
@@ -199,6 +211,113 @@
 		mcpRegistering[provider] = false;
 	}
 
+	// — Embedded endpoint CRUD —
+
+	async function loadEmbeddedEndpoints() {
+		const res = await apiGet('/api/config/embedded');
+		if (res?.data) {
+			embeddedEndpoints = res.data.endpoints || [];
+			embeddedLoaded = true;
+		}
+	}
+
+	function openEmbeddedEditor(ep = null) {
+		embeddedEditing = ep ? { ...ep } : {
+			id: '',
+			label: '',
+			base_url: 'http://127.0.0.1:8080/v1',
+			api_key: '',
+			model: '',
+			enabled: true,
+			thinking: false,
+			max_iterations: 40,
+			context_tokens: 32768
+		};
+	}
+
+	function closeEmbeddedEditor() {
+		embeddedEditing = null;
+	}
+
+	async function saveEmbeddedEndpoint() {
+		if (!embeddedEditing) return;
+		const isEdit = !!embeddedEditing._existing;
+		const body = {
+			id: embeddedEditing.id,
+			label: embeddedEditing.label,
+			base_url: embeddedEditing.base_url,
+			api_key: embeddedEditing.api_key,
+			model: embeddedEditing.model,
+			enabled: embeddedEditing.enabled,
+			thinking: embeddedEditing.thinking,
+			max_iterations: parseInt(embeddedEditing.max_iterations) || 40,
+			context_tokens: parseInt(embeddedEditing.context_tokens) || 32768
+		};
+
+		let res;
+		if (isEdit) {
+			res = await fetch(`/api/config/embedded/${encodeURIComponent(body.id)}`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			}).then(r => r.json());
+		} else {
+			res = await apiPost('/api/config/embedded', body);
+		}
+
+		if (res?.success || res?.message) {
+			closeEmbeddedEditor();
+			await loadEmbeddedEndpoints();
+		} else {
+			alert('Error: ' + (res?.message || 'Failed to save'));
+		}
+	}
+
+	async function deleteEmbeddedEndpoint(id) {
+		if (!confirm('Delete this endpoint?')) return;
+		const res = await fetch(`/api/config/embedded/${encodeURIComponent(id)}`, {
+			method: 'DELETE'
+		}).then(r => r.json());
+		if (res?.success || res?.message) {
+			await loadEmbeddedEndpoints();
+		} else {
+			alert('Error: ' + (res?.message || 'Failed to delete'));
+		}
+	}
+
+	async function setActiveEndpoint(id) {
+		const res = await fetch(`/api/config/embedded/${encodeURIComponent(id)}/set-active`, {
+			method: 'POST'
+		}).then(r => r.json());
+		if (res?.success || res?.message) {
+			configData.embedded_active_id = id;
+			await loadEmbeddedEndpoints();
+		} else {
+			alert('Error: ' + (res?.message || 'Failed to set active'));
+		}
+	}
+
+	async function testEmbeddedEndpoint(ep) {
+		embeddedTestBusy[ep.id] = true;
+		embeddedTestResult[ep.id] = '';
+		try {
+			const res = await apiPost('/api/config/embedded/test', {
+				base_url: ep.base_url,
+				api_key: ep.api_key,
+				model: ep.model
+			});
+			if (res?.success) {
+				embeddedTestResult[ep.id] = '✅ Connected';
+			} else {
+				embeddedTestResult[ep.id] = '❌ ' + (res?.message || 'Failed');
+			}
+		} catch (e) {
+			embeddedTestResult[ep.id] = '❌ ' + e.message;
+		}
+		embeddedTestBusy[ep.id] = false;
+		setTimeout(() => { embeddedTestResult[ep.id] = ''; }, 5000);
+	}
+
 	// Build a clean {provider: limit} map from the per-provider inputs.
 	// Only positive integers are kept; 0 / blank means "no limit for that group".
 	function buildConcurrencyLimits() {
@@ -247,7 +366,9 @@
 			discord_notifications_enabled: configData.discord_notifications_enabled,
 			discord_webhook_url: configData.discord_webhook_url || '',
 			discord_notify_on_complete: configData.discord_notify_on_complete,
-			discord_notify_on_fail: configData.discord_notify_on_fail
+			discord_notify_on_fail: configData.discord_notify_on_fail,
+			embedded_active_id: configData.embedded_active_id || '',
+			custom_prompt_embedded: configData.custom_prompt_embedded || ''
 		});
 		if (res?.success) {
 			saveMsg = 'Saved';
@@ -309,6 +430,7 @@
 					<option value="claude">Claude</option>
 					<option value="opencode">OpenCode</option>
 					<option value="pi">Pi</option>
+					<option value="embedded">Embedded (로컬 LLM)</option>
 					<option value="auto">Auto</option>
 				</select>
 			</div>
@@ -605,6 +727,130 @@
 					<span>{configData.discord_notify_on_fail ? 'Enabled' : 'Disabled'}</span>
 				</div>
 			</div>
+
+			<hr class="setting-divider" />
+
+			<div class="setting-section-title">Embedded Provider (로컬 LLM)</div>
+			<p class="hint">OpenAI 호환 API 서버(llama.cpp, vLLM, Ollama 등)를 직접 연결합니다. 서브프로세스 없이 in-process 에이전트 루프가 실행됩니다.</p>
+
+			{#if !embeddedLoaded}
+				<p class="text-muted">Loading...</p>
+			{:else}
+				<!-- Active endpoint selector -->
+				<div class="setting-row">
+					<label>Active Endpoint</label>
+					<select class="input" bind:value={configData.embedded_active_id}>
+						<option value="">— 선택 —</option>
+						{#each embeddedEndpoints as ep}
+							<option value={ep.id}>{ep.label || ep.id} ({ep.model})</option>
+						{/each}
+					</select>
+				</div>
+
+				<!-- Custom prompt for embedded -->
+				<div class="setting-row column">
+					<label>Custom Prompt — Embedded</label>
+					<textarea
+						class="input textarea"
+						bind:value={configData.custom_prompt_embedded}
+						rows="4"
+						placeholder="임베디드 프로바이더 실행 시 추가로 전달할 지시문을 입력하세요."
+					></textarea>
+				</div>
+
+				<!-- Endpoint list -->
+				<div class="embedded-endpoints">
+					<div class="embedded-header">
+						<h3>Endpoints</h3>
+						<button class="btn btn-sm btn-outline" onclick={() => openEmbeddedEditor(null)}>+ Add</button>
+					</div>
+
+					{#if embeddedEndpoints.length === 0}
+						<p class="text-muted">No endpoints configured yet.</p>
+					{:else}
+						{#each embeddedEndpoints as ep}
+							<div class="embedded-card" class:active={ep.is_active}>
+								<div class="embedded-card-header">
+									<strong>{ep.label || ep.id}</strong>
+									{#if ep.is_active}<span class="badge badge-success">Active</span>{/if}
+									{#if !ep.enabled}<span class="badge badge-muted">Disabled</span>{/if}
+									<div class="embedded-actions">
+										<button class="btn btn-sm btn-outline" onclick={() => testEmbeddedEndpoint(ep)} disabled={embeddedTestBusy[ep.id]}>
+											{embeddedTestBusy[ep.id] ? '...' : 'Test'}
+										</button>
+										<button class="btn btn-sm btn-outline" onclick={() => setActiveEndpoint(ep.id)} disabled={ep.is_active}>Set Active</button>
+										<button class="btn btn-sm btn-outline" onclick={() => openEmbeddedEditor(ep)}>Edit</button>
+										<button class="btn btn-sm btn-outline" onclick={() => deleteEmbeddedEndpoint(ep.id)} disabled={ep.is_active}>Delete</button>
+										<span class="embedded-test-result">{embeddedTestResult[ep.id] || ''}</span>
+									</div>
+								</div>
+								<div class="embedded-card-body">
+									<div class="embedded-detail"><span class="embedded-label">Model:</span> {ep.model}</div>
+									<div class="embedded-detail"><span class="embedded-label">URL:</span> <code>{ep.base_url}</code></div>
+									<div class="embedded-detail"><span class="embedded-label">Context:</span> {ep.context_tokens?.toLocaleString()} tokens</div>
+									<div class="embedded-detail"><span class="embedded-label">Max Iterations:</span> {ep.max_iterations}</div>
+									<div class="embedded-detail"><span class="embedded-label">Thinking:</span> {ep.thinking ? 'On' : 'Off'}</div>
+								</div>
+							</div>
+						{/each}
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Embedded endpoint editor modal -->
+			{#if embeddedEditing}
+				<div class="modal-overlay" onclick={closeEmbeddedEditor}>
+					<div class="modal-card" onclick={(e) => e.stopPropagation()}>
+						<h3>{embeddedEditing._existing ? 'Edit Endpoint' : 'Add Endpoint'}</h3>
+						<div class="setting-row">
+							<label>ID</label>
+							<input class="input" type="text" bind:value={embeddedEditing.id} placeholder="local-qwen" disabled={!!embeddedEditing._existing} />
+						</div>
+						<div class="setting-row">
+							<label>Label</label>
+							<input class="input" type="text" bind:value={embeddedEditing.label} placeholder="Qwen3 27B" />
+						</div>
+						<div class="setting-row">
+							<label>Base URL</label>
+							<input class="input" type="text" bind:value={embeddedEditing.base_url} placeholder="http://127.0.0.1:8080/v1" />
+						</div>
+						<div class="setting-row">
+							<label>API Key</label>
+							<input class="input" type="password" bind:value={embeddedEditing.api_key} placeholder="Leave empty for local servers" />
+						</div>
+						<div class="setting-row">
+							<label>Model</label>
+							<input class="input" type="text" bind:value={embeddedEditing.model} placeholder="qwen3-27b" />
+						</div>
+						<div class="setting-row">
+							<label>Max Iterations</label>
+							<input class="input" type="number" bind:value={embeddedEditing.max_iterations} min="1" max="200" />
+						</div>
+						<div class="setting-row">
+							<label>Context Tokens</label>
+							<input class="input" type="number" bind:value={embeddedEditing.context_tokens} min="1024" max="131072" step="1024" />
+						</div>
+						<div class="setting-row">
+							<label>Thinking</label>
+							<label class="toggle">
+								<input type="checkbox" bind:checked={embeddedEditing.thinking} />
+								<span>{embeddedEditing.thinking ? 'On' : 'Off'}</span>
+							</label>
+						</div>
+						<div class="setting-row">
+							<label>Enabled</label>
+							<label class="toggle">
+								<input type="checkbox" bind:checked={embeddedEditing.enabled} />
+								<span>{embeddedEditing.enabled ? 'Enabled' : 'Disabled'}</span>
+							</label>
+						</div>
+						<div class="embedded-editor-actions">
+							<button class="btn btn-primary" onclick={saveEmbeddedEndpoint}>Save</button>
+							<button class="btn btn-outline" onclick={closeEmbeddedEditor}>Cancel</button>
+						</div>
+					</div>
+				</div>
+			{/if}
 
 			<div class="setting-row readonly">
 				<label>Server Host</label>
@@ -1271,5 +1517,102 @@
 		.backup-section {
 			max-width: none;
 		}
+	}
+
+	/* — Embedded provider section — */
+	.embedded-endpoints {
+		margin-top: 16px;
+	}
+	.embedded-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 12px;
+	}
+	.embedded-header h3 {
+		margin: 0;
+		font-size: 14px;
+		font-weight: 600;
+	}
+	.embedded-card {
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 12px 16px;
+		margin-bottom: 8px;
+		background: var(--bg-card);
+		transition: border-color 0.2s;
+	}
+	.embedded-card.active {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 1px var(--accent);
+	}
+	.embedded-card-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 8px;
+		flex-wrap: wrap;
+	}
+	.embedded-card-header strong {
+		font-size: 14px;
+	}
+	.embedded-actions {
+		display: flex;
+		gap: 6px;
+		margin-left: auto;
+		align-items: center;
+	}
+	.embedded-card-body {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		gap: 4px 16px;
+	}
+	.embedded-detail {
+		font-size: 12px;
+		color: var(--text-secondary);
+	}
+	.embedded-detail code {
+		font-size: 11px;
+		background: var(--bg-input);
+		padding: 1px 4px;
+		border-radius: 3px;
+	}
+	.embedded-label {
+		color: var(--text-muted);
+		margin-right: 4px;
+	}
+	.embedded-test-result {
+		font-size: 12px;
+		min-width: 80px;
+	}
+	.embedded-editor-actions {
+		display: flex;
+		gap: 8px;
+		margin-top: 16px;
+	}
+
+	/* Modal overlay for embedded editor */
+	.modal-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+	.modal-card {
+		background: var(--bg-card);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		padding: 24px;
+		width: 90%;
+		max-width: 500px;
+		max-height: 80vh;
+		overflow-y: auto;
+	}
+	.modal-card h3 {
+		margin: 0 0 16px;
+		font-size: 16px;
 	}
 </style>

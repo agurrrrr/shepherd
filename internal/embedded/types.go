@@ -239,8 +239,8 @@ func trimMessages(messages []ChatMessage, maxTokens int) []ChatMessage {
 	return append([]ChatMessage{system}, remaining...)
 }
 
-// validateEndpoint checks if an endpoint is properly configured.
-func validateEndpoint(ep *Endpoint) error {
+// ValidateEndpoint checks if an endpoint is properly configured.
+func ValidateEndpoint(ep *Endpoint) error {
 	if ep.ID == "" {
 		return fmt.Errorf("endpoint ID is required")
 	}
@@ -263,8 +263,8 @@ func validateEndpoint(ep *Endpoint) error {
 	return nil
 }
 
-// testConnection checks if an endpoint is reachable by listing available models.
-func testConnection(ctx context.Context, ep *Endpoint) error {
+// TestConnection checks if an endpoint is reachable by listing available models.
+func TestConnection(ctx context.Context, ep *Endpoint) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 

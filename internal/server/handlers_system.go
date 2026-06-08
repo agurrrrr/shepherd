@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/embedded"
 	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/queue"
@@ -108,6 +110,8 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"discord_webhook_url":             config.GetString("discord_webhook_url"),
 		"discord_notify_on_complete":      config.GetBool("discord_notify_on_complete"),
 		"discord_notify_on_fail":          config.GetBool("discord_notify_on_fail"),
+		"embedded_active_id":              config.GetString("embedded_active_id"),
+		"custom_prompt_embedded":          config.GetString("custom_prompt_embedded"),
 	})
 }
 
@@ -202,6 +206,8 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"discord_webhook_url":             true,
 		"discord_notify_on_complete":      true,
 		"discord_notify_on_fail":          true,
+		"embedded_active_id":              true,
+		"custom_prompt_embedded":          true,
 	}
 
 	for key, value := range body {
@@ -307,4 +313,221 @@ func (s *Server) handleRestart(c *fiber.Ctx) error {
 	}()
 
 	return err
+}
+
+// GET /api/config/embedded
+// Returns all embedded endpoints from embedded.yaml.
+func (s *Server) handleGetEmbeddedEndpoints(c *fiber.Ctx) error {
+	cfg, err := config.LoadEmbeddedConfig()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to load embedded config: "+err.Error())
+	}
+	activeID := config.GetString("embedded_active_id")
+
+	result := make([]map[string]interface{}, 0, len(cfg.Endpoints))
+	for _, ep := range cfg.Endpoints {
+		result = append(result, map[string]interface{}{
+			"id":             ep.ID,
+			"label":          ep.Label,
+			"base_url":       ep.BaseURL,
+			"api_key":        maskAPIKey(ep.APIKey),
+			"model":          ep.Model,
+			"enabled":        ep.Enabled,
+			"thinking":       ep.Thinking,
+			"max_iterations": ep.MaxIterations,
+			"context_tokens": ep.ContextTokens,
+			"is_active":      ep.ID == activeID,
+		})
+	}
+	return success(c, map[string]interface{}{
+		"endpoints":        result,
+		"embedded_active_id": activeID,
+	})
+}
+
+// POST /api/config/embedded
+// Creates a new embedded endpoint.
+func (s *Server) handleCreateEmbeddedEndpoint(c *fiber.Ctx) error {
+	var body config.EmbeddedEndpointJSON
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	if body.ID == "" || body.BaseURL == "" || body.Model == "" {
+		return fail(c, fiber.StatusBadRequest, "id, base_url, and model are required")
+	}
+
+	cfg, err := config.LoadEmbeddedConfig()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to load embedded config: "+err.Error())
+	}
+
+	// Check for duplicate ID
+	for _, ep := range cfg.Endpoints {
+		if ep.ID == body.ID {
+			return fail(c, fiber.StatusConflict, "endpoint ID already exists: "+body.ID)
+		}
+	}
+
+	ep := embeddedEndpointFromJSON(body)
+	cfg.Endpoints = append(cfg.Endpoints, ep)
+
+	if err := config.SaveEmbeddedConfig(cfg); err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to save embedded config: "+err.Error())
+	}
+
+	return success(c, map[string]interface{}{"message": "endpoint created"})
+}
+
+// PUT /api/config/embedded/:id
+// Updates an existing embedded endpoint.
+func (s *Server) handleUpdateEmbeddedEndpoint(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return fail(c, fiber.StatusBadRequest, "endpoint ID is required")
+	}
+
+	var body config.EmbeddedEndpointJSON
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+
+	cfg, err := config.LoadEmbeddedConfig()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to load embedded config: "+err.Error())
+	}
+
+	for i, ep := range cfg.Endpoints {
+		if ep.ID == id {
+			updated := embeddedEndpointFromJSON(body)
+			updated.ID = id
+			cfg.Endpoints[i] = updated
+
+			if err := config.SaveEmbeddedConfig(cfg); err != nil {
+				return fail(c, fiber.StatusInternalServerError, "failed to save embedded config: "+err.Error())
+			}
+			return success(c, map[string]interface{}{"message": "endpoint updated"})
+		}
+	}
+
+	return fail(c, fiber.StatusNotFound, "endpoint not found: "+id)
+}
+
+// DELETE /api/config/embedded/:id
+// Deletes an embedded endpoint.
+func (s *Server) handleDeleteEmbeddedEndpoint(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return fail(c, fiber.StatusBadRequest, "endpoint ID is required")
+	}
+
+	cfg, err := config.LoadEmbeddedConfig()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to load embedded config: "+err.Error())
+	}
+
+	activeID := config.GetString("embedded_active_id")
+	if activeID == id {
+		return fail(c, fiber.StatusBadRequest, "cannot delete the active endpoint")
+	}
+
+	for i, ep := range cfg.Endpoints {
+		if ep.ID == id {
+			cfg.Endpoints = append(cfg.Endpoints[:i], cfg.Endpoints[i+1:]...)
+
+			if err := config.SaveEmbeddedConfig(cfg); err != nil {
+				return fail(c, fiber.StatusInternalServerError, "failed to save embedded config: "+err.Error())
+			}
+			return success(c, map[string]interface{}{"message": "endpoint deleted"})
+		}
+	}
+
+	return fail(c, fiber.StatusNotFound, "endpoint not found: "+id)
+}
+
+// POST /api/config/embedded/:id/set-active
+// Sets the active embedded endpoint.
+func (s *Server) handleSetActiveEndpoint(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return fail(c, fiber.StatusBadRequest, "endpoint ID is required")
+	}
+
+	cfg, err := config.LoadEmbeddedConfig()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to load embedded config: "+err.Error())
+	}
+	found := false
+	for _, ep := range cfg.Endpoints {
+		if ep.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fail(c, fiber.StatusNotFound, "endpoint not found: "+id)
+	}
+
+	if err := config.Set("embedded_active_id", id); err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to save config: "+err.Error())
+	}
+
+	return success(c, map[string]interface{}{"message": "active endpoint set", "id": id})
+}
+
+// POST /api/config/embedded/test
+// Tests the connection to an embedded endpoint.
+func (s *Server) handleTestEmbeddedEndpoint(c *fiber.Ctx) error {
+	var body struct {
+		BaseURL string `json:"base_url"`
+		APIKey  string `json:"api_key"`
+		Model   string `json:"model"`
+	}
+	if err := c.BodyParser(&body); err != nil || body.BaseURL == "" {
+		return fail(c, fiber.StatusBadRequest, "base_url is required")
+	}
+	if body.Model == "" {
+		return fail(c, fiber.StatusBadRequest, "model is required")
+	}
+
+	ep := &embedded.Endpoint{
+		ID:      "test",
+		BaseURL: body.BaseURL,
+		APIKey:  body.APIKey,
+		Model:   body.Model,
+	}
+
+	ctx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
+	defer cancel()
+
+	if err := embedded.TestConnection(ctx, ep); err != nil {
+		return fail(c, fiber.StatusBadGateway, "connection test failed: "+err.Error())
+	}
+
+	return success(c, map[string]interface{}{
+		"message":  "connection successful",
+		"base_url": body.BaseURL,
+	})
+}
+
+// maskAPIKey masks an API key for display.
+func maskAPIKey(key string) string {
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "****" + key[len(key)-4:]
+}
+
+// embeddedEndpointFromJSON converts JSON-friendly input to config.EmbeddedEndpoint.
+func embeddedEndpointFromJSON(body config.EmbeddedEndpointJSON) config.EmbeddedEndpoint {
+	return config.EmbeddedEndpoint{
+		ID:            body.ID,
+		Label:         body.Label,
+		BaseURL:       body.BaseURL,
+		APIKey:        body.APIKey,
+		Model:         body.Model,
+		Enabled:       body.Enabled,
+		Thinking:      body.Thinking,
+		MaxIterations: body.MaxIterations,
+		ContextTokens: body.ContextTokens,
+	}
 }
