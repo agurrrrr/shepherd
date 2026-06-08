@@ -12,24 +12,27 @@
 	import SkillSyncSection from '$lib/components/Settings/SkillSyncSection.svelte';
 	import DataManagement from '$lib/components/Settings/DataManagement.svelte';
 
-	let configData = {};
-	let loaded = false;
-	let saving = false;
-	let saveMsg = '';
-	let restarting = false;
-	let loadError = '';
+	// NOTE: 이 컴포넌트는 아래 $derived 사용으로 Svelte 5 runes 모드다.
+	// runes 모드에서는 평범한 let 변수가 반응형이 아니므로 반드시 $state로 선언해야 한다.
+	// (이게 빠지면 loaded=true로 바꿔도 재렌더되지 않아 "Loading..."이 영원히 남는다)
+	let configData = $state({});
+	let loaded = $state(false);
+	let saving = $state(false);
+	let saveMsg = $state('');
+	let restarting = $state(false);
+	let loadError = $state('');
 
-	let mcpStatus = { claude: null, opencode: null, pi: null };
-	let mcpLoaded = false;
+	let mcpStatus = $state({ claude: null, opencode: null, pi: null });
+	let mcpLoaded = $state(false);
 
-	let projectsList = [];
-	let modelOptions = { claude: [], opencode: [], pi: [] };
+	let projectsList = $state([]);
+	let modelOptions = $state({ claude: [], opencode: [], pi: [] });
 
 	// Provider enabled flags (shared mutable state)
-	let providerEnabled = { claude: true, opencode: true, pi: true, embedded: true };
+	let providerEnabled = $state({ claude: true, opencode: true, pi: true, embedded: true });
 
 	// Tab state
-	let activeTab = 'common';
+	let activeTab = $state('common');
 	const settingsTabs = [
 		{ value: 'common', label: '공통' },
 		{ value: 'claude', label: 'Claude' },
