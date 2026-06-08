@@ -45,15 +45,31 @@
 	let opencodeModelOptions = $state([]);
 	let piModelDefault = $state('');
 	let piModelOptions = $state([]);
+	let embeddedModelOptions = $state([]);
 
-	// Providers that take an explicit model + thinking toggle (Claude uses a fixed
-	// CLI model, so it has no per-project selector here).
+	// Providers that take an explicit model selector. Claude uses a fixed CLI
+	// model, so it has no per-project selector here. Embedded gets a model
+	// selector (the configured endpoints) but no Thinking toggle — its thinking
+	// is configured per endpoint in Settings.
 	let providerHasModel = $derived(
+		sheepProvider === 'opencode' || sheepProvider === 'auto' ||
+		sheepProvider === 'pi' || sheepProvider === 'embedded'
+	);
+	// Thinking toggle applies only to the CLI-harness providers, not embedded.
+	let providerHasThinking = $derived(
 		sheepProvider === 'opencode' || sheepProvider === 'auto' || sheepProvider === 'pi'
 	);
 	// Model option list and global default for the sheep's current provider.
-	let activeModelOptions = $derived(sheepProvider === 'pi' ? piModelOptions : opencodeModelOptions);
-	let activeModelDefault = $derived(sheepProvider === 'pi' ? piModelDefault : opencodeModelDefault);
+	let activeModelOptions = $derived(
+		sheepProvider === 'pi' ? piModelOptions :
+		sheepProvider === 'embedded' ? embeddedModelOptions :
+		opencodeModelOptions
+	);
+	let activeModelDefault = $derived(
+		sheepProvider === 'pi' ? piModelDefault :
+		sheepProvider === 'embedded' ? '' :
+		opencodeModelDefault
+	);
 
 	let modelSelected = $derived.by(() => {
 		const overrides = $modelByProject || {};
@@ -217,6 +233,7 @@
 		if (modelRes?.data) {
 			opencodeModelOptions = modelRes.data.opencode || [];
 			piModelOptions = modelRes.data.pi || [];
+			embeddedModelOptions = modelRes.data.embedded || [];
 		}
 		if (res?.data) {
 			project = res.data;
@@ -551,9 +568,10 @@
 						<option value="claude">Claude</option>
 						<option value="opencode">OpenCode</option>
 						<option value="pi">Pi</option>
+						<option value="embedded">Embedded</option>
 						<option value="auto">Auto</option>
 					</select>
-					{#if providerHasModel}
+					{#if providerHasThinking}
 						<label class="thinking-toggle" title="Enable reasoning for this project">
 							<input
 								type="checkbox"
@@ -562,6 +580,8 @@
 							/>
 							<span>Thinking</span>
 						</label>
+					{/if}
+					{#if providerHasModel}
 						<select class="provider-select" value={modelSelected} onchange={changeModel}
 							title="Override model for this project">
 							<option value="">Default</option>
@@ -912,7 +932,7 @@
 					projectName={project.name}
 					sheepName={sheepName}
 					sheepStatus={sheepStatus}
-					thinking={providerHasModel ? thinkingChecked : null}
+					thinking={providerHasThinking ? thinkingChecked : null}
 					model={providerHasModel ? (modelSelected || null) : null}
 				/>
 				{:else}

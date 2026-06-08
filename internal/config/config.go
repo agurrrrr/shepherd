@@ -534,6 +534,27 @@ func EndpointsFromJSON(jsonEps []EmbeddedEndpointJSON) []EmbeddedEndpoint {
 	return result
 }
 
+// GetEmbeddedEndpointByID returns the embedded endpoint with the given ID,
+// or nil when it does not exist or is disabled.
+func GetEmbeddedEndpointByID(id string) (*EmbeddedEndpoint, error) {
+	if id == "" {
+		return nil, nil
+	}
+
+	cfg, err := LoadEmbeddedConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ep := range cfg.Endpoints {
+		if ep.ID == id && ep.Enabled {
+			return &ep, nil
+		}
+	}
+
+	return nil, nil
+}
+
 // GetActiveEmbeddedEndpoint returns the currently active embedded endpoint,
 // or nil when the active ID is not set or the endpoint is disabled.
 func GetActiveEmbeddedEndpoint() (*EmbeddedEndpoint, error) {

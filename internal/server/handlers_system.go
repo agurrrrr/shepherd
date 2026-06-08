@@ -147,10 +147,30 @@ func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
 		pi = append(pi, option{ID: m.ID, Label: m.Label})
 	}
 
+	// Embedded options are the configured endpoints. The "Default" entry
+	// (empty ID) falls back to the globally active endpoint.
+	embedded := []option{{ID: "", Label: "Active endpoint"}}
+	if cfg, err := config.LoadEmbeddedConfig(); err == nil {
+		for _, ep := range cfg.Endpoints {
+			if !ep.Enabled {
+				continue
+			}
+			label := ep.Label
+			if label == "" {
+				label = ep.ID
+			}
+			if ep.Model != "" {
+				label = label + " (" + ep.Model + ")"
+			}
+			embedded = append(embedded, option{ID: ep.ID, Label: label})
+		}
+	}
+
 	return success(c, map[string]interface{}{
 		"claude":   claude,
 		"opencode": opencode,
 		"pi":       pi,
+		"embedded": embedded,
 	})
 }
 

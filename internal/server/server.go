@@ -466,12 +466,27 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		opts worker.InteractiveOptions,
 		cancel context.CancelFunc,
 	) (*worker.ExecuteResult, error) {
-		ep, err := config.GetActiveEmbeddedEndpoint()
-		if err != nil {
-			return nil, fmt.Errorf("embedded config error: %w", err)
-		}
-		if ep == nil {
-			return nil, fmt.Errorf("no active embedded endpoint configured. Add one in Settings > Embedded")
+		// When the project explicitly selects an endpoint (opts.Model holds the
+		// endpoint ID), use that one; otherwise fall back to the globally active
+		// endpoint.
+		var ep *config.EmbeddedEndpoint
+		var err error
+		if opts.Model != "" {
+			ep, err = config.GetEmbeddedEndpointByID(opts.Model)
+			if err != nil {
+				return nil, fmt.Errorf("embedded config error: %w", err)
+			}
+			if ep == nil {
+				return nil, fmt.Errorf("embedded endpoint %q not found or disabled", opts.Model)
+			}
+		} else {
+			ep, err = config.GetActiveEmbeddedEndpoint()
+			if err != nil {
+				return nil, fmt.Errorf("embedded config error: %w", err)
+			}
+			if ep == nil {
+				return nil, fmt.Errorf("no active embedded endpoint configured. Add one in Settings > Embedded")
+			}
 		}
 		if ep.BaseURL == "" || ep.Model == "" {
 			return nil, fmt.Errorf("embedded endpoint %q is incomplete (base_url and model required)", ep.ID)
