@@ -46,6 +46,32 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	)
 
 	for iteration := 0; iteration < opts.MaxIterations; iteration++ {
+		// Poll for injected user prompts (non-blocking). Each injected prompt is
+		// appended as a {role: user} message so the model sees it as a natural
+		// continuation of the conversation. This is checked at the top of each
+		// loop iteration so injected messages are included in the next LLM call.
+		if opts.InjectCh != nil {
+			for {
+				select {
+				case injected, ok := <-opts.InjectCh:
+					if !ok {
+						opts.InjectCh = nil // channel closed; stop polling
+						break
+					}
+					messages = append(messages, ChatMessage{
+						Role:    ChatRoleUser,
+						Content: injected,
+					})
+					if opts.OnOutput != nil {
+						opts.OnOutput("💬 [주입된 메시지]: " + injected)
+					}
+				default:
+					goto doneInjectPoll
+				}
+			}
+		}
+	doneInjectPoll:
+
 		// Trim messages to fit context window
 		messages = trimMessages(messages, opts.ContextTokens)
 

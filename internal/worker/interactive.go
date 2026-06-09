@@ -68,6 +68,7 @@ type RunningTask struct {
 	TaskID      int
 	OutputLines []string
 	outputMu    sync.Mutex
+	InjectCh    chan string // Prompt injection channel (nil for non-embedded providers)
 }
 
 // Running task management
@@ -208,6 +209,30 @@ func GetRunningTaskOutput(sheepName string) (int, []string) {
 	output := make([]string, len(task.OutputLines))
 	copy(output, task.OutputLines)
 	return task.TaskID, output
+}
+
+// InjectPrompt sends a user prompt to a running embedded task. The prompt is
+// appended as a {role: user} message at the next safe point in the agent loop.
+// Returns an error if the sheep has no running task or the provider does not
+// support injection (e.g. CLI-based providers like claude/opencode).
+func InjectPrompt(sheepName string, prompt string) error {
+	runningTasksMu.RLock()
+	task, ok := runningTasks[sheepName]
+	runningTasksMu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("no running task for sheep %s", sheepName)
+	}
+	if task.InjectCh == nil {
+		return fmt.Errorf("prompt injection not supported for this provider")
+	}
+
+	select {
+	case task.InjectCh <- prompt:
+		return nil
+	default:
+		return fmt.Errorf("inject buffer full, try again later")
+	}
 }
 
 // unregisterRunningTask removes the running-task entry for sheepName, but only

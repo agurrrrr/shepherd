@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -497,5 +498,32 @@ func (s *Server) handleCommand(c *fiber.Ctx) error {
 		"sheep_name":   decision.SheepName,
 		"project_name": decision.ProjectName,
 		"reason":       decision.Reason,
+	})
+}
+
+// POST /api/sheep/:name/inject — Inject a user prompt into a running embedded task.
+// The prompt is appended as a {role: user} message at the next safe point in the
+// agent loop (after the current turn completes), allowing mid-execution guidance
+// without interrupting the running work.
+func (s *Server) handleInjectPrompt(c *fiber.Ctx) error {
+	sheepName := c.Params("name")
+
+	var body struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	if strings.TrimSpace(body.Prompt) == "" {
+		return fail(c, fiber.StatusBadRequest, "prompt is empty")
+	}
+
+	if err := worker.InjectPrompt(sheepName, body.Prompt); err != nil {
+		return fail(c, fiber.StatusServiceUnavailable, err.Error())
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "프롬프트가 주입되었습니다",
 	})
 }

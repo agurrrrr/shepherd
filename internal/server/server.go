@@ -164,6 +164,9 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Post("/tasks/:id/retry", s.handleRetryTask)
 	api.Post("/tasks/:id/retry-from", s.handleRetryFromTask)
 
+	// Prompt injection (mid-execution)
+	api.Post("/sheep/:name/inject", s.handleInjectPrompt)
+
 	// Schedule management
 	api.Get("/schedules", s.handleListAllSchedules)
 	api.Get("/schedules/preview", s.handleSchedulePreview)
@@ -465,6 +468,7 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		prompt string,
 		opts worker.InteractiveOptions,
 		cancel context.CancelFunc,
+		injectCh <-chan string,
 	) (*worker.ExecuteResult, error) {
 		// When the project explicitly selects an endpoint (opts.Model holds the
 		// endpoint ID), use that one; otherwise fall back to the globally active
@@ -531,6 +535,7 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			ContextTokens:  ep.ContextTokens,
 			MCPDefs:        mcpDefs,
 			MCPDispatch:    mcpDispatch,
+			InjectCh:       injectCh,
 		})
 		if err != nil {
 			return nil, err

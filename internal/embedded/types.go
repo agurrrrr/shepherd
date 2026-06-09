@@ -181,6 +181,11 @@ type ExecuteOptions struct {
 	// call (e.g. browser_session_start) fails with "unknown tool".
 	MCPDefs     []MCPToolDef
 	MCPDispatch MCPDispatcher
+
+	// InjectCh receives user prompts to inject mid-execution. Each string is
+	// appended as a {role: user} message to the chat history at the next safe
+	// point (after the current turn completes). Nil or closed means no injection.
+	InjectCh <-chan string
 }
 
 // DefaultMaxIterations is the default maximum number of agent loop iterations.

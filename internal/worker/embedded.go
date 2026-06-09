@@ -16,6 +16,7 @@ var embeddedExecutor func(
 	prompt string,
 	opts InteractiveOptions,
 	cancel context.CancelFunc,
+	injectCh <-chan string,
 ) (*ExecuteResult, error)
 
 // SetEmbeddedExecutor registers the embedded executor function.
@@ -26,6 +27,7 @@ func SetEmbeddedExecutor(fn func(
 	prompt string,
 	opts InteractiveOptions,
 	cancel context.CancelFunc,
+	injectCh <-chan string,
 ) (*ExecuteResult, error)) {
 	embeddedExecutor = fn
 }
@@ -41,14 +43,22 @@ func executeWithEmbedded(
 		return nil, fmt.Errorf("embedded executor not initialized")
 	}
 
+	// Create an inject channel so the user can send mid-execution prompts.
+	// Buffer of 16 allows multiple quick injections without blocking.
+	injectCh := make(chan string, 16)
+
 	// Register in the running-task registry so StopTask can find and cancel
 	// this work. Embedded runs have no subprocess (Cmd == nil); killProcessGroup
 	// already guards against nil, so this is safe. The identity token prevents
 	// a late-finishing task from clobbering a newer task's entry.
 	rt := registerRunningTask(sheepName, cancel, nil)
-	defer unregisterRunningTask(sheepName, rt)
+	rt.InjectCh = injectCh
+	defer func() {
+		close(injectCh)
+		unregisterRunningTask(sheepName, rt)
+	}()
 
-	return embeddedExecutor(ctx, sheepName, projectPath, prompt, opts, cancel)
+	return embeddedExecutor(ctx, sheepName, projectPath, prompt, opts, cancel, injectCh)
 }
 
 // BuildSystemPromptForEmbedded builds the system prompt for the embedded provider.
