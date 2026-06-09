@@ -26,6 +26,9 @@ func (Project) Fields() []ent.Field {
 		field.String("description").
 			Optional().
 			Comment("프로젝트 설명"),
+		field.JSON("mcp_servers", map[string]interface{}{}).
+			Default(map[string]interface{}{}).
+			Comment("프로젝트별 MCP 서버 활성화 설정: {server_name: {enabled: bool}}"),
 		field.Time("created_at").
 			Default(time.Now).
 			Immutable(),

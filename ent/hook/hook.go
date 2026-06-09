@@ -21,6 +21,18 @@ func (f BrowserSessionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Val
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.BrowserSessionMutation", m)
 }
 
+// The MCPServerFunc type is an adapter to allow the use of ordinary
+// function as MCPServer mutator.
+type MCPServerFunc func(context.Context, *ent.MCPServerMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f MCPServerFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.MCPServerMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.MCPServerMutation", m)
+}
+
 // The ProjectFunc type is an adapter to allow the use of ordinary
 // function as Project mutator.
 type ProjectFunc func(context.Context, *ent.ProjectMutation) (ent.Value, error)

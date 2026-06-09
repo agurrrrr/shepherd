@@ -3,6 +3,7 @@
 import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
+	import MCPServerManagement from './MCPServerManagement.svelte';
 
 	/** @type {{ embedded_active_id: string, custom_prompt_embedded: string }} */
 	export let configData;
@@ -241,6 +242,8 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		</div>
 	</div>
 {/if}
+
+<MCPServerManagement />
 
 <style>
 	.text-muted { color: var(--text-secondary); }

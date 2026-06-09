@@ -13,6 +13,7 @@
 	import SkillForm from '$lib/components/SkillForm.svelte';
 	import FileBrowser from '$lib/components/FileBrowser.svelte';
 	import SpecViewer from '$lib/components/SpecViewer.svelte';
+	import ProjectSettings from '$lib/components/ProjectSettings.svelte';
 
 	let projectName = $state('');
 	let project = $state(null);
@@ -133,7 +134,7 @@
 
 	let unsubs = [];
 
-	const VALID_TABS = ['output', 'history', 'files', 'git', 'schedules', 'skills', 'specs', 'wiki'];
+	const VALID_TABS = ['output', 'history', 'files', 'git', 'schedules', 'skills', 'specs', 'wiki', 'settings'];
 
 	// React to route param changes
 	$effect(() => {
@@ -647,6 +648,10 @@
 				onclick={() => switchTab('wiki')}>
 				Wiki
 			</button>
+			<button class="tab" class:active={activeTab === 'settings'}
+				onclick={() => switchTab('settings')}>
+				Settings
+			</button>
 		</div>
 
 		<!-- Content area -->
@@ -937,9 +942,15 @@
 					{/if}
 				</div>
 			{/if}
-		</div>
 
-		<!-- Command input: only on Live Output tab -->
+			<!-- Settings tab -->
+			{#if activeTab === 'settings'}
+				<div class="schedules-fill">
+					<h3>Project Settings</h3>
+					<ProjectSettings projectName={projectName} />
+				</div>
+			{/if}
+		</div>
 		{#if activeTab === 'output'}
 			<div class="command-bar card">
 				{#if sheepName}

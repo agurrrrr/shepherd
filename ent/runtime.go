@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/agurrrrr/shepherd/ent/browsersession"
+	"github.com/agurrrrr/shepherd/ent/mcpserver"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/schedule"
 	"github.com/agurrrrr/shepherd/ent/schema"
@@ -41,6 +42,26 @@ func init() {
 	browsersession.DefaultUpdatedAt = browsersessionDescUpdatedAt.Default.(func() time.Time)
 	// browsersession.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	browsersession.UpdateDefaultUpdatedAt = browsersessionDescUpdatedAt.UpdateDefault.(func() time.Time)
+	mcpserverFields := schema.MCPServer{}.Fields()
+	_ = mcpserverFields
+	// mcpserverDescName is the schema descriptor for name field.
+	mcpserverDescName := mcpserverFields[0].Descriptor()
+	// mcpserver.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	mcpserver.NameValidator = mcpserverDescName.Validators[0].(func(string) error)
+	// mcpserverDescEnabled is the schema descriptor for enabled field.
+	mcpserverDescEnabled := mcpserverFields[8].Descriptor()
+	// mcpserver.DefaultEnabled holds the default value on creation for the enabled field.
+	mcpserver.DefaultEnabled = mcpserverDescEnabled.Default.(bool)
+	// mcpserverDescCreatedAt is the schema descriptor for created_at field.
+	mcpserverDescCreatedAt := mcpserverFields[9].Descriptor()
+	// mcpserver.DefaultCreatedAt holds the default value on creation for the created_at field.
+	mcpserver.DefaultCreatedAt = mcpserverDescCreatedAt.Default.(func() time.Time)
+	// mcpserverDescUpdatedAt is the schema descriptor for updated_at field.
+	mcpserverDescUpdatedAt := mcpserverFields[10].Descriptor()
+	// mcpserver.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	mcpserver.DefaultUpdatedAt = mcpserverDescUpdatedAt.Default.(func() time.Time)
+	// mcpserver.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	mcpserver.UpdateDefaultUpdatedAt = mcpserverDescUpdatedAt.UpdateDefault.(func() time.Time)
 	projectFields := schema.Project{}.Fields()
 	_ = projectFields
 	// projectDescName is the schema descriptor for name field.
@@ -51,12 +72,16 @@ func init() {
 	projectDescPath := projectFields[1].Descriptor()
 	// project.PathValidator is a validator for the "path" field. It is called by the builders before save.
 	project.PathValidator = projectDescPath.Validators[0].(func(string) error)
+	// projectDescMcpServers is the schema descriptor for mcp_servers field.
+	projectDescMcpServers := projectFields[3].Descriptor()
+	// project.DefaultMcpServers holds the default value on creation for the mcp_servers field.
+	project.DefaultMcpServers = projectDescMcpServers.Default.(map[string]interface{})
 	// projectDescCreatedAt is the schema descriptor for created_at field.
-	projectDescCreatedAt := projectFields[3].Descriptor()
+	projectDescCreatedAt := projectFields[4].Descriptor()
 	// project.DefaultCreatedAt holds the default value on creation for the created_at field.
 	project.DefaultCreatedAt = projectDescCreatedAt.Default.(func() time.Time)
 	// projectDescUpdatedAt is the schema descriptor for updated_at field.
-	projectDescUpdatedAt := projectFields[4].Descriptor()
+	projectDescUpdatedAt := projectFields[5].Descriptor()
 	// project.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	project.DefaultUpdatedAt = projectDescUpdatedAt.Default.(func() time.Time)
 	// project.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.

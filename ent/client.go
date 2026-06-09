@@ -16,6 +16,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/agurrrrr/shepherd/ent/browsersession"
+	"github.com/agurrrrr/shepherd/ent/mcpserver"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/schedule"
 	"github.com/agurrrrr/shepherd/ent/sheep"
@@ -33,6 +34,8 @@ type Client struct {
 	Schema *migrate.Schema
 	// BrowserSession is the client for interacting with the BrowserSession builders.
 	BrowserSession *BrowserSessionClient
+	// MCPServer is the client for interacting with the MCPServer builders.
+	MCPServer *MCPServerClient
 	// Project is the client for interacting with the Project builders.
 	Project *ProjectClient
 	// Schedule is the client for interacting with the Schedule builders.
@@ -61,6 +64,7 @@ func NewClient(opts ...Option) *Client {
 func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
 	c.BrowserSession = NewBrowserSessionClient(c.config)
+	c.MCPServer = NewMCPServerClient(c.config)
 	c.Project = NewProjectClient(c.config)
 	c.Schedule = NewScheduleClient(c.config)
 	c.Sheep = NewSheepClient(c.config)
@@ -162,6 +166,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ctx:             ctx,
 		config:          cfg,
 		BrowserSession:  NewBrowserSessionClient(cfg),
+		MCPServer:       NewMCPServerClient(cfg),
 		Project:         NewProjectClient(cfg),
 		Schedule:        NewScheduleClient(cfg),
 		Sheep:           NewSheepClient(cfg),
@@ -190,6 +195,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ctx:             ctx,
 		config:          cfg,
 		BrowserSession:  NewBrowserSessionClient(cfg),
+		MCPServer:       NewMCPServerClient(cfg),
 		Project:         NewProjectClient(cfg),
 		Schedule:        NewScheduleClient(cfg),
 		Sheep:           NewSheepClient(cfg),
@@ -227,8 +233,8 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.BrowserSession, c.Project, c.Schedule, c.Sheep, c.SheepName, c.Skill, c.Task,
-		c.WikiPage, c.WikiPageVersion,
+		c.BrowserSession, c.MCPServer, c.Project, c.Schedule, c.Sheep, c.SheepName,
+		c.Skill, c.Task, c.WikiPage, c.WikiPageVersion,
 	} {
 		n.Use(hooks...)
 	}
@@ -238,8 +244,8 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.BrowserSession, c.Project, c.Schedule, c.Sheep, c.SheepName, c.Skill, c.Task,
-		c.WikiPage, c.WikiPageVersion,
+		c.BrowserSession, c.MCPServer, c.Project, c.Schedule, c.Sheep, c.SheepName,
+		c.Skill, c.Task, c.WikiPage, c.WikiPageVersion,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -250,6 +256,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 	switch m := m.(type) {
 	case *BrowserSessionMutation:
 		return c.BrowserSession.mutate(ctx, m)
+	case *MCPServerMutation:
+		return c.MCPServer.mutate(ctx, m)
 	case *ProjectMutation:
 		return c.Project.mutate(ctx, m)
 	case *ScheduleMutation:
@@ -417,6 +425,139 @@ func (c *BrowserSessionClient) mutate(ctx context.Context, m *BrowserSessionMuta
 		return (&BrowserSessionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown BrowserSession mutation op: %q", m.Op())
+	}
+}
+
+// MCPServerClient is a client for the MCPServer schema.
+type MCPServerClient struct {
+	config
+}
+
+// NewMCPServerClient returns a client for the MCPServer from the given config.
+func NewMCPServerClient(c config) *MCPServerClient {
+	return &MCPServerClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `mcpserver.Hooks(f(g(h())))`.
+func (c *MCPServerClient) Use(hooks ...Hook) {
+	c.hooks.MCPServer = append(c.hooks.MCPServer, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `mcpserver.Intercept(f(g(h())))`.
+func (c *MCPServerClient) Intercept(interceptors ...Interceptor) {
+	c.inters.MCPServer = append(c.inters.MCPServer, interceptors...)
+}
+
+// Create returns a builder for creating a MCPServer entity.
+func (c *MCPServerClient) Create() *MCPServerCreate {
+	mutation := newMCPServerMutation(c.config, OpCreate)
+	return &MCPServerCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of MCPServer entities.
+func (c *MCPServerClient) CreateBulk(builders ...*MCPServerCreate) *MCPServerCreateBulk {
+	return &MCPServerCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *MCPServerClient) MapCreateBulk(slice any, setFunc func(*MCPServerCreate, int)) *MCPServerCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &MCPServerCreateBulk{err: fmt.Errorf("calling to MCPServerClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*MCPServerCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &MCPServerCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for MCPServer.
+func (c *MCPServerClient) Update() *MCPServerUpdate {
+	mutation := newMCPServerMutation(c.config, OpUpdate)
+	return &MCPServerUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *MCPServerClient) UpdateOne(_m *MCPServer) *MCPServerUpdateOne {
+	mutation := newMCPServerMutation(c.config, OpUpdateOne, withMCPServer(_m))
+	return &MCPServerUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *MCPServerClient) UpdateOneID(id int) *MCPServerUpdateOne {
+	mutation := newMCPServerMutation(c.config, OpUpdateOne, withMCPServerID(id))
+	return &MCPServerUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for MCPServer.
+func (c *MCPServerClient) Delete() *MCPServerDelete {
+	mutation := newMCPServerMutation(c.config, OpDelete)
+	return &MCPServerDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *MCPServerClient) DeleteOne(_m *MCPServer) *MCPServerDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *MCPServerClient) DeleteOneID(id int) *MCPServerDeleteOne {
+	builder := c.Delete().Where(mcpserver.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &MCPServerDeleteOne{builder}
+}
+
+// Query returns a query builder for MCPServer.
+func (c *MCPServerClient) Query() *MCPServerQuery {
+	return &MCPServerQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeMCPServer},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a MCPServer entity by its id.
+func (c *MCPServerClient) Get(ctx context.Context, id int) (*MCPServer, error) {
+	return c.Query().Where(mcpserver.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *MCPServerClient) GetX(ctx context.Context, id int) *MCPServer {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *MCPServerClient) Hooks() []Hook {
+	return c.hooks.MCPServer
+}
+
+// Interceptors returns the client interceptors.
+func (c *MCPServerClient) Interceptors() []Interceptor {
+	return c.inters.MCPServer
+}
+
+func (c *MCPServerClient) mutate(ctx context.Context, m *MCPServerMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&MCPServerCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&MCPServerUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&MCPServerUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&MCPServerDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown MCPServer mutation op: %q", m.Op())
 	}
 }
 
@@ -1727,11 +1868,11 @@ func (c *WikiPageVersionClient) mutate(ctx context.Context, m *WikiPageVersionMu
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		BrowserSession, Project, Schedule, Sheep, SheepName, Skill, Task, WikiPage,
-		WikiPageVersion []ent.Hook
+		BrowserSession, MCPServer, Project, Schedule, Sheep, SheepName, Skill, Task,
+		WikiPage, WikiPageVersion []ent.Hook
 	}
 	inters struct {
-		BrowserSession, Project, Schedule, Sheep, SheepName, Skill, Task, WikiPage,
-		WikiPageVersion []ent.Interceptor
+		BrowserSession, MCPServer, Project, Schedule, Sheep, SheepName, Skill, Task,
+		WikiPage, WikiPageVersion []ent.Interceptor
 	}
 )

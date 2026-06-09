@@ -20,6 +20,8 @@ const (
 	FieldPath = "path"
 	// FieldDescription holds the string denoting the description field in the database.
 	FieldDescription = "description"
+	// FieldMcpServers holds the string denoting the mcp_servers field in the database.
+	FieldMcpServers = "mcp_servers"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
@@ -88,6 +90,7 @@ var Columns = []string{
 	FieldName,
 	FieldPath,
 	FieldDescription,
+	FieldMcpServers,
 	FieldCreatedAt,
 	FieldUpdatedAt,
 }
@@ -107,6 +110,8 @@ var (
 	NameValidator func(string) error
 	// PathValidator is a validator for the "path" field. It is called by the builders before save.
 	PathValidator func(string) error
+	// DefaultMcpServers holds the default value on creation for the "mcp_servers" field.
+	DefaultMcpServers map[string]interface{}
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.

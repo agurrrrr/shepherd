@@ -82,6 +82,12 @@ func (_u *ProjectUpdate) ClearDescription() *ProjectUpdate {
 	return _u
 }
 
+// SetMcpServers sets the "mcp_servers" field.
+func (_u *ProjectUpdate) SetMcpServers(v map[string]interface{}) *ProjectUpdate {
+	_u.mutation.SetMcpServers(v)
+	return _u
+}
+
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *ProjectUpdate) SetUpdatedAt(v time.Time) *ProjectUpdate {
 	_u.mutation.SetUpdatedAt(v)
@@ -372,6 +378,9 @@ func (_u *ProjectUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.DescriptionCleared() {
 		_spec.ClearField(project.FieldDescription, field.TypeString)
+	}
+	if value, ok := _u.mutation.McpServers(); ok {
+		_spec.SetField(project.FieldMcpServers, field.TypeJSON, value)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(project.FieldUpdatedAt, field.TypeTime, value)
@@ -698,6 +707,12 @@ func (_u *ProjectUpdateOne) ClearDescription() *ProjectUpdateOne {
 	return _u
 }
 
+// SetMcpServers sets the "mcp_servers" field.
+func (_u *ProjectUpdateOne) SetMcpServers(v map[string]interface{}) *ProjectUpdateOne {
+	_u.mutation.SetMcpServers(v)
+	return _u
+}
+
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *ProjectUpdateOne) SetUpdatedAt(v time.Time) *ProjectUpdateOne {
 	_u.mutation.SetUpdatedAt(v)
@@ -1018,6 +1033,9 @@ func (_u *ProjectUpdateOne) sqlSave(ctx context.Context) (_node *Project, err er
 	}
 	if _u.mutation.DescriptionCleared() {
 		_spec.ClearField(project.FieldDescription, field.TypeString)
+	}
+	if value, ok := _u.mutation.McpServers(); ok {
+		_spec.SetField(project.FieldMcpServers, field.TypeJSON, value)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(project.FieldUpdatedAt, field.TypeTime, value)

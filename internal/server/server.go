@@ -113,9 +113,19 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Post("/settings/tasks-import-preview", s.handleImportTasksPreview)
 	api.Post("/settings/tasks-import", s.handleImportTasks)
 
-	// MCP registration
+	// MCP registration (Shepherd → external providers)
 	api.Get("/mcp/status", s.handleMCPStatus)
 	api.Post("/mcp/register", s.handleMCPRegister)
+
+	// External MCP server management (Shepherd as MCP client)
+	api.Get("/mcp/servers", s.handleListMCPServers)
+	api.Post("/mcp/servers", s.handleCreateMCPServer)
+	api.Put("/mcp/servers/:id", s.handleUpdateMCPServer)
+	api.Delete("/mcp/servers/:id", s.handleDeleteMCPServer)
+
+	// Per-project MCP server settings
+	api.Get("/projects/:name/mcp-servers", s.handleGetProjectMCPServers)
+	api.Put("/projects/:name/mcp-servers", s.handleUpdateProjectMCPServers)
 
 	// Sheep management
 	api.Get("/sheep", s.handleListSheep)

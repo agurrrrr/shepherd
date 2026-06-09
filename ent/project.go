@@ -3,6 +3,7 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ type Project struct {
 	Path string `json:"path,omitempty"`
 	// 프로젝트 설명
 	Description string `json:"description,omitempty"`
+	// 프로젝트별 MCP 서버 활성화 설정: {server_name: {enabled: bool}}
+	McpServers map[string]interface{} `json:"mcp_servers,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
@@ -114,6 +117,8 @@ func (*Project) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case project.FieldMcpServers:
+			values[i] = new([]byte)
 		case project.FieldID:
 			values[i] = new(sql.NullInt64)
 		case project.FieldName, project.FieldPath, project.FieldDescription:
@@ -158,6 +163,14 @@ func (_m *Project) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field description", values[i])
 			} else if value.Valid {
 				_m.Description = value.String
+			}
+		case project.FieldMcpServers:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field mcp_servers", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.McpServers); err != nil {
+					return fmt.Errorf("unmarshal field mcp_servers: %w", err)
+				}
 			}
 		case project.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -245,6 +258,9 @@ func (_m *Project) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("description=")
 	builder.WriteString(_m.Description)
+	builder.WriteString(", ")
+	builder.WriteString("mcp_servers=")
+	builder.WriteString(fmt.Sprintf("%v", _m.McpServers))
 	builder.WriteString(", ")
 	builder.WriteString("created_at=")
 	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))

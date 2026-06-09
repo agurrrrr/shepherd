@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/agurrrrr/shepherd/ent/browsersession"
+	"github.com/agurrrrr/shepherd/ent/mcpserver"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/schedule"
 	"github.com/agurrrrr/shepherd/ent/sheep"
@@ -82,6 +83,7 @@ func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
 			browsersession.Table:  browsersession.ValidColumn,
+			mcpserver.Table:       mcpserver.ValidColumn,
 			project.Table:         project.ValidColumn,
 			schedule.Table:        schedule.ValidColumn,
 			sheep.Table:           sheep.ValidColumn,
