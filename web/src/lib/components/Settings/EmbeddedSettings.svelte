@@ -414,14 +414,14 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	.modal-overlay {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
+		background: rgba(0, 0, 0, 0.6);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		z-index: 1000;
 	}
 	.modal-card {
-		background: var(--bg-card);
+		background: var(--bg-2);
 		border: 1px solid var(--border);
 		border-radius: 12px;
 		padding: 24px;
@@ -429,6 +429,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		max-width: 500px;
 		max-height: 80vh;
 		overflow-y: auto;
+		box-shadow: var(--shadow-3);
 	}
 	.modal-card h3 {
 		margin: 0 0 16px;
