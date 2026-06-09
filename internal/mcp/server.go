@@ -23,10 +23,10 @@ type Request struct {
 }
 
 type Response struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id,omitempty"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *RPCError   `json:"error,omitempty"`
+	JSONRPC string          `json:"jsonrpc"`
+	ID      interface{}     `json:"id,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *RPCError       `json:"error,omitempty"`
 }
 
 type RPCError struct {
@@ -239,10 +239,11 @@ func (s *Server) handleToolsCall(req *Request) {
 }
 
 func (s *Server) sendResult(id interface{}, result interface{}) {
+	rawResult, _ := json.Marshal(result)
 	resp := Response{
 		JSONRPC: "2.0",
 		ID:      id,
-		Result:  result,
+		Result:  rawResult,
 	}
 	s.send(resp)
 }

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -18,6 +19,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/discord"
 	"github.com/agurrrrr/shepherd/internal/embedded"
 	"github.com/agurrrrr/shepherd/internal/mcp"
+	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/scheduler"
 	"github.com/agurrrrr/shepherd/internal/worker"
@@ -506,10 +508,16 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			return nil, fmt.Errorf("embedded endpoint %q is incomplete (base_url and model required)", ep.ID)
 		}
 
-		// Build system prompt
-		systemPrompt := worker.BuildSystemPromptForEmbedded(sheepName, projectPath)
+		// Resolve project name from path so we can look up per-project MCP settings.
+		projectName, projErr := project.GetByPath(projectPath)
+		if projErr != nil {
+			// Fallback: try to infer from sheep's assigned project
+			if projErr2 := projErr; projErr2 != nil {
+				projectName = ""
+			}
+		}
 
-		// Collect MCP tool definitions
+		// Collect MCP tool definitions — always include shepherd built-in tools
 		var mcpDefs []embedded.MCPToolDef
 		for _, t := range mcp.ListCoreToolDefs() {
 			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
@@ -521,8 +529,60 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
 		}
 
-		// Dispatcher that routes MCP tool calls to the running MCP server.
+		// Collect external MCP server tools enabled for this project.
+		// Each external server is spawned as a stdio child process and communicated
+		// with via JSON-RPC. We cache connections in the global MCPClientManager so
+		// repeated tasks reuse the same process instead of re-spawning every time.
+		var externalServers map[string]*mcp.ExternalMCPServer
+		var externalToolNames map[string]bool // for dispatch routing
+		if projectName != "" {
+			activeServers, activeErr := getProjectActiveMCPServers(projectName)
+			if activeErr == nil && len(activeServers) > 0 {
+				manager := mcp.GetMCPManager()
+				externalServers = make(map[string]*mcp.ExternalMCPServer)
+				externalToolNames = make(map[string]bool)
+
+				for _, srv := range activeServers {
+					ext, spawnErr := manager.GetOrCreate(srv)
+					if spawnErr != nil {
+						// Log but don't fail the whole task — some servers may not be installed
+						fmt.Printf("[embedded] warning: failed to spawn MCP server %q: %v\n", srv.Name, spawnErr)
+						continue
+					}
+					externalServers[srv.Name] = ext
+					for _, t := range ext.Tools() {
+						mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
+						externalToolNames[t.Name] = true
+					}
+				}
+			}
+		}
+
+		// Build project-specific MCP guide for the system prompt.
+		// This includes both built-in tools AND any external MCP server tools
+		// that are enabled for this project.
+		mcpGuide := buildMCPGuide(mcpDefs, projectName)
+
+		// Build system prompt with project-specific MCP guide
+		systemPrompt := worker.BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide)
+
+		// Dispatcher that routes MCP tool calls:
+		// 1. Built-in tools (task_*, get_*, skill_load, wiki_*, browser_*) → mcpServer
+		// 2. External MCP server tools → respective ExternalMCPServer
 		mcpDispatch := func(name string, args map[string]interface{}) (string, error) {
+			// Check if this is an external MCP tool
+			if externalToolNames[name] {
+				// Find which server provides this tool
+				for _, ext := range externalServers {
+					for _, t := range ext.Tools() {
+						if t.Name == name {
+							return ext.CallTool(name, args)
+						}
+					}
+				}
+				return "", fmt.Errorf("external tool %q not found", name)
+			}
+			// Fall back to built-in shepherd MCP server
 			return mcpServer.ExecuteTool(name, args)
 		}
 
@@ -562,6 +622,67 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			IncompleteReason: result.IncompleteReason,
 		}, nil
 	})
+}
+
+// buildMCPGuide constructs the [Available Shepherd MCP Tools] section of the
+// system prompt, listing all tool definitions that will be available to the
+// embedded agent — both built-in and external (project-specific).
+func buildMCPGuide(defs []embedded.MCPToolDef, projectName string) string {
+	var sb strings.Builder
+	sb.WriteString("[Available Shepherd MCP Tools]\n\n")
+
+	// Group tools by category for readability
+	categories := map[string][]embedded.MCPToolDef{}
+	categoryOrder := []string{"Task management", "Skills", "Wiki", "Browser automation", "External MCP"}
+
+	// Categorize each tool
+	for _, d := range defs {
+		switch {
+		case strings.HasPrefix(d.Name, "task_") || strings.HasPrefix(d.Name, "get_") || d.Name == "get_status":
+			categories["Task management"] = append(categories["Task management"], d)
+		case d.Name == "skill_load":
+			categories["Skills"] = append(categories["Skills"], d)
+		case strings.HasPrefix(d.Name, "wiki_"):
+			categories["Wiki"] = append(categories["Wiki"], d)
+		case strings.HasPrefix(d.Name, "browser_"):
+			categories["Browser automation"] = append(categories["Browser automation"], d)
+		default:
+			categories["External MCP"] = append(categories["External MCP"], d)
+		}
+	}
+
+	for _, cat := range categoryOrder {
+		tools, ok := categories[cat]
+		if !ok || len(tools) == 0 {
+			continue
+		}
+		sb.WriteString(cat + ":\n")
+		for _, t := range tools {
+			sb.WriteString(fmt.Sprintf("- %s: %s\n", t.Name, t.Description))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add any remaining uncategorized tools
+	for catName, tools := range categories {
+		if catName == "Task management" || catName == "Skills" || catName == "Wiki" || catName == "Browser automation" {
+			continue // already printed above
+		}
+		if len(tools) == 0 {
+			continue
+		}
+		sb.WriteString(catName + ":\n")
+		for _, t := range tools {
+			sb.WriteString(fmt.Sprintf("- %s: %s\n", t.Name, t.Description))
+		}
+		sb.WriteString("\n")
+	}
+
+	if projectName != "" {
+		sb.WriteString(fmt.Sprintf("Project: %s\n", projectName))
+	}
+
+	return sb.String()
 }
 
 // toEmbeddedMCPDef converts an mcp.Tool to embedded.MCPToolDef.

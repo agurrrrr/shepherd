@@ -72,10 +72,6 @@ func init() {
 	projectDescPath := projectFields[1].Descriptor()
 	// project.PathValidator is a validator for the "path" field. It is called by the builders before save.
 	project.PathValidator = projectDescPath.Validators[0].(func(string) error)
-	// projectDescMcpServers is the schema descriptor for mcp_servers field.
-	projectDescMcpServers := projectFields[3].Descriptor()
-	// project.DefaultMcpServers holds the default value on creation for the mcp_servers field.
-	project.DefaultMcpServers = projectDescMcpServers.Default.(map[string]interface{})
 	// projectDescCreatedAt is the schema descriptor for created_at field.
 	projectDescCreatedAt := projectFields[4].Descriptor()
 	// project.DefaultCreatedAt holds the default value on creation for the created_at field.

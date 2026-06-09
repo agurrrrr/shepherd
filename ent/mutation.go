@@ -1944,9 +1944,22 @@ func (m *ProjectMutation) OldMcpServers(ctx context.Context) (v map[string]inter
 	return oldValue.McpServers, nil
 }
 
+// ClearMcpServers clears the value of the "mcp_servers" field.
+func (m *ProjectMutation) ClearMcpServers() {
+	m.mcp_servers = nil
+	m.clearedFields[project.FieldMcpServers] = struct{}{}
+}
+
+// McpServersCleared returns if the "mcp_servers" field was cleared in this mutation.
+func (m *ProjectMutation) McpServersCleared() bool {
+	_, ok := m.clearedFields[project.FieldMcpServers]
+	return ok
+}
+
 // ResetMcpServers resets all changes to the "mcp_servers" field.
 func (m *ProjectMutation) ResetMcpServers() {
 	m.mcp_servers = nil
+	delete(m.clearedFields, project.FieldMcpServers)
 }
 
 // SetCreatedAt sets the "created_at" field.
@@ -2508,6 +2521,9 @@ func (m *ProjectMutation) ClearedFields() []string {
 	if m.FieldCleared(project.FieldDescription) {
 		fields = append(fields, project.FieldDescription)
 	}
+	if m.FieldCleared(project.FieldMcpServers) {
+		fields = append(fields, project.FieldMcpServers)
+	}
 	return fields
 }
 
@@ -2524,6 +2540,9 @@ func (m *ProjectMutation) ClearField(name string) error {
 	switch name {
 	case project.FieldDescription:
 		m.ClearDescription()
+		return nil
+	case project.FieldMcpServers:
+		m.ClearMcpServers()
 		return nil
 	}
 	return fmt.Errorf("unknown Project nullable field %s", name)

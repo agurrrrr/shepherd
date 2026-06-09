@@ -291,3 +291,21 @@ func Count() (int, error) {
 
 	return count, nil
 }
+
+// GetByPath returns the project name for the given absolute path.
+func GetByPath(absPath string) (string, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	p, err := client.Project.Query().
+		Where(entProject.Path(absPath)).
+		Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return "", fmt.Errorf("no project at path %q", absPath)
+		}
+		return "", fmt.Errorf("failed to query project by path: %w", err)
+	}
+
+	return p.Name, nil
+}

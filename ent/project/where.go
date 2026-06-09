@@ -285,6 +285,16 @@ func DescriptionContainsFold(v string) predicate.Project {
 	return predicate.Project(sql.FieldContainsFold(FieldDescription, v))
 }
 
+// McpServersIsNil applies the IsNil predicate on the "mcp_servers" field.
+func McpServersIsNil() predicate.Project {
+	return predicate.Project(sql.FieldIsNull(FieldMcpServers))
+}
+
+// McpServersNotNil applies the NotNil predicate on the "mcp_servers" field.
+func McpServersNotNil() predicate.Project {
+	return predicate.Project(sql.FieldNotNull(FieldMcpServers))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Project {
 	return predicate.Project(sql.FieldEQ(FieldCreatedAt, v))

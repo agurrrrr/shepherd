@@ -63,15 +63,19 @@ func executeWithEmbedded(
 
 // BuildSystemPromptForEmbedded builds the system prompt for the embedded provider.
 // Composes the same context sections used by other providers.
-func BuildSystemPromptForEmbedded(sheepName, projectPath string) string {
+// The mcpGuide parameter is the project-specific MCP tool guide (pre-built by the caller).
+// If mcpGuide is empty, the default hardcoded guide is used.
+func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) string {
 	var sections []string
 
 	// Agent identity
 	sections = append(sections,
 		"너는 shepherd의 코드 에이전트다. 프로젝트 디렉토리에서 파일 읽기/쓰기/수정, 셸 명령어 실행, MCP 도구 호출을 할 수 있다.")
 
-	// Available tools guide
-	if config.GetBool("include_mcp_guide") {
+	// Available tools guide — use project-specific guide if provided
+	if mcpGuide != "" {
+		sections = append(sections, mcpGuide)
+	} else if config.GetBool("include_mcp_guide") {
 		sections = append(sections, embeddedMCPGuide())
 	}
 
