@@ -40,6 +40,14 @@ func executeWithEmbedded(
 	if embeddedExecutor == nil {
 		return nil, fmt.Errorf("embedded executor not initialized")
 	}
+
+	// Register in the running-task registry so StopTask can find and cancel
+	// this work. Embedded runs have no subprocess (Cmd == nil); killProcessGroup
+	// already guards against nil, so this is safe. The identity token prevents
+	// a late-finishing task from clobbering a newer task's entry.
+	rt := registerRunningTask(sheepName, cancel, nil)
+	defer unregisterRunningTask(sheepName, rt)
+
 	return embeddedExecutor(ctx, sheepName, projectPath, prompt, opts, cancel)
 }
 
