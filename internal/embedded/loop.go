@@ -43,7 +43,6 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		totalPromptTokens     int64
 		totalCompletionTokens int64
 		consecutiveEmpty      int
-		loopGuard             = make(map[string]int) // detect repeated tool+args
 	)
 
 	for iteration := 0; iteration < opts.MaxIterations; iteration++ {
@@ -88,21 +87,6 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 		// Handle tool calls (native function-calling)
 		if len(msg.ToolCalls) > 0 {
-			// Check for repeated tool+args (loop detection)
-			for _, tc := range msg.ToolCalls {
-				key := tc.Func.Name + "::" + tc.Func.Args
-				loopGuard[key]++
-				if loopGuard[key] > 5 {
-					return &ExecuteResult{
-						Result:           msg.Content,
-						Incomplete:       true,
-						IncompleteReason: fmt.Sprintf("repeated tool call detected: %s (5+ times)", tc.Func.Name),
-						PromptTokens:     totalPromptTokens,
-						CompletionTokens: totalCompletionTokens,
-					}, nil
-				}
-			}
-
 			// Add assistant message with tool calls to history.
 			// Sanitize args first: malformed JSON in tool_calls causes llama.cpp to
 			// return HTTP 500 on the very next request (its grammar engine rejects them).
