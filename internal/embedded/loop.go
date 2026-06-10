@@ -2,8 +2,12 @@ package embedded
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
+	"regexp"
 	"strings"
 )
 
@@ -19,8 +23,28 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	// Build initial messages
 	messages := []ChatMessage{
 		{Role: ChatRoleSystem, Content: opts.SystemPrompt},
-		{Role: ChatRoleUser, Content: opts.UserPrompt},
 	}
+
+	// If the user prompt has "[Attached files]", extract image paths and load
+	// them as actual image_url content parts so the vision model can see them.
+	// Without this, the model only sees file paths as text and cannot analyze
+	// the image content, leading to incorrect responses.
+	userMsg := ChatMessage{Role: ChatRoleUser}
+	if strings.Contains(opts.UserPrompt, "[Attached files]") {
+		parts := extractAttachedImages(opts.UserPrompt)
+		if len(parts) > 0 {
+			userMsg.ContentParts = parts
+			// Strip the [Attached files] block from the text content so the
+			// model doesn't see redundant file paths alongside the actual images.
+			userMsg.Content = stripAttachedFilesBlock(opts.UserPrompt)
+		} else {
+			// No valid images found; fall back to plain text.
+			userMsg.Content = opts.UserPrompt
+		}
+	} else {
+		userMsg.Content = opts.UserPrompt
+	}
+	messages = append(messages, userMsg)
 
 	// Ensure base_url has /v1 suffix
 	baseURL := opts.BaseURL
@@ -410,4 +434,60 @@ func indentResult(s string) string {
 		lines[i] = "  " + line
 	}
 	return strings.Join(lines, "\n")
+}
+
+// extractAttachedImages scans the user prompt for image file paths in the
+// "[Attached files]" block and loads them as base64 data URLs. It returns
+// ContentParts with a text part (the prompt text without the attached block)
+// followed by image_url parts for each valid image. Returns nil if no images
+// are found.
+func extractAttachedImages(prompt string) []ContentPart {
+	// Match image file paths in the prompt (same regex as MarkPreReadImages)
+	imageRe := regexp.MustCompile(`(/[^\s"\']+?\.(jpg|jpeg|png|gif|webp|bmp|JPG|JPEG|PNG|GIF|WEBP|BMP))`)
+	matches := imageRe.FindAllStringSubmatch(prompt, -1)
+
+	var parts []ContentPart
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		path := m[1]
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		mime := http.DetectContentType(data)
+		if !strings.HasPrefix(mime, "image/") {
+			continue
+		}
+
+		dataURL := "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
+		parts = append(parts, ContentPart{
+			Type:     "image_url",
+			ImageURL: &ImageURL{URL: dataURL},
+		})
+	}
+
+	if len(parts) == 0 {
+		return nil
+	}
+
+	// Prepend text part with the prompt text (attached files block stripped)
+	parts = append([]ContentPart{{Type: "text", Text: stripAttachedFilesBlock(prompt)}}, parts...)
+	return parts
+}
+
+// stripAttachedFilesBlock removes the "[Attached files]" block from the prompt
+// so the model sees clean text alongside the actual image content parts.
+func stripAttachedFilesBlock(prompt string) string {
+	// Match the [Attached files] header and all subsequent "- /path/..." lines
+	re := regexp.MustCompile(`(?s)\[Attached files\]\s*\n((?:\s*-\s+.+\n?)+)`)
+	stripped := re.ReplaceAllString(prompt, "")
+	stripped = strings.TrimSpace(stripped)
+	if stripped == "" {
+		return prompt // fallback if stripping removes everything
+	}
+	return stripped
 }
