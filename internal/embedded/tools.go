@@ -42,6 +42,10 @@ type ToolRegistry struct {
 	// turn. The loop drains them after tool results and appends them as an
 	// image_url user message. See DrainPendingImages.
 	pendingImages []pendingImage
+	// readImages tracks image file paths that have already been loaded into the
+	// chat context. This prevents the model from calling read_file on the same
+	// image repeatedly, which would cause an infinite loop.
+	readImages map[string]bool
 }
 
 // pendingImage is an image loaded by read_file, awaiting injection into the
@@ -54,6 +58,26 @@ type pendingImage struct {
 // SetVision enables or disables vision mode for read_file image handling.
 func (tr *ToolRegistry) SetVision(enabled bool) {
 	tr.visionEnabled = enabled
+}
+
+// MarkImageRead marks an image file path as already loaded into the context.
+// Call this for images pre-attached to the initial prompt so the model doesn't
+// try to read_file them again (which would cause an infinite loop).
+func (tr *ToolRegistry) MarkImageRead(path string) {
+	tr.readImages[path] = true
+}
+
+// MarkPreReadImages scans the initial user prompt for image file paths
+// (e.g. from "[Attached files]" block) and marks them as already read.
+func (tr *ToolRegistry) MarkPreReadImages(prompt string) {
+	// Match common image extensions in file paths
+	imageRe := regexp.MustCompile(`(/[^\s"\']+?\.(jpg|jpeg|png|gif|webp|bmp|JPG|JPEG|PNG|GIF|WEBP|BMP))`)
+	matches := imageRe.FindAllStringSubmatch(prompt, -1)
+	for _, m := range matches {
+		if len(m) >= 2 {
+			tr.readImages[m[1]] = true
+		}
+	}
 }
 
 // DrainPendingImages returns images collected since the last drain and clears
@@ -79,6 +103,7 @@ func NewToolRegistry(projectPath, sheepName string, mcpDefs []MCPToolDef, mcpDis
 		mcpDefs:     mcpDefs,
 		mcpDispatch: mcpDispatch,
 		nativeTools: make(map[string]toolFunc),
+		readImages:  make(map[string]bool),
 	}
 	tr.registerNativeTools()
 	return tr
@@ -297,6 +322,16 @@ func (tr *ToolRegistry) readfile(args map[string]interface{}) (string, error) {
 		// rather than refusing them. The bytes are buffered and the loop appends
 		// them as an image_url user message after the tool results.
 		if tr.visionEnabled && strings.HasPrefix(mime, "image/") {
+			// Check if this image has already been loaded — prevent infinite loops
+			// where the model keeps calling read_file on the same image.
+			if tr.readImages[path] {
+				return fmt.Sprintf(
+					"[Image %s has already been loaded and is visible in the conversation context above. "+
+						"Do NOT call read_file on it again. Please analyze the image you can already see and provide your response.]",
+					filepath.Base(path),
+				), nil
+			}
+			tr.readImages[path] = true
 			dataURL := "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 			tr.pendingImages = append(tr.pendingImages, pendingImage{
 				name:    filepath.Base(path),

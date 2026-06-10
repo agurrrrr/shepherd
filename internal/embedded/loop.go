@@ -36,6 +36,14 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	// image files as viewable images instead of a "cannot read binary" notice.
 	toolRegistry.SetVision(strings.Contains(opts.UserPrompt, "[Attached files]"))
 
+	// Pre-register any image paths mentioned in the initial prompt as already
+	// read. This prevents the model from calling read_file on them — they are
+	// already provided in the context. Without this, the model may enter an
+	// infinite loop of calling read_file → image loaded → call read_file again.
+	if strings.Contains(opts.UserPrompt, "[Attached files]") {
+		toolRegistry.MarkPreReadImages(opts.UserPrompt)
+	}
+
 	// Override tool definitions if provided
 	var toolDefs []OpenAIToolDef
 	if len(opts.Tools) > 0 {
