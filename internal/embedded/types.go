@@ -2,6 +2,7 @@ package embedded
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,6 +49,49 @@ type ChatMessage struct {
 	// turn. It is surfaced to live output but never sent back to the server
 	// (json:"-"), so it does not pollute the chat history.
 	ReasoningContent string `json:"-"`
+	// ContentParts, when non-empty, replaces the plain string Content with an
+	// OpenAI multimodal content array (text + image_url parts) at marshal time.
+	// Used to attach images for vision-capable models. It is never populated by
+	// unmarshaling a response (json:"-"); only the marshaler consults it.
+	ContentParts []ContentPart `json:"-"`
+}
+
+// ContentPart is one element of a multimodal message content array (OpenAI
+// vision format): either a text part or an image_url part.
+type ContentPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+// ImageURL carries an image as a data URL ("data:<mime>;base64,<...>") for
+// vision-capable models.
+type ImageURL struct {
+	URL string `json:"url"`
+}
+
+// MarshalJSON renders a ChatMessage. When ContentParts is set, the "content"
+// field is emitted as a multimodal array instead of the plain string Content,
+// so images reach vision-capable models in OpenAI format.
+func (m ChatMessage) MarshalJSON() ([]byte, error) {
+	type alias ChatMessage
+	if len(m.ContentParts) == 0 {
+		return json.Marshal(alias(m))
+	}
+	raw, err := json.Marshal(alias(m))
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, err
+	}
+	parts, err := json.Marshal(m.ContentParts)
+	if err != nil {
+		return nil, err
+	}
+	obj["content"] = parts
+	return json.Marshal(obj)
 }
 
 // ToolCall represents a tool call from the model.
@@ -232,6 +276,12 @@ func parseSSE(reader io.Reader) ([]*SSEEvent, error) {
 // Includes Content, ToolCalls (function name + JSON args), and overhead.
 func estimateMessageTokens(msg ChatMessage) int {
 	size := len(msg.Content)
+	for _, p := range msg.ContentParts {
+		size += len(p.Text)
+		if p.ImageURL != nil {
+			size += len(p.ImageURL.URL)
+		}
+	}
 	for _, tc := range msg.ToolCalls {
 		// name + args JSON + per-call overhead
 		size += len(tc.Func.Name) + len(tc.Func.Args) + 64

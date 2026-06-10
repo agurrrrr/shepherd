@@ -63,3 +63,55 @@ func TestReadfileBinaryGuard(t *testing.T) {
 		t.Errorf("expected text content, got %q", out)
 	}
 }
+
+func TestReadfileVisionImage(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	tr.SetVision(true)
+
+	// A JPEG header (FF D8 FF) → image/jpeg via http.DetectContentType.
+	imgBytes := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
+	if err := os.WriteFile(filepath.Join(dir, "pic.jpg"), imgBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := tr.readfile(map[string]interface{}{"path": "pic.jpg"})
+	if err != nil {
+		t.Fatalf("readfile returned error: %v", err)
+	}
+	if !strings.Contains(out, "Loaded image") {
+		t.Errorf("expected loaded-image notice, got %q", out)
+	}
+
+	imgs := tr.DrainPendingImages()
+	if len(imgs) != 1 {
+		t.Fatalf("expected 1 pending image, got %d", len(imgs))
+	}
+	if !strings.HasPrefix(imgs[0].dataURL, "data:image/jpeg;base64,") {
+		t.Errorf("expected jpeg data URL, got %q", imgs[0].dataURL[:min(40, len(imgs[0].dataURL))])
+	}
+	// Draining again must return nothing (buffer cleared).
+	if again := tr.DrainPendingImages(); again != nil {
+		t.Errorf("expected empty drain after first, got %d", len(again))
+	}
+}
+
+func TestReadfileVisionDisabledKeepsBinaryNotice(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil) // vision off by default
+
+	imgBytes := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
+	if err := os.WriteFile(filepath.Join(dir, "pic.jpg"), imgBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := tr.readfile(map[string]interface{}{"path": "pic.jpg"})
+	if err != nil {
+		t.Fatalf("readfile returned error: %v", err)
+	}
+	if !strings.Contains(out, "binary file") {
+		t.Errorf("expected binary notice when vision off, got %q", out)
+	}
+	if len(tr.DrainPendingImages()) != 0 {
+		t.Error("no images should be buffered when vision is off")
+	}
+}

@@ -31,6 +31,11 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	client := NewClient(baseURL, opts.APIKey, opts.Model)
 	toolRegistry := NewToolRegistry(opts.ProjectPath, opts.SheepName, opts.MCPDefs, opts.MCPDispatch)
 
+	// Vision is enabled when the task prompt carries attached files (the web UI
+	// prepends an "[Attached files]" block). In that case read_file surfaces
+	// image files as viewable images instead of a "cannot read binary" notice.
+	toolRegistry.SetVision(strings.Contains(opts.UserPrompt, "[Attached files]"))
+
 	// Override tool definitions if provided
 	var toolDefs []OpenAIToolDef
 	if len(opts.Tools) > 0 {
@@ -158,6 +163,11 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					ToolCallID: tc.ID,
 				})
 			}
+			// All tool results are now appended; surface any images read_file
+			// produced as a following user message (OpenAI requires tool results
+			// to immediately follow the assistant's tool_calls, so images cannot
+			// be interleaved above).
+			messages = appendPendingImages(messages, toolRegistry)
 			continue
 		}
 
@@ -206,6 +216,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 						ToolCallID: tc.ID,
 					})
 				}
+				messages = appendPendingImages(messages, toolRegistry)
 				continue
 			}
 		}
@@ -264,6 +275,26 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		PromptTokens:     totalPromptTokens,
 		CompletionTokens: totalCompletionTokens,
 	}, nil
+}
+
+// appendPendingImages drains any images read_file buffered during the turn and
+// appends them as a single user message with image_url content parts, so a
+// vision-capable model can view them. Returns messages unchanged when there are
+// no pending images.
+func appendPendingImages(messages []ChatMessage, tr *ToolRegistry) []ChatMessage {
+	imgs := tr.DrainPendingImages()
+	if len(imgs) == 0 {
+		return messages
+	}
+	parts := make([]ContentPart, 0, len(imgs)+1)
+	parts = append(parts, ContentPart{Type: "text", Text: "Attached image(s) loaded by read_file:"})
+	for _, img := range imgs {
+		parts = append(parts, ContentPart{
+			Type:     "image_url",
+			ImageURL: &ImageURL{URL: img.dataURL},
+		})
+	}
+	return append(messages, ChatMessage{Role: ChatRoleUser, ContentParts: parts})
 }
 
 // dispatchTool executes a tool call and returns the result.

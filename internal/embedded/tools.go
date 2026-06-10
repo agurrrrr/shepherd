@@ -3,6 +3,7 @@ package embedded
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
@@ -33,6 +34,39 @@ type ToolRegistry struct {
 	nativeTools  map[string]toolFunc
 	mcpDefs      []MCPToolDef
 	mcpDispatch  MCPDispatcher
+	// visionEnabled lets read_file surface image files as viewable images
+	// instead of a "cannot read binary" notice. Set by the loop when the task
+	// prompt carries attached files.
+	visionEnabled bool
+	// pendingImages collects images produced by read_file during the current
+	// turn. The loop drains them after tool results and appends them as an
+	// image_url user message. See DrainPendingImages.
+	pendingImages []pendingImage
+}
+
+// pendingImage is an image loaded by read_file, awaiting injection into the
+// chat history as a multimodal message part.
+type pendingImage struct {
+	name    string
+	dataURL string
+}
+
+// SetVision enables or disables vision mode for read_file image handling.
+func (tr *ToolRegistry) SetVision(enabled bool) {
+	tr.visionEnabled = enabled
+}
+
+// DrainPendingImages returns images collected since the last drain and clears
+// the buffer. The loop calls this after appending tool results so the images
+// can follow as a separate user message (OpenAI requires tool results to
+// immediately follow the assistant's tool_calls).
+func (tr *ToolRegistry) DrainPendingImages() []pendingImage {
+	if len(tr.pendingImages) == 0 {
+		return nil
+	}
+	imgs := tr.pendingImages
+	tr.pendingImages = nil
+	return imgs
 }
 
 type toolFunc func(args map[string]interface{}) (string, error)
@@ -70,7 +104,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 			Type: "function",
 			Function: OpenAIFunction{
 				Name:        "read_file",
-				Description: "Read the contents of a text file. Binary files (images, archives, executables) cannot be read and will return a short notice instead. For large files, use offset/limit parameters.",
+				Description: "Read the contents of a file. For text files, returns the text. For image files (png/jpeg/gif/webp), when the task has attached images, returns the image for you to view directly — so call this on attached image paths to look at them. Other binary files (archives, executables) return a short notice instead. For large text files, use offset/limit parameters.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -259,6 +293,20 @@ func (tr *ToolRegistry) readfile(args map[string]interface{}) (string, error) {
 	// a clear, descriptive message instead of the garbage bytes.
 	if isBinary(data) {
 		mime := http.DetectContentType(data)
+		// In vision mode, surface image files as real images the model can view,
+		// rather than refusing them. The bytes are buffered and the loop appends
+		// them as an image_url user message after the tool results.
+		if tr.visionEnabled && strings.HasPrefix(mime, "image/") {
+			dataURL := "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
+			tr.pendingImages = append(tr.pendingImages, pendingImage{
+				name:    filepath.Base(path),
+				dataURL: dataURL,
+			})
+			return fmt.Sprintf(
+				"[Loaded image %s (%s, %d bytes). It is attached below as an image for you to view directly.]",
+				filepath.Base(path), mime, len(data),
+			), nil
+		}
 		return fmt.Sprintf(
 			"[Cannot read %s as text: it is a binary file (%s, %d bytes). "+
 				"The embedded provider cannot view image or binary contents. "+
