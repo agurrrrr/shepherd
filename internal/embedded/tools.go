@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const maxOutputBytes = 64 * 1024 // 64KB output cap for bash
@@ -68,7 +70,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 			Type: "function",
 			Function: OpenAIFunction{
 				Name:        "read_file",
-				Description: "Read the contents of a file. Supports text files and images. For large files, use offset/limit parameters.",
+				Description: "Read the contents of a text file. Binary files (images, archives, executables) cannot be read and will return a short notice instead. For large files, use offset/limit parameters.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -190,6 +192,32 @@ func (tr *ToolRegistry) Dispatch(name string, args map[string]interface{}) (stri
 	return "", fmt.Errorf("unknown tool: %s", name)
 }
 
+// isBinary reports whether data looks like a non-text (binary) file. It samples
+// the leading bytes: a NUL byte is a strong binary signal, and invalid UTF-8
+// (beyond the sample boundary cutting a multi-byte rune) also marks it binary.
+// Empty files are treated as text.
+func isBinary(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	const sampleSize = 8000
+	sample := data
+	if len(sample) > sampleSize {
+		sample = sample[:sampleSize]
+	}
+	if bytes.IndexByte(sample, 0) != -1 {
+		return true
+	}
+	// Trim a possibly-truncated trailing rune so a clean text file isn't
+	// misjudged when the sample boundary splits a multi-byte UTF-8 sequence.
+	if len(data) > sampleSize {
+		for len(sample) > 0 && !utf8.RuneStart(sample[len(sample)-1]) {
+			sample = sample[:len(sample)-1]
+		}
+	}
+	return !utf8.Valid(sample)
+}
+
 // -- Native tool implementations --
 
 func (tr *ToolRegistry) safePath(p string) (string, error) {
@@ -222,6 +250,21 @@ func (tr *ToolRegistry) readfile(args map[string]interface{}) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", path, err)
+	}
+
+	// Guard against binary files (images, archives, executables, …). The embedded
+	// provider's chat API only carries plain text, so returning raw binary bytes
+	// as a tool result poisons the model's context and makes it spin out empty
+	// responses ("empty response loop detected"). Detect binary content and return
+	// a clear, descriptive message instead of the garbage bytes.
+	if isBinary(data) {
+		mime := http.DetectContentType(data)
+		return fmt.Sprintf(
+			"[Cannot read %s as text: it is a binary file (%s, %d bytes). "+
+				"The embedded provider cannot view image or binary contents. "+
+				"Use the bash tool with utilities like `file`, `exiftool`, or `identify` to inspect its metadata if needed.]",
+			filepath.Base(path), mime, len(data),
+		), nil
 	}
 
 	content := string(data)
