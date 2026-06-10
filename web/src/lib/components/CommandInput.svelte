@@ -13,6 +13,8 @@
 	let lastResult = $state(null);
 	let attachedFiles = $state([]);
 	let fileInputEl = $state(null);
+	// Inject mode: when true, Enter sends the prompt via inject API instead of creating a new task
+	let injectMode = $state(false);
 
 	let isWorking = $derived(sheepStatus === 'working');
 	let hasAttachments = $derived(attachedFiles.length > 0);
@@ -87,6 +89,12 @@
 		e.preventDefault();
 		if (!prompt.trim() && !hasAttachments) return;
 
+		// Inject mode: send via inject API instead of creating a new task
+		if (injectMode && projectName && sheepName) {
+			await handleInject();
+			return;
+		}
+
 		loading = true;
 		lastResult = null;
 		const text = prompt;
@@ -96,6 +104,7 @@
 		if (ta) ta.style.height = 'auto';
 		const filesToUpload = [...attachedFiles];
 		attachedFiles = [];
+		injectMode = false;
 
 		try {
 			let finalPrompt = text;
@@ -138,6 +147,32 @@
 			lastResult = result;
 		} catch (err) {
 			lastResult = { success: false, message: err.message || 'Request failed' };
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function handleInject() {
+		const text = prompt.trim();
+		if (!text || loading || stopping) return;
+
+		loading = true;
+		lastResult = null;
+		const savedPrompt = text;
+		prompt = '';
+		const ta = document.querySelector('.command-field');
+		if (ta) ta.style.height = 'auto';
+		injectMode = false;
+
+		try {
+			const res = await apiPost(`/api/sheep/${encodeURIComponent(sheepName)}/inject`, { prompt: savedPrompt });
+			if (res?.success) {
+				lastResult = { success: true, data: {}, message: '💬 주입됨' };
+			} else {
+				lastResult = { success: false, message: res?.message || '주입에 실패했습니다' };
+			}
+		} catch (err) {
+			lastResult = { success: false, message: err.message || '주입 요청 실패' };
 		} finally {
 			loading = false;
 		}
@@ -203,18 +238,27 @@
 			accept="image/*,.txt,.md,.json,.yaml,.yml,.csv,.log,.py,.js,.go,.rs,.java,.c,.cpp,.h,.ts,.svelte,.html,.css,.sql,.sh,.toml,.xml,.pdf"
 		/>
 	{/if}
-	<span class="prompt-icon">🐑</span>
 	<textarea
 		class="input command-field"
+		:class:inject={injectMode}
 		bind:value={prompt}
 		onkeydown={handleKeydown}
 		onpaste={handlePaste}
-		placeholder={projectName ? `Send a task to ${projectName}...` : 'Enter a command...'}
+		placeholder={injectMode ? '추가 지시를 입력하세요...' : (projectName ? `Send a task to ${projectName}...` : 'Enter a command...')}
 		disabled={loading}
 		rows="1"
 		oninput={(e) => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
 	></textarea>
 	{#if isWorking}
+		<button
+			class="btn btn-inject"
+			class:active={injectMode}
+			onclick={() => { injectMode = !injectMode; }}
+			disabled={loading || stopping}
+			title="추가 지시 주입"
+		>
+			💬 주입
+		</button>
 		<button class="btn btn-stop" onclick={handleStop} disabled={stopping}>
 			{stopping ? '...' : 'Stop'}
 		</button>
@@ -314,9 +358,6 @@
 		gap: 8px;
 		flex-wrap: wrap;
 	}
-	.prompt-icon {
-		font-size: 20px;
-	}
 	.command-field {
 		flex: 1;
 		min-width: 200px;
@@ -324,6 +365,10 @@
 		resize: none;
 		overflow-y: hidden;
 		line-height: 1.4;
+	}
+	.command-field.inject {
+		border-color: var(--live, #22c55e);
+		box-shadow: 0 0 0 1px var(--live, #22c55e44);
 	}
 	.command-status {
 		font-size: 12px;
@@ -354,6 +399,29 @@
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
+	.btn-inject {
+		flex-shrink: 0;
+		padding: 4px 12px;
+		font-size: 12px;
+		font-weight: 600;
+		background: var(--live, #22c55e);
+		color: #fff;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		transition: opacity 0.15s, background 0.15s;
+	}
+	.btn-inject:hover {
+		opacity: 0.85;
+	}
+	.btn-inject.active {
+		background: var(--live, #22c55e);
+		box-shadow: 0 0 0 2px var(--live, #22c55e88);
+	}
+	.btn-inject:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
 
 	@media (max-width: 768px) {
 		.command-field {
@@ -376,6 +444,11 @@
 		}
 
 		.btn-stop {
+			padding: 8px 14px;
+			font-size: 13px;
+		}
+
+		.btn-inject {
 			padding: 8px 14px;
 			font-size: 13px;
 		}

@@ -257,8 +257,41 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// Do NOT add the empty message to history: it wastes context and does not
 		// help the model recover. Instead, inject a nudge so the model knows it
 		// should produce output.
-		if strings.TrimSpace(msg.Content) == "" {
-			consecutiveEmpty++
+		contentEmpty := strings.TrimSpace(msg.Content) == ""
+		reasoningPresent := strings.TrimSpace(msg.ReasoningContent) != ""
+
+		// Check for length truncation FIRST, before empty response detection.
+		// When the model hits context length limit with finish_reason: "length"
+		// and returns empty content, we should report it as a truncation error
+		// rather than counting it toward the empty response loop counter.
+		if finishReason == "length" && contentEmpty {
+			return &ExecuteResult{
+				Result:           "",
+				Incomplete:       true,
+				IncompleteReason: "response truncated (max tokens reached)",
+				PromptTokens:     totalPromptTokens,
+				CompletionTokens: totalCompletionTokens,
+			}, nil
+		}
+
+		if contentEmpty {
+			// If the model has reasoning_content but no visible content, it's
+			// still thinking — don't count this as an empty response. The
+			// reasoning was already surfaced above via OnOutput.
+			if reasoningPresent {
+				consecutiveEmpty = 0
+			} else {
+				consecutiveEmpty++
+			}
+
+			// If finish_reason is "stop" with empty content, the model decided
+			// it has nothing more to say. This is a normal completion, not a
+			// sign of being stuck. Only count toward empty loop if the model
+			// didn't explicitly stop.
+			if finishReason == "stop" {
+				consecutiveEmpty = 0
+			}
+
 			if consecutiveEmpty >= 3 {
 				return &ExecuteResult{
 					Result:           "",
@@ -276,17 +309,6 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			continue
 		}
 		consecutiveEmpty = 0
-
-		// Check for length truncation
-		if finishReason == "length" && strings.TrimSpace(msg.Content) == "" {
-			return &ExecuteResult{
-				Result:           "",
-				Incomplete:       true,
-				IncompleteReason: "response truncated (max tokens reached)",
-				PromptTokens:     totalPromptTokens,
-				CompletionTokens: totalCompletionTokens,
-			}, nil
-		}
 
 		// Successful completion
 		if opts.OnOutput != nil {
