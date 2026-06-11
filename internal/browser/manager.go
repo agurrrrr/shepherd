@@ -52,7 +52,15 @@ func (m *Manager) GetOrCreateSession(sheepName string, opts *SessionOptions) (*S
 	defer m.mu.Unlock()
 
 	if sess, ok := m.sessions[sheepName]; ok {
-		return sess, nil
+		// A persistent-profile chromium can die while this entry lingers (crash,
+		// SIGKILL, daemon restart). Returning the corpse makes session_start a
+		// silent no-op: callers get "started" but every action fails on the dead
+		// connection. Verify liveness; if dead, tear it down and relaunch.
+		if sess.IsAlive() {
+			return sess, nil
+		}
+		_ = sess.Close()
+		delete(m.sessions, sheepName)
 	}
 
 	sess, err := m.createSession(sheepName, opts)
@@ -138,12 +146,12 @@ func (m *Manager) CloseSession(sheepName string) error {
 		return nil
 	}
 
-	if err := sess.Close(); err != nil {
-		return err
-	}
-
+	// Always drop the map entry, even if Close() errors (e.g. the browser
+	// already died and the CDP connection is closed). Otherwise a dead session
+	// lingers and blocks a clean relaunch on the next session_start.
+	err := sess.Close()
 	delete(m.sessions, sheepName)
-	return nil
+	return err
 }
 
 // CloseAll closes all browser sessions.

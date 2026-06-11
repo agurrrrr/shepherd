@@ -158,6 +158,28 @@ func (s *Session) SetDefaultPage(name string) error {
 	return nil
 }
 
+// IsAlive reports whether the underlying browser is still reachable. A
+// persistent profile's chromium can die out from under us (crash, SIGKILL,
+// daemon restart leaving an orphan) while this Session struct lingers in the
+// manager's map. A cheap, bounded CDP round-trip tells us if the corpse should
+// be discarded and relaunched instead of handed back to the caller.
+func (s *Session) IsAlive() bool {
+	if s == nil || s.browser == nil {
+		return false
+	}
+	done := make(chan bool, 1)
+	go func() {
+		_, err := proto.BrowserGetVersion{}.Call(s.browser)
+		done <- err == nil
+	}()
+	select {
+	case ok := <-done:
+		return ok
+	case <-time.After(3 * time.Second):
+		return false
+	}
+}
+
 // Close closes the session and all pages.
 func (s *Session) Close() error {
 	s.mu.Lock()
