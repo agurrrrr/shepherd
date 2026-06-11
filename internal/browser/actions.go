@@ -251,23 +251,34 @@ func GetTitle(sess *Session, pageName string) (string, error) {
 	return info.Title, nil
 }
 
-// Eval executes JavaScript on the page.
-// The JavaScript code is wrapped in an IIFE (Immediately Invoked Function Expression)
-// to avoid issues with go-rod's `with` block context, which restricts `var` declarations
-// and can cause problems with Array.prototype.forEach.call() patterns.
+// Eval executes JavaScript on the page using proto.RuntimeEvaluate.
+// This bypasses go-rod's RuntimeCallFunctionOn wrapper (which wraps user JS in
+// `function() { return (UserCode).apply(this, arguments) }`), allowing standard
+// JavaScript features like `return` statements and `.apply()` method calls to work
+// correctly. The JS code runs exactly as written, like in a browser DevTools console.
 func Eval(sess *Session, pageName, js string) (interface{}, error) {
 	page := sess.GetPage(pageName)
 	if page == nil {
 		return nil, fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	// Wrap in IIFE to escape the `with` block context and enable standard JS features
-	wrappedJS := fmt.Sprintf("(function() { %s })()", js)
-	result, err := page.Eval(wrappedJS)
-	if err != nil {
-		return nil, err
+	req := proto.RuntimeEvaluate{
+		Expression:    js,
+		ReturnByValue: true,
+		AwaitPromise:  false,
 	}
-	return result.Value.Val(), nil
+
+	res, err := req.Call(page)
+	if err != nil {
+		return nil, fmt.Errorf("javascript execution failed: %w", err)
+	}
+
+	if res.ExceptionDetails != nil {
+		return nil, fmt.Errorf("javascript error: %s (line %d, column %d)",
+			res.ExceptionDetails.Text, res.ExceptionDetails.LineNumber, res.ExceptionDetails.ColumnNumber)
+	}
+
+	return res.Result.Value.Val(), nil
 }
 
 // WaitSelector waits for an element to appear.
