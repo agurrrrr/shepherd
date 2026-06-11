@@ -74,6 +74,12 @@ func (m *Manager) createSession(sheepName string, opts *SessionOptions) (*Sessio
 		return nil, fmt.Errorf("failed to create UserDataDir: %w", err)
 	}
 
+	// The profile is persistent and reused across runs so 2FA/login cookies
+	// survive restarts. Clear stale locks and crash flags left by a previous
+	// unclean exit so reopening the same profile doesn't fail or pop a
+	// "restore session" prompt.
+	prepareProfileDir(userDataDir)
+
 	// Leakless(false) on Windows only: go-rod's default watchdog binary
 	// extraction to temp dir is flagged by AV/EDR on Windows, failing
 	// security audits. On Linux/Mac the default Leakless(true) is kept

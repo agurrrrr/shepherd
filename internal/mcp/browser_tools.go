@@ -64,7 +64,7 @@ func getBrowserToolsList() []Tool {
 		// 세션 관리
 		{
 			Name:        "browser_session_start",
-			Description: "브라우저 세션을 시작합니다",
+			Description: "브라우저 세션을 시작합니다. 양 이름별 영속 프로필(~/.shepherd/browser/<양>)을 재사용하므로 한 번 로그인(2FA 포함)하면 쿠키가 유지됩니다",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -507,7 +507,13 @@ func handleBrowserSessionStart(args map[string]interface{}) (string, error) {
 	}
 
 	info := sess.Info()
-	return fmt.Sprintf("브라우저 세션 시작됨 (양: %s, 헤드리스: %v)", info.SheepName, info.Headless), nil
+	return fmt.Sprintf(
+		"브라우저 세션 시작됨 (양: %s, 헤드리스: %v)\n"+
+			"영속 프로필: %s\n"+
+			"이 프로필은 세션 간 유지되므로 한 번 로그인(2FA 포함)하면 쿠키가 재사용됩니다. "+
+			"최초 로그인은 headless=false로 띄워 직접 인증을 마친 뒤, 이후에는 같은 양 이름으로 재시작하면 로그인 상태가 유지됩니다.",
+		info.SheepName, info.Headless, info.UserDataDir,
+	), nil
 }
 
 func handleBrowserSessionStop(args map[string]interface{}) (string, error) {
