@@ -72,6 +72,19 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 	sections = append(sections,
 		"너는 shepherd의 코드 에이전트다. 프로젝트 디렉토리에서 파일 읽기/쓰기/수정, 셸 명령어 실행, MCP 도구 호출을 할 수 있다.")
 
+	// Working directory — tell the model exactly where it is. The bash/read/write/
+	// glob/grep tools all execute relative to this path (cmd.Dir = projectPath), but
+	// the model has no way to know the absolute path unless we state it explicitly.
+	// Without this, the model guesses paths like ~/.shepherd/projects/<name>/ and
+	// fails with "No such file or directory".
+	if projectPath != "" {
+		sections = append(sections, fmt.Sprintf(
+			"[작업 환경]\n현재 작업 디렉토리(프로젝트 루트): %s\n"+
+				"- bash 명령, 파일 읽기/쓰기, glob/grep 도구는 모두 이 디렉토리를 기준으로 실행된다.\n"+
+				"- 파일 경로는 이 디렉토리 기준 상대경로를 사용하라. 다른 경로(예: ~/.shepherd/projects/...)를 추측하지 마라.",
+			projectPath))
+	}
+
 	// Available tools guide — use project-specific guide if provided
 	if mcpGuide != "" {
 		sections = append(sections, mcpGuide)
