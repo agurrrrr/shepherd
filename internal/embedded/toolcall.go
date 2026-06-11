@@ -139,19 +139,62 @@ func tryParseToolCallJSON(s string) *ToolCall {
 	return nil
 }
 
-// findJSONObjects searches for JSON objects embedded in text.
+// findJSONObjects searches for JSON objects embedded in text using a balanced
+// brace-matching algorithm. Supports unlimited nesting depth.
 func findJSONObjects(text, rawBlock string) []*ParsedToolCall {
 	var results []*ParsedToolCall
 
-	// Find all {...} blocks
-	re := regexp.MustCompile(`\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}`)
-	matches := re.FindAllString(text, -1)
-
-	for _, match := range matches {
-		tc := tryParseToolCallJSON(match)
-		if tc != nil {
-			results = append(results, &ParsedToolCall{ToolCall: *tc, rawText: rawBlock})
+	// Find all balanced {...} blocks
+	for i := 0; i < len(text); {
+		if text[i] != '{' {
+			i++
+			continue
 		}
+
+		// Found opening brace — find matching closing brace
+		start := i
+		depth := 0
+		inString := false
+		escaped := false
+
+		for j := i; j < len(text); j++ {
+			ch := text[j]
+
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' && inString {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = !inString
+				continue
+			}
+			if !inString {
+				if ch == '{' {
+					depth++
+				} else if ch == '}' {
+					depth--
+					if depth == 0 {
+						// Found matching close brace
+						match := text[start : j+1]
+						tc := tryParseToolCallJSON(match)
+						if tc != nil {
+							results = append(results, &ParsedToolCall{ToolCall: *tc, rawText: rawBlock})
+						}
+						i = j + 1
+						goto next
+					}
+				}
+			}
+		}
+
+		// Unmatched opening brace — skip it
+		i++
+
+	next:
 	}
 
 	return results

@@ -359,3 +359,95 @@ func TestRepairTruncatedJSON(t *testing.T) {
 		})
 	}
 }
+
+// ─────────────────────────────────────────────
+// findJSONObjects: nested brace extraction
+// ─────────────────────────────────────────────
+
+// TestFindJSONObjects verifies that findJSONObjects correctly extracts balanced
+// JSON objects at any nesting depth. The previous regex implementation only
+// supported up to 2 levels of nesting, causing failures on deeply nested tool calls.
+func TestFindJSONObjects(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		wantCount int
+		wantName  string
+		wantArgs  string
+	}{
+		{
+			name:      "flat object (0 nesting)",
+			text:      `{"name":"bash","arguments":{"command":"ls"}}`,
+			wantCount: 1,
+			wantName:  "bash",
+			wantArgs:  `{"command":"ls"}`,
+		},
+		{
+			name:      "one level nesting",
+			text:      `{"name":"tool","arguments":{"key":{"nested":"value"}}}`,
+			wantCount: 1,
+			wantName:  "tool",
+			wantArgs:  `{"key":{"nested":"value"}}`,
+		},
+		{
+			name:      "two levels nesting",
+			text:      `{"name":"tool","arguments":{"a":{"b":{"c":"deep"}}}}`,
+			wantCount: 1,
+			wantName:  "tool",
+			wantArgs:  `{"a":{"b":{"c":"deep"}}}`,
+		},
+		{
+			name:      "three levels nesting",
+			text:      `{"name":"tool","arguments":{"a":{"b":{"c":{"d":"very_deep"}}}}}`,
+			wantCount: 1,
+			wantName:  "tool",
+			wantArgs:  `{"a":{"b":{"c":{"d":"very_deep"}}}}`,
+		},
+		{
+			name:      "five levels nesting",
+			text:      `{"name":"tool","arguments":{"a":{"b":{"c":{"d":{"e":"extreme"}}}}}}`,
+			wantCount: 1,
+			wantName:  "tool",
+			wantArgs:  `{"a":{"b":{"c":{"d":{"e":"extreme"}}}}}`,
+		},
+		{
+			name: "two tool calls in text",
+			text: "Let me run this: {\"name\":\"bash\",\"arguments\":{\"command\":\"pwd\"}} and then {\"name\":\"get_status\",\"arguments\":{}}",
+			wantCount: 2,
+			wantName:  "bash",
+		},
+		{
+			name: "nested braces with string containing braces",
+			text: `{"name":"bash","arguments":{"command":"echo '{hello}'"}}`,
+			wantCount: 1,
+			wantName:  "bash",
+			wantArgs:  `{"command":"echo '{hello}'"}`,
+		},
+		{
+			name: "unmatched opening brace ignored",
+			text: `some text { not closed and {"name":"bash","arguments":{"command":"ls"}}`,
+			wantCount: 1,
+			wantName:  "bash",
+			wantArgs:  `{"command":"ls"}`,
+		},
+		{
+			name:      "no tool call in text",
+			text:      `just some regular text without any JSON`,
+			wantCount: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := findJSONObjects(tt.text, tt.text)
+			if len(got) != tt.wantCount {
+				t.Fatalf("got %d tool calls, want %d; calls=%+v", len(got), tt.wantCount, got)
+			}
+			if tt.wantName != "" && len(got) > 0 && got[0].Func.Name != tt.wantName {
+				t.Errorf("tool call[0].Name = %q, want %q", got[0].Func.Name, tt.wantName)
+			}
+			if tt.wantArgs != "" && len(got) > 0 && got[0].Func.Args != tt.wantArgs {
+				t.Errorf("tool call[0].Args = %q, want %q", got[0].Func.Args, tt.wantArgs)
+			}
+		})
+	}
+}
