@@ -109,8 +109,19 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		}
 	doneInjectPoll:
 
-		// Trim messages to fit context window
-		messages = trimMessages(messages, opts.ContextTokens)
+		// Trim messages to fit context window. If trimming would actually drop
+		// turns and a handoff is allowed (queue empty), finish this task with a
+		// summary + queue the remaining work as a follow-up task instead —
+		// trimming destroys context and tends to degrade the model.
+		trimmed := trimMessages(messages, opts.ContextTokens)
+		if len(trimmed) < len(messages) &&
+			opts.EnqueueFollowUp != nil &&
+			(opts.ShouldHandoff == nil || opts.ShouldHandoff()) {
+			if res, ok := attemptHandoff(ctx, client, opts, trimmed, totalPromptTokens, totalCompletionTokens); ok {
+				return res, nil
+			}
+		}
+		messages = trimmed
 
 		// Build request
 		req := &ChatRequest{
@@ -275,24 +286,19 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		}
 
 		if contentEmpty {
-			// If the model has reasoning_content but no visible content, it's
-			// still thinking — don't count this as an empty response. The
-			// reasoning was already surfaced above via OnOutput.
-			if reasoningPresent {
-				consecutiveEmpty = 0
-			} else {
-				consecutiveEmpty++
+			consecutiveEmpty++
+
+			// A turn with reasoning_content (model still thinking) or an explicit
+			// finish_reason "stop" deserves more patience than a hard-empty turn,
+			// but must NOT reset the counter to zero: a degenerate model (e.g.
+			// after context overflow) can emit garbage reasoning-only turns
+			// forever, looping until max iterations while spamming 💭 output.
+			limit := 3
+			if reasoningPresent || finishReason == "stop" {
+				limit = 6
 			}
 
-			// If finish_reason is "stop" with empty content, the model decided
-			// it has nothing more to say. This is a normal completion, not a
-			// sign of being stuck. Only count toward empty loop if the model
-			// didn't explicitly stop.
-			if finishReason == "stop" {
-				consecutiveEmpty = 0
-			}
-
-			if consecutiveEmpty >= 3 {
+			if consecutiveEmpty >= limit {
 				return &ExecuteResult{
 					Result:           "",
 					Incomplete:       true,
@@ -395,6 +401,77 @@ func sanitizeToolCallArgs(msg ChatMessage) ChatMessage {
 		sanitized.ToolCalls[i].Func.Args = "{}"
 	}
 	return sanitized
+}
+
+// handoffMarker separates the handoff summary from the follow-up task prompt
+// in the model's final answer. Kept ASCII-only so any model can reproduce it.
+const handoffMarker = "===NEXT_TASK==="
+
+// attemptHandoff is called when the conversation has outgrown the context
+// window and the queue is idle. It asks the model (with the trimmed history,
+// no tools) for a completion summary plus a self-contained follow-up prompt,
+// queues the follow-up via opts.EnqueueFollowUp, and returns a completed
+// ExecuteResult. Returns ok=false on any failure so the caller falls back to
+// plain trimming.
+func attemptHandoff(ctx context.Context, client *Client, opts ExecuteOptions, trimmed []ChatMessage, promptTokens, completionTokens int64) (*ExecuteResult, bool) {
+	instruction := "컨텍스트 한계에 도달했다. 이번 작업은 여기서 마무리한다.\n" +
+		"1) 지금까지 수행한 작업과 결과를 요약하라.\n" +
+		"2) 아직 남은 작업이 있으면, 마지막에 '" + handoffMarker + "' 한 줄을 쓰고 그 아래에 남은 작업을 새 작업 프롬프트로 작성하라. " +
+		"새 작업은 이 대화 내용을 볼 수 없으므로 필요한 파일 경로, 지금까지의 결정사항, 주의점을 빠짐없이 포함하라.\n" +
+		"남은 작업이 없으면 '" + handoffMarker + "' 섹션을 생략하라. 도구는 호출하지 마라."
+	msgs := append(append([]ChatMessage{}, trimmed...), ChatMessage{
+		Role:    ChatRoleUser,
+		Content: instruction,
+	})
+
+	req := &ChatRequest{
+		Model:         opts.Model,
+		Messages:      msgs,
+		Temperature:   0.7,
+		MaxTokens:     opts.ContextTokens / 4,
+		Stream:        true,
+		StreamOptions: &StreamOptions{IncludeUsage: true},
+	}
+	msg, _, usage, err := client.AccumulateStream(ctx, req)
+	if err != nil || msg == nil || strings.TrimSpace(msg.Content) == "" {
+		return nil, false
+	}
+	if usage != nil {
+		promptTokens += usage.PromptTokens
+		completionTokens += usage.CompletionTokens
+	}
+
+	summary := strings.TrimSpace(msg.Content)
+	followUp := ""
+	if i := strings.Index(summary, handoffMarker); i >= 0 {
+		followUp = strings.TrimSpace(summary[i+len(handoffMarker):])
+		summary = strings.TrimSpace(summary[:i])
+	}
+	if summary == "" {
+		return nil, false
+	}
+
+	if opts.OnOutput != nil {
+		opts.OnOutput("⚠️ 컨텍스트 한계 도달 — 작업을 요약하고 마무리합니다.")
+		opts.OnOutput(summary)
+	}
+	if followUp != "" {
+		if err := opts.EnqueueFollowUp(followUp); err != nil {
+			if opts.OnOutput != nil {
+				opts.OnOutput("⚠️ 후속 작업 큐 추가 실패: " + err.Error())
+			}
+			// Surface the follow-up in the result so the work isn't lost.
+			summary += "\n\n[후속 작업 (큐 추가 실패, 수동 등록 필요)]\n" + followUp
+		} else if opts.OnOutput != nil {
+			opts.OnOutput("📋 남은 작업을 후속 작업으로 큐에 추가했습니다.")
+		}
+	}
+
+	return &ExecuteResult{
+		Result:           summary,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+	}, true
 }
 
 // truncate cuts a string to maxLen and adds "..." if truncated.

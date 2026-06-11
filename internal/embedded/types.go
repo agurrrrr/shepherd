@@ -230,6 +230,17 @@ type ExecuteOptions struct {
 	// appended as a {role: user} message to the chat history at the next safe
 	// point (after the current turn completes). Nil or closed means no injection.
 	InjectCh <-chan string
+
+	// ShouldHandoff is consulted when the conversation no longer fits the
+	// context window. Returning true means: instead of trimming old turns
+	// (which degrades the model), finish this task with a handoff summary and
+	// queue the remaining work as a follow-up task via EnqueueFollowUp.
+	// Typically returns true only when the sheep's queue has no pending tasks.
+	// Nil (or EnqueueFollowUp nil) → always trim.
+	ShouldHandoff func() bool
+
+	// EnqueueFollowUp queues a continuation task with the given prompt.
+	EnqueueFollowUp func(prompt string) error
 }
 
 // DefaultMaxIterations is the default maximum number of agent loop iterations.
@@ -272,22 +283,41 @@ func parseSSE(reader io.Reader) ([]*SSEEvent, error) {
 	return events, nil
 }
 
+// estimateTextTokens estimates tokens for a text string. ASCII averages ~4
+// bytes per token, but CJK (한글 등) averages ~1 token per character — the old
+// bytes/4 heuristic undercounted Korean text by 10x+, so trimming ran too
+// late and the request overflowed the real context window.
+func estimateTextTokens(s string) int {
+	ascii := 0
+	tokens := 0
+	for _, r := range s {
+		if r < 128 {
+			ascii++
+		} else {
+			tokens++
+		}
+	}
+	return tokens + ascii/4
+}
+
 // estimateMessageTokens estimates the token count for a single message.
 // Includes Content, ToolCalls (function name + JSON args), and overhead.
 func estimateMessageTokens(msg ChatMessage) int {
-	size := len(msg.Content)
+	tokens := estimateTextTokens(msg.Content)
 	for _, p := range msg.ContentParts {
-		size += len(p.Text)
+		tokens += estimateTextTokens(p.Text)
 		if p.ImageURL != nil {
-			size += len(p.ImageURL.URL)
+			// base64 data URLs are ASCII; the vision encoder's actual token
+			// cost is independent of URL length, so bytes/4 is fine here.
+			tokens += len(p.ImageURL.URL) / 4
 		}
 	}
 	for _, tc := range msg.ToolCalls {
 		// name + args JSON + per-call overhead
-		size += len(tc.Func.Name) + len(tc.Func.Args) + 64
+		tokens += estimateTextTokens(tc.Func.Name) + estimateTextTokens(tc.Func.Args) + 16
 	}
-	// /4 to convert bytes → tokens (rough), +50 per-message overhead
-	return size/4 + 50
+	// +50 per-message overhead
+	return tokens + 50
 }
 
 // trimMessages truncates the message list to stay within context token limits.

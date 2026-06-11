@@ -606,6 +606,30 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			MCPDefs:        mcpDefs,
 			MCPDispatch:    mcpDispatch,
 			InjectCh:       injectCh,
+			// Context-overflow handoff: when the conversation outgrows the
+			// context window and this sheep has no other pending tasks, finish
+			// the task with a summary and queue the remaining work as a
+			// follow-up task instead of trimming old turns.
+			ShouldHandoff: func() bool {
+				s, serr := worker.Get(sheepName)
+				if serr != nil {
+					return false
+				}
+				n, cerr := queue.CountPendingTasksBySheep(s.ID)
+				return cerr == nil && n == 0
+			},
+			EnqueueFollowUp: func(followUpPrompt string) error {
+				s, serr := worker.Get(sheepName)
+				if serr != nil {
+					return serr
+				}
+				if s.Edges.Project != nil {
+					_, serr = queue.CreateTask(followUpPrompt, s.ID, s.Edges.Project.ID)
+				} else {
+					_, serr = queue.CreateManagerTask(followUpPrompt, s.ID)
+				}
+				return serr
+			},
 		})
 		if err != nil {
 			return nil, err
