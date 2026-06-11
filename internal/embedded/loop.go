@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Run executes the embedded agent loop: model → tool calls → execute → retry.
@@ -367,8 +368,34 @@ func dispatchTool(ctx context.Context, tr *ToolRegistry, tc ToolCall, opts Execu
 	// Inject sheep_name for MCP tools
 	args["sheep_name"] = opts.SheepName
 
-	return tr.Dispatch(tc.Func.Name, args)
+	// Run the tool in a goroutine so a hung tool (e.g. a CDP call stuck
+	// mid-navigation) cannot freeze the agent loop forever (task #5985), and so
+	// task stop (ctx cancel) interrupts the wait. On timeout the goroutine may
+	// leak, but the loop reports the error and keeps going.
+	type toolResult struct {
+		result string
+		err    error
+	}
+	done := make(chan toolResult, 1)
+	go func() {
+		result, err := tr.Dispatch(tc.Func.Name, args)
+		done <- toolResult{result, err}
+	}()
+
+	select {
+	case r := <-done:
+		return r.result, r.err
+	case <-ctx.Done():
+		return "", fmt.Errorf("tool %s aborted: %w", tc.Func.Name, ctx.Err())
+	case <-time.After(toolDispatchTimeout):
+		return "", fmt.Errorf("tool %s timed out after %s", tc.Func.Name, toolDispatchTimeout)
+	}
 }
+
+// toolDispatchTimeout is the hard upper bound for a single tool call. Browser
+// CDP calls are bounded tighter inside internal/browser; this is the backstop
+// for anything that slips through (external MCP servers, long shell commands).
+const toolDispatchTimeout = 5 * time.Minute
 
 // sanitizeToolCallArgs ensures every tool call in the message carries valid JSON
 // arguments. If the args are truncated/malformed (a Qwen3 streaming artifact),

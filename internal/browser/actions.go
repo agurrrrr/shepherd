@@ -10,6 +10,10 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 )
 
+// NavTimeout bounds page-load operations (navigate, reload, wait_load),
+// which can legitimately take longer than element operations.
+const NavTimeout = 60 * time.Second
+
 // Navigate navigates to a URL.
 func Navigate(sess *Session, pageName, url string) error {
 	page := sess.GetPage(pageName)
@@ -17,6 +21,7 @@ func Navigate(sess *Session, pageName, url string) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
+	page = page.Timeout(NavTimeout)
 	if err := page.Navigate(url); err != nil {
 		return fmt.Errorf("failed to navigate: %w", err)
 	}
@@ -30,6 +35,7 @@ func Reload(sess *Session, pageName string) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
+	page = page.Timeout(NavTimeout)
 	if err := page.Reload(); err != nil {
 		return fmt.Errorf("failed to reload: %w", err)
 	}
@@ -43,7 +49,7 @@ func GoBack(sess *Session, pageName string) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	return page.NavigateBack()
+	return page.Timeout(NavTimeout).NavigateBack()
 }
 
 // GoForward navigates forward.
@@ -53,7 +59,7 @@ func GoForward(sess *Session, pageName string) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	return page.NavigateForward()
+	return page.Timeout(NavTimeout).NavigateForward()
 }
 
 // Click clicks an element.
@@ -149,7 +155,7 @@ func Scroll(sess *Session, pageName string, x, y float64) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	return page.Mouse.Scroll(x, y, 1)
+	return page.Timeout(DefaultTimeout).Mouse.Scroll(x, y, 1)
 }
 
 // ScrollToElement scrolls to an element.
@@ -190,7 +196,7 @@ func GetHTML(sess *Session, pageName, selector string) (string, error) {
 	}
 
 	if selector == "" {
-		return page.HTML()
+		return page.Timeout(DefaultTimeout).HTML()
 	}
 
 	el, err := page.Timeout(DefaultTimeout).Element(selector)
@@ -230,7 +236,7 @@ func GetURL(sess *Session, pageName string) (string, error) {
 		return "", fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	info, err := page.Info()
+	info, err := page.Timeout(DefaultTimeout).Info()
 	if err != nil {
 		return "", err
 	}
@@ -244,7 +250,7 @@ func GetTitle(sess *Session, pageName string) (string, error) {
 		return "", fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	info, err := page.Info()
+	info, err := page.Timeout(DefaultTimeout).Info()
 	if err != nil {
 		return "", err
 	}
@@ -268,7 +274,7 @@ func Eval(sess *Session, pageName, js string) (interface{}, error) {
 		AwaitPromise:  false,
 	}
 
-	res, err := req.Call(page)
+	res, err := req.Call(page.Timeout(DefaultTimeout))
 	if err != nil {
 		return nil, fmt.Errorf("javascript execution failed: %w", err)
 	}
@@ -312,7 +318,7 @@ func WaitHidden(sess *Session, pageName, selector string, timeout time.Duration)
 		return nil
 	}
 
-	el, _ := page.Element(selector)
+	el, _ := page.Timeout(timeout).Element(selector)
 	if el == nil {
 		return nil
 	}
@@ -327,7 +333,7 @@ func WaitLoad(sess *Session, pageName string) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	return page.WaitLoad()
+	return page.Timeout(NavTimeout).WaitLoad()
 }
 
 // WaitIdle waits for network requests to complete.
@@ -352,6 +358,10 @@ func Screenshot(sess *Session, pageName, selector, path string) ([]byte, error) 
 	if page == nil {
 		return nil, fmt.Errorf("page '%s' not found", pageName)
 	}
+
+	// Bound every CDP call: a full-page screenshot taken mid-navigation can
+	// otherwise block forever and freeze the calling agent loop (task #5985).
+	page = page.Timeout(DefaultTimeout)
 
 	var data []byte
 	var err error
@@ -394,7 +404,7 @@ func PDF(sess *Session, pageName, path string) ([]byte, error) {
 		PreferCSSPageSize: true,
 	}
 
-	reader, err := page.PDF(req)
+	reader, err := page.Timeout(DefaultTimeout).PDF(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate PDF: %w", err)
 	}
