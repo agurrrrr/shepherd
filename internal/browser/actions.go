@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -13,6 +14,57 @@ import (
 // NavTimeout bounds page-load operations (navigate, reload, wait_load),
 // which can legitimately take longer than element operations.
 const NavTimeout = 60 * time.Second
+
+// findElement resolves a selector to an element. Beyond plain CSS, it accepts
+// convenience prefixes so callers (especially the LLM) can target elements
+// reliably on the first try instead of guessing brittle CSS and eating a full
+// timeout on every miss:
+//   - "text=Foo"  → first interactive element (a/button/[role=button]/input)
+//     whose visible label contains "Foo" (case-insensitive)
+//   - "xpath=..." or a selector starting with "//" → XPath
+//
+// Anything else is treated as a CSS selector (unchanged behaviour).
+func findElement(page *rod.Page, selector string) (*rod.Element, error) {
+	switch {
+	case strings.HasPrefix(selector, "text="):
+		txt := strings.TrimSpace(strings.TrimPrefix(selector, "text="))
+		lit := xpathLiteral(strings.ToLower(txt))
+		// lower-case the node text so the match is case-insensitive.
+		const lc = `translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')`
+		vlc := `translate(normalize-space(@value),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')`
+		xpath := fmt.Sprintf(
+			`//a[contains(%s,%s)] | //button[contains(%s,%s)] | `+
+				`//*[@role="button"][contains(%s,%s)] | `+
+				`//input[(@type="submit" or @type="button") and contains(%s,%s)]`,
+			lc, lit, lc, lit, lc, lit, vlc, lit)
+		return page.ElementX(xpath)
+	case strings.HasPrefix(selector, "xpath="):
+		return page.ElementX(strings.TrimPrefix(selector, "xpath="))
+	case strings.HasPrefix(selector, "//"):
+		return page.ElementX(selector)
+	default:
+		return page.Element(selector)
+	}
+}
+
+// xpathLiteral safely quotes a string for use as an XPath string literal,
+// handling embedded single quotes via concat().
+func xpathLiteral(s string) string {
+	if !strings.Contains(s, "'") {
+		return "'" + s + "'"
+	}
+	parts := strings.Split(s, "'")
+	var b strings.Builder
+	b.WriteString("concat(")
+	for i, p := range parts {
+		if i > 0 {
+			b.WriteString(`,"'",`)
+		}
+		b.WriteString("'" + p + "'")
+	}
+	b.WriteString(")")
+	return b.String()
+}
 
 // Navigate navigates to a URL.
 func Navigate(sess *Session, pageName, url string) error {
@@ -69,7 +121,7 @@ func Click(sess *Session, pageName, selector string) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	el, err := page.Timeout(DefaultTimeout).Element(selector)
+	el, err := findElement(page.Timeout(DefaultTimeout), selector)
 	if err != nil {
 		return fmt.Errorf("element not found '%s': %w", selector, err)
 	}
@@ -84,7 +136,7 @@ func Type(sess *Session, pageName, selector, text string) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	el, err := page.Timeout(DefaultTimeout).Element(selector)
+	el, err := findElement(page.Timeout(DefaultTimeout), selector)
 	if err != nil {
 		return fmt.Errorf("element not found '%s': %w", selector, err)
 	}
@@ -102,7 +154,7 @@ func SelectOption(sess *Session, pageName, selector, value string) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	el, err := page.Timeout(DefaultTimeout).Element(selector)
+	el, err := findElement(page.Timeout(DefaultTimeout), selector)
 	if err != nil {
 		return fmt.Errorf("element not found '%s': %w", selector, err)
 	}
@@ -117,7 +169,7 @@ func SetCheckbox(sess *Session, pageName, selector string, checked bool) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	el, err := page.Timeout(DefaultTimeout).Element(selector)
+	el, err := findElement(page.Timeout(DefaultTimeout), selector)
 	if err != nil {
 		return fmt.Errorf("element not found '%s': %w", selector, err)
 	}
@@ -140,7 +192,7 @@ func Hover(sess *Session, pageName, selector string) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	el, err := page.Timeout(DefaultTimeout).Element(selector)
+	el, err := findElement(page.Timeout(DefaultTimeout), selector)
 	if err != nil {
 		return fmt.Errorf("element not found '%s': %w", selector, err)
 	}
@@ -165,7 +217,7 @@ func ScrollToElement(sess *Session, pageName, selector string) error {
 		return fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	el, err := page.Timeout(DefaultTimeout).Element(selector)
+	el, err := findElement(page.Timeout(DefaultTimeout), selector)
 	if err != nil {
 		return fmt.Errorf("element not found '%s': %w", selector, err)
 	}
@@ -180,7 +232,7 @@ func GetText(sess *Session, pageName, selector string) (string, error) {
 		return "", fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	el, err := page.Timeout(DefaultTimeout).Element(selector)
+	el, err := findElement(page.Timeout(DefaultTimeout), selector)
 	if err != nil {
 		return "", fmt.Errorf("element not found '%s': %w", selector, err)
 	}
@@ -199,7 +251,7 @@ func GetHTML(sess *Session, pageName, selector string) (string, error) {
 		return page.Timeout(DefaultTimeout).HTML()
 	}
 
-	el, err := page.Timeout(DefaultTimeout).Element(selector)
+	el, err := findElement(page.Timeout(DefaultTimeout), selector)
 	if err != nil {
 		return "", fmt.Errorf("element not found '%s': %w", selector, err)
 	}
@@ -214,7 +266,7 @@ func GetAttribute(sess *Session, pageName, selector, attr string) (string, error
 		return "", fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	el, err := page.Timeout(DefaultTimeout).Element(selector)
+	el, err := findElement(page.Timeout(DefaultTimeout), selector)
 	if err != nil {
 		return "", fmt.Errorf("element not found '%s': %w", selector, err)
 	}
@@ -258,25 +310,33 @@ func GetTitle(sess *Session, pageName string) (string, error) {
 }
 
 // Eval executes JavaScript on the page using proto.RuntimeEvaluate.
-// This bypasses go-rod's RuntimeCallFunctionOn wrapper (which wraps user JS in
-// `function() { return (UserCode).apply(this, arguments) }`), allowing standard
-// JavaScript features like `return` statements and `.apply()` method calls to work
-// correctly. The JS code runs exactly as written, like in a browser DevTools console.
+//
+// It first runs the code as a console-style expression, so plain expressions
+// (`document.title`) and multi-statement snippets whose last statement is an
+// expression both return their completion value, exactly like the DevTools
+// console. If that fails with a SyntaxError — which happens when the snippet
+// uses a top-level `return` (a very common LLM habit) — it transparently
+// retries with the body wrapped in an IIFE so `return`, `var`, `forEach`, etc.
+// work as written. SyntaxErrors are caught at parse time before any code runs,
+// so the retry can never double-execute side effects.
 func Eval(sess *Session, pageName, js string) (interface{}, error) {
 	page := sess.GetPage(pageName)
 	if page == nil {
 		return nil, fmt.Errorf("page '%s' not found", pageName)
 	}
+	page = page.Timeout(DefaultTimeout)
 
-	req := proto.RuntimeEvaluate{
-		Expression:    js,
-		ReturnByValue: true,
-		AwaitPromise:  false,
+	res, err := evalExpr(page, js)
+	if err != nil {
+		return nil, err
 	}
 
-	res, err := req.Call(page.Timeout(DefaultTimeout))
-	if err != nil {
-		return nil, fmt.Errorf("javascript execution failed: %w", err)
+	if isSyntaxError(res.ExceptionDetails) {
+		// Retry as a function body so top-level `return`/`var` are legal.
+		res, err = evalExpr(page, "(function(){\n"+js+"\n})()")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if res.ExceptionDetails != nil {
@@ -285,6 +345,32 @@ func Eval(sess *Session, pageName, js string) (interface{}, error) {
 	}
 
 	return res.Result.Value.Val(), nil
+}
+
+// evalExpr runs a single RuntimeEvaluate call and returns the raw result.
+func evalExpr(page *rod.Page, js string) (*proto.RuntimeEvaluateResult, error) {
+	res, err := (&proto.RuntimeEvaluate{
+		Expression:    js,
+		ReturnByValue: true,
+		AwaitPromise:  false,
+	}).Call(page)
+	if err != nil {
+		return nil, fmt.Errorf("javascript execution failed: %w", err)
+	}
+	return res, nil
+}
+
+// isSyntaxError reports whether the exception is a parse-time SyntaxError,
+// which is safe to recover from by re-wrapping the code.
+func isSyntaxError(det *proto.RuntimeExceptionDetails) bool {
+	if det == nil {
+		return false
+	}
+	if det.Exception != nil && det.Exception.ClassName == "SyntaxError" {
+		return true
+	}
+	// Some V8 parse errors surface only in the Text field with no Exception obj.
+	return det.Exception == nil && strings.Contains(det.Text, "SyntaxError")
 }
 
 // WaitSelector waits for an element to appear.
@@ -367,7 +453,7 @@ func Screenshot(sess *Session, pageName, selector, path string) ([]byte, error) 
 	var err error
 
 	if selector != "" {
-		el, err := page.Timeout(DefaultTimeout).Element(selector)
+		el, err := findElement(page.Timeout(DefaultTimeout), selector)
 		if err != nil {
 			return nil, fmt.Errorf("element not found '%s': %w", selector, err)
 		}

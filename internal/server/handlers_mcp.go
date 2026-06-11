@@ -304,6 +304,9 @@ export default function (pi: ExtensionAPI) {
 
   // All shepherd 도구 정의 (register 시 사용)
   const sheep = { sheep_name: Type.String({ description: "Sheep name" }) };
+  // Selector help shared by element-targeting browser tools. Prefer 'text=' for
+  // buttons/links so a wrong CSS guess doesn't burn the full 30s timeout.
+  const SELECTOR_DESC = "Element selector. Plain CSS, or 'text=Label' to match an interactive element (button/link/input) by its visible text (case-insensitive), or 'xpath=...' / a leading '//' for XPath.";
   const allTools = [
     // Task management
     { name: "task_start", desc: "Queue a task in Shepherd", params: Type.Object({ sheep_name: Type.Optional(Type.String({ description: "Name of the sheep to assign" })), project_name: Type.String({ description: "Project name" }), prompt: Type.String({ description: "Task description/prompt" }) }) },
@@ -327,18 +330,18 @@ export default function (pi: ExtensionAPI) {
     { name: "browser_reload", desc: "Reload page", params: Type.Object({ ...sheep }) },
     { name: "browser_back", desc: "Go back", params: Type.Object({ ...sheep }) },
     { name: "browser_forward", desc: "Go forward", params: Type.Object({ ...sheep }) },
-    { name: "browser_click", desc: "Click element", params: Type.Object({ ...sheep, selector: Type.String({ description: "CSS selector" }) }) },
-    { name: "browser_type", desc: "Type text", params: Type.Object({ ...sheep, selector: Type.String({ description: "CSS selector" }), text: Type.String({ description: "Text to type" }) }) },
-    { name: "browser_select", desc: "Select dropdown option", params: Type.Object({ ...sheep, selector: Type.String({ description: "CSS selector" }), value: Type.String({ description: "Option value" }) }) },
-    { name: "browser_check", desc: "Toggle checkbox", params: Type.Object({ ...sheep, selector: Type.String({ description: "CSS selector" }), checked: Type.Boolean({ description: "Checked state" }) }) },
-    { name: "browser_hover", desc: "Hover over element", params: Type.Object({ ...sheep, selector: Type.String({ description: "CSS selector" }) }) },
+    { name: "browser_click", desc: "Click element", params: Type.Object({ ...sheep, selector: Type.String({ description: SELECTOR_DESC }) }) },
+    { name: "browser_type", desc: "Type text", params: Type.Object({ ...sheep, selector: Type.String({ description: SELECTOR_DESC }), text: Type.String({ description: "Text to type" }) }) },
+    { name: "browser_select", desc: "Select dropdown option", params: Type.Object({ ...sheep, selector: Type.String({ description: SELECTOR_DESC }), value: Type.String({ description: "Option value" }) }) },
+    { name: "browser_check", desc: "Toggle checkbox", params: Type.Object({ ...sheep, selector: Type.String({ description: SELECTOR_DESC }), checked: Type.Boolean({ description: "Checked state" }) }) },
+    { name: "browser_hover", desc: "Hover over element", params: Type.Object({ ...sheep, selector: Type.String({ description: SELECTOR_DESC }) }) },
     { name: "browser_scroll", desc: "Scroll page", params: Type.Object({ ...sheep, x: Type.Optional(Type.Number({ description: "Horizontal scroll amount" })), y: Type.Optional(Type.Number({ description: "Vertical scroll amount" })) }) },
-    { name: "browser_get_text", desc: "Extract text content", params: Type.Object({ ...sheep, selector: Type.String({ description: "CSS selector" }) }) },
-    { name: "browser_get_html", desc: "Get HTML content", params: Type.Object({ ...sheep, selector: Type.Optional(Type.String({ description: "CSS selector (empty for full page)" })) }) },
-    { name: "browser_get_attribute", desc: "Get element attribute", params: Type.Object({ ...sheep, selector: Type.String({ description: "CSS selector" }), attribute: Type.String({ description: "Attribute name" }) }) },
+    { name: "browser_get_text", desc: "Extract text content", params: Type.Object({ ...sheep, selector: Type.String({ description: SELECTOR_DESC }) }) },
+    { name: "browser_get_html", desc: "Get HTML content", params: Type.Object({ ...sheep, selector: Type.Optional(Type.String({ description: "Selector (empty for full page). " + SELECTOR_DESC })) }) },
+    { name: "browser_get_attribute", desc: "Get element attribute", params: Type.Object({ ...sheep, selector: Type.String({ description: SELECTOR_DESC }), attribute: Type.String({ description: "Attribute name" }) }) },
     { name: "browser_get_url", desc: "Get current URL", params: Type.Object({ ...sheep }) },
     { name: "browser_get_title", desc: "Get page title", params: Type.Object({ ...sheep }) },
-    { name: "browser_eval", desc: "Execute JavaScript", params: Type.Object({ ...sheep, js: Type.String({ description: "JavaScript code to execute" }) }) },
+    { name: "browser_eval", desc: "Execute JavaScript", params: Type.Object({ ...sheep, js: Type.String({ description: "JavaScript to run, like in the DevTools console. A top-level return is allowed (code is auto-wrapped in a function); otherwise the value of the last expression is returned." }) }) },
     { name: "browser_wait_selector", desc: "Wait for element", params: Type.Object({ ...sheep, selector: Type.String({ description: "CSS selector" }), timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (default 30)" })) }) },
     { name: "browser_wait_hidden", desc: "Wait for element to hide", params: Type.Object({ ...sheep, selector: Type.String({ description: "CSS selector" }), timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (default 30)" })) }) },
     { name: "browser_wait_load", desc: "Wait for page load", params: Type.Object({ ...sheep }) },
