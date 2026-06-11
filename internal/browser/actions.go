@@ -252,13 +252,18 @@ func GetTitle(sess *Session, pageName string) (string, error) {
 }
 
 // Eval executes JavaScript on the page.
+// The JavaScript code is wrapped in an IIFE (Immediately Invoked Function Expression)
+// to avoid issues with go-rod's `with` block context, which restricts `var` declarations
+// and can cause problems with Array.prototype.forEach.call() patterns.
 func Eval(sess *Session, pageName, js string) (interface{}, error) {
 	page := sess.GetPage(pageName)
 	if page == nil {
 		return nil, fmt.Errorf("page '%s' not found", pageName)
 	}
 
-	result, err := page.Eval(js)
+	// Wrap in IIFE to escape the `with` block context and enable standard JS features
+	wrappedJS := fmt.Sprintf("(function() { %s })()", js)
+	result, err := page.Eval(wrappedJS)
 	if err != nil {
 		return nil, err
 	}

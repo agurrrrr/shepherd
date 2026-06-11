@@ -323,7 +323,7 @@ func getBrowserToolsList() []Tool {
 		},
 		{
 			Name:        "browser_eval",
-			Description: "JavaScript를 실행합니다",
+			Description: "JavaScript를 실행합니다 (var, forEach, for-of 등 표준 JavaScript 문법 지원)",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
