@@ -84,7 +84,15 @@ func (m *Manager) createSession(sheepName string, opts *SessionOptions) (*Sessio
 		UserDataDir(userDataDir).
 		Headless(opts.Headless).
 		Set(flags.Flag("no-sandbox")).
-		Set(flags.Flag("disable-setuid-sandbox"))
+		Set(flags.Flag("disable-setuid-sandbox")).
+		// Anti-automation-detection: without these, Chrome exposes
+		// navigator.webdriver=true and the AutomationControlled blink
+		// feature, which sites like Google's sign-in detect and respond to
+		// with captcha + login-reset loops (task #5988). Removing the
+		// enable-automation switch and disabling the blink feature makes the
+		// browser indistinguishable enough to complete normal logins.
+		Set(flags.Flag("disable-blink-features"), "AutomationControlled").
+		Delete("enable-automation")
 
 	if opts.Proxy != "" {
 		l = l.Proxy(opts.Proxy)

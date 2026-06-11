@@ -58,6 +58,17 @@ func (s *Session) GetOrCreatePage(name string) (*rod.Page, error) {
 		return nil, fmt.Errorf("failed to create page: %w", err)
 	}
 
+	// Override navigator.webdriver before any page script runs, so automation
+	// detection (e.g. Google sign-in) does not see the WebDriver flag and fall
+	// into captcha/login-reset loops (task #5988). The launcher flags reduce
+	// this too, but injecting here is reliable across headless/headful.
+	if _, err := page.EvalOnNewDocument(
+		`Object.defineProperty(navigator, 'webdriver', {get: () => undefined})`,
+	); err != nil {
+		// Non-fatal: detection hardening is best-effort.
+		_ = err
+	}
+
 	s.pages[name] = page
 	if s.defaultPage == "" {
 		s.defaultPage = name
