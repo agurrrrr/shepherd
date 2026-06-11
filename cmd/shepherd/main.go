@@ -2680,6 +2680,43 @@ var browserListCmd = &cobra.Command{
 	},
 }
 
+// browserStatusCmd shows the status of all active browser sessions.
+var browserStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show browser session status",
+	Long:  "Displays the status of all active browser sessions across all sheep.",
+	Run: func(cmd *cobra.Command, args []string) {
+		mgr := browser.GetManager()
+		names := mgr.ListSessions()
+		if len(names) == 0 {
+			fmt.Println("No active browser sessions.")
+			return
+		}
+
+		fmt.Printf("Active browser sessions (%d):\n", len(names))
+		for _, name := range names {
+			sess := mgr.GetSession(name)
+			if sess == nil {
+				continue
+			}
+			info := sess.Info()
+			headless := "headed"
+			if info.Headless {
+				headless = "headless"
+			}
+			fmt.Printf("  🌐 %s [%s] — %d page(s)\n", info.SheepName, headless, info.PageCount)
+			pages := sess.ListPages()
+			for _, p := range pages {
+				defaultMark := ""
+				if p.IsDefault {
+					defaultMark = " (default)"
+				}
+				fmt.Printf("     📄 %s%s — %s\n", p.Name, defaultMark, p.URL)
+			}
+		}
+	},
+}
+
 var browserScreenshotCmd = &cobra.Command{
 	Use:   "screenshot [path]",
 	Short: "Capture screenshot",
@@ -3995,6 +4032,7 @@ func init() {
 	browserCmd.AddCommand(browserGetTextCmd)
 	browserCmd.AddCommand(browserCloseCmd)
 	browserCmd.AddCommand(browserListCmd)
+	browserCmd.AddCommand(browserStatusCmd)
 	browserCmd.AddCommand(browserScreenshotCmd)
 	browserCmd.AddCommand(browserFetchCmd)
 	rootCmd.AddCommand(browserCmd)
