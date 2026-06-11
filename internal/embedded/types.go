@@ -127,7 +127,13 @@ type ChatRequest struct {
 	Tools         []OpenAIToolDef `json:"tools,omitempty"`
 	ToolChoice    interface{}     `json:"tool_choice,omitempty"`
 	Temperature   float32         `json:"temperature,omitempty"`
-	MaxTokens     int             `json:"max_tokens,omitempty"`
+	// FrequencyPenalty / PresencePenalty discourage the model from looping on
+	// the same token/phrase. Local models (llama.cpp) are prone to degenerate
+	// repetition when given an open-ended task ("keep testing"), spinning out
+	// the same sentence until they hit max_tokens (task #6008).
+	FrequencyPenalty float32 `json:"frequency_penalty,omitempty"`
+	PresencePenalty  float32 `json:"presence_penalty,omitempty"`
+	MaxTokens        int     `json:"max_tokens,omitempty"`
 	Stream        bool            `json:"stream"`
 	StreamOptions *StreamOptions  `json:"stream_options,omitempty"`
 	// Ollama-specific

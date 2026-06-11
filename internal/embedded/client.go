@@ -5,11 +5,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 )
+
+// errRepetitionDetected is a sentinel returned from the stream callback to abort
+// generation early when the model degenerates into repeating the same phrase.
+// It is not a real failure: AccumulateStream catches it and returns the partial
+// content with finishReason "repetition" so the caller can stop cleanly instead
+// of burning the whole max_tokens budget on garbage (task #6008).
+var errRepetitionDetected = errors.New("degenerate repetition detected")
 
 // Client communicates with an OpenAI-compatible LLM API.
 type Client struct {
@@ -189,6 +197,10 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 		usage            *ChatUsage
 	)
 
+	// Track buffer sizes at the last repetition check so the (relatively
+	// expensive) scan runs only once per ~400 new chars, not on every tiny delta.
+	var lastRepCheckLen int
+
 	err := c.ChatStream(ctx, req, func(event *StreamEvent) error {
 		if event == nil {
 			return nil
@@ -208,6 +220,18 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 
 		if event.Delta.ReasoningContent != "" {
 			reasoningBuilder.WriteString(event.Delta.ReasoningContent)
+		}
+
+		// Abort early if the model has fallen into degenerate repetition. Check
+		// reasoning and content separately: a reasoning model can loop forever in
+		// reasoning_content while content stays empty (the exact #6008 failure).
+		grown := contentBuilder.Len() + reasoningBuilder.Len()
+		if grown-lastRepCheckLen >= 400 {
+			lastRepCheckLen = grown
+			if isDegenerateRepetition(reasoningBuilder.String()) ||
+				isDegenerateRepetition(contentBuilder.String()) {
+				return errRepetitionDetected
+			}
 		}
 
 		// Accumulate tool calls by their stream Index. The first chunk for an
@@ -236,7 +260,13 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 	})
 
 	if err != nil {
-		return nil, "", nil, err
+		// Repetition abort is not a transport error: keep the partial output and
+		// signal it via a synthetic finish reason so the loop can stop cleanly.
+		if errors.Is(err, errRepetitionDetected) {
+			finishReason = "repetition"
+		} else {
+			return nil, "", nil, err
+		}
 	}
 
 	toolCalls := make([]ToolCall, 0, len(order))
@@ -253,4 +283,67 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 	}
 
 	return msg, finishReason, usage, nil
+}
+
+// isDegenerateRepetition reports whether the tail of s is dominated by the same
+// chunk repeated over and over — the signature of a model stuck in a generation
+// loop. It catches two shapes seen in practice (task #6008):
+//   - the same non-trivial line repeated many times (newline-delimited), and
+//   - a short phrase repeated back-to-back with no newlines.
+//
+// Only the last few KB are inspected so the scan stays cheap, and short/trivial
+// units are ignored so ordinary repetition (e.g. "    " indentation, "yes yes")
+// does not trip it.
+func isDegenerateRepetition(s string) bool {
+	const window = 4000
+	if len(s) > window {
+		s = s[len(s)-window:]
+	}
+	return tailLinesRepeating(s) || tailPhraseRepeating(s)
+}
+
+// tailLinesRepeating returns true when the last several non-empty lines are all
+// identical and non-trivial.
+func tailLinesRepeating(s string) bool {
+	const need = 8
+	lines := strings.Split(s, "\n")
+	last := make([]string, 0, need)
+	for i := len(lines) - 1; i >= 0 && len(last) < need; i-- {
+		if t := strings.TrimSpace(lines[i]); t != "" {
+			last = append(last, t)
+		}
+	}
+	if len(last) < need || len(last[0]) < 10 {
+		return false
+	}
+	for _, l := range last[1:] {
+		if l != last[0] {
+			return false
+		}
+	}
+	return true
+}
+
+// tailPhraseRepeating returns true when the very end of s is a short unit (4..300
+// chars) repeated at least 8 times consecutively, even without line breaks.
+func tailPhraseRepeating(s string) bool {
+	n := len(s)
+	if n < 200 {
+		return false
+	}
+	const reps = 8
+	for p := 4; p <= 300 && p*reps <= n; p++ {
+		unit := s[n-p:]
+		repeated := true
+		for k := 2; k <= reps; k++ {
+			if s[n-p*k:n-p*(k-1)] != unit {
+				repeated = false
+				break
+			}
+		}
+		if repeated {
+			return true
+		}
+	}
+	return false
 }

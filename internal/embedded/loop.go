@@ -131,7 +131,12 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			Tools:         toolDefs,
 			ToolChoice:    "auto",
 			Temperature:   0.7,
-			MaxTokens:     opts.ContextTokens / 4,
+			// Mild penalties to steer local models away from looping on the same
+			// phrase. The streaming repetition guard (AccumulateStream) is the hard
+			// backstop; these just make the loop less likely in the first place.
+			FrequencyPenalty: 0.3,
+			PresencePenalty:  0.3,
+			MaxTokens:        opts.ContextTokens / 4,
 			Stream:        true,
 			StreamOptions: &StreamOptions{IncludeUsage: true},
 		}
@@ -158,6 +163,21 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			if think := strings.TrimSpace(msg.ReasoningContent); think != "" {
 				opts.OnOutput("💭 " + think)
 			}
+		}
+
+		// The stream was aborted because the model degenerated into repeating the
+		// same phrase (task #6008). Stop the whole task: once a local model starts
+		// looping it does not recover, and feeding the garbage back only spreads it.
+		// Checked before tool handling so a stray parse of the repeated text can't
+		// trigger a bogus tool call.
+		if finishReason == "repetition" {
+			return &ExecuteResult{
+				Result:           "",
+				Incomplete:       true,
+				IncompleteReason: "degenerate repetition detected (model looping)",
+				PromptTokens:     totalPromptTokens,
+				CompletionTokens: totalCompletionTokens,
+			}, nil
 		}
 
 		// Handle tool calls (native function-calling)

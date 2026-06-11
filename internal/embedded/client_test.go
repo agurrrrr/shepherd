@@ -3,6 +3,7 @@ package embedded
 import (
 	"context"
 	"net/http"
+	"strings"
 	"net/http/httptest"
 	"testing"
 )
@@ -242,5 +243,28 @@ func TestAccumulateStreamContent(t *testing.T) {
 	}
 	if len(msg.ToolCalls) != 0 {
 		t.Errorf("got %d tool calls, want 0", len(msg.ToolCalls))
+	}
+}
+
+func TestIsDegenerateRepetition(t *testing.T) {
+	line := "Let me test more browser functions - typing text, screenshots, etc."
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"repeated lines", strings.Repeat(line+"\n\n", 30), true},
+		{"repeated phrase no newline", strings.Repeat("blah blah blah ", 40), true},
+		{"normal prose", "First I will open the page. Then I check the title. Finally I screenshot.", false},
+		{"short trivial repeat", strings.Repeat("ok\n", 30), false},
+		{"empty", "", false},
+		{"single occurrence", line, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isDegenerateRepetition(tc.in); got != tc.want {
+				t.Errorf("isDegenerateRepetition(%q...) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
 	}
 }
