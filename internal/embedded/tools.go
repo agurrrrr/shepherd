@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -29,11 +30,11 @@ type MCPDispatcher func(name string, args map[string]interface{}) (string, error
 
 // ToolRegistry holds all tools available to the embedded agent loop.
 type ToolRegistry struct {
-	projectPath  string
-	sheepName    string
-	nativeTools  map[string]toolFunc
-	mcpDefs      []MCPToolDef
-	mcpDispatch  MCPDispatcher
+	projectPath string
+	sheepName   string
+	nativeTools map[string]toolFunc
+	mcpDefs     []MCPToolDef
+	mcpDispatch MCPDispatcher
 	// visionEnabled lets read_file surface image files as viewable images
 	// instead of a "cannot read binary" notice. Set by the loop when the task
 	// prompt carries attached files.
@@ -93,7 +94,9 @@ func (tr *ToolRegistry) DrainPendingImages() []pendingImage {
 	return imgs
 }
 
-type toolFunc func(args map[string]interface{}) (string, error)
+// toolFunc receives the loop's context so task stop (ctx cancel) propagates
+// into long-running tools (notably bash subprocesses).
+type toolFunc func(ctx context.Context, args map[string]interface{}) (string, error)
 
 // NewToolRegistry creates a tool registry with native coding tools and optional MCP tools.
 func NewToolRegistry(projectPath, sheepName string, mcpDefs []MCPToolDef, mcpDispatch MCPDispatcher) *ToolRegistry {
@@ -164,7 +167,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"path":   map[string]interface{}{"type": "string", "description": "Path to the file"},
+						"path":    map[string]interface{}{"type": "string", "description": "Path to the file"},
 						"oldText": map[string]interface{}{"type": "string", "description": "Exact text to find and replace"},
 						"newText": map[string]interface{}{"type": "string", "description": "Replacement text"},
 					},
@@ -234,11 +237,12 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 	return defs
 }
 
-// Dispatch executes a tool call by name and arguments.
-func (tr *ToolRegistry) Dispatch(name string, args map[string]interface{}) (string, error) {
+// Dispatch executes a tool call by name and arguments. The context is passed
+// through to native tools so cancellation/timeout reaches subprocesses.
+func (tr *ToolRegistry) Dispatch(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	// Check native tools first
 	if fn, ok := tr.nativeTools[name]; ok {
-		return fn(args)
+		return fn(ctx, args)
 	}
 
 	// Fall back to MCP tools
@@ -296,7 +300,7 @@ func (tr *ToolRegistry) safePath(p string) (string, error) {
 	return cleaned, nil
 }
 
-func (tr *ToolRegistry) readfile(args map[string]interface{}) (string, error) {
+func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{}) (string, error) {
 	pathStr, _ := args["path"].(string)
 	if pathStr == "" {
 		return "", fmt.Errorf("path is required")
@@ -373,7 +377,7 @@ func (tr *ToolRegistry) readfile(args map[string]interface{}) (string, error) {
 	return content, nil
 }
 
-func (tr *ToolRegistry) writefile(args map[string]interface{}) (string, error) {
+func (tr *ToolRegistry) writefile(_ context.Context, args map[string]interface{}) (string, error) {
 	pathStr, _ := args["path"].(string)
 	content, _ := args["content"].(string)
 	if pathStr == "" || content == "" {
@@ -395,7 +399,7 @@ func (tr *ToolRegistry) writefile(args map[string]interface{}) (string, error) {
 	return fmt.Sprintf("Wrote %d bytes to %s", len(content), path), nil
 }
 
-func (tr *ToolRegistry) editfile(args map[string]interface{}) (string, error) {
+func (tr *ToolRegistry) editfile(_ context.Context, args map[string]interface{}) (string, error) {
 	pathStr, _ := args["path"].(string)
 	oldText, _ := args["oldText"].(string)
 	newText, _ := args["newText"].(string)
@@ -430,7 +434,7 @@ func (tr *ToolRegistry) editfile(args map[string]interface{}) (string, error) {
 	return fmt.Sprintf("Edited %s (replaced %d bytes with %d bytes)", path, len(oldText), len(newText)), nil
 }
 
-func (tr *ToolRegistry) execBash(args map[string]interface{}) (string, error) {
+func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{}) (string, error) {
 	command, _ := args["command"].(string)
 	if command == "" {
 		return "", fmt.Errorf("command is required")
@@ -441,11 +445,18 @@ func (tr *ToolRegistry) execBash(args map[string]interface{}) (string, error) {
 		timeout = int(timeoutVal)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	// Derive a child context from the parent (loop ctx) so that task stop (ctx
+	// cancel) propagates into the subprocess. The timeout is a local cap on top
+	// of the parent's deadline — whichever comes first kills the process.
+	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd := exec.CommandContext(timeoutCtx, "bash", "-c", command)
 	cmd.Dir = tr.projectPath
+
+	// Create a new process group so that on cancel/timeout we can kill the
+	// entire process tree (bash + all children) rather than just the bash shell.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -453,7 +464,7 @@ func (tr *ToolRegistry) execBash(args map[string]interface{}) (string, error) {
 
 	if err := cmd.Run(); err != nil {
 		output := stderr.String()
-		if ctx.Err() != nil {
+		if timeoutCtx.Err() != nil {
 			output = fmt.Sprintf("command timed out after %ds", timeout)
 		} else if exitErr, ok := err.(*exec.ExitError); ok {
 			output = fmt.Sprintf("exit %d: %s", exitErr.ExitCode(), strings.TrimSpace(stderr.String()))
@@ -464,13 +475,22 @@ func (tr *ToolRegistry) execBash(args map[string]interface{}) (string, error) {
 		if stdout.Len() > 0 {
 			output = stdout.String() + "\n" + output
 		}
+
+		// Kill the entire process group on any error (especially ctx cancel or
+		// timeout). exec.CommandContext kills the bash process itself, but child
+		// processes may survive as orphans. Killing the group ensures cleanup.
+		if cmd.Process != nil {
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			cmd.Process.Wait() // avoid zombie
+		}
+
 		return tr.capOutput(output), nil
 	}
 
 	return tr.capOutput(stdout.String()), nil
 }
 
-func (tr *ToolRegistry) execGrep(args map[string]interface{}) (string, error) {
+func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{}) (string, error) {
 	pattern, _ := args["pattern"].(string)
 	if pattern == "" {
 		return "", fmt.Errorf("pattern is required")
@@ -479,7 +499,7 @@ func (tr *ToolRegistry) execGrep(args map[string]interface{}) (string, error) {
 	globPattern, _ := args["glob"].(string)
 
 	// Try ripgrep first
-	cmd := exec.Command("rg", "--color=never", "-n", pattern)
+	cmd := exec.CommandContext(ctx, "rg", "--color=never", "-n", "--", pattern)
 	if globPattern != "" {
 		cmd.Args = append(cmd.Args, "-g", globPattern)
 	}
@@ -537,7 +557,7 @@ func (tr *ToolRegistry) execGrep(args map[string]interface{}) (string, error) {
 	return tr.capOutput(strings.Join(results, "\n")), nil
 }
 
-func (tr *ToolRegistry) execGlob(args map[string]interface{}) (string, error) {
+func (tr *ToolRegistry) execGlob(ctx context.Context, args map[string]interface{}) (string, error) {
 	pattern, _ := args["pattern"].(string)
 	if pattern == "" {
 		return "", fmt.Errorf("pattern is required")
@@ -551,7 +571,7 @@ func (tr *ToolRegistry) execGlob(args map[string]interface{}) (string, error) {
 	// Also try recursive glob
 	if strings.Contains(pattern, "**") {
 		// Use find for recursive matching
-		cmd := exec.Command("find", tr.projectPath, "-type", "f", "-name", strings.ReplaceAll(pattern, "**/", ""))
+		cmd := exec.CommandContext(ctx, "find", tr.projectPath, "-type", "f", "-name", strings.ReplaceAll(pattern, "**/", ""))
 		var stdout bytes.Buffer
 		cmd.Stdout = &stdout
 		if err := cmd.Run(); err == nil {

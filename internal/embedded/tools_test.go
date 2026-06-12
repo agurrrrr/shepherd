@@ -1,6 +1,7 @@
 package embedded
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +40,7 @@ func TestReadfileBinaryGuard(t *testing.T) {
 	if err := os.WriteFile(imgPath, []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x00, 0xFF, 0x00}, 0644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := tr.readfile(map[string]interface{}{"path": "photo.jpg"})
+	out, err := tr.readfile(context.Background(), map[string]interface{}{"path": "photo.jpg"})
 	if err != nil {
 		t.Fatalf("readfile returned error: %v", err)
 	}
@@ -55,7 +56,7 @@ func TestReadfileBinaryGuard(t *testing.T) {
 	if err := os.WriteFile(txtPath, []byte("just text"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	out, err = tr.readfile(map[string]interface{}{"path": "note.txt"})
+	out, err = tr.readfile(context.Background(), map[string]interface{}{"path": "note.txt"})
 	if err != nil {
 		t.Fatalf("readfile text returned error: %v", err)
 	}
@@ -75,7 +76,7 @@ func TestReadfileVisionImage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := tr.readfile(map[string]interface{}{"path": "pic.jpg"})
+	out, err := tr.readfile(context.Background(), map[string]interface{}{"path": "pic.jpg"})
 	if err != nil {
 		t.Fatalf("readfile returned error: %v", err)
 	}
@@ -104,7 +105,7 @@ func TestReadfileVisionDisabledKeepsBinaryNotice(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pic.jpg"), imgBytes, 0644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := tr.readfile(map[string]interface{}{"path": "pic.jpg"})
+	out, err := tr.readfile(context.Background(), map[string]interface{}{"path": "pic.jpg"})
 	if err != nil {
 		t.Fatalf("readfile returned error: %v", err)
 	}

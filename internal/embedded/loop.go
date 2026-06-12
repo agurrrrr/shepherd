@@ -126,19 +126,19 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 		// Build request
 		req := &ChatRequest{
-			Model:         opts.Model,
-			Messages:      messages,
-			Tools:         toolDefs,
-			ToolChoice:    "auto",
-			Temperature:   0.7,
+			Model:       opts.Model,
+			Messages:    messages,
+			Tools:       toolDefs,
+			ToolChoice:  "auto",
+			Temperature: 0.7,
 			// Mild penalties to steer local models away from looping on the same
 			// phrase. The streaming repetition guard (AccumulateStream) is the hard
 			// backstop; these just make the loop less likely in the first place.
 			FrequencyPenalty: 0.3,
 			PresencePenalty:  0.3,
 			MaxTokens:        opts.ContextTokens / 4,
-			Stream:        true,
-			StreamOptions: &StreamOptions{IncludeUsage: true},
+			Stream:           true,
+			StreamOptions:    &StreamOptions{IncludeUsage: true},
 		}
 
 		// Accumulate streaming response
@@ -260,7 +260,11 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 						opts.OnOutput(toolCallHeader(tc.Func.Name, args))
 					}
 
-					result, err := toolRegistry.Dispatch(tc.Func.Name, args)
+					// Route leaked tool calls through dispatchTool so they get the same
+					// protections as native tool calls: 5-minute timeout, ctx cancel
+					// propagation (task stop), and sheep_name injection. Previously this
+					// path called toolRegistry.Dispatch directly, bypassing all guards.
+					result, err := dispatchTool(ctx, toolRegistry, tc.ToolCall, opts)
 					var resultStr string
 					if err != nil {
 						resultStr = fmt.Sprintf("Error: %v", err)
@@ -390,15 +394,16 @@ func dispatchTool(ctx context.Context, tr *ToolRegistry, tc ToolCall, opts Execu
 
 	// Run the tool in a goroutine so a hung tool (e.g. a CDP call stuck
 	// mid-navigation) cannot freeze the agent loop forever (task #5985), and so
-	// task stop (ctx cancel) interrupts the wait. On timeout the goroutine may
-	// leak, but the loop reports the error and keeps going.
+	// task stop (ctx cancel) interrupts the wait. The ctx is also forwarded to
+	// Dispatch so native tools (notably bash) can react to cancellation. On
+	// timeout the goroutine may leak, but the loop reports the error and keeps going.
 	type toolResult struct {
 		result string
 		err    error
 	}
 	done := make(chan toolResult, 1)
 	go func() {
-		result, err := tr.Dispatch(tc.Func.Name, args)
+		result, err := tr.Dispatch(ctx, tc.Func.Name, args)
 		done <- toolResult{result, err}
 	}()
 

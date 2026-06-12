@@ -10,7 +10,7 @@ import (
 // leakedToolCallMarkers defines pairs of markers that indicate a leaked tool call
 // embedded in the model's text output.
 type leakedMarkerPair struct {
-	open string
+	open  string
 	close string
 }
 
@@ -95,6 +95,11 @@ func tryParseToolCallBlock(block string, pair leakedMarkerPair) []*ParsedToolCal
 	return findJSONObjects(content, block)
 }
 
+// leakedCallSeq is a monotonically increasing counter for generating unique
+// tool_call_id values for leaked (text-embedded) tool calls. Without uniqueness,
+// servers that validate tool_call_id matching (vLLM, llama.cpp) reject the request.
+var leakedCallSeq int
+
 // tryParseToolCallJSON attempts to parse a string as a tool call JSON object.
 // Handles three formats:
 //
@@ -123,8 +128,9 @@ func tryParseToolCallJSON(s string) *ToolCall {
 				argsStr = decoded
 			}
 		}
+		leakedCallSeq++
 		return &ToolCall{
-			ID:   "leaked-" + raw.Name,
+			ID:   fmt.Sprintf("leaked-%s-%d", raw.Name, leakedCallSeq),
 			Type: "function",
 			Func: ToolCallFunction{Name: raw.Name, Args: argsStr},
 		}
@@ -133,6 +139,11 @@ func tryParseToolCallJSON(s string) *ToolCall {
 	// Format 3: full OpenAI tool call JSON
 	var tc ToolCall
 	if err := json.Unmarshal([]byte(s), &tc); err == nil && tc.Func.Name != "" {
+		if strings.HasPrefix(tc.ID, "leaked-") {
+			// Ensure uniqueness for leaked IDs that came from the model itself
+			leakedCallSeq++
+			tc.ID = fmt.Sprintf("leaked-%s-%d", tc.Func.Name, leakedCallSeq)
+		}
 		return &tc
 	}
 
@@ -320,7 +331,7 @@ func stripCodeFence(s string) string {
 	// Remove ```json or ``` at start
 	s = regexp.MustCompile("^"+backticks+"(?:json)?\\s*").ReplaceAllString(s, "")
 	// Remove ``` at end
-	s = regexp.MustCompile("\\s*" + backticks + "\\s*$").ReplaceAllString(s, "")
+	s = regexp.MustCompile("\\s*"+backticks+"\\s*$").ReplaceAllString(s, "")
 	return strings.TrimSpace(s)
 }
 
