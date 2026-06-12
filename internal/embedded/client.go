@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 // errRepetitionDetected is a sentinel returned from the stream callback to abort
@@ -40,13 +42,13 @@ func NewClient(baseURL, apiKey, model string) *Client {
 // StreamEvent is a single SSE chunk from streaming response.
 type StreamEvent struct {
 	// Delta contains the incremental content or tool call updates.
-	Delta        ChatDelta  `json:"delta"`
+	Delta ChatDelta `json:"delta"`
 	// FinishReason is "stop" or "tool_calls" when the stream ends.
-	FinishReason *string    `json:"finish_reason,omitempty"`
+	FinishReason *string `json:"finish_reason,omitempty"`
 	// Usage is included in the final chunk.
-	Usage        *ChatUsage `json:"usage,omitempty"`
+	Usage *ChatUsage `json:"usage,omitempty"`
 	// Raw is the raw JSON line (useful for debugging).
-	Raw          json.RawMessage `json:"-"`
+	Raw json.RawMessage `json:"-"`
 }
 
 // Chat sends a chat request and returns the full response (non-streaming).
@@ -123,63 +125,122 @@ func (c *Client) ChatStream(ctx context.Context, req *ChatRequest, cb func(*Stre
 		return fmt.Errorf("API error %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 
-	// Parse SSE stream
+	// --- B1: idle timeout — abort stream if no chunk arrives for 5 minutes.
+	// The http.Client has no Timeout (streaming), and ctx may have no deadline,
+	// so a stalled server would block scanner.Scan() forever. We use a timer
+	// that resets on every successful chunk read; when it fires we cancel the
+	// context and close the body to unblock the scanner.
+	const idleTimeout = 5 * time.Minute
+	parentCtx := ctx
+	ctx, cancel := context.WithCancel(parentCtx)
+	defer cancel()
+
+	var idleTriggered atomic.Bool
+	var idleTimer *time.Timer
+	idleDone := make(chan struct{})
+	go func() {
+		defer close(idleDone)
+		select {
+		case <-ctx.Done():
+			return
+		case <-idleTimer.C:
+			idleTriggered.Store(true)
+			cancel() // unblocks scanner.Scan() via resp.Body read error
+			return
+		}
+	}()
+
+	resetIdle := func() {
+		if idleTimer == nil {
+			idleTimer = time.AfterFunc(idleTimeout, func() {})
+		} else {
+			idleTimer.Reset(idleTimeout)
+		}
+	}
+	resetIdle()
+
+	// --- SSE parsing ---
 	var buf bytes.Buffer
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 256*1024)
 
+	flushBuffer := func(data string) error {
+		data = strings.TrimSpace(data)
+		if data == "" || data == "[DONE]" {
+			return nil
+		}
+
+		var rawMsg json.RawMessage
+		if err := json.Unmarshal([]byte(data), &rawMsg); err != nil {
+			return nil // skip malformed lines
+		}
+
+		var event StreamEvent
+		event.Raw = rawMsg
+
+		type sseChoice struct {
+			Index        int       `json:"index"`
+			Delta        ChatDelta `json:"delta"`
+			FinishReason *string   `json:"finish_reason"`
+		}
+		type sseResponse struct {
+			Choices []sseChoice `json:"choices"`
+			Usage   *ChatUsage  `json:"usage,omitempty"`
+		}
+
+		var sseResp sseResponse
+		if err := json.Unmarshal(rawMsg, &sseResp); err != nil {
+			return nil
+		}
+
+		if len(sseResp.Choices) > 0 {
+			choice := sseResp.Choices[0]
+			event.Delta = choice.Delta
+			event.FinishReason = choice.FinishReason
+		}
+		event.Usage = sseResp.Usage
+
+		return cb(&event)
+	}
+
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// Buffer multi-line SSE data
 		if strings.HasPrefix(line, "data: ") {
 			buf.WriteString(line[6:])
 		} else if line == "" && buf.Len() > 0 {
-			data := strings.TrimSpace(buf.String())
-			buf.Reset()
-
-			if data == "[DONE]" {
-				break
-			}
-
-			var rawMsg json.RawMessage
-			if err := json.Unmarshal([]byte(data), &rawMsg); err != nil {
-				continue
-			}
-
-			var event StreamEvent
-			event.Raw = rawMsg
-
-			type sseChoice struct {
-				Index        int         `json:"index"`
-				Delta        ChatDelta   `json:"delta"`
-				FinishReason *string     `json:"finish_reason"`
-			}
-			type sseResponse struct {
-				Choices []sseChoice `json:"choices"`
-				Usage   *ChatUsage  `json:"usage,omitempty"`
-			}
-
-			var sseResp sseResponse
-			if err := json.Unmarshal(rawMsg, &sseResp); err != nil {
-				continue
-			}
-
-			if len(sseResp.Choices) > 0 {
-				choice := sseResp.Choices[0]
-				event.Delta = choice.Delta
-				event.FinishReason = choice.FinishReason
-			}
-			event.Usage = sseResp.Usage
-
-			if err := cb(&event); err != nil {
+			if err := flushBuffer(buf.String()); err != nil {
 				return fmt.Errorf("stream callback: %w", err)
 			}
+			buf.Reset()
+			resetIdle() // B1: received a chunk — reset idle timer
+		}
+	}
+
+	// A6: After the scanner loop ends, flush any remaining data in the buffer.
+	// Some servers close the connection without a trailing blank line after the
+	// last data: chunk, which would silently discard finish_reason/usage.
+	if buf.Len() > 0 {
+		if err := flushBuffer(buf.String()); err != nil {
+			return fmt.Errorf("stream callback: %w", err)
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
+		// B1: if the idle timer fired, return a clear error.
+		if idleTriggered.Load() {
+			return fmt.Errorf("stream idle timeout after 5m")
+		}
 		return fmt.Errorf("scan SSE: %w", err)
+	}
+
+	cancel()
+	idleTimer.Stop()
+	<-idleDone
+
+	// B1: If the parent context was cancelled (not by us), propagate that.
+	if idleTriggered.Load() {
+		return fmt.Errorf("stream idle timeout after 5m")
 	}
 
 	return nil
