@@ -5,28 +5,27 @@
 	// `working` is the list of currently-working sheep ({ name, project, provider, status }).
 	// Parent keeps it fresh via dashboard SSE refreshes; this component layers live
 	// output streaming on top via its own 'output' subscription.
-	export let working = [];
-	export let onClose = () => {};
+	let { working = [], onClose = () => {} } = $props();
 
 	let unsubscribers = [];
 	// sheep name → array of streamed lines
 	let outputs = $state({});
 
 	// Viewport-driven layout
-	let vw = 0;
-	let vh = 0;
+	let vw = $state(0);
+	let vh = $state(0);
 
 	// Cap at 9 tiles (3×3). Extra working sheep are noted but not rendered.
-	$: tiles = (working || []).slice(0, 9);
-	$: hiddenCount = Math.max(0, (working || []).length - tiles.length);
+	const tiles = $derived((working || []).slice(0, 9));
+	const hiddenCount = $derived(Math.max(0, (working || []).length - tiles.length));
 
-	$: grid = computeGrid(tiles.length, vw, vh);
+	const grid = $derived(computeGrid(tiles.length, vw, vh));
 	// Font size scales with the smaller tile dimension so text stays readable but
 	// packs tightly as more tiles appear.
-	$: tileW = grid.cols > 0 ? vw / grid.cols : vw;
-	$: tileH = grid.rows > 0 ? vh / grid.rows : vh;
-	$: fontPx = clamp(9, Math.round(Math.min(tileW / 48, tileH / 26)), 16);
-	$: headerPx = clamp(10, fontPx + 1, 17);
+	const tileW = $derived(grid.cols > 0 ? vw / grid.cols : vw);
+	const tileH = $derived(grid.rows > 0 ? vh / grid.rows : vh);
+	const fontPx = $derived(clamp(9, Math.round(Math.min(tileW / 48, tileH / 26)), 16));
+	const headerPx = $derived(clamp(10, fontPx + 1, 17));
 
 	function clamp(min, v, max) {
 		return Math.max(min, Math.min(max, v));

@@ -5,18 +5,18 @@
 	import { onSSE } from '$lib/sse.js';
 	import { apiPost } from '$lib/api.js';
 
-	export let name = '';
-	export let project = '';
-	export let status = 'idle';
-	export let provider = 'claude';
+	let { name = '', project = '', status: initialStatus = 'idle', provider = 'claude' } = $props();
 
-	let output = [];
+	// Svelte 5 runes mode doesn't allow mutating props directly, so we keep a local reactive copy.
+	let status = $state(initialStatus);
+
+	let output = $state([]);
 	let unsubscribers = [];
-	let injectText = '';
-	let injecting = false;
-	let injectError = '';
+	let injectText = $state('');
+	let injecting = $state(false);
+	let injectError = $state('');
 
-	$: lastLogLine = output.length > 0 ? output[output.length - 1] : '';
+	const lastLogLine = $derived(output.length > 0 ? output[output.length - 1] : '');
 
 	onMount(() => {
 		unsubscribers.push(onSSE('output', (data) => {
