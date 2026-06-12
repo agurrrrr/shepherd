@@ -284,7 +284,10 @@ func isBinary(data []byte) bool {
 // -- Native tool implementations --
 
 func (tr *ToolRegistry) safePath(p string) (string, error) {
-	// Prevent path traversal outside project directory
+	// Prevent path traversal outside project directory.
+	// NOTE: safePath is not a hard security boundary — it's a model mistake guard.
+	// The bash tool can still escape via `cd` since cmd.Dir only sets the working
+	// directory (tools.go:448), not a chroot jail.
 	cleaned := filepath.Clean(p)
 	if cleaned == "." || cleaned == "/" {
 		cleaned = tr.projectPath
@@ -292,9 +295,11 @@ func (tr *ToolRegistry) safePath(p string) (string, error) {
 	if !filepath.IsAbs(cleaned) {
 		cleaned = filepath.Join(tr.projectPath, cleaned)
 	}
-	// Ensure the path is within project directory
+	// Ensure the path is within project directory.
+	// Use rel == ".." || strings.HasPrefix(rel, "../") to avoid false positives
+	// on legitimate filenames like "..foo" that happen to start with two dots.
 	rel, err := filepath.Rel(tr.projectPath, cleaned)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
 		return "", fmt.Errorf("path %q is outside project directory", p)
 	}
 	return cleaned, nil
@@ -380,8 +385,8 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 func (tr *ToolRegistry) writefile(_ context.Context, args map[string]interface{}) (string, error) {
 	pathStr, _ := args["path"].(string)
 	content, _ := args["content"].(string)
-	if pathStr == "" || content == "" {
-		return "", fmt.Errorf("path and content are required")
+	if pathStr == "" {
+		return "", fmt.Errorf("path is required")
 	}
 	path, err := tr.safePath(pathStr)
 	if err != nil {
@@ -404,7 +409,7 @@ func (tr *ToolRegistry) editfile(_ context.Context, args map[string]interface{})
 	oldText, _ := args["oldText"].(string)
 	newText, _ := args["newText"].(string)
 	if pathStr == "" || oldText == "" {
-		return "", fmt.Errorf("path, oldText, and newText are required")
+		return "", fmt.Errorf("path and oldText are required")
 	}
 	path, err := tr.safePath(pathStr)
 	if err != nil {
@@ -521,34 +526,48 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 		return tr.capOutput(stdout.String()), nil
 	}
 
-	// Fallback: Go regex search
+	// Fallback: Go regex recursive search using filepath.WalkDir.
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return "", fmt.Errorf("invalid regex pattern: %w", err)
 	}
 
 	var results []string
-	filePattern := "*"
-	if globPattern != "" {
-		filePattern = globPattern
+	fileFilter, err := regexp.Compile("^" + strings.ReplaceAll(filepath.Clean(globPattern), "**/", ".*") + "$")
+	if globPattern == "" || err != nil {
+		// No glob filter or invalid pattern — match all files
+		fileFilter = regexp.MustCompile(".*")
 	}
 
-	matches, _ := filepath.Glob(filepath.Join(tr.projectPath, filePattern))
-	for _, m := range matches {
-		info, err := os.Stat(m)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		data, err := os.ReadFile(m)
+	err = filepath.WalkDir(tr.projectPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			continue
+			return nil // skip errors, continue walking
 		}
+		if d.IsDir() {
+			// Skip hidden directories and common non-source dirs
+			if strings.HasPrefix(d.Name(), ".") && d.Name() != "." {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !fileFilter.MatchString(filepath.Base(path)) {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		relPath, _ := filepath.Rel(tr.projectPath, path)
 		lines := strings.Split(string(data), "\n")
 		for i, line := range lines {
 			if re.MatchString(line) {
-				results = append(results, fmt.Sprintf("%s:%d:%s", filepath.Base(m), i+1, line))
+				results = append(results, fmt.Sprintf("%s:%d:%s", relPath, i+1, line))
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("walk error: %w", err)
 	}
 
 	if len(results) == 0 {
@@ -563,26 +582,108 @@ func (tr *ToolRegistry) execGlob(ctx context.Context, args map[string]interface{
 		return "", fmt.Errorf("pattern is required")
 	}
 
-	matches, err := filepath.Glob(filepath.Join(tr.projectPath, pattern))
-	if err != nil {
-		return "", fmt.Errorf("glob error: %w", err)
-	}
-
-	// Also try recursive glob
-	if strings.Contains(pattern, "**") {
-		// Use find for recursive matching
-		cmd := exec.CommandContext(ctx, "find", tr.projectPath, "-type", "f", "-name", strings.ReplaceAll(pattern, "**/", ""))
-		var stdout bytes.Buffer
-		cmd.Stdout = &stdout
-		if err := cmd.Run(); err == nil {
-			matches = strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	// Use filepath.WalkDir for recursive matching (handles ** correctly).
+	var matches []string
+	err := filepath.WalkDir(tr.projectPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip errors, continue walking
 		}
+		if d.IsDir() {
+			// Skip hidden directories (including .git, .gitignore files in dirs)
+			if strings.HasPrefix(d.Name(), ".") && d.Name() != "." {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Get path relative to project root for matching
+		rel, err := filepath.Rel(tr.projectPath, path)
+		if err != nil {
+			return nil
+		}
+
+		if matchGlob(rel, pattern) {
+			matches = append(matches, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("walk error: %w", err)
 	}
 
 	if len(matches) == 0 {
 		return "No files found", nil
 	}
 	return strings.Join(matches, "\n"), nil
+}
+
+// matchGlob matches a relative file path against a glob pattern that may contain **
+// for recursive directory matching. For example: "**/*.go" matches "foo/bar.go",
+// "src/**/*.go" matches "src/main.go" and "src/internal/helper.go".
+func matchGlob(path, pattern string) bool {
+	if !strings.Contains(pattern, "**") {
+		// Simple glob — use filepath.Match directly
+		matched, _ := filepath.Match(pattern, path)
+		return matched
+	}
+
+	// Convert glob pattern with ** to regex:
+	//   **/  →  (.*\/)?       (zero or more directory levels)
+	//   **   →  .*            (anything including /)
+	//   *    →  [^/]*         (single level wildcard)
+	// Other special chars are regex-escaped.
+
+	// First, escape all regex special chars except * and /
+	reStr := "^"
+	i := 0
+	for i < len(pattern) {
+		ch := pattern[i]
+
+		// Handle ** (double-star)
+		if ch == '*' && i+1 < len(pattern) && pattern[i+1] == '*' {
+			i += 2
+			// If followed by /, it matches zero or more dir levels
+			if i < len(pattern) && pattern[i] == '/' {
+				reStr += ".*" // **/ matches any depth including zero (handled by optional groups)
+				i++
+				continue
+			} else if i < len(pattern) && pattern[i] == '\\' {
+				reStr += ".*"
+				i++
+				continue
+			} else {
+				// Trailing ** (e.g., "src/**") — match everything remaining
+				reStr += ".*"
+				continue
+			}
+		}
+
+		// Handle single * (matches within a single directory level)
+		if ch == '*' {
+			reStr += "[^/]*"
+			i++
+			continue
+		}
+
+		// Escape regex special characters
+		switch ch {
+		case '.', '+', '?', '[', ']', '(', ')', '{', '}', '|', '^', '$', '\\':
+			reStr += "\\" + string(ch)
+		default:
+			reStr += string(ch)
+		}
+		i++
+	}
+	reStr += "$"
+
+	re, err := regexp.Compile(reStr)
+	if err != nil {
+		// Fallback to filepath.Match on compile error
+		matched, _ := filepath.Match(pattern, path)
+		return matched
+	}
+
+	return re.MatchString(path)
 }
 
 func (tr *ToolRegistry) capOutput(s string) string {
