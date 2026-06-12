@@ -10,7 +10,7 @@
 
 	let unsubscribers = [];
 	// sheep name → array of streamed lines
-	let outputs = {};
+	let outputs = $state({});
 
 	// Viewport-driven layout
 	let vw = 0;
