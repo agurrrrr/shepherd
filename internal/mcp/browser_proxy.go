@@ -16,7 +16,8 @@ import (
 // forwarders without dragging the chromium-DevTools dependency into its
 // import graph.
 var browserToolNames = []string{
-	"browser_session_start", "browser_session_stop", "browser_list_pages",
+	"browser_session_start", "browser_session_stop", "browser_list_sessions",
+	"browser_list_pages",
 	"browser_open", "browser_close", "browser_navigate", "browser_reload",
 	"browser_back", "browser_forward",
 	"browser_click", "browser_type", "browser_select", "browser_check",

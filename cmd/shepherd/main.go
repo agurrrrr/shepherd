@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	cryptoRand "crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -2686,34 +2689,52 @@ var browserStatusCmd = &cobra.Command{
 	Short: "Show browser session status",
 	Long:  "Displays the status of all active browser sessions across all sheep.",
 	Run: func(cmd *cobra.Command, args []string) {
-		mgr := browser.GetManager()
-		names := mgr.ListSessions()
-		if len(names) == 0 {
-			fmt.Println("No active browser sessions.")
-			return
+		info, err := daemon.ReadRuntime()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Shepherd daemon is not running: %v\n", err)
+			os.Exit(1)
 		}
 
-		fmt.Printf("Active browser sessions (%d):\n", len(names))
-		for _, name := range names {
-			sess := mgr.GetSession(name)
-			if sess == nil {
-				continue
-			}
-			info := sess.Info()
-			headless := "headed"
-			if info.Headless {
-				headless = "headless"
-			}
-			fmt.Printf("  🌐 %s [%s] — %d page(s)\n", info.SheepName, headless, info.PageCount)
-			pages := sess.ListPages()
-			for _, p := range pages {
-				defaultMark := ""
-				if p.IsDefault {
-					defaultMark = " (default)"
-				}
-				fmt.Printf("     📄 %s%s — %s\n", p.Name, defaultMark, p.URL)
-			}
+		body, _ := json.Marshal(map[string]interface{}{
+			"tool": "browser_list_sessions",
+			"args": map[string]interface{}{},
+		})
+
+		req, err := http.NewRequest(http.MethodPost, info.Addr+"/api/_internal/mcp/call", bytes.NewReader(body))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create request: %v\n", err)
+			os.Exit(1)
 		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-MCP-Token", info.MCPToken)
+
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Daemon unreachable at %s: %v\n", info.Addr, err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+
+		raw, _ := io.ReadAll(resp.Body)
+		var envelope struct {
+			Success bool        `json:"success"`
+			Data    interface{} `json:"data"`
+			Error   string      `json:"error"`
+		}
+		if err := json.Unmarshal(raw, &envelope); err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid daemon response: %s\n", string(raw))
+			os.Exit(1)
+		}
+		if !envelope.Success {
+			fmt.Fprintf(os.Stderr, "Daemon error: %s\n", envelope.Error)
+			os.Exit(1)
+		}
+		if dataStr, ok := envelope.Data.(string); ok {
+			fmt.Println(dataStr)
+			return
+		}
+		fmt.Println("Unexpected data type from daemon")
 	},
 }
 

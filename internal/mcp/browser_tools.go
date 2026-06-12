@@ -14,6 +14,7 @@ func (s *Server) registerBrowserTools() {
 	// 세션 관리
 	s.tools["browser_session_start"] = handleBrowserSessionStart
 	s.tools["browser_session_stop"] = handleBrowserSessionStop
+	s.tools["browser_list_sessions"] = handleBrowserListSessions
 	s.tools["browser_list_pages"] = handleBrowserListPages
 
 	// 페이지 제어
@@ -84,6 +85,14 @@ func getBrowserToolsList() []Tool {
 					"sheep_name": {Type: "string", Description: "양 이름"},
 				},
 				Required: []string{"sheep_name"},
+			},
+		},
+		{
+			Name:        "browser_list_sessions",
+			Description: "모든 활성 브라우저 세션 목록을 반환합니다",
+			InputSchema: InputSchema{
+				Type:       "object",
+				Properties: map[string]Property{},
 			},
 		},
 		{
@@ -528,6 +537,37 @@ func handleBrowserSessionStop(args map[string]interface{}) (string, error) {
 	}
 
 	return fmt.Sprintf("브라우저 세션 종료됨 (양: %s)", sheepName), nil
+}
+
+func handleBrowserListSessions(_ map[string]interface{}) (string, error) {
+	mgr := browser.GetManager()
+	names := mgr.ListSessions()
+	if len(names) == 0 {
+		return "No active browser sessions.", nil
+	}
+
+	result := fmt.Sprintf("Active browser sessions (%d):\n", len(names))
+	for _, name := range names {
+		sess := mgr.GetSession(name)
+		if sess == nil {
+			continue
+		}
+		info := sess.Info()
+		headless := "headed"
+		if info.Headless {
+			headless = "headless"
+		}
+		result += fmt.Sprintf("  🌐 %s [%s] — %d page(s)\n", info.SheepName, headless, info.PageCount)
+		pages := sess.ListPages()
+		for _, p := range pages {
+			defaultMark := ""
+			if p.IsDefault {
+				defaultMark = " (default)"
+			}
+			result += fmt.Sprintf("     📄 %s%s — %s\n", p.Name, defaultMark, p.URL)
+		}
+	}
+	return result, nil
 }
 
 func handleBrowserListPages(args map[string]interface{}) (string, error) {
