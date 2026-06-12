@@ -1,6 +1,9 @@
 package embedded
 
 import (
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -411,21 +414,21 @@ func TestFindJSONObjects(t *testing.T) {
 			wantArgs:  `{"a":{"b":{"c":{"d":{"e":"extreme"}}}}}`,
 		},
 		{
-			name: "two tool calls in text",
-			text: "Let me run this: {\"name\":\"bash\",\"arguments\":{\"command\":\"pwd\"}} and then {\"name\":\"get_status\",\"arguments\":{}}",
+			name:      "two tool calls in text",
+			text:      "Let me run this: {\"name\":\"bash\",\"arguments\":{\"command\":\"pwd\"}} and then {\"name\":\"get_status\",\"arguments\":{}}",
 			wantCount: 2,
 			wantName:  "bash",
 		},
 		{
-			name: "nested braces with string containing braces",
-			text: `{"name":"bash","arguments":{"command":"echo '{hello}'"}}`,
+			name:      "nested braces with string containing braces",
+			text:      `{"name":"bash","arguments":{"command":"echo '{hello}'"}}`,
 			wantCount: 1,
 			wantName:  "bash",
 			wantArgs:  `{"command":"echo '{hello}'"}`,
 		},
 		{
-			name: "unmatched opening brace ignored",
-			text: `some text { not closed and {"name":"bash","arguments":{"command":"ls"}}`,
+			name:      "unmatched opening brace ignored",
+			text:      `some text { not closed and {"name":"bash","arguments":{"command":"ls"}}`,
 			wantCount: 1,
 			wantName:  "bash",
 			wantArgs:  `{"command":"ls"}`,
@@ -449,5 +452,284 @@ func TestFindJSONObjects(t *testing.T) {
 				t.Errorf("tool call[0].Args = %q, want %q", got[0].Func.Args, tt.wantArgs)
 			}
 		})
+	}
+}
+
+// ─────────────────────────────────────────────
+// A4: Leaked tool call ID uniqueness
+// ─────────────────────────────────────────────
+
+// TestLeakedToolCallUniqueIDs verifies that calling the same tool twice via the
+// leaked path produces unique IDs (A4). Before the fix, both calls got
+// "leaked-bash" as the ID, causing duplicate key errors on servers that validate
+// tool_call_id matching.
+func TestLeakedToolCallUniqueIDs(t *testing.T) {
+	// Reset counter for deterministic test
+	seqBefore := leakedCallSeq
+
+	tests := []struct {
+		name string
+		text string
+	}{
+		{
+			name: "same tool twice in one message",
+			text: `<tool_call>{"name":"bash","arguments":{"command":"ls"}}</tool_call> and <tool_call>{"name":"bash","arguments":{"command":"pwd"}}</tool_call>`,
+		},
+		{
+			name: "different tools",
+			text: `<tool_call>{"name":"bash","arguments":{"command":"ls"}}</tool_call> then <tool_call>{"name":"get_status","arguments":{}}</tool_call>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseLeakedToolCalls(tt.text)
+			if len(got) == 0 {
+				t.Fatal("no leaked tool calls parsed")
+			}
+
+			// Check all IDs are unique within this batch
+			seen := make(map[string]int)
+			for i, tc := range got {
+				if prev, dup := seen[tc.ID]; dup {
+					t.Errorf("duplicate ID %q at index %d (first seen at %d)", tc.ID, i, prev)
+				}
+				seen[tc.ID] = i
+			}
+
+			// Check that IDs follow the leaked-{name}-{seq} format
+			for _, tc := range got {
+				if !strings.HasPrefix(tc.ID, "leaked-") {
+					t.Errorf("ID %q doesn't start with leaked-", tc.ID)
+				}
+				// Verify the ID contains a number (the sequence)
+				parts := strings.SplitN(strings.TrimPrefix(tc.ID, "leaked-"), "-", 2)
+				if len(parts) < 2 {
+					t.Errorf("ID %q doesn't contain sequence number", tc.ID)
+				} else {
+					var seq int
+					_, err := fmt.Sscanf(parts[1], "%d", &seq)
+					if err != nil || seq <= 0 {
+						t.Errorf("ID %q has invalid sequence: %q", tc.ID, parts[1])
+					}
+				}
+			}
+
+			// Verify the counter actually advanced (uniqueness across calls)
+			if leakedCallSeq <= seqBefore {
+				t.Errorf("leakedCallSeq didn't advance: before=%d, after=%d", seqBefore, leakedCallSeq)
+			}
+			seqBefore = leakedCallSeq
+		})
+	}
+}
+
+// TestLeakedToolCallUniqueIDsAcrossCalls verifies that even when parseLeakedToolCalls
+// is called multiple times (simulating multiple iterations), IDs remain unique.
+func TestLeakedToolCallUniqueIDsAcrossCalls(t *testing.T) {
+	allIDs := make(map[string]bool)
+
+	for i := 0; i < 5; i++ {
+		text := `<tool_call>{"name":"bash","arguments":{"command":"ls"}}</tool_call>`
+		got := parseLeakedToolCalls(text)
+		if len(got) != 1 {
+			t.Fatalf("iteration %d: expected 1 tool call, got %d", i, len(got))
+		}
+		if allIDs[got[0].ID] {
+			t.Errorf("iteration %d: duplicate ID %q", i, got[0].ID)
+		}
+		allIDs[got[0].ID] = true
+	}
+
+	if len(allIDs) != 5 {
+		t.Errorf("expected 5 unique IDs, got %d", len(allIDs))
+	}
+}
+
+// ─────────────────────────────────────────────
+// A3: removeLeakedMarkers — strips marker blocks from content
+// ─────────────────────────────────────────────
+
+func TestRemoveLeakedMarkers(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "single marker block",
+			input:    `thinking <tool_call>{"name":"bash","arguments":{"command":"ls"}}</tool_call> done`,
+			expected: "thinking done",
+		},
+		{
+			name:     "marker block only",
+			input:    `<tool_call>{"name":"bash","arguments":{"command":"ls"}}</tool_call>`,
+			expected: "",
+		},
+		{
+			name:     "two marker blocks with prose between",
+			input:    `start <tool_call>{"name":"bash","arguments":{"command":"ls"}}</tool_call> middle <tool_call>{"name":"get_status","arguments":{}}</tool_call> end`,
+			expected: "start middle end",
+		},
+		{
+			name:     "no markers",
+			input:    `just plain text`,
+			expected: "just plain text",
+		},
+		{
+			name:     "xml-style markers",
+			input:    `<|tool▁calls▁begin|>{"name":"bash"}<|tool▁calls▁end|>`,
+			expected: "",
+		},
+		{
+			name:     "prose before and after xml markers",
+			input:    `before <|tool▁calls▁begin|>{"name":"bash"}<|tool▁calls▁end|> after`,
+			expected: "before after",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := removeLeakedMarkers(tt.input)
+			if got != tt.expected {
+				t.Errorf("removeLeakedMarkers(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+// ─────────────────────────────────────────────
+// A3: sanitizeLeakedToolCalls — same as native path
+// ─────────────────────────────────────────────
+
+func TestSanitizeLeakedToolCalls(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []ToolCall
+		wantArgs []string // expected args after sanitization, "" means unchanged
+	}{
+		{
+			name: "valid JSON unchanged",
+			input: []ToolCall{
+				{ID: "t1", Type: "function", Func: ToolCallFunction{Name: "bash", Args: `{"command":"ls"}`}},
+			},
+			wantArgs: []string{`{"command":"ls"}`},
+		},
+		{
+			name: "empty args replaced with {}",
+			input: []ToolCall{
+				{ID: "t1", Type: "function", Func: ToolCallFunction{Name: "bash", Args: ""}},
+			},
+			wantArgs: []string{"{}"},
+		},
+		{
+			name: "truncated args repaired",
+			input: []ToolCall{
+				{ID: "t1", Type: "function", Func: ToolCallFunction{Name: "bash", Args: `{"command":"ls -la`}},
+			},
+			wantArgs: []string{`{"command":"ls -la"}`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeLeakedToolCalls(tt.input)
+			if len(got) != len(tt.wantArgs) {
+				t.Fatalf("got %d tool calls, want %d", len(got), len(tt.wantArgs))
+			}
+			for i, want := range tt.wantArgs {
+				if got[i].Func.Args != want {
+					t.Errorf("tool[%d].Args = %q, want %q", i, got[i].Func.Args, want)
+				}
+			}
+		})
+	}
+}
+
+// ─────────────────────────────────────────────
+// A3: Full leaked message reconstruction integration test
+// ─────────────────────────────────────────────
+
+// TestLeakedMessageReconstruction verifies that the reconstructed assistant message
+// from a leaked tool call path: (1) has no marker text in content, (2) has ToolCalls
+// properly populated, (3) tool messages' ToolCallID matches the assistant's tool_calls.
+func TestLeakedMessageReconstruction(t *testing.T) {
+	// Simulate what the loop does for leaked tool calls.
+	content := `Let me check: <tool_call>{"name":"bash","arguments":{"command":"ls -la"}}</tool_call> and <tool_call>{"name":"get_status","arguments":{}}</tool_call> done.`
+
+	leaked := parseLeakedToolCalls(content)
+	if len(leaked) != 2 {
+		t.Fatalf("expected 2 leaked tool calls, got %d", len(leaked))
+	}
+
+	// Step 1: Build reconstructed assistant message (same as loop.go)
+	toolCalls := make([]ToolCall, 0, len(leaked))
+	for _, tc := range leaked {
+		toolCalls = append(toolCalls, tc.ToolCall)
+	}
+	toolCalls = sanitizeLeakedToolCalls(toolCalls)
+
+	cleanContent := removeLeakedMarkers(content)
+
+	assistantMsg := ChatMessage{
+		Role:      ChatRoleAssistant,
+		Content:   cleanContent,
+		ToolCalls: toolCalls,
+	}
+
+	// Assertion 1: No marker text in content
+	if strings.Contains(assistantMsg.Content, "<tool_call>") {
+		t.Errorf("reconstructed content still contains marker '<tool_call>': %q", assistantMsg.Content)
+	}
+	if strings.Contains(assistantMsg.Content, "</tool_call>") {
+		t.Errorf("reconstructed content still contains marker '</tool_call>': %q", assistantMsg.Content)
+	}
+
+	// Assertion 2: ToolCalls properly populated
+	if len(assistantMsg.ToolCalls) != 2 {
+		t.Errorf("expected 2 tool_calls, got %d", len(assistantMsg.ToolCalls))
+	}
+
+	// Assertion 3: ToolCall IDs are unique
+	idSet := make(map[string]bool)
+	for _, tc := range assistantMsg.ToolCalls {
+		if idSet[tc.ID] {
+			t.Errorf("duplicate tool_call_id: %q", tc.ID)
+		}
+		idSet[tc.ID] = true
+	}
+
+	// Assertion 4: Simulate tool result messages and verify ID matching
+	for i, tc := range leaked {
+		toolMsg := ChatMessage{
+			Role:       ChatRoleTool,
+			Content:    "result",
+			ToolCallID: tc.ID,
+		}
+		// The tool message's ToolCallID should match one of the assistant's tool_calls
+		found := false
+		for _, atc := range assistantMsg.ToolCalls {
+			if atc.ID == toolMsg.ToolCallID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("tool message[%d] ToolCallID %q doesn't match any assistant tool_call", i, toolMsg.ToolCallID)
+		}
+	}
+
+	// Assertion 5: Verify the reconstructed message marshals to valid JSON
+	data, err := json.Marshal(assistantMsg)
+	if err != nil {
+		t.Fatalf("failed to marshal reconstructed message: %v", err)
+	}
+
+	var unmarshaled ChatMessage
+	if err := json.Unmarshal(data, &unmarshaled); err != nil {
+		t.Fatalf("failed to unmarshal reconstructed message: %v", err)
+	}
+	if len(unmarshaled.ToolCalls) != 2 {
+		t.Errorf("round-trip: expected 2 tool_calls, got %d", len(unmarshaled.ToolCalls))
 	}
 }

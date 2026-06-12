@@ -240,13 +240,39 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			// Try to parse and execute leaked tool calls
 			leaked := parseLeakedToolCalls(msg.Content)
 			if len(leaked) > 0 {
-				// Add assistant message
-				messages = append(messages, *msg)
+				// Reconstruct the assistant message so the history carries proper
+				// tool_calls instead of raw leaked marker text. Without this, servers
+				// that validate tool_call_id matching (vLLM, llama.cpp) reject the
+				// next request with 400/500 because role:tool messages don't match
+				// any tool_calls in the preceding assistant message (A3/A4).
+				toolCalls := make([]ToolCall, 0, len(leaked))
+				for _, tc := range leaked {
+					toolCalls = append(toolCalls, tc.ToolCall)
+				}
+				// Sanitize args so malformed JSON doesn't cause HTTP 500 on next request.
+				toolCalls = sanitizeLeakedToolCalls(toolCalls)
+
+				// Strip leaked marker blocks from content, keeping only surrounding prose.
+				cleanContent := removeLeakedMarkers(msg.Content)
+
+				assistantMsg := ChatMessage{
+					Role:       ChatRoleAssistant,
+					Content:    cleanContent,
+					ToolCalls:  toolCalls,
+				}
+				messages = append(messages, assistantMsg)
+
+				// Surface any narration the model wrote alongside its leaked tool calls.
+				if opts.OnOutput != nil {
+					if narration := strings.TrimSpace(cleanContent); narration != "" {
+						opts.OnOutput(narration)
+					}
+				}
 
 				for _, tc := range leaked {
 					args, parseErr := normalizeJSON(tc.Func.Args)
 					if parseErr != nil {
-						// Feed error back to model for self-repair
+						// Feed error back to model for self-repair.
 						messages = append(messages, ChatMessage{
 							Role:       ChatRoleTool,
 							Content:    fmt.Sprintf("JSON parse error in arguments for %s: %v. Please retry with valid JSON.", tc.Func.Name, parseErr),

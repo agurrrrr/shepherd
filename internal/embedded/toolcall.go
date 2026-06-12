@@ -325,6 +325,57 @@ func trimToLastCompletePair(s string) string {
 	return s
 }
 
+// removeLeakedMarkers strips all leaked tool call marker blocks from the text,
+// leaving only the surrounding prose (if any). This is used to reconstruct the
+// assistant message so the history doesn't carry raw marker syntax that would
+// tempt the model to repeat it on subsequent turns.
+func removeLeakedMarkers(text string) string {
+	result := text
+	for _, pair := range leakedMarkerPairs {
+		for {
+			openIdx := strings.Index(result, pair.open)
+			if openIdx == -1 {
+				break
+			}
+			closeIdx := strings.Index(result[openIdx+len(pair.open):], pair.close)
+			if closeIdx == -1 {
+				break
+			}
+			closeIdx += openIdx + len(pair.open)
+			result = result[:openIdx] + result[closeIdx+len(pair.close):]
+		}
+	}
+	// Collapse multiple spaces (left behind by removed blocks) into single space.
+	fields := strings.Fields(result)
+	return strings.Join(fields, " ")
+}
+
+// sanitizeLeakedToolCalls applies the same JSON argument sanitization as the
+// native tool call path, so leaked tool calls stored in history won't cause
+// HTTP 500 on the next API request.
+func sanitizeLeakedToolCalls(tcs []ToolCall) []ToolCall {
+	sanitized := make([]ToolCall, len(tcs))
+	copy(sanitized, tcs)
+
+	for i, tc := range sanitized {
+		if tc.Func.Args == "" {
+			sanitized[i].Func.Args = "{}"
+			continue
+		}
+		var probe map[string]interface{}
+		if json.Unmarshal([]byte(tc.Func.Args), &probe) == nil {
+			continue // already valid JSON
+		}
+		repaired := repairTruncatedJSON(tc.Func.Args)
+		if json.Unmarshal([]byte(repaired), &probe) == nil {
+			sanitized[i].Func.Args = repaired
+			continue
+		}
+		sanitized[i].Func.Args = "{}"
+	}
+	return sanitized
+}
+
 // stripCodeFence removes markdown code fences (```json ... ```).
 func stripCodeFence(s string) string {
 	backticks := "```"
