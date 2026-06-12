@@ -52,6 +52,20 @@ func (_c *ProjectCreate) SetNillableDescription(v *string) *ProjectCreate {
 	return _c
 }
 
+// SetRepoURL sets the "repo_url" field.
+func (_c *ProjectCreate) SetRepoURL(v string) *ProjectCreate {
+	_c.mutation.SetRepoURL(v)
+	return _c
+}
+
+// SetNillableRepoURL sets the "repo_url" field if the given value is not nil.
+func (_c *ProjectCreate) SetNillableRepoURL(v *string) *ProjectCreate {
+	if v != nil {
+		_c.SetRepoURL(*v)
+	}
+	return _c
+}
+
 // SetMcpServers sets the "mcp_servers" field.
 func (_c *ProjectCreate) SetMcpServers(v map[string]interface{}) *ProjectCreate {
 	_c.mutation.SetMcpServers(v)
@@ -286,6 +300,10 @@ func (_c *ProjectCreate) createSpec() (*Project, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Description(); ok {
 		_spec.SetField(project.FieldDescription, field.TypeString, value)
 		_node.Description = value
+	}
+	if value, ok := _c.mutation.RepoURL(); ok {
+		_spec.SetField(project.FieldRepoURL, field.TypeString, value)
+		_node.RepoURL = value
 	}
 	if value, ok := _c.mutation.McpServers(); ok {
 		_spec.SetField(project.FieldMcpServers, field.TypeJSON, value)

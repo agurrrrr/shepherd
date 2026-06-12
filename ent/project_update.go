@@ -82,6 +82,26 @@ func (_u *ProjectUpdate) ClearDescription() *ProjectUpdate {
 	return _u
 }
 
+// SetRepoURL sets the "repo_url" field.
+func (_u *ProjectUpdate) SetRepoURL(v string) *ProjectUpdate {
+	_u.mutation.SetRepoURL(v)
+	return _u
+}
+
+// SetNillableRepoURL sets the "repo_url" field if the given value is not nil.
+func (_u *ProjectUpdate) SetNillableRepoURL(v *string) *ProjectUpdate {
+	if v != nil {
+		_u.SetRepoURL(*v)
+	}
+	return _u
+}
+
+// ClearRepoURL clears the value of the "repo_url" field.
+func (_u *ProjectUpdate) ClearRepoURL() *ProjectUpdate {
+	_u.mutation.ClearRepoURL()
+	return _u
+}
+
 // SetMcpServers sets the "mcp_servers" field.
 func (_u *ProjectUpdate) SetMcpServers(v map[string]interface{}) *ProjectUpdate {
 	_u.mutation.SetMcpServers(v)
@@ -384,6 +404,12 @@ func (_u *ProjectUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.DescriptionCleared() {
 		_spec.ClearField(project.FieldDescription, field.TypeString)
+	}
+	if value, ok := _u.mutation.RepoURL(); ok {
+		_spec.SetField(project.FieldRepoURL, field.TypeString, value)
+	}
+	if _u.mutation.RepoURLCleared() {
+		_spec.ClearField(project.FieldRepoURL, field.TypeString)
 	}
 	if value, ok := _u.mutation.McpServers(); ok {
 		_spec.SetField(project.FieldMcpServers, field.TypeJSON, value)
@@ -713,6 +739,26 @@ func (_u *ProjectUpdateOne) SetNillableDescription(v *string) *ProjectUpdateOne 
 // ClearDescription clears the value of the "description" field.
 func (_u *ProjectUpdateOne) ClearDescription() *ProjectUpdateOne {
 	_u.mutation.ClearDescription()
+	return _u
+}
+
+// SetRepoURL sets the "repo_url" field.
+func (_u *ProjectUpdateOne) SetRepoURL(v string) *ProjectUpdateOne {
+	_u.mutation.SetRepoURL(v)
+	return _u
+}
+
+// SetNillableRepoURL sets the "repo_url" field if the given value is not nil.
+func (_u *ProjectUpdateOne) SetNillableRepoURL(v *string) *ProjectUpdateOne {
+	if v != nil {
+		_u.SetRepoURL(*v)
+	}
+	return _u
+}
+
+// ClearRepoURL clears the value of the "repo_url" field.
+func (_u *ProjectUpdateOne) ClearRepoURL() *ProjectUpdateOne {
+	_u.mutation.ClearRepoURL()
 	return _u
 }
 
@@ -1048,6 +1094,12 @@ func (_u *ProjectUpdateOne) sqlSave(ctx context.Context) (_node *Project, err er
 	}
 	if _u.mutation.DescriptionCleared() {
 		_spec.ClearField(project.FieldDescription, field.TypeString)
+	}
+	if value, ok := _u.mutation.RepoURL(); ok {
+		_spec.SetField(project.FieldRepoURL, field.TypeString, value)
+	}
+	if _u.mutation.RepoURLCleared() {
+		_spec.ClearField(project.FieldRepoURL, field.TypeString)
 	}
 	if value, ok := _u.mutation.McpServers(); ok {
 		_spec.SetField(project.FieldMcpServers, field.TypeJSON, value)

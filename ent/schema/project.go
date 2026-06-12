@@ -26,6 +26,9 @@ func (Project) Fields() []ent.Field {
 		field.String("description").
 			Optional().
 			Comment("프로젝트 설명"),
+		field.String("repo_url").
+			Optional().
+			Comment("git origin에서 추출한 저장소 HTTPS URL (거의 변하지 않으므로 캐시)"),
 		field.JSON("mcp_servers", map[string]interface{}{}).
 			Optional().
 			Comment("프로젝트별 MCP 서버 활성화 설정: {server_name: {enabled: bool}}"),

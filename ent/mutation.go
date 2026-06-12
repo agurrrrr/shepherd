@@ -1668,6 +1668,7 @@ type ProjectMutation struct {
 	name                 *string
 	_path                *string
 	description          *string
+	repo_url             *string
 	mcp_servers          *map[string]interface{}
 	created_at           *time.Time
 	updated_at           *time.Time
@@ -1911,6 +1912,55 @@ func (m *ProjectMutation) DescriptionCleared() bool {
 func (m *ProjectMutation) ResetDescription() {
 	m.description = nil
 	delete(m.clearedFields, project.FieldDescription)
+}
+
+// SetRepoURL sets the "repo_url" field.
+func (m *ProjectMutation) SetRepoURL(s string) {
+	m.repo_url = &s
+}
+
+// RepoURL returns the value of the "repo_url" field in the mutation.
+func (m *ProjectMutation) RepoURL() (r string, exists bool) {
+	v := m.repo_url
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRepoURL returns the old "repo_url" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldRepoURL(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRepoURL is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRepoURL requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRepoURL: %w", err)
+	}
+	return oldValue.RepoURL, nil
+}
+
+// ClearRepoURL clears the value of the "repo_url" field.
+func (m *ProjectMutation) ClearRepoURL() {
+	m.repo_url = nil
+	m.clearedFields[project.FieldRepoURL] = struct{}{}
+}
+
+// RepoURLCleared returns if the "repo_url" field was cleared in this mutation.
+func (m *ProjectMutation) RepoURLCleared() bool {
+	_, ok := m.clearedFields[project.FieldRepoURL]
+	return ok
+}
+
+// ResetRepoURL resets all changes to the "repo_url" field.
+func (m *ProjectMutation) ResetRepoURL() {
+	m.repo_url = nil
+	delete(m.clearedFields, project.FieldRepoURL)
 }
 
 // SetMcpServers sets the "mcp_servers" field.
@@ -2377,7 +2427,7 @@ func (m *ProjectMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ProjectMutation) Fields() []string {
-	fields := make([]string, 0, 6)
+	fields := make([]string, 0, 7)
 	if m.name != nil {
 		fields = append(fields, project.FieldName)
 	}
@@ -2386,6 +2436,9 @@ func (m *ProjectMutation) Fields() []string {
 	}
 	if m.description != nil {
 		fields = append(fields, project.FieldDescription)
+	}
+	if m.repo_url != nil {
+		fields = append(fields, project.FieldRepoURL)
 	}
 	if m.mcp_servers != nil {
 		fields = append(fields, project.FieldMcpServers)
@@ -2410,6 +2463,8 @@ func (m *ProjectMutation) Field(name string) (ent.Value, bool) {
 		return m.Path()
 	case project.FieldDescription:
 		return m.Description()
+	case project.FieldRepoURL:
+		return m.RepoURL()
 	case project.FieldMcpServers:
 		return m.McpServers()
 	case project.FieldCreatedAt:
@@ -2431,6 +2486,8 @@ func (m *ProjectMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldPath(ctx)
 	case project.FieldDescription:
 		return m.OldDescription(ctx)
+	case project.FieldRepoURL:
+		return m.OldRepoURL(ctx)
 	case project.FieldMcpServers:
 		return m.OldMcpServers(ctx)
 	case project.FieldCreatedAt:
@@ -2466,6 +2523,13 @@ func (m *ProjectMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDescription(v)
+		return nil
+	case project.FieldRepoURL:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRepoURL(v)
 		return nil
 	case project.FieldMcpServers:
 		v, ok := value.(map[string]interface{})
@@ -2521,6 +2585,9 @@ func (m *ProjectMutation) ClearedFields() []string {
 	if m.FieldCleared(project.FieldDescription) {
 		fields = append(fields, project.FieldDescription)
 	}
+	if m.FieldCleared(project.FieldRepoURL) {
+		fields = append(fields, project.FieldRepoURL)
+	}
 	if m.FieldCleared(project.FieldMcpServers) {
 		fields = append(fields, project.FieldMcpServers)
 	}
@@ -2541,6 +2608,9 @@ func (m *ProjectMutation) ClearField(name string) error {
 	case project.FieldDescription:
 		m.ClearDescription()
 		return nil
+	case project.FieldRepoURL:
+		m.ClearRepoURL()
+		return nil
 	case project.FieldMcpServers:
 		m.ClearMcpServers()
 		return nil
@@ -2560,6 +2630,9 @@ func (m *ProjectMutation) ResetField(name string) error {
 		return nil
 	case project.FieldDescription:
 		m.ResetDescription()
+		return nil
+	case project.FieldRepoURL:
+		m.ResetRepoURL()
 		return nil
 	case project.FieldMcpServers:
 		m.ResetMcpServers()

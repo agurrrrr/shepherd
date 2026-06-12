@@ -20,6 +20,8 @@ const (
 	FieldPath = "path"
 	// FieldDescription holds the string denoting the description field in the database.
 	FieldDescription = "description"
+	// FieldRepoURL holds the string denoting the repo_url field in the database.
+	FieldRepoURL = "repo_url"
 	// FieldMcpServers holds the string denoting the mcp_servers field in the database.
 	FieldMcpServers = "mcp_servers"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
@@ -90,6 +92,7 @@ var Columns = []string{
 	FieldName,
 	FieldPath,
 	FieldDescription,
+	FieldRepoURL,
 	FieldMcpServers,
 	FieldCreatedAt,
 	FieldUpdatedAt,
@@ -139,6 +142,11 @@ func ByPath(opts ...sql.OrderTermOption) OrderOption {
 // ByDescription orders the results by the description field.
 func ByDescription(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDescription, opts...).ToFunc()
+}
+
+// ByRepoURL orders the results by the repo_url field.
+func ByRepoURL(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRepoURL, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

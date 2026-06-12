@@ -25,6 +25,8 @@ type Project struct {
 	Path string `json:"path,omitempty"`
 	// 프로젝트 설명
 	Description string `json:"description,omitempty"`
+	// git origin에서 추출한 저장소 HTTPS URL (거의 변하지 않으므로 캐시)
+	RepoURL string `json:"repo_url,omitempty"`
 	// 프로젝트별 MCP 서버 활성화 설정: {server_name: {enabled: bool}}
 	McpServers map[string]interface{} `json:"mcp_servers,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
@@ -121,7 +123,7 @@ func (*Project) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case project.FieldID:
 			values[i] = new(sql.NullInt64)
-		case project.FieldName, project.FieldPath, project.FieldDescription:
+		case project.FieldName, project.FieldPath, project.FieldDescription, project.FieldRepoURL:
 			values[i] = new(sql.NullString)
 		case project.FieldCreatedAt, project.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -163,6 +165,12 @@ func (_m *Project) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field description", values[i])
 			} else if value.Valid {
 				_m.Description = value.String
+			}
+		case project.FieldRepoURL:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field repo_url", values[i])
+			} else if value.Valid {
+				_m.RepoURL = value.String
 			}
 		case project.FieldMcpServers:
 			if value, ok := values[i].(*[]byte); !ok {
@@ -258,6 +266,9 @@ func (_m *Project) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("description=")
 	builder.WriteString(_m.Description)
+	builder.WriteString(", ")
+	builder.WriteString("repo_url=")
+	builder.WriteString(_m.RepoURL)
 	builder.WriteString(", ")
 	builder.WriteString("mcp_servers=")
 	builder.WriteString(fmt.Sprintf("%v", _m.McpServers))

@@ -56,6 +56,10 @@ func AddWithResult(name, path, description string) *AddResult {
 		builder.SetDescription(description)
 	}
 
+	if repoURL := GitRepoURL(path); repoURL != "" {
+		builder.SetRepoURL(repoURL)
+	}
+
 	p, err := builder.Save(ctx)
 	if err != nil {
 		result.AssignError = fmt.Errorf("failed to create project: %w", err)

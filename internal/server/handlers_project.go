@@ -1,38 +1,24 @@
 package server
 
 import (
-	"os/exec"
-	"regexp"
-	"strings"
-
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/agurrrrr/shepherd/ent"
 	"github.com/agurrrrr/shepherd/internal/project"
 )
 
-var sshRemoteRe = regexp.MustCompile(`^git@([^:]+):(.+?)(?:\.git)?$`)
-
-// gitRepoURL returns a GitHub/GitLab HTTPS URL from a project path, or "".
-func gitRepoURL(projectPath string) string {
-	cmd := exec.Command("git", "-C", projectPath, "remote", "get-url", "origin")
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
+// repoURLFor returns the cached repo URL for a project. If empty (e.g. a
+// project created before the field existed), it computes the URL from git
+// once and lazily persists it so subsequent reads avoid the git call.
+func repoURLFor(p *ent.Project) string {
+	if p.RepoURL != "" {
+		return p.RepoURL
 	}
-	raw := strings.TrimSpace(string(out))
-	if raw == "" {
-		return ""
+	url := project.GitRepoURL(p.Path)
+	if url != "" {
+		_ = project.SetRepoURL(p.Name, url)
 	}
-	// SSH format: git@github.com:user/repo.git
-	if m := sshRemoteRe.FindStringSubmatch(raw); m != nil {
-		return "https://" + m[1] + "/" + m[2]
-	}
-	// HTTPS format: https://github.com/user/repo.git
-	url := strings.TrimSuffix(raw, ".git")
-	if strings.HasPrefix(url, "https://") || strings.HasPrefix(url, "http://") {
-		return url
-	}
-	return ""
+	return url
 }
 
 // GET /api/projects
@@ -56,7 +42,7 @@ func (s *Server) handleListProjects(c *fiber.Ctx) error {
 			Name:        p.Name,
 			Path:        p.Path,
 			Description: p.Description,
-			RepoURL:     gitRepoURL(p.Path),
+			RepoURL:     repoURLFor(p),
 		}
 		if p.Edges.Sheep != nil {
 			item.Sheep = p.Edges.Sheep.Name
@@ -116,7 +102,7 @@ func (s *Server) handleGetProject(c *fiber.Ctx) error {
 		"path":        p.Path,
 		"description": p.Description,
 	}
-	if repoURL := gitRepoURL(p.Path); repoURL != "" {
+	if repoURL := repoURLFor(p); repoURL != "" {
 		result["repo_url"] = repoURL
 	}
 	if p.Edges.Sheep != nil {

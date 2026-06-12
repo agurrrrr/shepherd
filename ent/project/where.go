@@ -70,6 +70,11 @@ func Description(v string) predicate.Project {
 	return predicate.Project(sql.FieldEQ(FieldDescription, v))
 }
 
+// RepoURL applies equality check predicate on the "repo_url" field. It's identical to RepoURLEQ.
+func RepoURL(v string) predicate.Project {
+	return predicate.Project(sql.FieldEQ(FieldRepoURL, v))
+}
+
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.Project {
 	return predicate.Project(sql.FieldEQ(FieldCreatedAt, v))
@@ -283,6 +288,81 @@ func DescriptionEqualFold(v string) predicate.Project {
 // DescriptionContainsFold applies the ContainsFold predicate on the "description" field.
 func DescriptionContainsFold(v string) predicate.Project {
 	return predicate.Project(sql.FieldContainsFold(FieldDescription, v))
+}
+
+// RepoURLEQ applies the EQ predicate on the "repo_url" field.
+func RepoURLEQ(v string) predicate.Project {
+	return predicate.Project(sql.FieldEQ(FieldRepoURL, v))
+}
+
+// RepoURLNEQ applies the NEQ predicate on the "repo_url" field.
+func RepoURLNEQ(v string) predicate.Project {
+	return predicate.Project(sql.FieldNEQ(FieldRepoURL, v))
+}
+
+// RepoURLIn applies the In predicate on the "repo_url" field.
+func RepoURLIn(vs ...string) predicate.Project {
+	return predicate.Project(sql.FieldIn(FieldRepoURL, vs...))
+}
+
+// RepoURLNotIn applies the NotIn predicate on the "repo_url" field.
+func RepoURLNotIn(vs ...string) predicate.Project {
+	return predicate.Project(sql.FieldNotIn(FieldRepoURL, vs...))
+}
+
+// RepoURLGT applies the GT predicate on the "repo_url" field.
+func RepoURLGT(v string) predicate.Project {
+	return predicate.Project(sql.FieldGT(FieldRepoURL, v))
+}
+
+// RepoURLGTE applies the GTE predicate on the "repo_url" field.
+func RepoURLGTE(v string) predicate.Project {
+	return predicate.Project(sql.FieldGTE(FieldRepoURL, v))
+}
+
+// RepoURLLT applies the LT predicate on the "repo_url" field.
+func RepoURLLT(v string) predicate.Project {
+	return predicate.Project(sql.FieldLT(FieldRepoURL, v))
+}
+
+// RepoURLLTE applies the LTE predicate on the "repo_url" field.
+func RepoURLLTE(v string) predicate.Project {
+	return predicate.Project(sql.FieldLTE(FieldRepoURL, v))
+}
+
+// RepoURLContains applies the Contains predicate on the "repo_url" field.
+func RepoURLContains(v string) predicate.Project {
+	return predicate.Project(sql.FieldContains(FieldRepoURL, v))
+}
+
+// RepoURLHasPrefix applies the HasPrefix predicate on the "repo_url" field.
+func RepoURLHasPrefix(v string) predicate.Project {
+	return predicate.Project(sql.FieldHasPrefix(FieldRepoURL, v))
+}
+
+// RepoURLHasSuffix applies the HasSuffix predicate on the "repo_url" field.
+func RepoURLHasSuffix(v string) predicate.Project {
+	return predicate.Project(sql.FieldHasSuffix(FieldRepoURL, v))
+}
+
+// RepoURLIsNil applies the IsNil predicate on the "repo_url" field.
+func RepoURLIsNil() predicate.Project {
+	return predicate.Project(sql.FieldIsNull(FieldRepoURL))
+}
+
+// RepoURLNotNil applies the NotNil predicate on the "repo_url" field.
+func RepoURLNotNil() predicate.Project {
+	return predicate.Project(sql.FieldNotNull(FieldRepoURL))
+}
+
+// RepoURLEqualFold applies the EqualFold predicate on the "repo_url" field.
+func RepoURLEqualFold(v string) predicate.Project {
+	return predicate.Project(sql.FieldEqualFold(FieldRepoURL, v))
+}
+
+// RepoURLContainsFold applies the ContainsFold predicate on the "repo_url" field.
+func RepoURLContainsFold(v string) predicate.Project {
+	return predicate.Project(sql.FieldContainsFold(FieldRepoURL, v))
 }
 
 // McpServersIsNil applies the IsNil predicate on the "mcp_servers" field.
