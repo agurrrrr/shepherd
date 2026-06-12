@@ -9,11 +9,13 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import Tabs from '$lib/components/Tabs.svelte';
+	import MonitorGrid from '$lib/components/MonitorGrid.svelte';
 
 	let loaded = false;
 	let dashboard = null;
 	let unsubscribers = [];
 	let activityWindow = '1d';
+	let monitoring = false;
 
 	const activityTabs = [
 		{ value: '5h', label: '5h' },
@@ -89,6 +91,8 @@
 		return Math.floor(diff / 86400) + 'd ago';
 	}
 
+	$: workingSheep = $sheep.filter(s => s.status === 'working' && s.project);
+
 	function statusIcon(status) {
 		switch (status) {
 			case 'completed': return { name: 'check-circle', tone: 'success' };
@@ -100,10 +104,24 @@
 	}
 </script>
 
+{#if monitoring}
+	<MonitorGrid working={workingSheep} onClose={() => (monitoring = false)} />
+{/if}
+
 <div class="dashboard">
 	<!-- Command Input -->
 	<div class="command-section card">
 		<CommandInput />
+	</div>
+
+	<div class="monitor-launch">
+		<button class="monitor-btn" onclick={() => (monitoring = true)}>
+			<Icon name="zap" size={15} />
+			모니터링
+			{#if workingSheep.length > 0}
+				<span class="monitor-count">{workingSheep.length}</span>
+			{/if}
+		</button>
 	</div>
 
 	{#if !loaded}
@@ -274,8 +292,48 @@
 	}
 
 	.command-section {
-		margin-bottom: var(--space-5);
+		margin-bottom: var(--space-3);
 		padding: var(--space-3) var(--space-4);
+	}
+
+	.monitor-launch {
+		display: flex;
+		justify-content: flex-end;
+		margin-bottom: var(--space-5);
+	}
+
+	.monitor-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 14px;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-semibold);
+		font-family: inherit;
+		color: var(--text-primary);
+		background: var(--bg-3);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-full);
+		cursor: pointer;
+		transition: border-color 0.15s, color 0.15s;
+	}
+	.monitor-btn:hover {
+		border-color: var(--live);
+		color: var(--live);
+	}
+	.monitor-count {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 18px;
+		height: 18px;
+		padding: 0 5px;
+		font-size: var(--fs-2xs);
+		font-family: var(--font-mono);
+		font-weight: var(--fw-bold);
+		color: var(--bg-1);
+		background: var(--live);
+		border-radius: var(--radius-full);
 	}
 
 	.text-muted {
