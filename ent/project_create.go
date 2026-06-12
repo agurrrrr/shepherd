@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/agurrrrr/shepherd/ent/issue"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/schedule"
 	"github.com/agurrrrr/shepherd/ent/sheep"
@@ -192,6 +193,21 @@ func (_c *ProjectCreate) AddWikiVersions(v ...*WikiPageVersion) *ProjectCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddWikiVersionIDs(ids...)
+}
+
+// AddIssueIDs adds the "issues" edge to the Issue entity by IDs.
+func (_c *ProjectCreate) AddIssueIDs(ids ...int) *ProjectCreate {
+	_c.mutation.AddIssueIDs(ids...)
+	return _c
+}
+
+// AddIssues adds the "issues" edges to the Issue entity.
+func (_c *ProjectCreate) AddIssues(v ...*Issue) *ProjectCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddIssueIDs(ids...)
 }
 
 // Mutation returns the ProjectMutation object of the builder.
@@ -406,6 +422,22 @@ func (_c *ProjectCreate) createSpec() (*Project, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(wikipageversion.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.IssuesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.IssuesTable,
+			Columns: []string{project.IssuesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

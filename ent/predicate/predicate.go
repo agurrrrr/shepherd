@@ -9,6 +9,9 @@ import (
 // BrowserSession is the predicate function for browsersession builders.
 type BrowserSession func(*sql.Selector)
 
+// Issue is the predicate function for issue builders.
+type Issue func(*sql.Selector)
+
 // MCPServer is the predicate function for mcpserver builders.
 type MCPServer func(*sql.Selector)
 

@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
+	"github.com/agurrrrr/shepherd/ent/issue"
 	"github.com/agurrrrr/shepherd/ent/predicate"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/sheep"
@@ -341,6 +342,25 @@ func (_u *TaskUpdate) SetProject(v *Project) *TaskUpdate {
 	return _u.SetProjectID(v.ID)
 }
 
+// SetIssueID sets the "issue" edge to the Issue entity by ID.
+func (_u *TaskUpdate) SetIssueID(id int) *TaskUpdate {
+	_u.mutation.SetIssueID(id)
+	return _u
+}
+
+// SetNillableIssueID sets the "issue" edge to the Issue entity by ID if the given value is not nil.
+func (_u *TaskUpdate) SetNillableIssueID(id *int) *TaskUpdate {
+	if id != nil {
+		_u = _u.SetIssueID(*id)
+	}
+	return _u
+}
+
+// SetIssue sets the "issue" edge to the Issue entity.
+func (_u *TaskUpdate) SetIssue(v *Issue) *TaskUpdate {
+	return _u.SetIssueID(v.ID)
+}
+
 // Mutation returns the TaskMutation object of the builder.
 func (_u *TaskUpdate) Mutation() *TaskMutation {
 	return _u.mutation
@@ -355,6 +375,12 @@ func (_u *TaskUpdate) ClearSheep() *TaskUpdate {
 // ClearProject clears the "project" edge to the Project entity.
 func (_u *TaskUpdate) ClearProject() *TaskUpdate {
 	_u.mutation.ClearProject()
+	return _u
+}
+
+// ClearIssue clears the "issue" edge to the Issue entity.
+func (_u *TaskUpdate) ClearIssue() *TaskUpdate {
+	_u.mutation.ClearIssue()
 	return _u
 }
 
@@ -557,6 +583,35 @@ func (_u *TaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.IssueCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   task.IssueTable,
+			Columns: []string{task.IssueColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IssueIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   task.IssueTable,
+			Columns: []string{task.IssueColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -894,6 +949,25 @@ func (_u *TaskUpdateOne) SetProject(v *Project) *TaskUpdateOne {
 	return _u.SetProjectID(v.ID)
 }
 
+// SetIssueID sets the "issue" edge to the Issue entity by ID.
+func (_u *TaskUpdateOne) SetIssueID(id int) *TaskUpdateOne {
+	_u.mutation.SetIssueID(id)
+	return _u
+}
+
+// SetNillableIssueID sets the "issue" edge to the Issue entity by ID if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableIssueID(id *int) *TaskUpdateOne {
+	if id != nil {
+		_u = _u.SetIssueID(*id)
+	}
+	return _u
+}
+
+// SetIssue sets the "issue" edge to the Issue entity.
+func (_u *TaskUpdateOne) SetIssue(v *Issue) *TaskUpdateOne {
+	return _u.SetIssueID(v.ID)
+}
+
 // Mutation returns the TaskMutation object of the builder.
 func (_u *TaskUpdateOne) Mutation() *TaskMutation {
 	return _u.mutation
@@ -908,6 +982,12 @@ func (_u *TaskUpdateOne) ClearSheep() *TaskUpdateOne {
 // ClearProject clears the "project" edge to the Project entity.
 func (_u *TaskUpdateOne) ClearProject() *TaskUpdateOne {
 	_u.mutation.ClearProject()
+	return _u
+}
+
+// ClearIssue clears the "issue" edge to the Issue entity.
+func (_u *TaskUpdateOne) ClearIssue() *TaskUpdateOne {
+	_u.mutation.ClearIssue()
 	return _u
 }
 
@@ -1140,6 +1220,35 @@ func (_u *TaskUpdateOne) sqlSave(ctx context.Context) (_node *Task, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.IssueCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   task.IssueTable,
+			Columns: []string{task.IssueColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IssueIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   task.IssueTable,
+			Columns: []string{task.IssueColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

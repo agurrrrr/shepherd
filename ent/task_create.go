@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/agurrrrr/shepherd/ent/issue"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/task"
@@ -232,6 +233,25 @@ func (_c *TaskCreate) SetProject(v *Project) *TaskCreate {
 	return _c.SetProjectID(v.ID)
 }
 
+// SetIssueID sets the "issue" edge to the Issue entity by ID.
+func (_c *TaskCreate) SetIssueID(id int) *TaskCreate {
+	_c.mutation.SetIssueID(id)
+	return _c
+}
+
+// SetNillableIssueID sets the "issue" edge to the Issue entity by ID if the given value is not nil.
+func (_c *TaskCreate) SetNillableIssueID(id *int) *TaskCreate {
+	if id != nil {
+		_c = _c.SetIssueID(*id)
+	}
+	return _c
+}
+
+// SetIssue sets the "issue" edge to the Issue entity.
+func (_c *TaskCreate) SetIssue(v *Issue) *TaskCreate {
+	return _c.SetIssueID(v.ID)
+}
+
 // Mutation returns the TaskMutation object of the builder.
 func (_c *TaskCreate) Mutation() *TaskMutation {
 	return _c.mutation
@@ -428,6 +448,23 @@ func (_c *TaskCreate) createSpec() (*Task, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.project_tasks = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.IssueIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   task.IssueTable,
+			Columns: []string{task.IssueColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.issue_tasks = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec

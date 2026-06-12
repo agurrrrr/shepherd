@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"github.com/agurrrrr/shepherd/ent/issue"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/task"
@@ -51,6 +52,7 @@ type Task struct {
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the TaskQuery when eager-loading is set.
 	Edges         TaskEdges `json:"edges"`
+	issue_tasks   *int
 	project_tasks *int
 	sheep_tasks   *int
 	selectValues  sql.SelectValues
@@ -62,9 +64,11 @@ type TaskEdges struct {
 	Sheep *Sheep `json:"sheep,omitempty"`
 	// Project holds the value of the project edge.
 	Project *Project `json:"project,omitempty"`
+	// Issue holds the value of the issue edge.
+	Issue *Issue `json:"issue,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
 }
 
 // SheepOrErr returns the Sheep value or an error if the edge
@@ -89,6 +93,17 @@ func (e TaskEdges) ProjectOrErr() (*Project, error) {
 	return nil, &NotLoadedError{edge: "project"}
 }
 
+// IssueOrErr returns the Issue value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e TaskEdges) IssueOrErr() (*Issue, error) {
+	if e.Issue != nil {
+		return e.Issue, nil
+	} else if e.loadedTypes[2] {
+		return nil, &NotFoundError{label: issue.Label}
+	}
+	return nil, &NotLoadedError{edge: "issue"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*Task) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
@@ -104,9 +119,11 @@ func (*Task) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullString)
 		case task.FieldStartedAt, task.FieldCompletedAt, task.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
-		case task.ForeignKeys[0]: // project_tasks
+		case task.ForeignKeys[0]: // issue_tasks
 			values[i] = new(sql.NullInt64)
-		case task.ForeignKeys[1]: // sheep_tasks
+		case task.ForeignKeys[1]: // project_tasks
+			values[i] = new(sql.NullInt64)
+		case task.ForeignKeys[2]: // sheep_tasks
 			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -219,12 +236,19 @@ func (_m *Task) assignValues(columns []string, values []any) error {
 			}
 		case task.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field issue_tasks", value)
+			} else if value.Valid {
+				_m.issue_tasks = new(int)
+				*_m.issue_tasks = int(value.Int64)
+			}
+		case task.ForeignKeys[1]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field project_tasks", value)
 			} else if value.Valid {
 				_m.project_tasks = new(int)
 				*_m.project_tasks = int(value.Int64)
 			}
-		case task.ForeignKeys[1]:
+		case task.ForeignKeys[2]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field sheep_tasks", value)
 			} else if value.Valid {
@@ -252,6 +276,11 @@ func (_m *Task) QuerySheep() *SheepQuery {
 // QueryProject queries the "project" edge of the Task entity.
 func (_m *Task) QueryProject() *ProjectQuery {
 	return NewTaskClient(_m.config).QueryProject(_m)
+}
+
+// QueryIssue queries the "issue" edge of the Task entity.
+func (_m *Task) QueryIssue() *IssueQuery {
+	return NewTaskClient(_m.config).QueryIssue(_m)
 }
 
 // Update returns a builder for updating this Task.

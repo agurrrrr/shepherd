@@ -53,9 +53,11 @@ type ProjectEdges struct {
 	WikiPages []*WikiPage `json:"wiki_pages,omitempty"`
 	// WikiVersions holds the value of the wiki_versions edge.
 	WikiVersions []*WikiPageVersion `json:"wiki_versions,omitempty"`
+	// Issues holds the value of the issues edge.
+	Issues []*Issue `json:"issues,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [6]bool
+	loadedTypes [7]bool
 }
 
 // SheepOrErr returns the Sheep value or an error if the edge
@@ -112,6 +114,15 @@ func (e ProjectEdges) WikiVersionsOrErr() ([]*WikiPageVersion, error) {
 		return e.WikiVersions, nil
 	}
 	return nil, &NotLoadedError{edge: "wiki_versions"}
+}
+
+// IssuesOrErr returns the Issues value or an error if the edge
+// was not loaded in eager-loading.
+func (e ProjectEdges) IssuesOrErr() ([]*Issue, error) {
+	if e.loadedTypes[6] {
+		return e.Issues, nil
+	}
+	return nil, &NotLoadedError{edge: "issues"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -233,6 +244,11 @@ func (_m *Project) QueryWikiPages() *WikiPageQuery {
 // QueryWikiVersions queries the "wiki_versions" edge of the Project entity.
 func (_m *Project) QueryWikiVersions() *WikiPageVersionQuery {
 	return NewProjectClient(_m.config).QueryWikiVersions(_m)
+}
+
+// QueryIssues queries the "issues" edge of the Project entity.
+func (_m *Project) QueryIssues() *IssueQuery {
+	return NewProjectClient(_m.config).QueryIssues(_m)
 }
 
 // Update returns a builder for updating this Project.

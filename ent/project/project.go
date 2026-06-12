@@ -40,6 +40,8 @@ const (
 	EdgeWikiPages = "wiki_pages"
 	// EdgeWikiVersions holds the string denoting the wiki_versions edge name in mutations.
 	EdgeWikiVersions = "wiki_versions"
+	// EdgeIssues holds the string denoting the issues edge name in mutations.
+	EdgeIssues = "issues"
 	// Table holds the table name of the project in the database.
 	Table = "projects"
 	// SheepTable is the table that holds the sheep relation/edge.
@@ -84,6 +86,13 @@ const (
 	WikiVersionsInverseTable = "wiki_page_versions"
 	// WikiVersionsColumn is the table column denoting the wiki_versions relation/edge.
 	WikiVersionsColumn = "project_wiki_versions"
+	// IssuesTable is the table that holds the issues relation/edge.
+	IssuesTable = "issues"
+	// IssuesInverseTable is the table name for the Issue entity.
+	// It exists in this package in order to avoid circular dependency with the "issue" package.
+	IssuesInverseTable = "issues"
+	// IssuesColumn is the table column denoting the issues relation/edge.
+	IssuesColumn = "project_issues"
 )
 
 // Columns holds all SQL columns for project fields.
@@ -235,6 +244,20 @@ func ByWikiVersions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newWikiVersionsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByIssuesCount orders the results by issues count.
+func ByIssuesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newIssuesStep(), opts...)
+	}
+}
+
+// ByIssues orders the results by issues terms.
+func ByIssues(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newIssuesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newSheepStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -275,5 +298,12 @@ func newWikiVersionsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(WikiVersionsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, WikiVersionsTable, WikiVersionsColumn),
+	)
+}
+func newIssuesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(IssuesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, IssuesTable, IssuesColumn),
 	)
 }

@@ -32,6 +32,34 @@ var (
 			},
 		},
 	}
+	// IssuesColumns holds the columns for the "issues" table.
+	IssuesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "title", Type: field.TypeString},
+		{Name: "type", Type: field.TypeEnum, Enums: []string{"design", "feature", "bug"}, Default: "feature"},
+		{Name: "status", Type: field.TypeEnum, Enums: []string{"todo", "in_progress", "testing", "failed", "done"}, Default: "todo"},
+		{Name: "body", Type: field.TypeString, Nullable: true, Size: 2147483647},
+		{Name: "goal", Type: field.TypeString, Nullable: true, Size: 2147483647},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "started_at", Type: field.TypeTime, Nullable: true},
+		{Name: "completed_at", Type: field.TypeTime, Nullable: true},
+		{Name: "project_issues", Type: field.TypeInt},
+	}
+	// IssuesTable holds the schema information for the "issues" table.
+	IssuesTable = &schema.Table{
+		Name:       "issues",
+		Columns:    IssuesColumns,
+		PrimaryKey: []*schema.Column{IssuesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "issues_projects_issues",
+				Columns:    []*schema.Column{IssuesColumns[10]},
+				RefColumns: []*schema.Column{ProjectsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
 	// McpServersColumns holds the columns for the "mcp_servers" table.
 	McpServersColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -186,6 +214,7 @@ var (
 		{Name: "started_at", Type: field.TypeTime, Nullable: true},
 		{Name: "completed_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
+		{Name: "issue_tasks", Type: field.TypeInt, Nullable: true},
 		{Name: "project_tasks", Type: field.TypeInt, Nullable: true},
 		{Name: "sheep_tasks", Type: field.TypeInt, Nullable: true},
 	}
@@ -196,14 +225,20 @@ var (
 		PrimaryKey: []*schema.Column{TasksColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
-				Symbol:     "tasks_projects_tasks",
+				Symbol:     "tasks_issues_tasks",
 				Columns:    []*schema.Column{TasksColumns[15]},
+				RefColumns: []*schema.Column{IssuesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "tasks_projects_tasks",
+				Columns:    []*schema.Column{TasksColumns[16]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "tasks_sheep_tasks",
-				Columns:    []*schema.Column{TasksColumns[16]},
+				Columns:    []*schema.Column{TasksColumns[17]},
 				RefColumns: []*schema.Column{SheepColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -264,6 +299,7 @@ var (
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		BrowserSessionsTable,
+		IssuesTable,
 		McpServersTable,
 		ProjectsTable,
 		SchedulesTable,
@@ -278,11 +314,13 @@ var (
 
 func init() {
 	BrowserSessionsTable.ForeignKeys[0].RefTable = SheepTable
+	IssuesTable.ForeignKeys[0].RefTable = ProjectsTable
 	SchedulesTable.ForeignKeys[0].RefTable = ProjectsTable
 	SheepTable.ForeignKeys[0].RefTable = ProjectsTable
 	SkillsTable.ForeignKeys[0].RefTable = ProjectsTable
-	TasksTable.ForeignKeys[0].RefTable = ProjectsTable
-	TasksTable.ForeignKeys[1].RefTable = SheepTable
+	TasksTable.ForeignKeys[0].RefTable = IssuesTable
+	TasksTable.ForeignKeys[1].RefTable = ProjectsTable
+	TasksTable.ForeignKeys[2].RefTable = SheepTable
 	WikiPagesTable.ForeignKeys[0].RefTable = ProjectsTable
 	WikiPageVersionsTable.ForeignKeys[0].RefTable = ProjectsTable
 }

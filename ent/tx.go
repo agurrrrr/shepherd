@@ -14,6 +14,8 @@ type Tx struct {
 	config
 	// BrowserSession is the client for interacting with the BrowserSession builders.
 	BrowserSession *BrowserSessionClient
+	// Issue is the client for interacting with the Issue builders.
+	Issue *IssueClient
 	// MCPServer is the client for interacting with the MCPServer builders.
 	MCPServer *MCPServerClient
 	// Project is the client for interacting with the Project builders.
@@ -164,6 +166,7 @@ func (tx *Tx) Client() *Client {
 
 func (tx *Tx) init() {
 	tx.BrowserSession = NewBrowserSessionClient(tx.config)
+	tx.Issue = NewIssueClient(tx.config)
 	tx.MCPServer = NewMCPServerClient(tx.config)
 	tx.Project = NewProjectClient(tx.config)
 	tx.Schedule = NewScheduleClient(tx.config)

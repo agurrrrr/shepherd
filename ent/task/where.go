@@ -826,6 +826,29 @@ func HasProjectWith(preds ...predicate.Project) predicate.Task {
 	})
 }
 
+// HasIssue applies the HasEdge predicate on the "issue" edge.
+func HasIssue() predicate.Task {
+	return predicate.Task(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, IssueTable, IssueColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasIssueWith applies the HasEdge predicate on the "issue" edge with a given conditions (other predicates).
+func HasIssueWith(preds ...predicate.Issue) predicate.Task {
+	return predicate.Task(func(s *sql.Selector) {
+		step := newIssueStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Task) predicate.Task {
 	return predicate.Task(sql.AndPredicates(predicates...))

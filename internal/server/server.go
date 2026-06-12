@@ -146,12 +146,6 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/projects/:name/docs-download/*", s.handleDownloadDoc)
 	api.Get("/projects/:name/docs/*", s.handleGetDoc)
 
-	// Spec files
-	api.Get("/spec-types", s.handleListSpecTypes)
-	api.Get("/projects/:name/specs", s.handleListSpecs)
-	api.Get("/projects/:name/specs-download/*", s.handleDownloadSpec)
-	api.Get("/projects/:name/specs/*", s.handleGetSpec)
-
 	// File browser
 	api.Get("/projects/:name/files", s.handleListFiles)
 	api.Get("/projects/:name/files/download/*", s.handleDownloadFile)
@@ -175,6 +169,14 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Post("/tasks/:id/stop", s.handleStopTask)
 	api.Post("/tasks/:id/retry", s.handleRetryTask)
 	api.Post("/tasks/:id/retry-from", s.handleRetryFromTask)
+
+	// Issue management
+	api.Get("/projects/:name/issues", s.handleListIssues)
+	api.Post("/projects/:name/issues", s.handleCreateIssue)
+	api.Get("/projects/:name/issues/:id", s.handleGetIssue)
+	api.Patch("/projects/:name/issues/:id", s.handleUpdateIssue)
+	api.Delete("/projects/:name/issues/:id", s.handleDeleteIssue)
+	api.Post("/projects/:name/issues/:id/execute", s.handleExecuteIssue)
 
 	// Prompt injection (mid-execution)
 	api.Post("/sheep/:name/inject", s.handleInjectPrompt)

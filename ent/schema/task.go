@@ -75,5 +75,8 @@ func (Task) Edges() []ent.Edge {
 		edge.From("project", Project.Type).
 			Ref("tasks").
 			Unique(),
+		edge.From("issue", Issue.Type).
+			Ref("tasks").
+			Unique(),
 	}
 }

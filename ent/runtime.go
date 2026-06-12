@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/agurrrrr/shepherd/ent/browsersession"
+	"github.com/agurrrrr/shepherd/ent/issue"
 	"github.com/agurrrrr/shepherd/ent/mcpserver"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/schedule"
@@ -42,6 +43,22 @@ func init() {
 	browsersession.DefaultUpdatedAt = browsersessionDescUpdatedAt.Default.(func() time.Time)
 	// browsersession.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	browsersession.UpdateDefaultUpdatedAt = browsersessionDescUpdatedAt.UpdateDefault.(func() time.Time)
+	issueFields := schema.Issue{}.Fields()
+	_ = issueFields
+	// issueDescTitle is the schema descriptor for title field.
+	issueDescTitle := issueFields[0].Descriptor()
+	// issue.TitleValidator is a validator for the "title" field. It is called by the builders before save.
+	issue.TitleValidator = issueDescTitle.Validators[0].(func(string) error)
+	// issueDescCreatedAt is the schema descriptor for created_at field.
+	issueDescCreatedAt := issueFields[5].Descriptor()
+	// issue.DefaultCreatedAt holds the default value on creation for the created_at field.
+	issue.DefaultCreatedAt = issueDescCreatedAt.Default.(func() time.Time)
+	// issueDescUpdatedAt is the schema descriptor for updated_at field.
+	issueDescUpdatedAt := issueFields[6].Descriptor()
+	// issue.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	issue.DefaultUpdatedAt = issueDescUpdatedAt.Default.(func() time.Time)
+	// issue.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	issue.UpdateDefaultUpdatedAt = issueDescUpdatedAt.UpdateDefault.(func() time.Time)
 	mcpserverFields := schema.MCPServer{}.Fields()
 	_ = mcpserverFields
 	// mcpserverDescName is the schema descriptor for name field.

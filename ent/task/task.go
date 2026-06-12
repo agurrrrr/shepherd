@@ -47,6 +47,8 @@ const (
 	EdgeSheep = "sheep"
 	// EdgeProject holds the string denoting the project edge name in mutations.
 	EdgeProject = "project"
+	// EdgeIssue holds the string denoting the issue edge name in mutations.
+	EdgeIssue = "issue"
 	// Table holds the table name of the task in the database.
 	Table = "tasks"
 	// SheepTable is the table that holds the sheep relation/edge.
@@ -63,6 +65,13 @@ const (
 	ProjectInverseTable = "projects"
 	// ProjectColumn is the table column denoting the project relation/edge.
 	ProjectColumn = "project_tasks"
+	// IssueTable is the table that holds the issue relation/edge.
+	IssueTable = "tasks"
+	// IssueInverseTable is the table name for the Issue entity.
+	// It exists in this package in order to avoid circular dependency with the "issue" package.
+	IssueInverseTable = "issues"
+	// IssueColumn is the table column denoting the issue relation/edge.
+	IssueColumn = "issue_tasks"
 )
 
 // Columns holds all SQL columns for task fields.
@@ -87,6 +96,7 @@ var Columns = []string{
 // ForeignKeys holds the SQL foreign-keys that are owned by the "tasks"
 // table and are not defined as standalone fields in the schema.
 var ForeignKeys = []string{
+	"issue_tasks",
 	"project_tasks",
 	"sheep_tasks",
 }
@@ -231,6 +241,13 @@ func ByProjectField(field string, opts ...sql.OrderTermOption) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newProjectStep(), sql.OrderByField(field, opts...))
 	}
 }
+
+// ByIssueField orders the results by issue field.
+func ByIssueField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newIssueStep(), sql.OrderByField(field, opts...))
+	}
+}
 func newSheepStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -243,5 +260,12 @@ func newProjectStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ProjectInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, true, ProjectTable, ProjectColumn),
+	)
+}
+func newIssueStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(IssueInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, IssueTable, IssueColumn),
 	)
 }

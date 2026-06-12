@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/agurrrrr/shepherd/ent"
+	entIssue "github.com/agurrrrr/shepherd/ent/issue"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/task"
@@ -274,6 +275,9 @@ func CompleteTaskWithTokens(id int, summary string, filesModified []string, outp
 		return fmt.Errorf("task #%d not found", id)
 	}
 
+	// Auto-update linked issue status to testing
+	updateIssueStatusOnTaskComplete(id, entIssue.StatusTesting)
+
 	return nil
 }
 
@@ -315,6 +319,9 @@ func FailTaskWithOutput(id int, errMsg string, output []string) error {
 		return fmt.Errorf("task #%d not found", id)
 	}
 
+	// Auto-update linked issue status to failed
+	updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+
 	return nil
 }
 
@@ -345,7 +352,45 @@ func StopTaskWithOutput(id int, reason string, output []string) error {
 		return fmt.Errorf("task #%d not found", id)
 	}
 
+	// Auto-update linked issue status to failed (stopped tasks also fail the issue)
+	updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+
 	return nil
+}
+
+// updateIssueStatusOnTaskComplete updates the linked issue status when a task finishes.
+// If the task is linked to an issue and the issue is not already done/failed (user-finalized),
+// it transitions the issue to the given status.
+func updateIssueStatusOnTaskComplete(taskID int, newIssueStatus entIssue.Status) {
+	ctx := context.Background()
+	client := db.Client()
+
+	tasks, err := client.Task.Query().
+		Where(task.ID(taskID), task.HasIssue()).
+		WithIssue().
+		All(ctx)
+	if err != nil || len(tasks) == 0 {
+		return
+	}
+
+	t := tasks[0]
+	if t.Edges.Issue == nil {
+		return
+	}
+
+	i := t.Edges.Issue
+	// Don't override user-finalized issues (done or failed with completed_at set)
+	if i.Status == entIssue.StatusDone || (i.Status == entIssue.StatusFailed && !i.CompletedAt.IsZero()) {
+		return
+	}
+
+	update := client.Issue.UpdateOne(i).SetStatus(newIssueStatus)
+	if newIssueStatus == entIssue.StatusFailed && i.CompletedAt.IsZero() {
+		update = update.SetCompletedAt(time.Now())
+	}
+	if _, err := update.Save(ctx); err != nil {
+		fmt.Printf("[queue] failed to update issue #%d status: %v\n", i.ID, err)
+	}
 }
 
 // buildSummaryFromOutput builds a summary from output lines (last meaningful lines).

@@ -16,6 +16,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/agurrrrr/shepherd/ent/browsersession"
+	"github.com/agurrrrr/shepherd/ent/issue"
 	"github.com/agurrrrr/shepherd/ent/mcpserver"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/schedule"
@@ -34,6 +35,8 @@ type Client struct {
 	Schema *migrate.Schema
 	// BrowserSession is the client for interacting with the BrowserSession builders.
 	BrowserSession *BrowserSessionClient
+	// Issue is the client for interacting with the Issue builders.
+	Issue *IssueClient
 	// MCPServer is the client for interacting with the MCPServer builders.
 	MCPServer *MCPServerClient
 	// Project is the client for interacting with the Project builders.
@@ -64,6 +67,7 @@ func NewClient(opts ...Option) *Client {
 func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
 	c.BrowserSession = NewBrowserSessionClient(c.config)
+	c.Issue = NewIssueClient(c.config)
 	c.MCPServer = NewMCPServerClient(c.config)
 	c.Project = NewProjectClient(c.config)
 	c.Schedule = NewScheduleClient(c.config)
@@ -166,6 +170,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ctx:             ctx,
 		config:          cfg,
 		BrowserSession:  NewBrowserSessionClient(cfg),
+		Issue:           NewIssueClient(cfg),
 		MCPServer:       NewMCPServerClient(cfg),
 		Project:         NewProjectClient(cfg),
 		Schedule:        NewScheduleClient(cfg),
@@ -195,6 +200,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ctx:             ctx,
 		config:          cfg,
 		BrowserSession:  NewBrowserSessionClient(cfg),
+		Issue:           NewIssueClient(cfg),
 		MCPServer:       NewMCPServerClient(cfg),
 		Project:         NewProjectClient(cfg),
 		Schedule:        NewScheduleClient(cfg),
@@ -233,8 +239,8 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.BrowserSession, c.MCPServer, c.Project, c.Schedule, c.Sheep, c.SheepName,
-		c.Skill, c.Task, c.WikiPage, c.WikiPageVersion,
+		c.BrowserSession, c.Issue, c.MCPServer, c.Project, c.Schedule, c.Sheep,
+		c.SheepName, c.Skill, c.Task, c.WikiPage, c.WikiPageVersion,
 	} {
 		n.Use(hooks...)
 	}
@@ -244,8 +250,8 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.BrowserSession, c.MCPServer, c.Project, c.Schedule, c.Sheep, c.SheepName,
-		c.Skill, c.Task, c.WikiPage, c.WikiPageVersion,
+		c.BrowserSession, c.Issue, c.MCPServer, c.Project, c.Schedule, c.Sheep,
+		c.SheepName, c.Skill, c.Task, c.WikiPage, c.WikiPageVersion,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -256,6 +262,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 	switch m := m.(type) {
 	case *BrowserSessionMutation:
 		return c.BrowserSession.mutate(ctx, m)
+	case *IssueMutation:
+		return c.Issue.mutate(ctx, m)
 	case *MCPServerMutation:
 		return c.MCPServer.mutate(ctx, m)
 	case *ProjectMutation:
@@ -425,6 +433,171 @@ func (c *BrowserSessionClient) mutate(ctx context.Context, m *BrowserSessionMuta
 		return (&BrowserSessionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown BrowserSession mutation op: %q", m.Op())
+	}
+}
+
+// IssueClient is a client for the Issue schema.
+type IssueClient struct {
+	config
+}
+
+// NewIssueClient returns a client for the Issue from the given config.
+func NewIssueClient(c config) *IssueClient {
+	return &IssueClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `issue.Hooks(f(g(h())))`.
+func (c *IssueClient) Use(hooks ...Hook) {
+	c.hooks.Issue = append(c.hooks.Issue, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `issue.Intercept(f(g(h())))`.
+func (c *IssueClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Issue = append(c.inters.Issue, interceptors...)
+}
+
+// Create returns a builder for creating a Issue entity.
+func (c *IssueClient) Create() *IssueCreate {
+	mutation := newIssueMutation(c.config, OpCreate)
+	return &IssueCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of Issue entities.
+func (c *IssueClient) CreateBulk(builders ...*IssueCreate) *IssueCreateBulk {
+	return &IssueCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *IssueClient) MapCreateBulk(slice any, setFunc func(*IssueCreate, int)) *IssueCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &IssueCreateBulk{err: fmt.Errorf("calling to IssueClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*IssueCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &IssueCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for Issue.
+func (c *IssueClient) Update() *IssueUpdate {
+	mutation := newIssueMutation(c.config, OpUpdate)
+	return &IssueUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *IssueClient) UpdateOne(_m *Issue) *IssueUpdateOne {
+	mutation := newIssueMutation(c.config, OpUpdateOne, withIssue(_m))
+	return &IssueUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *IssueClient) UpdateOneID(id int) *IssueUpdateOne {
+	mutation := newIssueMutation(c.config, OpUpdateOne, withIssueID(id))
+	return &IssueUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for Issue.
+func (c *IssueClient) Delete() *IssueDelete {
+	mutation := newIssueMutation(c.config, OpDelete)
+	return &IssueDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *IssueClient) DeleteOne(_m *Issue) *IssueDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *IssueClient) DeleteOneID(id int) *IssueDeleteOne {
+	builder := c.Delete().Where(issue.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &IssueDeleteOne{builder}
+}
+
+// Query returns a query builder for Issue.
+func (c *IssueClient) Query() *IssueQuery {
+	return &IssueQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeIssue},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a Issue entity by its id.
+func (c *IssueClient) Get(ctx context.Context, id int) (*Issue, error) {
+	return c.Query().Where(issue.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *IssueClient) GetX(ctx context.Context, id int) *Issue {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryProject queries the project edge of a Issue.
+func (c *IssueClient) QueryProject(_m *Issue) *ProjectQuery {
+	query := (&ProjectClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(issue.Table, issue.FieldID, id),
+			sqlgraph.To(project.Table, project.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, issue.ProjectTable, issue.ProjectColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryTasks queries the tasks edge of a Issue.
+func (c *IssueClient) QueryTasks(_m *Issue) *TaskQuery {
+	query := (&TaskClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(issue.Table, issue.FieldID, id),
+			sqlgraph.To(task.Table, task.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, issue.TasksTable, issue.TasksColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *IssueClient) Hooks() []Hook {
+	return c.hooks.Issue
+}
+
+// Interceptors returns the client interceptors.
+func (c *IssueClient) Interceptors() []Interceptor {
+	return c.inters.Issue
+}
+
+func (c *IssueClient) mutate(ctx context.Context, m *IssueMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&IssueCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&IssueUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&IssueUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&IssueDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown Issue mutation op: %q", m.Op())
 	}
 }
 
@@ -758,6 +931,22 @@ func (c *ProjectClient) QueryWikiVersions(_m *Project) *WikiPageVersionQuery {
 			sqlgraph.From(project.Table, project.FieldID, id),
 			sqlgraph.To(wikipageversion.Table, wikipageversion.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, project.WikiVersionsTable, project.WikiVersionsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryIssues queries the issues edge of a Project.
+func (c *ProjectClient) QueryIssues(_m *Project) *IssueQuery {
+	query := (&IssueClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(project.Table, project.FieldID, id),
+			sqlgraph.To(issue.Table, issue.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, project.IssuesTable, project.IssuesColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -1542,6 +1731,22 @@ func (c *TaskClient) QueryProject(_m *Task) *ProjectQuery {
 	return query
 }
 
+// QueryIssue queries the issue edge of a Task.
+func (c *TaskClient) QueryIssue(_m *Task) *IssueQuery {
+	query := (&IssueClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(task.Table, task.FieldID, id),
+			sqlgraph.To(issue.Table, issue.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, task.IssueTable, task.IssueColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *TaskClient) Hooks() []Hook {
 	return c.hooks.Task
@@ -1868,11 +2073,11 @@ func (c *WikiPageVersionClient) mutate(ctx context.Context, m *WikiPageVersionMu
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		BrowserSession, MCPServer, Project, Schedule, Sheep, SheepName, Skill, Task,
-		WikiPage, WikiPageVersion []ent.Hook
+		BrowserSession, Issue, MCPServer, Project, Schedule, Sheep, SheepName, Skill,
+		Task, WikiPage, WikiPageVersion []ent.Hook
 	}
 	inters struct {
-		BrowserSession, MCPServer, Project, Schedule, Sheep, SheepName, Skill, Task,
-		WikiPage, WikiPageVersion []ent.Interceptor
+		BrowserSession, Issue, MCPServer, Project, Schedule, Sheep, SheepName, Skill,
+		Task, WikiPage, WikiPageVersion []ent.Interceptor
 	}
 )

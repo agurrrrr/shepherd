@@ -12,7 +12,7 @@
 	import ScheduleForm from '$lib/components/ScheduleForm.svelte';
 	import SkillForm from '$lib/components/SkillForm.svelte';
 	import FileBrowser from '$lib/components/FileBrowser.svelte';
-	import SpecViewer from '$lib/components/SpecViewer.svelte';
+	import IssueTab from '$lib/components/IssueTab.svelte';
 	import ProjectSettings from '$lib/components/ProjectSettings.svelte';
 
 	let projectName = $state('');
@@ -138,7 +138,7 @@
 
 	let unsubs = [];
 
-	const VALID_TABS = ['output', 'history', 'files', 'git', 'schedules', 'skills', 'specs', 'wiki', 'settings'];
+	const VALID_TABS = ['output', 'history', 'files', 'git', 'schedules', 'skills', 'issues', 'wiki', 'settings'];
 
 	// React to route param changes
 	$effect(() => {
@@ -662,9 +662,9 @@
 				onclick={() => switchTab('skills')}>
 				Skills
 			</button>
-			<button class="tab" class:active={activeTab === 'specs'}
-				onclick={() => switchTab('specs')}>
-				Specs
+			<button class="tab" class:active={activeTab === 'issues'}
+				onclick={() => switchTab('issues')}>
+				Issues
 			</button>
 			<button class="tab" class:active={activeTab === 'wiki'}
 				onclick={() => switchTab('wiki')}>
@@ -820,10 +820,10 @@
 				</div>
 			{/if}
 
-			<!-- Specs tab -->
-			{#if activeTab === 'specs'}
-				<div class="spec-fill">
-					<SpecViewer {projectName} />
+			<!-- Issues tab -->
+			{#if activeTab === 'issues'}
+				<div class="issues-fill">
+					<IssueTab {projectName} />
 				</div>
 			{/if}
 
@@ -1334,15 +1334,6 @@
 		flex-direction: column;
 	}
 
-	/* Specs tab */
-	.spec-fill {
-		flex: 1;
-		min-height: 0;
-		overflow: hidden;
-		display: flex;
-		flex-direction: column;
-	}
-
 	/* Files tab */
 	.files-fill {
 		flex: 1;
@@ -1533,6 +1524,15 @@
 
 	.modal-hdr h2 {
 		font-size: 16px;
+	}
+
+	/* Issues tab */
+	.issues-fill {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
 	}
 
 	/* Wiki tab */
