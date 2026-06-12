@@ -75,6 +75,15 @@ func parseLeakedToolCalls(text string) []*ParsedToolCall {
 
 // tryParseToolCallBlock attempts to extract tool call JSON from a marker block.
 func tryParseToolCallBlock(block string, pair leakedMarkerPair) []*ParsedToolCall {
+	// Special parser for <function=name>...</function> format.
+	// The generic path strips the open marker leaving e.g. "bash>{...}",
+	// which loses the tool name. Use a dedicated regex to capture the name.
+	if pair.open == "<function=" && pair.close == "</function>" {
+		if parsed := parseFunctionCallTag(block); parsed != nil {
+			return []*ParsedToolCall{{ToolCall: *parsed, rawText: block}}
+		}
+	}
+
 	// Remove markers
 	content := block
 	content = strings.TrimPrefix(content, pair.open)
@@ -93,6 +102,44 @@ func tryParseToolCallBlock(block string, pair leakedMarkerPair) []*ParsedToolCal
 
 	// Try to find JSON objects within the block
 	return findJSONObjects(content, block)
+}
+
+// parseFunctionCallTag extracts a tool call from <function=name>args</function> format.
+// Uses regex to capture the function name and treats everything between the tags
+// as the arguments JSON string.
+func parseFunctionCallTag(block string) *ToolCall {
+	re := regexp.MustCompile(`<function=([^>]+)>`)
+	match := re.FindStringSubmatch(block)
+	if len(match) < 2 {
+		return nil
+	}
+	name := strings.TrimSpace(match[1])
+	if name == "" {
+		return nil
+	}
+
+	// Extract content between the closing > of the open tag and the close tag.
+	closeTag := "</function>"
+	openEnd := match[0] // e.g. "<function=bash>"
+	startIdx := strings.Index(block, openEnd)
+	if startIdx == -1 {
+		return nil
+	}
+	bodyStart := startIdx + len(openEnd)
+
+	closeIdx := strings.LastIndex(block, closeTag)
+	if closeIdx == -1 {
+		return nil
+	}
+
+	argsStr := strings.TrimSpace(block[bodyStart:closeIdx])
+
+	leakedCallSeq++
+	return &ToolCall{
+		ID:   fmt.Sprintf("leaked-%s-%d", name, leakedCallSeq),
+		Type: "function",
+		Func: ToolCallFunction{Name: name, Args: argsStr},
+	}
 }
 
 // leakedCallSeq is a monotonically increasing counter for generating unique

@@ -733,3 +733,63 @@ func TestLeakedMessageReconstruction(t *testing.T) {
 		t.Errorf("round-trip: expected 2 tool_calls, got %d", len(unmarshaled.ToolCalls))
 	}
 }
+
+// ─────────────────────────────────────────────
+// A5: <function=name>...</function> dedicated parser
+// ─────────────────────────────────────────────
+
+func TestParseFunctionCallTag(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantName string
+		wantArgs string
+	}{
+		{
+			name:     "basic bash call",
+			input:    `<function=bash>{"command":"ls"}</function>`,
+			wantName: "bash",
+			wantArgs: `{"command":"ls"}`,
+		},
+		{
+			name:     "with surrounding text",
+			input:    `Let me run this: <function=bash>{"command":"ls -la /tmp"}</function> done.`,
+			wantName: "bash",
+			wantArgs: `{"command":"ls -la /tmp"}`,
+		},
+		{
+			name:     "read_file tool",
+			input:    `<function=read_file>{"path":"foo.txt"}</function>`,
+			wantName: "read_file",
+			wantArgs: `{"path":"foo.txt"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results := parseLeakedToolCalls(tt.input)
+			if len(results) != 1 {
+				t.Fatalf("expected 1 result, got %d", len(results))
+			}
+			if results[0].Func.Name != tt.wantName {
+				t.Errorf("name = %q, want %q", results[0].Func.Name, tt.wantName)
+			}
+			if results[0].Func.Args != tt.wantArgs {
+				t.Errorf("args = %q, want %q", results[0].Func.Args, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestParseFunctionCallTagMultiple(t *testing.T) {
+	input := `<function=bash>{"command":"ls"}</function> and then <function=read_file>{"path":"a.txt"}</function>`
+	results := parseLeakedToolCalls(input)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0].Func.Name != "bash" {
+		t.Errorf("first name = %q, want bash", results[0].Func.Name)
+	}
+	if results[1].Func.Name != "read_file" {
+		t.Errorf("second name = %q, want read_file", results[1].Func.Name)
+	}
+}
