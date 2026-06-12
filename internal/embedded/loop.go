@@ -197,7 +197,14 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			}
 
 			// Execute each tool call
-			for _, tc := range msg.ToolCalls {
+			for idx, tc := range msg.ToolCalls {
+				// B2: Assign a fallback ID to tool calls that arrived without one.
+				// Some servers (llama.cpp) return empty tc.ID in streaming mode,
+				// which causes tool result messages to fail validation on the next turn.
+				if tc.ID == "" {
+					tc.ID = fmt.Sprintf("call_%d_%d", iteration, idx)
+				}
+
 				// Show the tool call (name + command/args) BEFORE running it, in the
 				// "🔧 name → detail" format the web UI parses (OutputViewer.svelte).
 				if opts.OnOutput != nil {
@@ -358,11 +365,18 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					CompletionTokens: totalCompletionTokens,
 				}, nil
 			}
-			// Add a nudge to prompt the model to continue.
-			messages = append(messages, ChatMessage{
-				Role:    ChatRoleUser,
-				Content: "Please continue with the task.",
-			})
+			// B7: Skip adding a nudge if the last message is already one — prevents
+			// stacking duplicate "Please continue" messages when the model keeps
+			// returning empty responses.
+			lastNudge := len(messages) > 0 &&
+				messages[len(messages)-1].Role == ChatRoleUser &&
+				messages[len(messages)-1].Content == "Please continue with the task."
+			if !lastNudge {
+				messages = append(messages, ChatMessage{
+					Role:    ChatRoleUser,
+					Content: "Please continue with the task.",
+				})
+			}
 			continue
 		}
 		consecutiveEmpty = 0
@@ -552,12 +566,15 @@ func attemptHandoff(ctx context.Context, client *Client, opts ExecuteOptions, tr
 	}, true
 }
 
-// truncate cuts a string to maxLen and adds "..." if truncated.
+// truncate cuts a string to maxLen runes and adds "..." if truncated.
+// Uses rune-based truncation to avoid cutting multi-byte UTF-8 characters
+// (like Korean hangul) mid-byte, which would produce replacement characters (�).
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return string(runes[:maxLen]) + "..."
 }
 
 // truncateToolResult limits tool output stored in message history to 8 000
@@ -566,10 +583,11 @@ func truncate(s string, maxLen int) string {
 // manageable while still giving the model the most important prefix.
 func truncateToolResult(s string) string {
 	const maxToolResultChars = 8000
-	if len(s) <= maxToolResultChars {
+	runes := []rune(s)
+	if len(runes) <= maxToolResultChars {
 		return s
 	}
-	return s[:maxToolResultChars] + fmt.Sprintf("\n...[truncated %d chars]", len(s)-maxToolResultChars)
+	return string(runes[:maxToolResultChars]) + fmt.Sprintf("\n...[truncated %d chars]", len(runes)-maxToolResultChars)
 }
 
 // toolArgSummary extracts a short, human-readable summary of a tool call's

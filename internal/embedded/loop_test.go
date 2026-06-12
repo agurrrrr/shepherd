@@ -24,7 +24,7 @@ func buildSSELines(toolCalls []toolCallSpec, content string, finishReason string
 	if len(toolCalls) > 0 {
 		// First chunk: all tool call headers (id, name)
 		type argChunk struct {
-			Index int    `json:"index"`
+			Index int `json:"index"`
 			Func  struct {
 				Args string `json:"arguments"`
 			} `json:"function"`
@@ -350,4 +350,146 @@ func TestLoopMalformedArgsDoNotCrashNextRequest(t *testing.T) {
 // because the mock server controls the number of rounds.
 func newRecordingRegistry(result string) *ToolRegistry {
 	return NewToolRegistry("", "test-sheep", nil, nil)
+}
+
+// ─────────────────────────────────────────────
+// B6: truncate on rune boundaries (Korean support)
+// ─────────────────────────────────────────────
+
+func TestTruncateRuneBoundary(t *testing.T) {
+	// Korean text: "안녕하세요" (5 runes, 15 bytes in UTF-8)
+	korean := "안녕하세요"
+
+	// Truncate to 3 runes should give "안녕하" without replacement chars
+	result := truncate(korean, 3)
+	if result != "안녕하..." {
+		t.Errorf("truncate(%q, 3) = %q, want %q", korean, result, "안녕하...")
+	}
+
+	// Full length should not truncate
+	result = truncate(korean, 10)
+	if result != korean {
+		t.Errorf("truncate(%q, 10) = %q, want %q", korean, result, korean)
+	}
+
+	// Mixed ASCII + Korean
+	mixed := "hello 안녕하세요"
+	result = truncate(mixed, 8)
+	// "hello 안녕" is 8 runes (h,e,l,l,o, ,안,녕) + "..." = 11 runes total
+	if len([]rune(result)) != 11 { // 8 runes + "..." = 11 runes
+		t.Errorf("truncate(%q, 8) rune len = %d, want 11", mixed, len([]rune(result)))
+	}
+
+	// Check no replacement character appears
+	if strings.Contains(result, "\uFFFD") {
+		t.Errorf("truncate produced replacement character: %q", result)
+	}
+}
+
+func TestTruncateToolResultRuneBoundary(t *testing.T) {
+	// Long Korean text that exceeds the max (8000 chars)
+	longKorean := strings.Repeat("안녕하세요\n", 2000) // ~30,000 runes
+
+	result := truncateToolResult(longKorean)
+	if strings.Contains(result, "\uFFFD") {
+		t.Errorf("truncateToolResult produced replacement character")
+	}
+
+	// Should end with truncation notice
+	if !strings.Contains(result, "[truncated") {
+		t.Errorf("expected truncation notice, got ending: %q", result[len(result)-50:])
+	}
+
+	// Short text should pass through unchanged
+	short := "짧은 텍스트"
+	result = truncateToolResult(short)
+	if result != short {
+		t.Errorf("truncateToolResult(%q) = %q, want unchanged", short, result)
+	}
+}
+
+// ─────────────────────────────────────────────
+// B7: duplicate nudge prevention
+// ─────────────────────────────────────────────
+
+func TestDuplicateNudgePrevention(t *testing.T) {
+	// This test verifies the logic conceptually since we can't easily
+	// test the full loop. Instead, verify that the nudge message content
+	// is what we expect and that the check would work.
+	nudgeContent := "Please continue with the task."
+
+	messages := []ChatMessage{
+		{Role: ChatRoleUser, Content: nudgeContent},
+	}
+
+	// Simulate the B7 check: last message is already a nudge
+	lastNudge := len(messages) > 0 &&
+		messages[len(messages)-1].Role == ChatRoleUser &&
+		messages[len(messages)-1].Content == nudgeContent
+
+	if !lastNudge {
+		t.Error("expected lastNudge to be true when last message is the nudge")
+	}
+
+	// When last message is NOT a nudge, we should add one
+	messages2 := []ChatMessage{
+		{Role: ChatRoleAssistant, Content: "some output"},
+	}
+	lastNudge2 := len(messages2) > 0 &&
+		messages2[len(messages2)-1].Role == ChatRoleUser &&
+		messages2[len(messages2)-1].Content == nudgeContent
+
+	if lastNudge2 {
+		t.Error("expected lastNudge to be false when last message is assistant content")
+	}
+
+	// When messages is empty, should add nudge
+	messages3 := []ChatMessage{}
+	lastNudge3 := len(messages3) > 0 &&
+		messages3[len(messages3)-1].Role == ChatRoleUser &&
+		messages3[len(messages3)-1].Content == nudgeContent
+
+	if lastNudge3 {
+		t.Error("expected lastNudge to be false when messages is empty")
+	}
+}
+
+// ─────────────────────────────────────────────
+// B2: empty tc.ID fallback in streaming mode
+// ─────────────────────────────────────────────
+
+func TestEmptyToolCallIDFallback(t *testing.T) {
+	// Simulate what happens when a tool call arrives with empty ID.
+	// The loop assigns a fallback ID: fmt.Sprintf("call_%d_%d", iteration, idx)
+	tc := ToolCall{
+		ID:   "",
+		Type: "function",
+		Func: ToolCallFunction{Name: "bash", Args: `{"command":"ls"}`},
+	}
+
+	iteration := 3
+	idx := 1
+
+	if tc.ID == "" {
+		tc.ID = fmt.Sprintf("call_%d_%d", iteration, idx)
+	}
+
+	if tc.ID != "call_3_1" {
+		t.Errorf("expected fallback ID 'call_3_1', got %q", tc.ID)
+	}
+
+	// Verify that non-empty IDs are preserved.
+	tc2 := ToolCall{
+		ID:   "existing-id-123",
+		Type: "function",
+		Func: ToolCallFunction{Name: "read_file", Args: `{"path":"test.txt"}`},
+	}
+
+	if tc2.ID == "" {
+		tc2.ID = fmt.Sprintf("call_%d_%d", iteration, idx)
+	}
+
+	if tc2.ID != "existing-id-123" {
+		t.Errorf("expected preserved ID 'existing-id-123', got %q", tc2.ID)
+	}
 }
