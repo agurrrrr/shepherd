@@ -25,6 +25,10 @@
 	let sheepStatus = $state('idle');
 	let sheepName = $state('');
 	let sheepProvider = $state('claude');
+	// Whether this project has a task in the 'running' state. Used as a fallback
+	// so Stop/Inject buttons show even when sheepStatus desyncs to 'idle' while a
+	// task is still marked running (e.g. after a server restart or missed SSE).
+	let hasRunningTask = $state(false);
 	// Global OpenCode "thinking" default; per-project override lives in
 	// $thinkingByProject and wins when the user has explicitly toggled.
 	let opencodeThinkingDefault = $state(false);
@@ -153,6 +157,7 @@
 		loading = true;
 		liveOutput = [];
 		sheepStatus = 'idle';
+		hasRunningTask = false;
 		sheepName = '';
 		tasks = [];
 		tasksLoaded = false;
@@ -213,15 +218,22 @@
 
 		// SSE: task events -> refresh history
 		unsubs.push(onSSE('task_complete', (data) => {
-			if (data.project_name === projectName && tasksLoaded) loadTasks();
+			if (data.project_name === projectName) {
+				hasRunningTask = false;
+				if (tasksLoaded) loadTasks();
+			}
 		}));
 		unsubs.push(onSSE('task_fail', (data) => {
-			if (data.project_name === projectName && tasksLoaded) loadTasks();
+			if (data.project_name === projectName) {
+				hasRunningTask = false;
+				if (tasksLoaded) loadTasks();
+			}
 		}));
 		unsubs.push(onSSE('task_start', (data) => {
 			if (data.project_name === projectName) {
 				// 새 작업 시작: 이전 출력 정리 후 프롬프트 표시
 				liveOutput = [`▶ ${data.prompt}`, ''];
+				hasRunningTask = true;
 				if (tasksLoaded) loadTasks();
 			}
 		}));
@@ -264,6 +276,7 @@
 			}
 
 			await loadLatestOutput();
+			await refreshRunningTask();
 		}
 		loading = false;
 	}
@@ -277,6 +290,15 @@
 			sheepStatus = sheepRes.data.status;
 			sheepProvider = sheepRes.data.provider || 'claude';
 		}
+		await refreshRunningTask();
+	}
+
+	// Authoritative check for whether a task is currently running for this project.
+	// Drives the Stop/Inject button fallback when sheepStatus is out of sync.
+	async function refreshRunningTask() {
+		if (!projectName) return;
+		const res = await apiGet(`/api/tasks?project=${encodeURIComponent(projectName)}&status=running&limit=1`);
+		hasRunningTask = (res?.data?.length || 0) > 0;
 	}
 
 	async function changeProvider(provider) {
@@ -958,6 +980,7 @@
 					projectName={project.name}
 					sheepName={sheepName}
 					sheepStatus={sheepStatus}
+					hasRunningTask={hasRunningTask}
 					thinking={providerHasThinking ? thinkingChecked : null}
 					model={providerHasModel ? (modelSelected || null) : null}
 				/>

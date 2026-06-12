@@ -5,7 +5,7 @@
 	// "do not include the field" so the server applies opencode_thinking_default.
 	// `model`: per-project model override for OpenCode. Empty string or null means
 	// "use the global default".
-	let { projectName = '', sheepName = '', sheepStatus = 'idle', thinking = null, model = null } = $props();
+	let { projectName = '', sheepName = '', sheepStatus = 'idle', hasRunningTask = false, thinking = null, model = null } = $props();
 
 	let prompt = $state('');
 	let loading = $state(false);
@@ -16,7 +16,10 @@
 	// Inject mode: when true, Enter sends the prompt via inject API instead of creating a new task
 	let injectMode = $state(false);
 
-	let isWorking = $derived(sheepStatus === 'working');
+	// Show Stop/Inject when the sheep reports working OR a task is still marked
+	// running — the latter covers the desync where sheepStatus drops to 'idle'
+	// while a task is genuinely running (server restart, missed SSE event).
+	let isWorking = $derived(sheepStatus === 'working' || hasRunningTask);
 	let hasAttachments = $derived(attachedFiles.length > 0);
 
 	function openFilePicker() {
