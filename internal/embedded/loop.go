@@ -12,6 +12,20 @@ import (
 	"time"
 )
 
+// DefaultTemperature is the default sampling temperature for the embedded agent.
+const DefaultTemperature = 0.7
+
+// DefaultFrequencyPenalty / DefaultPresencePenalty discourage local models from
+// looping on the same token/phrase (task #6008). Values kept modest so creative
+// tasks aren't overly constrained.
+const DefaultFrequencyPenalty = 0.3
+const DefaultPresencePenalty  = 0.3
+
+// imagePathRe matches image file paths in text (used by extractAttachedImages
+// and MarkPreReadImages). Kept at package level to avoid recompiling the same
+// regex in two places.
+var imagePathRe = regexp.MustCompile(`(/[^\s"\']+?\.(jpg|jpeg|png|gif|webp|bmp|JPG|JPEG|PNG|GIF|WEBP|BMP))`)
+
 // Run executes the embedded agent loop: model → tool calls → execute → retry.
 func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	if opts.MaxIterations <= 0 {
@@ -89,6 +103,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// continuation of the conversation. This is checked at the top of each
 		// loop iteration so injected messages are included in the next LLM call.
 		if opts.InjectCh != nil {
+			pollLoop:
 			for {
 				select {
 				case injected, ok := <-opts.InjectCh:
@@ -104,11 +119,10 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 						opts.OnOutput("💬 [주입된 메시지]: " + injected)
 					}
 				default:
-					goto doneInjectPoll
+					break pollLoop
 				}
 			}
 		}
-	doneInjectPoll:
 
 		// Trim messages to fit context window. If trimming would actually drop
 		// turns and a handoff is allowed (queue empty), finish this task with a
@@ -130,12 +144,12 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			Messages:    messages,
 			Tools:       toolDefs,
 			ToolChoice:  "auto",
-			Temperature: 0.7,
+			Temperature:      DefaultTemperature,
 			// Mild penalties to steer local models away from looping on the same
 			// phrase. The streaming repetition guard (AccumulateStream) is the hard
 			// backstop; these just make the loop less likely in the first place.
-			FrequencyPenalty: 0.3,
-			PresencePenalty:  0.3,
+			FrequencyPenalty: DefaultFrequencyPenalty,
+			PresencePenalty:  DefaultPresencePenalty,
 			MaxTokens:        opts.ContextTokens / 4,
 			Stream:           true,
 			StreamOptions:    &StreamOptions{IncludeUsage: true},
@@ -519,7 +533,7 @@ func attemptHandoff(ctx context.Context, client *Client, opts ExecuteOptions, tr
 	req := &ChatRequest{
 		Model:         opts.Model,
 		Messages:      msgs,
-		Temperature:   0.7,
+		Temperature:   DefaultTemperature,
 		MaxTokens:     opts.ContextTokens / 4,
 		Stream:        true,
 		StreamOptions: &StreamOptions{IncludeUsage: true},
@@ -637,9 +651,8 @@ func indentResult(s string) string {
 // followed by image_url parts for each valid image. Returns nil if no images
 // are found.
 func extractAttachedImages(prompt string) []ContentPart {
-	// Match image file paths in the prompt (same regex as MarkPreReadImages)
-	imageRe := regexp.MustCompile(`(/[^\s"\']+?\.(jpg|jpeg|png|gif|webp|bmp|JPG|JPEG|PNG|GIF|WEBP|BMP))`)
-	matches := imageRe.FindAllStringSubmatch(prompt, -1)
+	// Match image file paths in the prompt (same regex as MarkPreReadImages).
+	matches := imagePathRe.FindAllStringSubmatch(prompt, -1)
 
 	var parts []ContentPart
 	for _, m := range matches {

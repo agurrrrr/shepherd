@@ -92,10 +92,8 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 		sections = append(sections, embeddedMCPGuide())
 	}
 
-	// Task history
-	if config.GetBool("include_task_history") {
-		// The model will call get_history when needed via MCP tools
-	}
+	// Task history is not injected into the system prompt — the model calls
+	// get_history via MCP tools when needed (include_task_history config key).
 
 	// Project skills
 	if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {

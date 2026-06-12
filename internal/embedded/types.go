@@ -18,6 +18,9 @@ type Endpoint struct {
 	APIKey        string `mapstructure:"api_key"`
 	Model         string `mapstructure:"model"`
 	Enabled       bool   `mapstructure:"enabled"`
+	// Thinking is stored in the endpoint CRUD settings but the embedded agent
+	// loop does not consume it — reasoning is handled natively via the model's
+	// reasoning_content field (see ChatMessage.ReasoningContent).
 	Thinking      bool   `mapstructure:"thinking"`
 	MaxIterations int    `mapstructure:"max_iterations"`
 	ContextTokens int    `mapstructure:"context_tokens"`
@@ -138,8 +141,6 @@ type ChatRequest struct {
 	StreamOptions    *StreamOptions `json:"stream_options,omitempty"`
 	// Ollama-specific
 	Options map[string]interface{} `json:"options,omitempty"`
-	// Thinking/reasoning
-	ExtraProperties map[string]interface{} `json:"-"`
 }
 
 // StreamOptions requests usage statistics in the final streaming chunk.
@@ -188,15 +189,6 @@ type ChatResponse struct {
 	Model   string       `json:"model"`
 	Choices []ChatChoice `json:"choices"`
 	Usage   ChatUsage    `json:"usage"`
-}
-
-// StreamHandler processes streaming deltas from the model.
-type StreamHandler func(delta *ChatDelta, usage *ChatUsage) error
-
-// SSEEvent represents a Server-Sent Events chunk.
-type SSEEvent struct {
-	Event string
-	Data  string
 }
 
 // ExecuteResult is the result of an embedded execution, matching the worker
@@ -254,40 +246,6 @@ const DefaultMaxIterations = 40
 
 // DefaultContextTokens is the default context window size.
 const DefaultContextTokens = 32768
-
-// parseSSE parses SSE stream from reader. Each chunk is "event: <type>\ndata: <json>\n\n".
-func parseSSE(reader io.Reader) ([]*SSEEvent, error) {
-	buf, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("read stream: %w", err)
-	}
-
-	var events []*SSEEvent
-	var currentEvent, currentData string
-
-	for _, line := range strings.Split(string(buf), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			if currentEvent != "" || currentData != "" {
-				events = append(events, &SSEEvent{
-					Event: currentEvent,
-					Data:  currentData,
-				})
-				currentEvent = ""
-				currentData = ""
-			}
-			continue
-		}
-
-		if strings.HasPrefix(line, "event: ") {
-			currentEvent = strings.TrimPrefix(line, "event: ")
-		} else if strings.HasPrefix(line, "data: ") {
-			currentData = strings.TrimPrefix(line, "data: ")
-		}
-	}
-
-	return events, nil
-}
 
 // estimateTextTokens estimates tokens for a text string. ASCII averages ~4
 // bytes per token, but CJK (한글 등) averages ~1 token per character — the old

@@ -71,9 +71,8 @@ func (tr *ToolRegistry) MarkImageRead(path string) {
 // MarkPreReadImages scans the initial user prompt for image file paths
 // (e.g. from "[Attached files]" block) and marks them as already read.
 func (tr *ToolRegistry) MarkPreReadImages(prompt string) {
-	// Match common image extensions in file paths
-	imageRe := regexp.MustCompile(`(/[^\s"\']+?\.(jpg|jpeg|png|gif|webp|bmp|JPG|JPEG|PNG|GIF|WEBP|BMP))`)
-	matches := imageRe.FindAllStringSubmatch(prompt, -1)
+	// Match common image extensions in file paths (uses shared imagePathRe).
+	matches := imagePathRe.FindAllStringSubmatch(prompt, -1)
 	for _, m := range matches {
 		if len(m) >= 2 {
 			tr.readImages[m[1]] = true
@@ -247,8 +246,6 @@ func (tr *ToolRegistry) Dispatch(ctx context.Context, name string, args map[stri
 
 	// Fall back to MCP tools
 	if tr.mcpDispatch != nil {
-		// Inject sheep_name for browser tools
-		args["sheep_name"] = tr.sheepName
 		return tr.mcpDispatch(name, args)
 	}
 

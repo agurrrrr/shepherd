@@ -203,6 +203,7 @@ func findJSONObjects(text, rawBlock string) []*ParsedToolCall {
 	var results []*ParsedToolCall
 
 	// Find all balanced {...} blocks
+outer:
 	for i := 0; i < len(text); {
 		if text[i] != '{' {
 			i++
@@ -243,7 +244,7 @@ func findJSONObjects(text, rawBlock string) []*ParsedToolCall {
 							results = append(results, &ParsedToolCall{ToolCall: *tc, rawText: rawBlock})
 						}
 						i = j + 1
-						goto next
+						continue outer
 					}
 				}
 			}
@@ -251,8 +252,6 @@ func findJSONObjects(text, rawBlock string) []*ParsedToolCall {
 
 		// Unmatched opening brace — skip it
 		i++
-
-	next:
 	}
 
 	return results
