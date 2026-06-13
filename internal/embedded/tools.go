@@ -238,6 +238,25 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 
 // Dispatch executes a tool call by name and arguments. The context is passed
 // through to native tools so cancellation/timeout reaches subprocesses.
+// WantsSheepName reports whether the named MCP tool declares a sheep_name
+// property in its input schema. Only such tools (shepherd's own browser_*
+// etc.) should have sheep_name injected; external MCP servers using strict
+// unmarshaling reject unknown fields (task #6142).
+func (tr *ToolRegistry) WantsSheepName(name string) bool {
+	for _, def := range tr.mcpDefs {
+		if def.Name != name {
+			continue
+		}
+		props, ok := def.Parameters["properties"].(map[string]interface{})
+		if !ok {
+			return false
+		}
+		_, has := props["sheep_name"]
+		return has
+	}
+	return false
+}
+
 func (tr *ToolRegistry) Dispatch(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	// Check native tools first
 	if fn, ok := tr.nativeTools[name]; ok {

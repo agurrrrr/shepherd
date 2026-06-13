@@ -443,8 +443,12 @@ func dispatchTool(ctx context.Context, tr *ToolRegistry, tc ToolCall, opts Execu
 		return "", fmt.Errorf("JSON parse error for %s: %w", tc.Func.Name, err)
 	}
 
-	// Inject sheep_name for MCP tools
-	args["sheep_name"] = opts.SheepName
+	// Inject sheep_name only for MCP tools whose schema declares it (shepherd's
+	// own browser_* tools). External MCP servers with strict unmarshaling reject
+	// unknown fields, so blanket injection broke them (task #6142).
+	if tr.WantsSheepName(tc.Func.Name) {
+		args["sheep_name"] = opts.SheepName
+	}
 
 	// Run the tool in a goroutine so a hung tool (e.g. a CDP call stuck
 	// mid-navigation) cannot freeze the agent loop forever (task #5985), and so
