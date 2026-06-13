@@ -476,15 +476,20 @@ func SaveEmbeddedConfig(cfg *EmbeddedConfig) error {
 
 // EmbeddedEndpoint is a single LLM endpoint entry.
 type EmbeddedEndpoint struct {
-	ID            string `mapstructure:"id"`
-	Label         string `mapstructure:"label"`
-	BaseURL       string `mapstructure:"base_url"`
-	APIKey        string `mapstructure:"api_key"`
-	Model         string `mapstructure:"model"`
-	Enabled       bool   `mapstructure:"enabled"`
-	Thinking      bool   `mapstructure:"thinking"`
-	MaxIterations int    `mapstructure:"max_iterations"`
-	ContextTokens int    `mapstructure:"context_tokens"`
+	ID       string `mapstructure:"id"`
+	Label    string `mapstructure:"label"`
+	BaseURL  string `mapstructure:"base_url"`
+	APIKey   string `mapstructure:"api_key"`
+	Model    string `mapstructure:"model"`
+	Enabled  bool   `mapstructure:"enabled"`
+	Thinking bool   `mapstructure:"thinking"`
+	// Vision marks the endpoint's model as vision-capable. When true, the
+	// embedded agent surfaces image files (e.g. runtime screenshots) to the
+	// model as real images via read_file, independent of whether the task had
+	// attached files. Older configs lack this field → defaults to false.
+	Vision        bool `mapstructure:"vision"`
+	MaxIterations int  `mapstructure:"max_iterations"`
+	ContextTokens int  `mapstructure:"context_tokens"`
 }
 
 // EmbeddedConfig is the top-level config for embedded endpoints.
@@ -516,6 +521,7 @@ type EmbeddedEndpointJSON struct {
 	Model         string `json:"model"`
 	Enabled       bool   `json:"enabled"`
 	Thinking      bool   `json:"thinking"`
+	Vision        bool   `json:"vision"`
 	MaxIterations int    `json:"max_iterations"`
 	ContextTokens int    `json:"context_tokens"`
 }
@@ -532,6 +538,7 @@ func EndpointsToJSON(endpoints []EmbeddedEndpoint) []EmbeddedEndpointJSON {
 			Model:         ep.Model,
 			Enabled:       ep.Enabled,
 			Thinking:      ep.Thinking,
+			Vision:        ep.Vision,
 			MaxIterations: ep.MaxIterations,
 			ContextTokens: ep.ContextTokens,
 		}
@@ -551,6 +558,7 @@ func EndpointsFromJSON(jsonEps []EmbeddedEndpointJSON) []EmbeddedEndpoint {
 			Model:         ep.Model,
 			Enabled:       ep.Enabled,
 			Thinking:      ep.Thinking,
+			Vision:        ep.Vision,
 			MaxIterations: ep.MaxIterations,
 			ContextTokens: ep.ContextTokens,
 		}

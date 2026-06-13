@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -19,12 +20,57 @@ const DefaultTemperature = 0.7
 // looping on the same token/phrase (task #6008). Values kept modest so creative
 // tasks aren't overly constrained.
 const DefaultFrequencyPenalty = 0.3
-const DefaultPresencePenalty  = 0.3
+const DefaultPresencePenalty = 0.3
 
 // imagePathRe matches image file paths in text (used by extractAttachedImages
 // and MarkPreReadImages). Kept at package level to avoid recompiling the same
 // regex in two places.
 var imagePathRe = regexp.MustCompile(`(/[^\s"\']+?\.(jpg|jpeg|png|gif|webp|bmp|JPG|JPEG|PNG|GIF|WEBP|BMP))`)
+
+// maxRepeatedToolTurns is the number of consecutive turns with an identical
+// tool-call signature tolerated before the task is declared stuck. Five
+// identical calls in a row (e.g. read_file on an image the model cannot view)
+// is never legitimate progress.
+const maxRepeatedToolTurns = 4
+
+// replacementCharRatio / minDegenerateRunes gate the degeneration guard. A
+// short reply with a stray U+FFFD must not trip it, so require both a minimum
+// length and a high replacement-char fraction.
+const replacementCharRatio = 0.2
+const minDegenerateRunes = 20
+
+// toolCallsSignature builds a stable, order-independent signature for a turn's
+// tool calls (name + trimmed args). Used to detect a model stuck repeating the
+// exact same call(s) turn after turn. Returns "" for no calls.
+func toolCallsSignature(calls []ToolCall) string {
+	if len(calls) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(calls))
+	for _, tc := range calls {
+		parts = append(parts, tc.Func.Name+"("+strings.TrimSpace(tc.Func.Args)+")")
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "|")
+}
+
+// isDegenerateOutput reports whether s is dominated by U+FFFD replacement
+// characters — the hallmark of a local model producing broken multi-byte text
+// after a silent context shift (task #6145). Short strings are exempt so a
+// single stray replacement character does not trip the guard.
+func isDegenerateOutput(s string) bool {
+	total, bad := 0, 0
+	for _, r := range s {
+		total++
+		if r == '�' {
+			bad++
+		}
+	}
+	if total < minDegenerateRunes {
+		return false
+	}
+	return float64(bad)/float64(total) >= replacementCharRatio
+}
 
 // Run executes the embedded agent loop: model → tool calls → execute → retry.
 func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
@@ -70,16 +116,22 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	client := NewClient(baseURL, opts.APIKey, opts.Model)
 	toolRegistry := NewToolRegistry(opts.ProjectPath, opts.SheepName, opts.MCPDefs, opts.MCPDispatch)
 
-	// Vision is enabled when the task prompt carries attached files (the web UI
-	// prepends an "[Attached files]" block). In that case read_file surfaces
-	// image files as viewable images instead of a "cannot read binary" notice.
-	toolRegistry.SetVision(strings.Contains(opts.UserPrompt, "[Attached files]"))
+	// Vision is enabled either by the endpoint's model capability (opts.Vision)
+	// or because the task prompt carries attached files (the web UI prepends an
+	// "[Attached files]" block). The capability flag is the important case: a
+	// vision model running a task with no attachments (e.g. "capture a screenshot
+	// and check the screen") must still be able to view images it produces at
+	// runtime via read_file. The marker is kept as an OR so existing
+	// attachment-based tasks on non-vision-flagged endpoints keep working (task
+	// #6145: a vision model was blinded because only the marker gated vision).
+	hasAttachedFiles := strings.Contains(opts.UserPrompt, "[Attached files]")
+	toolRegistry.SetVision(opts.Vision || hasAttachedFiles)
 
 	// Pre-register any image paths mentioned in the initial prompt as already
 	// read. This prevents the model from calling read_file on them — they are
 	// already provided in the context. Without this, the model may enter an
 	// infinite loop of calling read_file → image loaded → call read_file again.
-	if strings.Contains(opts.UserPrompt, "[Attached files]") {
+	if hasAttachedFiles {
 		toolRegistry.MarkPreReadImages(opts.UserPrompt)
 	}
 
@@ -95,6 +147,13 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		totalPromptTokens     int64
 		totalCompletionTokens int64
 		consecutiveEmpty      int
+		// Stuck-guard state: a confused local model (e.g. one blinded to an
+		// image it keeps trying to read) can repeat the exact same tool call
+		// turn after turn, making no progress while the context grows until it
+		// degenerates (task #6145). lastToolSig holds the previous turn's tool
+		// signature; repeatedToolTurns counts consecutive identical repeats.
+		lastToolSig       string
+		repeatedToolTurns int
 	)
 
 	for iteration := 0; iteration < opts.MaxIterations; iteration++ {
@@ -103,7 +162,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// continuation of the conversation. This is checked at the top of each
 		// loop iteration so injected messages are included in the next LLM call.
 		if opts.InjectCh != nil {
-			pollLoop:
+		pollLoop:
 			for {
 				select {
 				case injected, ok := <-opts.InjectCh:
@@ -144,7 +203,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			Messages:    messages,
 			Tools:       toolDefs,
 			ToolChoice:  "auto",
-			Temperature:      DefaultTemperature,
+			Temperature: DefaultTemperature,
 			// Mild penalties to steer local models away from looping on the same
 			// phrase. The streaming repetition guard (AccumulateStream) is the hard
 			// backstop; these just make the loop less likely in the first place.
@@ -194,8 +253,47 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			}, nil
 		}
 
+		// Degeneration guard: after a SILENT context shift (llama.cpp truncates
+		// the prompt instead of returning an error), local models often emit
+		// text dense with U+FFFD replacement characters (broken multi-byte /
+		// 깨진 한글) and loop on it until max iterations (task #6145). The
+		// empty-response guard never fires because the turns are non-empty.
+		// Detect the high replacement-char ratio and stop now rather than
+		// feeding the garbage back into the context.
+		if isDegenerateOutput(msg.Content) || isDegenerateOutput(msg.ReasoningContent) {
+			return &ExecuteResult{
+				Result:           "",
+				Incomplete:       true,
+				IncompleteReason: "model output degenerated (likely silent context overflow)",
+				PromptTokens:     totalPromptTokens,
+				CompletionTokens: totalCompletionTokens,
+			}, nil
+		}
+
 		// Handle tool calls (native function-calling)
 		if len(msg.ToolCalls) > 0 {
+			// Stuck guard: if the model repeats the exact same tool call(s)
+			// (identical name + args) for several turns running, it is making no
+			// progress — kill the task instead of letting the context grow until
+			// it degenerates. Updated before execution so a repeated rejection
+			// (e.g. read_file on an unviewable image) is caught.
+			sig := toolCallsSignature(msg.ToolCalls)
+			if sig != "" && sig == lastToolSig {
+				repeatedToolTurns++
+			} else {
+				repeatedToolTurns = 0
+				lastToolSig = sig
+			}
+			if repeatedToolTurns >= maxRepeatedToolTurns {
+				return &ExecuteResult{
+					Result:           "",
+					Incomplete:       true,
+					IncompleteReason: "stuck: repeated identical tool calls with no progress",
+					PromptTokens:     totalPromptTokens,
+					CompletionTokens: totalCompletionTokens,
+				}, nil
+			}
+
 			// Add assistant message with tool calls to history.
 			// Sanitize args first: malformed JSON in tool_calls causes llama.cpp to
 			// return HTTP 500 on the very next request (its grammar engine rejects them).
@@ -277,9 +375,9 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				cleanContent := removeLeakedMarkers(msg.Content)
 
 				assistantMsg := ChatMessage{
-					Role:       ChatRoleAssistant,
-					Content:    cleanContent,
-					ToolCalls:  toolCalls,
+					Role:      ChatRoleAssistant,
+					Content:   cleanContent,
+					ToolCalls: toolCalls,
 				}
 				messages = append(messages, assistantMsg)
 

@@ -38,6 +38,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				model: '',
 				enabled: true,
 				thinking: false,
+				vision: false,
 				max_iterations: 40,
 				context_tokens: 32768
 			};
@@ -59,6 +60,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			model: editing.model,
 			enabled: editing.enabled,
 			thinking: editing.thinking,
+			vision: editing.vision,
 			max_iterations: parseInt(editing.max_iterations) || 40,
 			context_tokens: parseInt(editing.context_tokens) || 32768
 		};
@@ -182,6 +184,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 					<div class="embedded-detail"><span class="embedded-label">Context:</span> {ep.context_tokens?.toLocaleString()} tokens</div>
 					<div class="embedded-detail"><span class="embedded-label">Max Iterations:</span> {ep.max_iterations}</div>
 					<div class="embedded-detail"><span class="embedded-label">Thinking:</span> {ep.thinking ? 'On' : 'Off'}</div>
+					<div class="embedded-detail"><span class="embedded-label">Vision:</span> {ep.vision ? 'On' : 'Off'}</div>
 				</div>
 			</div>
 		{/each}
@@ -228,6 +231,14 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 					<span>{editing.thinking ? 'On' : 'Off'}</span>
 				</label>
 			</div>
+			<div class="setting-row">
+				<label>Vision</label>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={editing.vision} />
+					<span>{editing.vision ? 'On' : 'Off'}</span>
+				</label>
+			</div>
+			<p class="hint">모델이 이미지를 볼 수 있으면 켜세요. 켜면 작업 중 생성한 스크린샷도 read_file로 직접 봅니다.</p>
 			<div class="setting-row">
 				<label>Enabled</label>
 				<label class="toggle">

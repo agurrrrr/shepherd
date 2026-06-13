@@ -363,13 +363,14 @@ func (s *Server) handleGetEmbeddedEndpoints(c *fiber.Ctx) error {
 			"model":          ep.Model,
 			"enabled":        ep.Enabled,
 			"thinking":       ep.Thinking,
+			"vision":         ep.Vision,
 			"max_iterations": ep.MaxIterations,
 			"context_tokens": ep.ContextTokens,
 			"is_active":      ep.ID == activeID,
 		})
 	}
 	return success(c, map[string]interface{}{
-		"endpoints":        result,
+		"endpoints":          result,
 		"embedded_active_id": activeID,
 	})
 }
@@ -564,6 +565,7 @@ func embeddedEndpointFromJSON(body config.EmbeddedEndpointJSON) config.EmbeddedE
 		Model:         body.Model,
 		Enabled:       body.Enabled,
 		Thinking:      body.Thinking,
+		Vision:        body.Vision,
 		MaxIterations: body.MaxIterations,
 		ContextTokens: body.ContextTokens,
 	}

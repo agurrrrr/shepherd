@@ -594,20 +594,21 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 
 		// Run the embedded agent loop
 		result, err := embedded.Run(ctx, embedded.ExecuteOptions{
-			SheepName:      sheepName,
-			ProjectPath:    projectPath,
-			BaseURL:        ep.BaseURL,
-			APIKey:         ep.APIKey,
-			Model:          ep.Model,
-			SystemPrompt:   systemPrompt,
-			UserPrompt:     prompt,
-			Tools:          toolDefs,
-			OnOutput:       opts.OnOutput,
-			MaxIterations:  ep.MaxIterations,
-			ContextTokens:  ep.ContextTokens,
-			MCPDefs:        mcpDefs,
-			MCPDispatch:    mcpDispatch,
-			InjectCh:       injectCh,
+			SheepName:     sheepName,
+			ProjectPath:   projectPath,
+			BaseURL:       ep.BaseURL,
+			APIKey:        ep.APIKey,
+			Model:         ep.Model,
+			SystemPrompt:  systemPrompt,
+			UserPrompt:    prompt,
+			Tools:         toolDefs,
+			OnOutput:      opts.OnOutput,
+			MaxIterations: ep.MaxIterations,
+			ContextTokens: ep.ContextTokens,
+			Vision:        ep.Vision,
+			MCPDefs:       mcpDefs,
+			MCPDispatch:   mcpDispatch,
+			InjectCh:      injectCh,
 			// Context-overflow handoff: when the conversation outgrows the
 			// context window and this sheep has no other pending tasks, finish
 			// the task with a summary and queue the remaining work as a

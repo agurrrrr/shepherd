@@ -12,18 +12,18 @@ import (
 
 // Endpoint represents a configured LLM endpoint (OpenAI-compatible).
 type Endpoint struct {
-	ID            string `mapstructure:"id"`
-	Label         string `mapstructure:"label"`
-	BaseURL       string `mapstructure:"base_url"`
-	APIKey        string `mapstructure:"api_key"`
-	Model         string `mapstructure:"model"`
-	Enabled       bool   `mapstructure:"enabled"`
+	ID      string `mapstructure:"id"`
+	Label   string `mapstructure:"label"`
+	BaseURL string `mapstructure:"base_url"`
+	APIKey  string `mapstructure:"api_key"`
+	Model   string `mapstructure:"model"`
+	Enabled bool   `mapstructure:"enabled"`
 	// Thinking is stored in the endpoint CRUD settings but the embedded agent
 	// loop does not consume it — reasoning is handled natively via the model's
 	// reasoning_content field (see ChatMessage.ReasoningContent).
-	Thinking      bool   `mapstructure:"thinking"`
-	MaxIterations int    `mapstructure:"max_iterations"`
-	ContextTokens int    `mapstructure:"context_tokens"`
+	Thinking      bool `mapstructure:"thinking"`
+	MaxIterations int  `mapstructure:"max_iterations"`
+	ContextTokens int  `mapstructure:"context_tokens"`
 }
 
 // Config holds embedded provider settings loaded from embedded.yaml.
@@ -217,6 +217,12 @@ type ExecuteOptions struct {
 	OnOutput      func(output string)
 	MaxIterations int
 	ContextTokens int
+
+	// Vision marks the configured model as vision-capable. When true, read_file
+	// surfaces image files (including screenshots the model captures at runtime)
+	// as real images instead of a "cannot read binary" notice — independent of
+	// whether the task had attached files. See loop.go's SetVision call.
+	Vision bool
 
 	// MCPDefs / MCPDispatch wire external MCP tools into the agent loop. Without
 	// MCPDispatch set, the loop can only execute native tools and any MCP tool
