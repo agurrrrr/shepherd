@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -477,7 +476,7 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 
 	// Create a new process group so that on cancel/timeout we can kill the
 	// entire process tree (bash + all children) rather than just the bash shell.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setupProcessGroup(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -500,10 +499,7 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 		// Kill the entire process group on any error (especially ctx cancel or
 		// timeout). exec.CommandContext kills the bash process itself, but child
 		// processes may survive as orphans. Killing the group ensures cleanup.
-		if cmd.Process != nil {
-			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			cmd.Process.Wait() // avoid zombie
-		}
+		killProcessGroup(cmd)
 
 		return tr.capOutput(output), nil
 	}
