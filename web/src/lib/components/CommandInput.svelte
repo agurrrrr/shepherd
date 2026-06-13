@@ -10,11 +10,10 @@
 	let prompt = $state('');
 	let loading = $state(false);
 	let stopping = $state(false);
+	let injectMode = $state(false);
 	let lastResult = $state(null);
 	let attachedFiles = $state([]);
 	let fileInputEl = $state(null);
-	// Inject mode: when true, Enter sends the prompt via inject API instead of creating a new task
-	let injectMode = $state(false);
 
 	// Show Stop/Inject when the sheep reports working OR a task is still marked
 	// running — the latter covers the desync where sheepStatus drops to 'idle'
