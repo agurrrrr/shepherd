@@ -175,7 +175,8 @@ func (s *ExternalMCPServer) initialize() error {
 		Method:  "initialize",
 		Params:  mustMarshalJSON(map[string]interface{}{
 			"protocolVersion": MCPVersion,
-			"serverInfo": map[string]interface{}{
+			"capabilities":    map[string]interface{}{},
+			"clientInfo": map[string]interface{}{
 				"name":    "shepherd-embedded",
 				"version": "0.1.0",
 			},
