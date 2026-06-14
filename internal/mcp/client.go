@@ -109,6 +109,12 @@ func (s *ExternalMCPServer) CallTool(name string, args map[string]interface{}) (
 	id := nextRequestID()
 	s.mu.Unlock()
 
+	// Guarantee a non-nil map so the request marshals `"arguments":{}` instead of
+	// `null`. No-arg tool calls (e.g. mobile_list_available_devices) otherwise hit
+	// strict object validation on the server side and fail with -32602 (task #6211).
+	if args == nil {
+		args = map[string]interface{}{}
+	}
 	params := CallToolParams{Name: name, Arguments: args}
 	req := Request{
 		JSONRPC: "2.0",

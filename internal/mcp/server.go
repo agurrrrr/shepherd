@@ -77,8 +77,14 @@ type ToolsListResult struct {
 }
 
 type CallToolParams struct {
-	Name      string                 `json:"name"`
-	Arguments map[string]interface{} `json:"arguments,omitempty"`
+	Name string `json:"name"`
+	// Arguments must always be emitted, even when empty: many external MCP
+	// servers validate `arguments` with a strict object schema (zod, pydantic)
+	// and reject a missing field as `undefined` (task #6211, mobile-mcp). With
+	// `omitempty` an empty/no-arg tool call dropped the field entirely and the
+	// server returned -32602. CallTool guarantees a non-nil map so this marshals
+	// as `{}` rather than `null`.
+	Arguments map[string]interface{} `json:"arguments"`
 }
 
 type CallToolResult struct {
