@@ -515,11 +515,21 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 
 	globPattern, _ := args["glob"].(string)
 
-	// Try ripgrep first
-	cmd := exec.CommandContext(ctx, "rg", "--color=never", "-n", "--", pattern)
-	if globPattern != "" {
-		cmd.Args = append(cmd.Args, "-g", globPattern)
+	// Build ripgrep args. Glob flags MUST come before the "--" terminator,
+	// otherwise ripgrep treats them as positional search paths rather than
+	// flags. Exclude build/vendor directories by default so the model never
+	// gets compiled artifacts (e.g. ML model assets) injected into context.
+	rgArgs := []string{"--color=never", "-n"}
+	for _, ex := range defaultGrepExcludes {
+		rgArgs = append(rgArgs, "-g", ex)
 	}
+	if globPattern != "" {
+		rgArgs = append(rgArgs, "-g", globPattern)
+	}
+	rgArgs = append(rgArgs, "--", pattern)
+
+	// Try ripgrep first
+	cmd := exec.CommandContext(ctx, "rg", rgArgs...)
 	cmd.Dir = tr.projectPath
 
 	var stdout, stderr bytes.Buffer
@@ -535,7 +545,7 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 			return "No matches found", nil
 		}
 	} else {
-		return tr.capOutput(stdout.String()), nil
+		return tr.capOutput(filterBinaryLines(stdout.String())), nil
 	}
 
 	// Fallback: Go regex recursive search using filepath.WalkDir.
@@ -560,6 +570,9 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 			if strings.HasPrefix(d.Name(), ".") && d.Name() != "." {
 				return filepath.SkipDir
 			}
+			if isExcludedGrepDir(d.Name()) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !fileFilter.MatchString(filepath.Base(path)) {
@@ -567,6 +580,10 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
+			return nil
+		}
+		// Skip binary files so non-text bytes are never injected into context.
+		if isBinary(data) {
 			return nil
 		}
 		relPath, _ := filepath.Rel(tr.projectPath, path)
@@ -585,7 +602,79 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 	if len(results) == 0 {
 		return "No matches found", nil
 	}
-	return tr.capOutput(strings.Join(results, "\n")), nil
+	return tr.capOutput(filterBinaryLines(strings.Join(results, "\n"))), nil
+}
+
+// defaultGrepExcludes are glob patterns excluded from grep by default. These are
+// build/vendor directories that typically hold large or compiled artifacts which
+// add noise (and, for compiled assets, raw binary bytes) when injected into a
+// small local model's context.
+var defaultGrepExcludes = []string{
+	"!**/build/**",
+	"!**/node_modules/**",
+	"!**/vendor/**",
+	"!**/dist/**",
+	"!**/target/**",
+	"!**/.git/**",
+}
+
+// isExcludedGrepDir reports whether a directory name should be skipped during the
+// fallback WalkDir grep. Mirrors defaultGrepExcludes for the no-ripgrep path.
+func isExcludedGrepDir(name string) bool {
+	switch name {
+	case "build", "node_modules", "vendor", "dist", "target":
+		return true
+	}
+	return false
+}
+
+// filterBinaryLines drops lines that look like binary/non-text data from grep
+// output. ripgrep can match printable byte runs inside otherwise-binary files
+// (e.g. protobuf model assets), and feeding those bytes to a small local model
+// destabilizes it. We filter at the line level so legitimate matches in mixed
+// files survive while the binary noise is removed.
+func filterBinaryLines(output string) string {
+	lines := strings.Split(output, "\n")
+	kept := make([]string, 0, len(lines))
+	dropped := 0
+	for _, line := range lines {
+		if isBinaryLine(line) {
+			dropped++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	result := strings.Join(kept, "\n")
+	if dropped > 0 {
+		if result != "" {
+			result += "\n"
+		}
+		result += fmt.Sprintf("[%d binary/non-text line(s) omitted]", dropped)
+	}
+	return result
+}
+
+// isBinaryLine reports whether a single line of grep output appears to be binary
+// rather than source text: it contains a NUL byte, is not valid UTF-8, or has a
+// high ratio of control bytes (tab excluded).
+func isBinaryLine(line string) bool {
+	if line == "" {
+		return false
+	}
+	if strings.IndexByte(line, 0) != -1 {
+		return true
+	}
+	if !utf8.ValidString(line) {
+		return true
+	}
+	ctrl := 0
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if c < 0x20 && c != '\t' && c != '\r' {
+			ctrl++
+		}
+	}
+	return ctrl*100/len(line) > 10
 }
 
 func (tr *ToolRegistry) execGlob(ctx context.Context, args map[string]interface{}) (string, error) {

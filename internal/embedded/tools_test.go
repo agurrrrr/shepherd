@@ -360,3 +360,61 @@ func TestExecGrepFallbackWalkDir(t *testing.T) {
 		t.Errorf("expected 'nested match' in output, got %q", out)
 	}
 }
+
+func TestIsBinaryLine(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{"empty", "", false},
+		{"plain source", "file.go:12:func main() {", false},
+		{"utf8 korean", "doc.md:3:안녕하세요 양들아", false},
+		{"tabs ok", "x.go:1:\tif a == b {", false},
+		{"nul byte", "asset.binarypb:2:abc\x00def", true},
+		// Protobuf-ish line: printable type URL surrounded by control bytes.
+		{"control byte run", "m.binarypb:2:\x08\x12\x1a\x05Htype.googleapis.com\x00", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isBinaryLine(tc.line); got != tc.want {
+				t.Errorf("isBinaryLine(%q) = %v, want %v", tc.line, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFilterBinaryLines(t *testing.T) {
+	in := "good.go:1:package main\nasset.binarypb:2:abc\x00def\nother.go:3:var x = 1"
+	out := filterBinaryLines(in)
+	if !strings.Contains(out, "good.go:1:package main") || !strings.Contains(out, "other.go:3:var x = 1") {
+		t.Errorf("expected text lines kept, got %q", out)
+	}
+	if strings.Contains(out, "\x00") {
+		t.Errorf("binary line was not filtered: %q", out)
+	}
+	if !strings.Contains(out, "1 binary/non-text line(s) omitted") {
+		t.Errorf("expected omission notice, got %q", out)
+	}
+}
+
+func TestExecGrepExcludesBuildDir(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+
+	// A match inside a build/ directory must be excluded by default.
+	os.MkdirAll(filepath.Join(dir, "build", "assets"), 0755)
+	os.WriteFile(filepath.Join(dir, "src.go"), []byte("OcrScript here"), 0644)
+	os.WriteFile(filepath.Join(dir, "build", "assets", "gen.go"), []byte("OcrScript artifact"), 0644)
+
+	out, err := tr.execGrep(context.Background(), map[string]interface{}{"pattern": "OcrScript"})
+	if err != nil {
+		t.Fatalf("execGrep failed: %v", err)
+	}
+	if !strings.Contains(out, "src.go") {
+		t.Errorf("expected source match, got %q", out)
+	}
+	if strings.Contains(out, "build/") || strings.Contains(out, filepath.Join("build", "assets")) {
+		t.Errorf("build dir match should be excluded, got %q", out)
+	}
+}
