@@ -33,11 +33,12 @@ func Init() error {
 		}
 
 		// WAL 모드와 busy_timeout으로 동시성 개선
-		drv, err := entsql.Open("sqlite3", fmt.Sprintf("file:%s?cache=shared&_fk=1&_journal_mode=WAL&_busy_timeout=5000", dbPath))
+		sqlDB, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", dbPath))
 		if err != nil {
 			initErr = fmt.Errorf("failed to open database: %w", err)
 			return
 		}
+		drv := entsql.OpenDB("sqlite3", sqlDB)
 
 		// SQLite는 동시 write를 허용하지 않으므로 커넥션을 1개로 제한하여
 		// "database table is locked" 에러 방지
