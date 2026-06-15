@@ -11,7 +11,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/names"
 
 	entsql "entgo.io/ent/dialect/sql"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 var (
