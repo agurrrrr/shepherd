@@ -2,8 +2,10 @@ package embedded
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -114,6 +116,195 @@ func TestReadfileVisionDisabledKeepsBinaryNotice(t *testing.T) {
 	}
 	if len(tr.DrainPendingImages()) != 0 {
 		t.Error("no images should be buffered when vision is off")
+	}
+}
+
+// ─────────────────────────────────────────────
+// read_file paging — task #6309 deadlock fix
+// ─────────────────────────────────────────────
+
+// parseFooterOffset extracts N from a read_file paging footer
+// ("...Call read_file with offset=N to read more."). Returns false if absent.
+func parseFooterOffset(s string) (int, bool) {
+	const marker = "Call read_file with offset="
+	i := strings.LastIndex(s, marker)
+	if i < 0 {
+		return 0, false
+	}
+	rest := s[i+len(marker):]
+	j := strings.IndexByte(rest, ' ')
+	if j < 0 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(rest[:j])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func lastChars(s string) string {
+	if len([]rune(s)) <= 160 {
+		return s
+	}
+	r := []rune(s)
+	return string(r[len(r)-160:])
+}
+
+// A small file is returned verbatim — no paging footer added.
+func TestReadfileSmallFileNoFooter(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	content := "line1\nline2\nline3"
+	if err := os.WriteFile(filepath.Join(dir, "small.txt"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := tr.readfile(context.Background(), map[string]interface{}{"path": "small.txt"})
+	if err != nil {
+		t.Fatalf("readfile error: %v", err)
+	}
+	if out != content {
+		t.Errorf("small file should return exact content, got %q", out)
+	}
+	if strings.Contains(out, "Call read_file with offset") {
+		t.Error("small file must not get a paging footer")
+	}
+}
+
+// A file longer than the default line window is paged: only the first window is
+// returned, with a footer naming the next offset.
+func TestReadfileLargeFilePagesWithFooter(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	var sb strings.Builder
+	for i := 1; i <= 500; i++ {
+		fmt.Fprintf(&sb, "line %d\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(sb.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := tr.readfile(context.Background(), map[string]interface{}{"path": "big.txt"})
+	if err != nil {
+		t.Fatalf("readfile error: %v", err)
+	}
+	if !strings.Contains(out, "line 1\n") {
+		t.Error("first page should include line 1")
+	}
+	if strings.Contains(out, "line 201\n") {
+		t.Error("first page should not reach past the default window")
+	}
+	next, ok := parseFooterOffset(out)
+	if !ok || next != defaultReadFileLines+1 {
+		t.Errorf("footer should point to offset=%d, got (%d, %v); tail=%q",
+			defaultReadFileLines+1, next, ok, lastChars(out))
+	}
+}
+
+// The #6309 regression: a bug sitting in the file's tail — past both the
+// 200-line window and the 8000-char history-truncation boundary — must remain
+// reachable by following paging footers, and each footer must survive
+// truncateToolResult and strictly advance the offset (no deadlock).
+func TestReadfileTailReachableThroughPaging6309(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	const total = 340
+	var sb strings.Builder
+	for i := 1; i <= total; i++ {
+		if i == 335 {
+			sb.WriteString("BUG_MARKER_else_branch\n")
+			continue
+		}
+		fmt.Fprintf(&sb, "some kotlin source line number %d here with padding padding\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Screen.kt"), []byte(sb.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	offset := 1
+	seenMarker := false
+	for page := 0; page < 50; page++ {
+		args := map[string]interface{}{"path": "Screen.kt"}
+		if offset > 1 {
+			args["offset"] = float64(offset)
+		}
+		out, err := tr.readfile(context.Background(), args)
+		if err != nil {
+			t.Fatalf("page %d (offset %d): %v", page, offset, err)
+		}
+		// What the model actually sees is the history-truncated result.
+		stored := truncateToolResult(out)
+		if strings.Contains(stored, "BUG_MARKER_else_branch") {
+			seenMarker = true
+			break
+		}
+		next, ok := parseFooterOffset(stored)
+		if !ok {
+			t.Fatalf("page %d (offset %d): no footer survived truncation; tail=%q",
+				page, offset, lastChars(stored))
+		}
+		if next <= offset {
+			t.Fatalf("page %d: footer offset %d did not advance past %d (deadlock)", page, next, offset)
+		}
+		offset = next
+	}
+	if !seenMarker {
+		t.Error("bug marker in file tail was never reachable through paging (#6309 regression)")
+	}
+}
+
+// A single line longer than the char cap must not deadlock: output stays under
+// the history budget and the footer advances past the giant line.
+func TestReadfileGiantLineAdvancesNoDeadlock(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	giant := strings.Repeat("x", maxReadFileChars+5000)
+	content := giant + "\nafter the giant line\n"
+	if err := os.WriteFile(filepath.Join(dir, "min.js"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := tr.readfile(context.Background(), map[string]interface{}{"path": "min.js"})
+	if err != nil {
+		t.Fatalf("readfile error: %v", err)
+	}
+	if n := len([]rune(out)); n > maxToolResultChars {
+		t.Errorf("output (%d runes) must stay under maxToolResultChars (%d) so the footer survives", n, maxToolResultChars)
+	}
+	if !strings.Contains(out, "longer than") {
+		t.Errorf("expected a long-line notice, tail=%q", lastChars(out))
+	}
+	next, ok := parseFooterOffset(out)
+	if !ok || next != 2 {
+		t.Errorf("giant first line should advance footer to offset=2, got (%d, %v)", next, ok)
+	}
+}
+
+// An explicit limit is honored, and the footer points just past the window.
+func TestReadfileExplicitLimitRespected(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	var sb strings.Builder
+	for i := 1; i <= 100; i++ {
+		fmt.Fprintf(&sb, "L%d\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte(sb.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := tr.readfile(context.Background(), map[string]interface{}{
+		"path": "f.txt", "offset": float64(10), "limit": float64(5),
+	})
+	if err != nil {
+		t.Fatalf("readfile error: %v", err)
+	}
+	if !strings.Contains(out, "L10\n") || !strings.Contains(out, "L14\n") {
+		t.Errorf("expected lines L10-L14, got: %q", out)
+	}
+	if strings.Contains(out, "L15\n") {
+		t.Error("limit=5 should stop at L14")
+	}
+	next, ok := parseFooterOffset(out)
+	if !ok || next != 15 {
+		t.Errorf("footer should point to offset=15, got (%d, %v)", next, ok)
 	}
 }
 

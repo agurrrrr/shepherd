@@ -130,13 +130,13 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 			Type: "function",
 			Function: OpenAIFunction{
 				Name:        "read_file",
-				Description: "Read the contents of a file. For text files, returns the text. For image files (png/jpeg/gif/webp), when the task has attached images, returns the image for you to view directly — so call this on attached image paths to look at them. Other binary files (archives, executables) return a short notice instead. For large text files, use offset/limit parameters.",
+				Description: "Read the contents of a file. For text files, returns the text. For image files (png/jpeg/gif/webp), when the task has attached images, returns the image for you to view directly — so call this on attached image paths to look at them. Other binary files (archives, executables) return a short notice instead. Large text files are returned one page at a time, ending with a footer like '[File has N lines. Showing lines A-B. Call read_file with offset=C to read more.]' — call read_file again with that exact offset to continue paging through the file.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"path":   map[string]interface{}{"type": "string", "description": "Path to the file"},
-						"offset": map[string]interface{}{"type": "number", "description": "Line number to start from (1-indexed)"},
-						"limit":  map[string]interface{}{"type": "number", "description": "Maximum number of lines to read"},
+						"offset": map[string]interface{}{"type": "number", "description": "Line number to start from (1-indexed). Defaults to 1. Use the offset named in a previous page's footer to read the next page."},
+						"limit":  map[string]interface{}{"type": "number", "description": "Maximum number of lines to read in this call. Defaults to a bounded page; output is also capped by total size."},
 					},
 					"required": []string{"path"},
 				},
@@ -320,6 +320,20 @@ func (tr *ToolRegistry) safePath(p string) (string, error) {
 	return cleaned, nil
 }
 
+// defaultReadFileLines is the line window read_file returns when it is called
+// without an explicit limit. Mirrors a Read-style default so large files are
+// paged one window at a time instead of dumped in full — a full dump just gets
+// silently chopped by truncateToolResult, hiding the file's tail (task #6309).
+const defaultReadFileLines = 200
+
+// maxReadFileChars caps the characters a single read_file call returns,
+// INCLUDING when an explicit limit is given. It is kept safely below
+// maxToolResultChars (loop.go) so the paging footer read_file appends always
+// survives history truncation. (A 200-line window of normal source — ~40 chars a
+// line — already approaches 8 000 chars, so a line cap alone is not enough; the
+// char cap is the real guarantee.)
+const maxReadFileChars = maxToolResultChars - 2000
+
 func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{}) (string, error) {
 	pathStr, _ := args["path"].(string)
 	if pathStr == "" {
@@ -375,26 +389,68 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 	}
 
 	content := string(data)
+	lines := strings.Split(content, "\n")
+	totalLines := len(lines)
 
-	// Handle offset/limit for large files
+	// Resolve the starting line (1-indexed). Default to the top of the file.
+	start := 1
 	if offsetVal, ok := args["offset"].(float64); ok && offsetVal > 0 {
-		lines := strings.Split(content, "\n")
-		offset := int(offsetVal)
-		if offset > len(lines) {
-			return "", fmt.Errorf("offset %d exceeds file length %d", offset, len(lines))
-		}
-		lines = lines[offset-1:]
-
-		if limitVal, ok := args["limit"].(float64); ok && limitVal > 0 {
-			limit := int(limitVal)
-			if limit < len(lines) {
-				lines = lines[:limit]
-			}
-		}
-		content = strings.Join(lines, "\n")
+		start = int(offsetVal)
+	}
+	if start > totalLines {
+		return "", fmt.Errorf("offset %d exceeds file length %d", start, totalLines)
 	}
 
-	return content, nil
+	// Resolve the line window. Without an explicit limit we apply a default
+	// window so a large file is paged rather than dumped — a dump just gets
+	// chopped by truncateToolResult and the model never sees the tail (#6309).
+	limit := defaultReadFileLines
+	if limitVal, ok := args["limit"].(float64); ok && limitVal > 0 {
+		limit = int(limitVal)
+	}
+
+	window := lines[start-1:]
+	if limit < len(window) {
+		window = window[:limit]
+	}
+	shown := strings.Join(window, "\n")
+
+	// endLine is the last line number (1-indexed) actually included in `shown`.
+	endLine := start + len(window) - 1
+
+	// Character cap. Even a small line window can blow past the history budget
+	// (e.g. minified files with very long lines), and the footer below must
+	// survive truncateToolResult, so cap by runes here.
+	if runes := []rune(shown); len(runes) > maxReadFileChars {
+		shown = string(runes[:maxReadFileChars])
+		completeLines := strings.Count(shown, "\n")
+		if completeLines == 0 {
+			// A single line is longer than the budget. Advance past it so the
+			// next read has a different signature (no deadlock); its tail is
+			// unread — the model can inspect it with the bash tool.
+			endLine = start
+			shown += fmt.Sprintf(
+				"\n...[line %d is longer than %d chars and was truncated here; "+
+					"use the bash tool (e.g. sed/cut) to read the rest of this line]",
+				start, maxReadFileChars)
+		} else {
+			// The last shown line is partial; have the next page re-read it.
+			endLine = start + completeLines - 1
+		}
+	}
+
+	// Append a paging footer whenever more of the file remains, naming the exact
+	// next offset. This both informs the model and — crucially — changes the
+	// tool-call signature on the follow-up read, so the stuck-loop guard
+	// (maxRepeatedToolTurns) never trips on legitimate paging (task #6309).
+	if endLine < totalLines {
+		shown += fmt.Sprintf(
+			"\n\n[File has %d lines. Showing lines %d-%d. "+
+				"Call read_file with offset=%d to read more.]",
+			totalLines, start, endLine, endLine+1)
+	}
+
+	return shown, nil
 }
 
 func (tr *ToolRegistry) writefile(_ context.Context, args map[string]interface{}) (string, error) {

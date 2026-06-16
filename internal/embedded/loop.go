@@ -869,12 +869,23 @@ func truncate(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "..."
 }
 
-// truncateToolResult limits tool output stored in message history to 8 000
-// characters. Very large outputs (e.g. full file contents printed by bash)
-// blow up the context window quickly; truncating here keeps the conversation
-// manageable while still giving the model the most important prefix.
+// maxToolResultChars bounds how many characters of any single tool result are
+// stored in message history. Very large outputs (e.g. full file contents printed
+// by bash) blow up the context window quickly; truncating here keeps the
+// conversation manageable while still giving the model the most important prefix.
+//
+// read_file (tools.go) deliberately keeps its own output below this limit so the
+// paging footer it appends — which lives at the END of the output — is never the
+// casualty of this cut. If read_file's output exceeded this limit, the footer
+// would be the first thing dropped, hiding the file's tail from the model and
+// recreating the deadlock from task #6309.
+const maxToolResultChars = 8000
+
+// truncateToolResult limits tool output stored in message history to
+// maxToolResultChars. It is a backstop for tools (e.g. bash) that can emit
+// unbounded output; truncating keeps the conversation manageable while still
+// giving the model the most important prefix.
 func truncateToolResult(s string) string {
-	const maxToolResultChars = 8000
 	runes := []rune(s)
 	if len(runes) <= maxToolResultChars {
 		return s
