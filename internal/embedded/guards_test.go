@@ -62,6 +62,96 @@ func TestToolCallsSignature(t *testing.T) {
 	}
 }
 
+func TestIsFutureIntention(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"empty", "", false},
+		// The exact #6294 false-completion the original regex missed:
+		// no leading 이제/지금부터, and a 해보겠습니다 ending the old suffix list lacked.
+		{"6294 case - 다시 빌드해보겠습니다", "빌드 에러를 수정했습니다. 다시 빌드해보겠습니다.", true},
+		{"이제 ~하겠습니다", "이제 MainActivity를 완성하겠습니다", true},
+		{"확인해보겠습니다", "변경 사항을 확인해보겠습니다.", true},
+		{"진행하겠습니다", "다음 단계를 진행하겠습니다", true},
+		{"수정하겠습니다", "이 부분을 수정하겠습니다", true},
+		{"할게요", "테스트를 추가할게요", true},
+		{"해야겠습니다", "먼저 의존성을 확인해야겠습니다", true},
+		{"하려고 합니다", "이제 빌드를 실행하려고 합니다", true},
+		{"할 예정입니다", "다음으로 테스트를 작성할 예정입니다", true},
+		{"trailing emoji/space tolerated", "이제 빌드해보겠습니다  ", true},
+		// Genuine completions (past tense) must NOT trip the guard.
+		{"past tense 완료했습니다", "모든 작업을 완료했습니다.", false},
+		{"past tense 수정했습니다", "빌드 에러를 수정했습니다.", false},
+		{"past tense 빌드 성공", "빌드에 성공했습니다. 모든 테스트가 통과했습니다.", false},
+		{"request to user 알려주세요", "추가로 필요한 게 있으면 알려주세요.", false},
+		{"mid-text 겠 but ends in result", "수정하겠다고 했고 결국 빌드에 성공했습니다", false},
+		// English future intentions.
+		{"let me now build", "Let me now build the project.", true},
+		{"i'll run the tests", "I'll run the tests to verify.", true},
+		{"i'm going to implement", "I'm going to implement the fix next.", true},
+		{"next, I'll check", "Next, I'll check the output.", true},
+		// English non-intention (suggestion to the user, not first person).
+		{"you can run", "You can run npm test to verify the change.", false},
+		{"english past tense", "I implemented the fix and the build passed.", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isFutureIntention(tc.in); got != tc.want {
+				t.Errorf("isFutureIntention(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMentionsBuildWork(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"empty", "", false},
+		{"빌드", "빌드 에러를 수정했습니다.", true},
+		{"컴파일", "컴파일이 통과했습니다.", true},
+		{"english build", "Fixed the build errors.", true},
+		{"compile", "This should compile now.", true},
+		{"gradlew", "Run ./gradlew assembleDebug.", true},
+		{"unrelated", "텍스트 문구를 다듬었습니다.", false},
+		{"unrelated english", "Updated the README wording.", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mentionsBuildWork(tc.in); got != tc.want {
+				t.Errorf("mentionsBuildWork(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHasBuildCommandInPrompt(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"gradlew", "빌드는 ./gradlew compileDebugKotlin 으로 확인해줘", true},
+		{"go build", "Please run go build ./... after the change.", true},
+		{"npm run build", "then npm run build to verify", true},
+		// A vague continuation prompt carries no build keyword — this is exactly
+		// why mitigation ② alone missed #6294 and needed the buildClaimed net.
+		{"vague continuation", "6284 작업 이어서 작업해줘.", false},
+		{"plain text task", "README 문구를 다듬어줘", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasBuildCommandInPrompt(tc.in); got != tc.want {
+				t.Errorf("hasBuildCommandInPrompt(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSetVisionEnablesImageReadfile(t *testing.T) {
 	tr := NewToolRegistry("/tmp", "sheep", nil, nil)
 	if tr.visionEnabled {

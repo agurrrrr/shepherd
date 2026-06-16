@@ -33,6 +33,15 @@ var imagePathRe = regexp.MustCompile(`(/[^\s"\']+?\.(jpg|jpeg|png|gif|webp|bmp|J
 // is never legitimate progress.
 const maxRepeatedToolTurns = 4
 
+// maxFutureIntentionNudges bounds how many times the future-intention guard
+// (task #6290, mitigation ①) will nudge a model that keeps *declaring* work
+// ("이제 ~하겠습니다") without actually doing it. Once exceeded, the task is
+// marked incomplete instead of being nudged forever — this stops the
+// token-burning loop a confused model can fall into (task #6294). State-changing
+// tool calls (bash/write_file/edit_file) reset the counter, so a model that
+// declares then actually acts never exhausts the budget.
+const maxFutureIntentionNudges = 2
+
 // replacementCharRatio / minDegenerateRunes gate the degeneration guard. A
 // short reply with a stray U+FFFD must not trip it, so require both a minimum
 // length and a high replacement-char fraction.
@@ -73,23 +82,62 @@ func isDegenerateOutput(s string) bool {
 }
 
 // isFutureIntention reports whether the text ends with a future-action intention
-// declaration like "이제 ~하겠습니다", "let me now ~", "I'll now ~" — patterns
-// where the model announces what it *will* do but doesn't actually call a tool.
-// This is a key symptom of false-completion (task #6290, mitigation ①).
-var futureIntentionKorean = regexp.MustCompile(`(?i)(이제|지금부터).*?(하겠습니다|할게요|해볼게요|해드리겠습니다|다듬겠습니다|채워넣겠습니다|작성하겠습니다)`)
+// declaration like "다시 빌드해보겠습니다", "let me now build", "I'll now run" —
+// patterns where the model announces what it *will* do but doesn't actually call
+// a tool. This is a key symptom of false-completion (task #6290, mitigation ①).
+//
+// futureIntentionKorean is ANCHORED to the end of the (punctuation-stripped)
+// text and gated on an action-verb stem followed by a volitional ending
+// (~겠습니다 / ~할게요 / ~하려고 합니다 / ~할 예정). It deliberately does NOT
+// require a leading adverb (이제/지금부터) — that requirement is exactly why the
+// original regex missed "다시 빌드해보겠습니다" (task #6294). Past-tense endings
+// (했습니다/완료했습니다) are not matched: those report finished work, so they are
+// genuine completions and handled by the build-verification gate instead.
+var futureIntentionKorean = regexp.MustCompile(
+	`(하|해|보|봐|드리|만들|적용|진행|시작|실행|수정|확인|작성|추가|빌드|컴파일|테스트|점검|살펴|이어|계속|완성|정리|구현|생성|변경|시도)(아야|어야|야)?(겠습니다|겠어요|겠네요|겠음)$` +
+		`|(할게요|할께요|해볼게요|볼게요|해드릴게요|을게요|를게요)$` +
+		`|(려고\s*합니다|려\s*합니다|할\s*예정입니다|할\s*것입니다|할\s*계획입니다)$`)
 
-var futureIntentionEnglish = regexp.MustCompile(`(?i)(let me (now )?(finish|complete|implement|build|run|execute|check)|i('ll| will) (now )?(finish|complete|implement|build|run|execute)|now i('ll| will))`)
+// futureIntentionEnglish is a contains-match (declarations often precede a
+// trailing sentence). A first-person subject is required so "you can run …"
+// style suggestions don't trip it.
+var futureIntentionEnglish = regexp.MustCompile(`(?i)\b(let me (now |then |go ahead and |try to )?(finish|complete|implement|build|rebuild|run|re-?run|execute|check|verify|test|fix|continue|add|create|update|write)|i('ll| will|'m going to| am going to)( now| then| also| next)? (finish|complete|implement|build|rebuild|run|re-?run|execute|check|verify|test|fix|continue|add|create|update|write)|now i('ll| will)|next,? i('ll| will))\b`)
+
+// futureIntentionTrailing is the set of trailing characters stripped before the
+// end-anchored Korean check, so a trailing ". ! ~ … 。" or quote doesn't defeat $.
+const futureIntentionTrailing = " \t\r\n.!?~…。\"'’”)】」』"
 
 func isFutureIntention(content string) bool {
 	s := strings.TrimSpace(content)
 	if s == "" {
 		return false
 	}
-	if futureIntentionKorean.MatchString(s) {
-		return true
-	}
 	if futureIntentionEnglish.MatchString(s) {
 		return true
+	}
+	// Korean: only the final clause matters — strip trailing punctuation/quotes
+	// and look for a volitional ending at the very end of the message.
+	if futureIntentionKorean.MatchString(strings.TrimRight(s, futureIntentionTrailing)) {
+		return true
+	}
+	return false
+}
+
+// mentionsBuildWork reports whether text references build/compile/verification
+// work. Used by the build-verification gate to catch continuation tasks whose
+// *user prompt* carries no build keyword but whose model output claims
+// build-related work (e.g. "빌드 에러를 수정했습니다") without ever running bash
+// (task #6294). Kept deliberately narrow to avoid false positives.
+func mentionsBuildWork(text string) bool {
+	lower := strings.ToLower(text)
+	keywords := []string{
+		"빌드", "컴파일", "build", "compile",
+		"gradlew", "gradle", "compiledebug",
+	}
+	for _, k := range keywords {
+		if strings.Contains(lower, k) {
+			return true
+		}
 	}
 	return false
 }
@@ -116,7 +164,6 @@ func hasBuildCommandInPrompt(prompt string) bool {
 	}
 	return false
 }
-
 
 // Run executes the embedded agent loop: model → tool calls → execute → retry.
 func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
@@ -200,10 +247,31 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// signature; repeatedToolTurns counts consecutive identical repeats.
 		lastToolSig       string
 		repeatedToolTurns int
-		// False-completion guard: tracks whether bash was called during execution
-		// so the build-verification gate can detect missing build steps (task #6290, mitigation ②).
-		bashCalled        bool
+		// False-completion guard state (task #6290): bashCalled tracks whether bash
+		// ran (build-verification gate); codeModified tracks whether write_file/
+		// edit_file ran, so the gate can flag "edited code but never verified";
+		// futureIntentionNudges counts consecutive future-intention stalls so the
+		// nudge loop is bounded (task #6294).
+		bashCalled            bool
+		codeModified          bool
+		futureIntentionNudges int
 	)
+
+	// markToolUsed records state-changing tool activity for the false-completion
+	// guards. Only bash/write_file/edit_file count: they represent real progress,
+	// so they clear the future-intention stall counter. read_file (mere inspection)
+	// intentionally does NOT reset it, so a "read then re-declare" ping-pong still
+	// hits the nudge cap and is reported incomplete.
+	markToolUsed := func(name string) {
+		switch name {
+		case "bash":
+			bashCalled = true
+			futureIntentionNudges = 0
+		case "write_file", "edit_file":
+			codeModified = true
+			futureIntentionNudges = 0
+		}
+	}
 
 	for iteration := 0; iteration < opts.MaxIterations; iteration++ {
 		// Poll for injected user prompts (non-blocking). Each injected prompt is
@@ -374,9 +442,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				}
 
 				result, err := dispatchTool(ctx, toolRegistry, tc, opts)
-				if tc.Func.Name == "bash" {
-					bashCalled = true
-				}
+				markToolUsed(tc.Func.Name)
 				var resultStr string
 				if err != nil {
 					resultStr = fmt.Sprintf("Error: %v", err)
@@ -462,9 +528,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					// propagation (task stop), and sheep_name injection. Previously this
 					// path called toolRegistry.Dispatch directly, bypassing all guards.
 					result, err := dispatchTool(ctx, toolRegistry, tc.ToolCall, opts)
-					if tc.ToolCall.Func.Name == "bash" {
-						bashCalled = true
-					}
+					markToolUsed(tc.ToolCall.Func.Name)
 					var resultStr string
 					if err != nil {
 						resultStr = fmt.Sprintf("Error: %v", err)
@@ -548,11 +612,26 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		}
 		consecutiveEmpty = 0
 
-		// ── Mitigation ①: Future-intention nudge (task #6290) ──
-		// If there are no tool calls AND the content looks like a future-action
-		// declaration ("이제 ~하겠습니다", "let me now ~"), do NOT treat it as a
-		// completion. Instead, inject a nudge and ask the model to actually do it.
+		// ── Mitigation ①: Future-intention nudge (task #6290 / #6294) ──
+		// If there are no tool calls AND the content ends with a future-action
+		// declaration ("다시 빌드해보겠습니다", "let me now ~"), do NOT treat it as a
+		// completion. Nudge the model to actually do it — but only up to
+		// maxFutureIntentionNudges times, after which the task is reported
+		// incomplete rather than nudged forever (prevents the #6294 token loop).
 		if isFutureIntention(msg.Content) {
+			futureIntentionNudges++
+			if futureIntentionNudges > maxFutureIntentionNudges {
+				if opts.OnOutput != nil {
+					opts.OnOutput("⚠️ [미래형 선언 반복]: 선언만 반복하고 실제 실행이 없어 작업을 미완료로 종료합니다.")
+				}
+				return &ExecuteResult{
+					Result:           msg.Content,
+					Incomplete:       true,
+					IncompleteReason: "model repeatedly declared future actions without executing them",
+					PromptTokens:     totalPromptTokens,
+					CompletionTokens: totalCompletionTokens,
+				}, nil
+			}
 			if opts.OnOutput != nil {
 				opts.OnOutput("⚠️ [미래형 선언 감지]: 선언한 작업을 실제 도구 호출로 완료해주세요.")
 			}
@@ -568,13 +647,18 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			continue
 		}
 
-		// ── Mitigation ②: Build-verification gate (task #6290) ──
-		// If the user prompt mentions a build/compile command but bash was never
-		// called during the entire execution, mark as incomplete. This catches
-		// false completions where the model wrote files but never verified them.
-		if hasBuildCommandInPrompt(opts.UserPrompt) && !bashCalled {
+		// ── Mitigation ②: Build-verification gate (task #6290 / #6294) ──
+		// Mark incomplete if a build was expected but bash never ran. "Expected"
+		// means EITHER the user prompt names a build command, OR the model itself
+		// edited code AND its final message claims build-related work — the latter
+		// catches continuation tasks (e.g. "6284 이어서 작업해줘") whose prompt has no
+		// build keyword but whose output claims "빌드 에러를 수정했습니다" without ever
+		// verifying it (task #6294).
+		buildRequired := hasBuildCommandInPrompt(opts.UserPrompt)
+		buildClaimed := codeModified && mentionsBuildWork(msg.Content)
+		if (buildRequired || buildClaimed) && !bashCalled {
 			if opts.OnOutput != nil {
-				opts.OnOutput("⚠️ [빌드 검증 게이트]: 프롬프트에 빌드 명령이 있지만 bash가 호출되지 않았습니다.")
+				opts.OnOutput("⚠️ [빌드 검증 게이트]: 빌드가 필요한 작업인데 bash 빌드 검증이 한 번도 실행되지 않았습니다.")
 			}
 			return &ExecuteResult{
 				Result:           msg.Content,
