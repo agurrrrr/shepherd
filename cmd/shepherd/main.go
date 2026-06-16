@@ -2878,6 +2878,20 @@ var serveForegroundCmd = &cobra.Command{
 }
 
 func runServeForeground() {
+	// Refuse to start if a live daemon already owns the PID. This guard must
+	// live here — not only in the `serve` wrapper — because recovery below is
+	// destructive: it cancels every pending task as "stale from previous
+	// session". A redundant `serve-foreground` launch (direct call, supervisor
+	// restart race, racing `serve -d`) would otherwise wipe the running
+	// daemon's pending queue and only then fail to bind the port, leaving the
+	// real daemon alive but its queue gone. A stale PID (previous daemon dead)
+	// makes IsRunning() false, so legitimate restarts still recover normally.
+	if daemon.IsRunning() {
+		pid, _ := daemon.ReadPID()
+		fmt.Printf("⚠️  Shepherd daemon is already running (PID: %d); refusing to start a second instance.\n", pid)
+		os.Exit(1)
+	}
+
 	// Recover stuck tasks/sheep — the daemon is the legitimate task owner.
 	recoverFromAbnormalTermination(true)
 
