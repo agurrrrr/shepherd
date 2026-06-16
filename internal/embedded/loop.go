@@ -72,6 +72,52 @@ func isDegenerateOutput(s string) bool {
 	return float64(bad)/float64(total) >= replacementCharRatio
 }
 
+// isFutureIntention reports whether the text ends with a future-action intention
+// declaration like "이제 ~하겠습니다", "let me now ~", "I'll now ~" — patterns
+// where the model announces what it *will* do but doesn't actually call a tool.
+// This is a key symptom of false-completion (task #6290, mitigation ①).
+var futureIntentionKorean = regexp.MustCompile(`(?i)(이제|지금부터).*?(하겠습니다|할게요|해볼게요|해드리겠습니다|다듬겠습니다|채워넣겠습니다|작성하겠습니다)`)
+
+var futureIntentionEnglish = regexp.MustCompile(`(?i)(let me (now )?(finish|complete|implement|build|run|execute|check)|i('ll| will) (now )?(finish|complete|implement|build|run|execute)|now i('ll| will))`)
+
+func isFutureIntention(content string) bool {
+	s := strings.TrimSpace(content)
+	if s == "" {
+		return false
+	}
+	if futureIntentionKorean.MatchString(s) {
+		return true
+	}
+	if futureIntentionEnglish.MatchString(s) {
+		return true
+	}
+	return false
+}
+
+// hasBuildCommandInPrompt reports whether the user prompt mentions a build or
+// compilation command that should be verified before task completion. This is
+// used by the build-verification gate (task #6290, mitigation ②).
+func hasBuildCommandInPrompt(prompt string) bool {
+	lower := strings.ToLower(prompt)
+	patterns := []string{
+		"gradlew", "gradle",
+		"go build", "go test", "go run",
+		"npm run build", "npm run test", "npm build", "npm test",
+		"yarn build", "yarn test",
+		"cargo build", "cargo test",
+		"make build", "make test",
+		"compileDebugKotlin", "compileDebugJava",
+		"mvn compile", "mvn build", "mvn test",
+	}
+	for _, p := range patterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+
 // Run executes the embedded agent loop: model → tool calls → execute → retry.
 func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	if opts.MaxIterations <= 0 {
@@ -154,6 +200,9 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// signature; repeatedToolTurns counts consecutive identical repeats.
 		lastToolSig       string
 		repeatedToolTurns int
+		// False-completion guard: tracks whether bash was called during execution
+		// so the build-verification gate can detect missing build steps (task #6290, mitigation ②).
+		bashCalled        bool
 	)
 
 	for iteration := 0; iteration < opts.MaxIterations; iteration++ {
@@ -325,6 +374,9 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				}
 
 				result, err := dispatchTool(ctx, toolRegistry, tc, opts)
+				if tc.Func.Name == "bash" {
+					bashCalled = true
+				}
 				var resultStr string
 				if err != nil {
 					resultStr = fmt.Sprintf("Error: %v", err)
@@ -410,6 +462,9 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					// propagation (task stop), and sheep_name injection. Previously this
 					// path called toolRegistry.Dispatch directly, bypassing all guards.
 					result, err := dispatchTool(ctx, toolRegistry, tc.ToolCall, opts)
+					if tc.ToolCall.Func.Name == "bash" {
+						bashCalled = true
+					}
 					var resultStr string
 					if err != nil {
 						resultStr = fmt.Sprintf("Error: %v", err)
@@ -492,6 +547,43 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			continue
 		}
 		consecutiveEmpty = 0
+
+		// ── Mitigation ①: Future-intention nudge (task #6290) ──
+		// If there are no tool calls AND the content looks like a future-action
+		// declaration ("이제 ~하겠습니다", "let me now ~"), do NOT treat it as a
+		// completion. Instead, inject a nudge and ask the model to actually do it.
+		if isFutureIntention(msg.Content) {
+			if opts.OnOutput != nil {
+				opts.OnOutput("⚠️ [미래형 선언 감지]: 선언한 작업을 실제 도구 호출로 완료해주세요.")
+			}
+			messages = append(messages, ChatMessage{
+				Role:    ChatRoleAssistant,
+				Content: msg.Content,
+			})
+			messages = append(messages, ChatMessage{
+				Role: ChatRoleUser,
+				Content: "위에서 선언한 작업을 실제로 도구 호출(bash, write_file 등)로 완료해주세요. " +
+					"단순히 '하겠습니다'라고 말하는 대신, 실제 파일 수정이나 빌드 실행을 해주세요.",
+			})
+			continue
+		}
+
+		// ── Mitigation ②: Build-verification gate (task #6290) ──
+		// If the user prompt mentions a build/compile command but bash was never
+		// called during the entire execution, mark as incomplete. This catches
+		// false completions where the model wrote files but never verified them.
+		if hasBuildCommandInPrompt(opts.UserPrompt) && !bashCalled {
+			if opts.OnOutput != nil {
+				opts.OnOutput("⚠️ [빌드 검증 게이트]: 프롬프트에 빌드 명령이 있지만 bash가 호출되지 않았습니다.")
+			}
+			return &ExecuteResult{
+				Result:           msg.Content,
+				Incomplete:       true,
+				IncompleteReason: "required build verification was never run (bash was not called)",
+				PromptTokens:     totalPromptTokens,
+				CompletionTokens: totalCompletionTokens,
+			}, nil
+		}
 
 		// Successful completion
 		if opts.OnOutput != nil {
