@@ -460,7 +460,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 				messages = append(messages, ChatMessage{
 					Role:       ChatRoleTool,
-					Content:    truncateToolResult(resultStr),
+					Content:    truncateToolResult(resultStr, tc.Func.Name),
 					ToolCallID: tc.ID,
 				})
 			}
@@ -544,7 +544,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 					messages = append(messages, ChatMessage{
 						Role:       ChatRoleTool,
-						Content:    truncateToolResult(resultStr),
+						Content:    truncateToolResult(resultStr, tc.Func.Name),
 						ToolCallID: tc.ID,
 					})
 				}
@@ -882,15 +882,53 @@ func truncate(s string, maxLen int) string {
 const maxToolResultChars = 8000
 
 // truncateToolResult limits tool output stored in message history to
-// maxToolResultChars. It is a backstop for tools (e.g. bash) that can emit
-// unbounded output; truncating keeps the conversation manageable while still
-// giving the model the most important prefix.
-func truncateToolResult(s string) string {
+// maxToolResultChars. It is the universal backstop every tool result passes
+// through. When it has to cut, it appends an ACTIONABLE recovery hint tailored
+// to the tool so the model can fetch the hidden remainder instead of dead-ending.
+//
+// The dead-end was the #6309 failure mode: a tool result silently chopped to its
+// first maxToolResultChars characters, with only a "...[truncated N chars]" notice
+// that named no way forward. The model re-issued the identical call, saw the
+// identical prefix, and the repeated-call guard (maxRepeatedToolTurns) eventually
+// killed the task. The read_file fix paged that one tool; this normalizes the same
+// escape hatch for EVERY tool whose output is not self-paging (bash, grep, glob,
+// MCP tools). read_file (tools.go) keeps its own output below this limit so its
+// paging footer — which lives at the END of the output — survives, meaning
+// read_file results pass through here unchanged.
+func truncateToolResult(s, toolName string) string {
 	runes := []rune(s)
 	if len(runes) <= maxToolResultChars {
 		return s
 	}
-	return string(runes[:maxToolResultChars]) + fmt.Sprintf("\n...[truncated %d chars]", len(runes)-maxToolResultChars)
+	hidden := len(runes) - maxToolResultChars
+	return string(runes[:maxToolResultChars]) + fmt.Sprintf(
+		"\n...[truncated %d of %d chars. %s]", hidden, len(runes), truncationHint(toolName))
+}
+
+// truncationHint returns tool-specific guidance for retrieving output that
+// truncateToolResult had to drop. Each hint names a concrete next action whose
+// tool-call signature differs from the call that was just truncated — re-running
+// the SAME call would only reproduce the same truncated prefix and re-arm the
+// repeated-call stuck guard (task #6309).
+func truncationHint(toolName string) string {
+	switch toolName {
+	case "bash":
+		return "Only the first part of the output is shown. To see the rest, re-run the " +
+			"command narrowing its output — pipe through head/tail or `sed -n 'START,ENDp'`, " +
+			"or grep for what you need — or redirect it to a file (`cmd > /tmp/out.txt`) and " +
+			"open that file with read_file, which pages large files."
+	case "grep":
+		return "Only the first matches are shown. Narrow the search to surface the relevant " +
+			"ones — tighten the pattern or pass a glob filter."
+	case "glob":
+		return "Too many matches. Narrow the glob pattern to surface the relevant paths."
+	case "read_file":
+		// read_file self-pages and should not reach here; if it ever does, point at
+		// its own paging mechanism rather than a generic message.
+		return "Call read_file again with a higher offset to continue paging through the file."
+	default:
+		return "The output was truncated. Re-run the tool requesting a narrower slice to see the rest."
+	}
 }
 
 // toolArgSummary extracts a short, human-readable summary of a tool call's

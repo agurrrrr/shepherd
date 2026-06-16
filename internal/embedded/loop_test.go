@@ -390,7 +390,7 @@ func TestTruncateToolResultRuneBoundary(t *testing.T) {
 	// Long Korean text that exceeds the max (8000 chars)
 	longKorean := strings.Repeat("안녕하세요\n", 2000) // ~30,000 runes
 
-	result := truncateToolResult(longKorean)
+	result := truncateToolResult(longKorean, "bash")
 	if strings.Contains(result, "\uFFFD") {
 		t.Errorf("truncateToolResult produced replacement character")
 	}
@@ -402,9 +402,41 @@ func TestTruncateToolResultRuneBoundary(t *testing.T) {
 
 	// Short text should pass through unchanged
 	short := "짧은 텍스트"
-	result = truncateToolResult(short)
+	result = truncateToolResult(short, "bash")
 	if result != short {
 		t.Errorf("truncateToolResult(%q) = %q, want unchanged", short, result)
+	}
+}
+
+// When the universal backstop has to cut, it must hand the model a concrete way
+// to retrieve the hidden remainder — tailored to the tool — so it does not
+// re-issue the identical (truncated) call and stall on the repeated-call guard
+// (the #6309 dead-end, now reproducible for bash/grep/glob/MCP, not just read_file).
+func TestTruncateToolResultActionableHint(t *testing.T) {
+	big := strings.Repeat("x", maxToolResultChars+1000)
+
+	// bash: must point at a recovery path (read_file via redirect) AND suggest
+	// narrowing the output — both change the next tool-call signature.
+	bashOut := truncateToolResult(big, "bash")
+	for _, want := range []string{"truncated", "read_file", "head"} {
+		if !strings.Contains(bashOut, want) {
+			t.Errorf("bash truncation hint missing %q; tail=%q", want, bashOut[len(bashOut)-220:])
+		}
+	}
+
+	// grep gets its own hint, not bash's.
+	if g := truncateToolResult(big, "grep"); !strings.Contains(g, "Narrow the search") {
+		t.Errorf("grep should get a grep-specific hint; tail=%q", g[len(g)-220:])
+	}
+
+	// An unknown (e.g. MCP) tool still gets a non-empty, generic recovery hint.
+	if d := truncateToolResult(big, "some_mcp_tool"); !strings.Contains(d, "narrower slice") {
+		t.Errorf("default hint missing; tail=%q", d[len(d)-220:])
+	}
+
+	// The total character count is reported so the model can gauge how much is hidden.
+	if !strings.Contains(bashOut, fmt.Sprintf("of %d chars", len([]rune(big)))) {
+		t.Errorf("truncation notice should report the total char count; tail=%q", bashOut[len(bashOut)-220:])
 	}
 }
 

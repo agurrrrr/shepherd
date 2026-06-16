@@ -233,7 +233,7 @@ func TestReadfileTailReachableThroughPaging6309(t *testing.T) {
 			t.Fatalf("page %d (offset %d): %v", page, offset, err)
 		}
 		// What the model actually sees is the history-truncated result.
-		stored := truncateToolResult(out)
+		stored := truncateToolResult(out, "read_file")
 		if strings.Contains(stored, "BUG_MARKER_else_branch") {
 			seenMarker = true
 			break
@@ -305,6 +305,29 @@ func TestReadfileExplicitLimitRespected(t *testing.T) {
 	next, ok := parseFooterOffset(out)
 	if !ok || next != 15 {
 		t.Errorf("footer should point to offset=15, got (%d, %v)", next, ok)
+	}
+}
+
+// capOutput caps the live-stream byte budget, but must trim on a rune boundary so
+// multi-byte output (e.g. Korean/CJK from bash) is never split into a replacement
+// character, and its notice must name a recovery path rather than dead-ending.
+func TestCapOutputRuneSafeAndActionable(t *testing.T) {
+	tr := NewToolRegistry(t.TempDir(), "test-sheep", nil, nil)
+	// Each '가' is 3 bytes, so the maxOutputBytes index lands mid-rune unless
+	// capOutput trims back to a boundary.
+	out := tr.capOutput(strings.Repeat("가", maxOutputBytes))
+	if strings.Contains(out, "�") {
+		t.Error("capOutput split a multi-byte rune (replacement character present)")
+	}
+	for _, want := range []string{"truncated", "read_file"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("capOutput notice missing %q; tail=%q", want, out[len(out)-200:])
+		}
+	}
+	// Output at or below the cap passes through untouched.
+	small := "작은 출력"
+	if got := tr.capOutput(small); got != small {
+		t.Errorf("capOutput(%q) = %q, want unchanged", small, got)
 	}
 }
 

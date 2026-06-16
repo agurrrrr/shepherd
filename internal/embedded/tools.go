@@ -843,9 +843,20 @@ func matchGlob(path, pattern string) bool {
 	return re.MatchString(path)
 }
 
+// capOutput bounds a tool's raw output to maxOutputBytes before it is returned.
+// This is the byte budget for the live stream/preview; the history copy is cut
+// again — and made actionable — by truncateToolResult (loop.go). The trim lands
+// on a rune boundary so a multi-byte character is never split into a replacement
+// character, and the notice names a recovery path rather than dead-ending.
 func (tr *ToolRegistry) capOutput(s string) string {
-	if len(s) > maxOutputBytes {
-		return s[:maxOutputBytes] + fmt.Sprintf("\n\n... [output truncated, %d total bytes]", len(s))
+	if len(s) <= maxOutputBytes {
+		return s
 	}
-	return s
+	cut := maxOutputBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + fmt.Sprintf(
+		"\n\n... [output truncated at %d of %d bytes — narrow the command's output "+
+			"(head/tail/grep) or redirect it to a file and read it with read_file]", cut, len(s))
 }
