@@ -37,6 +37,10 @@ const (
 	FieldCompletionTokens = "completion_tokens"
 	// FieldOwnerPid holds the string denoting the owner_pid field in the database.
 	FieldOwnerPid = "owner_pid"
+	// FieldPriority holds the string denoting the priority field in the database.
+	FieldPriority = "priority"
+	// FieldHandoffDepth holds the string denoting the handoff_depth field in the database.
+	FieldHandoffDepth = "handoff_depth"
 	// FieldStartedAt holds the string denoting the started_at field in the database.
 	FieldStartedAt = "started_at"
 	// FieldCompletedAt holds the string denoting the completed_at field in the database.
@@ -88,6 +92,8 @@ var Columns = []string{
 	FieldPromptTokens,
 	FieldCompletionTokens,
 	FieldOwnerPid,
+	FieldPriority,
+	FieldHandoffDepth,
 	FieldStartedAt,
 	FieldCompletedAt,
 	FieldCreatedAt,
@@ -127,6 +133,10 @@ var (
 	DefaultCompletionTokens int64
 	// DefaultOwnerPid holds the default value on creation for the "owner_pid" field.
 	DefaultOwnerPid int
+	// DefaultPriority holds the default value on creation for the "priority" field.
+	DefaultPriority int
+	// DefaultHandoffDepth holds the default value on creation for the "handoff_depth" field.
+	DefaultHandoffDepth int
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 )
@@ -211,6 +221,16 @@ func ByCompletionTokens(opts ...sql.OrderTermOption) OrderOption {
 // ByOwnerPid orders the results by the owner_pid field.
 func ByOwnerPid(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldOwnerPid, opts...).ToFunc()
+}
+
+// ByPriority orders the results by the priority field.
+func ByPriority(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPriority, opts...).ToFunc()
+}
+
+// ByHandoffDepth orders the results by the handoff_depth field.
+func ByHandoffDepth(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldHandoffDepth, opts...).ToFunc()
 }
 
 // ByStartedAt orders the results by the started_at field.

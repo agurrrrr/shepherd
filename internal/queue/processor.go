@@ -301,6 +301,9 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 		},
 		nil, // Input handler (not used in queue processing)
 	)
+	// Carry the task ID into the run so the embedded handoff path can resolve
+	// this task's handoff_depth (registry TaskID isn't set yet at this point).
+	opts.TaskID = taskID
 	// Per-task reasoning toggle (OpenCode only). Resolved here so explicit
 	// per-request overrides win over the global default.
 	opts.Thinking = GetTaskThinking(taskID)

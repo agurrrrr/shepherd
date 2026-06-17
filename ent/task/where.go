@@ -95,6 +95,16 @@ func OwnerPid(v int) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldOwnerPid, v))
 }
 
+// Priority applies equality check predicate on the "priority" field. It's identical to PriorityEQ.
+func Priority(v int) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldPriority, v))
+}
+
+// HandoffDepth applies equality check predicate on the "handoff_depth" field. It's identical to HandoffDepthEQ.
+func HandoffDepth(v int) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldHandoffDepth, v))
+}
+
 // StartedAt applies equality check predicate on the "started_at" field. It's identical to StartedAtEQ.
 func StartedAt(v time.Time) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldStartedAt, v))
@@ -638,6 +648,106 @@ func OwnerPidIsNil() predicate.Task {
 // OwnerPidNotNil applies the NotNil predicate on the "owner_pid" field.
 func OwnerPidNotNil() predicate.Task {
 	return predicate.Task(sql.FieldNotNull(FieldOwnerPid))
+}
+
+// PriorityEQ applies the EQ predicate on the "priority" field.
+func PriorityEQ(v int) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldPriority, v))
+}
+
+// PriorityNEQ applies the NEQ predicate on the "priority" field.
+func PriorityNEQ(v int) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldPriority, v))
+}
+
+// PriorityIn applies the In predicate on the "priority" field.
+func PriorityIn(vs ...int) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldPriority, vs...))
+}
+
+// PriorityNotIn applies the NotIn predicate on the "priority" field.
+func PriorityNotIn(vs ...int) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldPriority, vs...))
+}
+
+// PriorityGT applies the GT predicate on the "priority" field.
+func PriorityGT(v int) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldPriority, v))
+}
+
+// PriorityGTE applies the GTE predicate on the "priority" field.
+func PriorityGTE(v int) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldPriority, v))
+}
+
+// PriorityLT applies the LT predicate on the "priority" field.
+func PriorityLT(v int) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldPriority, v))
+}
+
+// PriorityLTE applies the LTE predicate on the "priority" field.
+func PriorityLTE(v int) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldPriority, v))
+}
+
+// PriorityIsNil applies the IsNil predicate on the "priority" field.
+func PriorityIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldPriority))
+}
+
+// PriorityNotNil applies the NotNil predicate on the "priority" field.
+func PriorityNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldPriority))
+}
+
+// HandoffDepthEQ applies the EQ predicate on the "handoff_depth" field.
+func HandoffDepthEQ(v int) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldHandoffDepth, v))
+}
+
+// HandoffDepthNEQ applies the NEQ predicate on the "handoff_depth" field.
+func HandoffDepthNEQ(v int) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldHandoffDepth, v))
+}
+
+// HandoffDepthIn applies the In predicate on the "handoff_depth" field.
+func HandoffDepthIn(vs ...int) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldHandoffDepth, vs...))
+}
+
+// HandoffDepthNotIn applies the NotIn predicate on the "handoff_depth" field.
+func HandoffDepthNotIn(vs ...int) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldHandoffDepth, vs...))
+}
+
+// HandoffDepthGT applies the GT predicate on the "handoff_depth" field.
+func HandoffDepthGT(v int) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldHandoffDepth, v))
+}
+
+// HandoffDepthGTE applies the GTE predicate on the "handoff_depth" field.
+func HandoffDepthGTE(v int) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldHandoffDepth, v))
+}
+
+// HandoffDepthLT applies the LT predicate on the "handoff_depth" field.
+func HandoffDepthLT(v int) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldHandoffDepth, v))
+}
+
+// HandoffDepthLTE applies the LTE predicate on the "handoff_depth" field.
+func HandoffDepthLTE(v int) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldHandoffDepth, v))
+}
+
+// HandoffDepthIsNil applies the IsNil predicate on the "handoff_depth" field.
+func HandoffDepthIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldHandoffDepth))
+}
+
+// HandoffDepthNotNil applies the NotNil predicate on the "handoff_depth" field.
+func HandoffDepthNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldHandoffDepth))
 }
 
 // StartedAtEQ applies the EQ predicate on the "started_at" field.

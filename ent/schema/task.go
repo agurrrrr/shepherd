@@ -54,6 +54,14 @@ func (Task) Fields() []ent.Field {
 			Optional().
 			Default(0).
 			Comment("작업을 실행 중인 프로세스 PID (소유권/생존 판별용)"),
+		field.Int("priority").
+			Optional().
+			Default(0).
+			Comment("큐 실행 우선순위 (높을수록 먼저 실행). 일반작업=0, 컨텍스트 핸드오프 후속작업=1 → 대기 중인 일반작업보다 앞서 실행됨"),
+		field.Int("handoff_depth").
+			Optional().
+			Default(0).
+			Comment("컨텍스트 핸드오프 체인 깊이 (후속작업 = 부모 + 1). 진척 없는 무한 핸드오프 루프 감지/알람용"),
 		field.Time("started_at").
 			Optional().
 			Comment("작업 시작 시간"),

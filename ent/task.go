@@ -43,6 +43,10 @@ type Task struct {
 	CompletionTokens int64 `json:"completion_tokens,omitempty"`
 	// 작업을 실행 중인 프로세스 PID (소유권/생존 판별용)
 	OwnerPid int `json:"owner_pid,omitempty"`
+	// 큐 실행 우선순위 (높을수록 먼저 실행). 일반작업=0, 컨텍스트 핸드오프 후속작업=1 → 대기 중인 일반작업보다 앞서 실행됨
+	Priority int `json:"priority,omitempty"`
+	// 컨텍스트 핸드오프 체인 깊이 (후속작업 = 부모 + 1). 진척 없는 무한 핸드오프 루프 감지/알람용
+	HandoffDepth int `json:"handoff_depth,omitempty"`
 	// 작업 시작 시간
 	StartedAt time.Time `json:"started_at,omitempty"`
 	// 작업 완료 시간
@@ -113,7 +117,7 @@ func (*Task) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case task.FieldCostUsd:
 			values[i] = new(sql.NullFloat64)
-		case task.FieldID, task.FieldPromptTokens, task.FieldCompletionTokens, task.FieldOwnerPid:
+		case task.FieldID, task.FieldPromptTokens, task.FieldCompletionTokens, task.FieldOwnerPid, task.FieldPriority, task.FieldHandoffDepth:
 			values[i] = new(sql.NullInt64)
 		case task.FieldPrompt, task.FieldSummary, task.FieldStatus, task.FieldError, task.FieldModel:
 			values[i] = new(sql.NullString)
@@ -215,6 +219,18 @@ func (_m *Task) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field owner_pid", values[i])
 			} else if value.Valid {
 				_m.OwnerPid = int(value.Int64)
+			}
+		case task.FieldPriority:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field priority", values[i])
+			} else if value.Valid {
+				_m.Priority = int(value.Int64)
+			}
+		case task.FieldHandoffDepth:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field handoff_depth", values[i])
+			} else if value.Valid {
+				_m.HandoffDepth = int(value.Int64)
 			}
 		case task.FieldStartedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -338,6 +354,12 @@ func (_m *Task) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("owner_pid=")
 	builder.WriteString(fmt.Sprintf("%v", _m.OwnerPid))
+	builder.WriteString(", ")
+	builder.WriteString("priority=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Priority))
+	builder.WriteString(", ")
+	builder.WriteString("handoff_depth=")
+	builder.WriteString(fmt.Sprintf("%v", _m.HandoffDepth))
 	builder.WriteString(", ")
 	builder.WriteString("started_at=")
 	builder.WriteString(_m.StartedAt.Format(time.ANSIC))

@@ -58,6 +58,12 @@ type InteractiveOptions struct {
 	// Model is an explicit model override for OpenCode. When non-empty, it
 	// takes precedence over both model_opencode and opencode_thinking_model.
 	Model string
+	// TaskID is the queue task this run belongs to. The embedded loop uses it to
+	// resolve the current handoff_depth when deciding/queuing a context-overflow
+	// follow-up. Threaded through opts (not the running-task registry) because the
+	// registry entry is created later, inside the execute* call, and would still
+	// read 0 here. Zero means "unknown / not a queued task".
+	TaskID int
 }
 
 // RunningTask contains information about a running task

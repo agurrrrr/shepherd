@@ -7490,6 +7490,10 @@ type TaskMutation struct {
 	addcompletion_tokens *int64
 	owner_pid            *int
 	addowner_pid         *int
+	priority             *int
+	addpriority          *int
+	handoff_depth        *int
+	addhandoff_depth     *int
 	started_at           *time.Time
 	completed_at         *time.Time
 	created_at           *time.Time
@@ -8232,6 +8236,146 @@ func (m *TaskMutation) ResetOwnerPid() {
 	delete(m.clearedFields, task.FieldOwnerPid)
 }
 
+// SetPriority sets the "priority" field.
+func (m *TaskMutation) SetPriority(i int) {
+	m.priority = &i
+	m.addpriority = nil
+}
+
+// Priority returns the value of the "priority" field in the mutation.
+func (m *TaskMutation) Priority() (r int, exists bool) {
+	v := m.priority
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPriority returns the old "priority" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldPriority(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPriority is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPriority requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPriority: %w", err)
+	}
+	return oldValue.Priority, nil
+}
+
+// AddPriority adds i to the "priority" field.
+func (m *TaskMutation) AddPriority(i int) {
+	if m.addpriority != nil {
+		*m.addpriority += i
+	} else {
+		m.addpriority = &i
+	}
+}
+
+// AddedPriority returns the value that was added to the "priority" field in this mutation.
+func (m *TaskMutation) AddedPriority() (r int, exists bool) {
+	v := m.addpriority
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearPriority clears the value of the "priority" field.
+func (m *TaskMutation) ClearPriority() {
+	m.priority = nil
+	m.addpriority = nil
+	m.clearedFields[task.FieldPriority] = struct{}{}
+}
+
+// PriorityCleared returns if the "priority" field was cleared in this mutation.
+func (m *TaskMutation) PriorityCleared() bool {
+	_, ok := m.clearedFields[task.FieldPriority]
+	return ok
+}
+
+// ResetPriority resets all changes to the "priority" field.
+func (m *TaskMutation) ResetPriority() {
+	m.priority = nil
+	m.addpriority = nil
+	delete(m.clearedFields, task.FieldPriority)
+}
+
+// SetHandoffDepth sets the "handoff_depth" field.
+func (m *TaskMutation) SetHandoffDepth(i int) {
+	m.handoff_depth = &i
+	m.addhandoff_depth = nil
+}
+
+// HandoffDepth returns the value of the "handoff_depth" field in the mutation.
+func (m *TaskMutation) HandoffDepth() (r int, exists bool) {
+	v := m.handoff_depth
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldHandoffDepth returns the old "handoff_depth" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldHandoffDepth(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldHandoffDepth is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldHandoffDepth requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldHandoffDepth: %w", err)
+	}
+	return oldValue.HandoffDepth, nil
+}
+
+// AddHandoffDepth adds i to the "handoff_depth" field.
+func (m *TaskMutation) AddHandoffDepth(i int) {
+	if m.addhandoff_depth != nil {
+		*m.addhandoff_depth += i
+	} else {
+		m.addhandoff_depth = &i
+	}
+}
+
+// AddedHandoffDepth returns the value that was added to the "handoff_depth" field in this mutation.
+func (m *TaskMutation) AddedHandoffDepth() (r int, exists bool) {
+	v := m.addhandoff_depth
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearHandoffDepth clears the value of the "handoff_depth" field.
+func (m *TaskMutation) ClearHandoffDepth() {
+	m.handoff_depth = nil
+	m.addhandoff_depth = nil
+	m.clearedFields[task.FieldHandoffDepth] = struct{}{}
+}
+
+// HandoffDepthCleared returns if the "handoff_depth" field was cleared in this mutation.
+func (m *TaskMutation) HandoffDepthCleared() bool {
+	_, ok := m.clearedFields[task.FieldHandoffDepth]
+	return ok
+}
+
+// ResetHandoffDepth resets all changes to the "handoff_depth" field.
+func (m *TaskMutation) ResetHandoffDepth() {
+	m.handoff_depth = nil
+	m.addhandoff_depth = nil
+	delete(m.clearedFields, task.FieldHandoffDepth)
+}
+
 // SetStartedAt sets the "started_at" field.
 func (m *TaskMutation) SetStartedAt(t time.Time) {
 	m.started_at = &t
@@ -8517,7 +8661,7 @@ func (m *TaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *TaskMutation) Fields() []string {
-	fields := make([]string, 0, 14)
+	fields := make([]string, 0, 16)
 	if m.prompt != nil {
 		fields = append(fields, task.FieldPrompt)
 	}
@@ -8550,6 +8694,12 @@ func (m *TaskMutation) Fields() []string {
 	}
 	if m.owner_pid != nil {
 		fields = append(fields, task.FieldOwnerPid)
+	}
+	if m.priority != nil {
+		fields = append(fields, task.FieldPriority)
+	}
+	if m.handoff_depth != nil {
+		fields = append(fields, task.FieldHandoffDepth)
 	}
 	if m.started_at != nil {
 		fields = append(fields, task.FieldStartedAt)
@@ -8590,6 +8740,10 @@ func (m *TaskMutation) Field(name string) (ent.Value, bool) {
 		return m.CompletionTokens()
 	case task.FieldOwnerPid:
 		return m.OwnerPid()
+	case task.FieldPriority:
+		return m.Priority()
+	case task.FieldHandoffDepth:
+		return m.HandoffDepth()
 	case task.FieldStartedAt:
 		return m.StartedAt()
 	case task.FieldCompletedAt:
@@ -8627,6 +8781,10 @@ func (m *TaskMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldCompletionTokens(ctx)
 	case task.FieldOwnerPid:
 		return m.OldOwnerPid(ctx)
+	case task.FieldPriority:
+		return m.OldPriority(ctx)
+	case task.FieldHandoffDepth:
+		return m.OldHandoffDepth(ctx)
 	case task.FieldStartedAt:
 		return m.OldStartedAt(ctx)
 	case task.FieldCompletedAt:
@@ -8719,6 +8877,20 @@ func (m *TaskMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetOwnerPid(v)
 		return nil
+	case task.FieldPriority:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPriority(v)
+		return nil
+	case task.FieldHandoffDepth:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetHandoffDepth(v)
+		return nil
 	case task.FieldStartedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -8760,6 +8932,12 @@ func (m *TaskMutation) AddedFields() []string {
 	if m.addowner_pid != nil {
 		fields = append(fields, task.FieldOwnerPid)
 	}
+	if m.addpriority != nil {
+		fields = append(fields, task.FieldPriority)
+	}
+	if m.addhandoff_depth != nil {
+		fields = append(fields, task.FieldHandoffDepth)
+	}
 	return fields
 }
 
@@ -8776,6 +8954,10 @@ func (m *TaskMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedCompletionTokens()
 	case task.FieldOwnerPid:
 		return m.AddedOwnerPid()
+	case task.FieldPriority:
+		return m.AddedPriority()
+	case task.FieldHandoffDepth:
+		return m.AddedHandoffDepth()
 	}
 	return nil, false
 }
@@ -8813,6 +8995,20 @@ func (m *TaskMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddOwnerPid(v)
 		return nil
+	case task.FieldPriority:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPriority(v)
+		return nil
+	case task.FieldHandoffDepth:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddHandoffDepth(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Task numeric field %s", name)
 }
@@ -8847,6 +9043,12 @@ func (m *TaskMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(task.FieldOwnerPid) {
 		fields = append(fields, task.FieldOwnerPid)
+	}
+	if m.FieldCleared(task.FieldPriority) {
+		fields = append(fields, task.FieldPriority)
+	}
+	if m.FieldCleared(task.FieldHandoffDepth) {
+		fields = append(fields, task.FieldHandoffDepth)
 	}
 	if m.FieldCleared(task.FieldStartedAt) {
 		fields = append(fields, task.FieldStartedAt)
@@ -8895,6 +9097,12 @@ func (m *TaskMutation) ClearField(name string) error {
 	case task.FieldOwnerPid:
 		m.ClearOwnerPid()
 		return nil
+	case task.FieldPriority:
+		m.ClearPriority()
+		return nil
+	case task.FieldHandoffDepth:
+		m.ClearHandoffDepth()
+		return nil
 	case task.FieldStartedAt:
 		m.ClearStartedAt()
 		return nil
@@ -8941,6 +9149,12 @@ func (m *TaskMutation) ResetField(name string) error {
 		return nil
 	case task.FieldOwnerPid:
 		m.ResetOwnerPid()
+		return nil
+	case task.FieldPriority:
+		m.ResetPriority()
+		return nil
+	case task.FieldHandoffDepth:
+		m.ResetHandoffDepth()
 		return nil
 	case task.FieldStartedAt:
 		m.ResetStartedAt()

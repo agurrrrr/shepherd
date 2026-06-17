@@ -239,8 +239,10 @@ type ExecuteOptions struct {
 	// context window. Returning true means: instead of trimming old turns
 	// (which degrades the model), finish this task with a handoff summary and
 	// queue the remaining work as a follow-up task via EnqueueFollowUp.
-	// Typically returns true only when the sheep's queue has no pending tasks.
-	// Nil (or EnqueueFollowUp nil) → always trim.
+	// The follow-up is queued at a higher priority than ordinary pending tasks,
+	// so it runs next regardless of an existing backlog; the caller therefore
+	// returns true in the normal case and only returns false as a runaway guard
+	// (handoff chain already too deep). Nil (or EnqueueFollowUp nil) → always trim.
 	ShouldHandoff func() bool
 
 	// EnqueueFollowUp queues a continuation task with the given prompt.

@@ -153,6 +153,34 @@ func (_c *TaskCreate) SetNillableOwnerPid(v *int) *TaskCreate {
 	return _c
 }
 
+// SetPriority sets the "priority" field.
+func (_c *TaskCreate) SetPriority(v int) *TaskCreate {
+	_c.mutation.SetPriority(v)
+	return _c
+}
+
+// SetNillablePriority sets the "priority" field if the given value is not nil.
+func (_c *TaskCreate) SetNillablePriority(v *int) *TaskCreate {
+	if v != nil {
+		_c.SetPriority(*v)
+	}
+	return _c
+}
+
+// SetHandoffDepth sets the "handoff_depth" field.
+func (_c *TaskCreate) SetHandoffDepth(v int) *TaskCreate {
+	_c.mutation.SetHandoffDepth(v)
+	return _c
+}
+
+// SetNillableHandoffDepth sets the "handoff_depth" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableHandoffDepth(v *int) *TaskCreate {
+	if v != nil {
+		_c.SetHandoffDepth(*v)
+	}
+	return _c
+}
+
 // SetStartedAt sets the "started_at" field.
 func (_c *TaskCreate) SetStartedAt(v time.Time) *TaskCreate {
 	_c.mutation.SetStartedAt(v)
@@ -307,6 +335,14 @@ func (_c *TaskCreate) defaults() {
 		v := task.DefaultOwnerPid
 		_c.mutation.SetOwnerPid(v)
 	}
+	if _, ok := _c.mutation.Priority(); !ok {
+		v := task.DefaultPriority
+		_c.mutation.SetPriority(v)
+	}
+	if _, ok := _c.mutation.HandoffDepth(); !ok {
+		v := task.DefaultHandoffDepth
+		_c.mutation.SetHandoffDepth(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := task.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -403,6 +439,14 @@ func (_c *TaskCreate) createSpec() (*Task, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.OwnerPid(); ok {
 		_spec.SetField(task.FieldOwnerPid, field.TypeInt, value)
 		_node.OwnerPid = value
+	}
+	if value, ok := _c.mutation.Priority(); ok {
+		_spec.SetField(task.FieldPriority, field.TypeInt, value)
+		_node.Priority = value
+	}
+	if value, ok := _c.mutation.HandoffDepth(); ok {
+		_spec.SetField(task.FieldHandoffDepth, field.TypeInt, value)
+		_node.HandoffDepth = value
 	}
 	if value, ok := _c.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)

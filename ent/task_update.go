@@ -264,6 +264,60 @@ func (_u *TaskUpdate) ClearOwnerPid() *TaskUpdate {
 	return _u
 }
 
+// SetPriority sets the "priority" field.
+func (_u *TaskUpdate) SetPriority(v int) *TaskUpdate {
+	_u.mutation.ResetPriority()
+	_u.mutation.SetPriority(v)
+	return _u
+}
+
+// SetNillablePriority sets the "priority" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillablePriority(v *int) *TaskUpdate {
+	if v != nil {
+		_u.SetPriority(*v)
+	}
+	return _u
+}
+
+// AddPriority adds value to the "priority" field.
+func (_u *TaskUpdate) AddPriority(v int) *TaskUpdate {
+	_u.mutation.AddPriority(v)
+	return _u
+}
+
+// ClearPriority clears the value of the "priority" field.
+func (_u *TaskUpdate) ClearPriority() *TaskUpdate {
+	_u.mutation.ClearPriority()
+	return _u
+}
+
+// SetHandoffDepth sets the "handoff_depth" field.
+func (_u *TaskUpdate) SetHandoffDepth(v int) *TaskUpdate {
+	_u.mutation.ResetHandoffDepth()
+	_u.mutation.SetHandoffDepth(v)
+	return _u
+}
+
+// SetNillableHandoffDepth sets the "handoff_depth" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableHandoffDepth(v *int) *TaskUpdate {
+	if v != nil {
+		_u.SetHandoffDepth(*v)
+	}
+	return _u
+}
+
+// AddHandoffDepth adds value to the "handoff_depth" field.
+func (_u *TaskUpdate) AddHandoffDepth(v int) *TaskUpdate {
+	_u.mutation.AddHandoffDepth(v)
+	return _u
+}
+
+// ClearHandoffDepth clears the value of the "handoff_depth" field.
+func (_u *TaskUpdate) ClearHandoffDepth() *TaskUpdate {
+	_u.mutation.ClearHandoffDepth()
+	return _u
+}
+
 // SetStartedAt sets the "started_at" field.
 func (_u *TaskUpdate) SetStartedAt(v time.Time) *TaskUpdate {
 	_u.mutation.SetStartedAt(v)
@@ -519,6 +573,24 @@ func (_u *TaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.OwnerPidCleared() {
 		_spec.ClearField(task.FieldOwnerPid, field.TypeInt)
+	}
+	if value, ok := _u.mutation.Priority(); ok {
+		_spec.SetField(task.FieldPriority, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedPriority(); ok {
+		_spec.AddField(task.FieldPriority, field.TypeInt, value)
+	}
+	if _u.mutation.PriorityCleared() {
+		_spec.ClearField(task.FieldPriority, field.TypeInt)
+	}
+	if value, ok := _u.mutation.HandoffDepth(); ok {
+		_spec.SetField(task.FieldHandoffDepth, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedHandoffDepth(); ok {
+		_spec.AddField(task.FieldHandoffDepth, field.TypeInt, value)
+	}
+	if _u.mutation.HandoffDepthCleared() {
+		_spec.ClearField(task.FieldHandoffDepth, field.TypeInt)
 	}
 	if value, ok := _u.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)
@@ -871,6 +943,60 @@ func (_u *TaskUpdateOne) ClearOwnerPid() *TaskUpdateOne {
 	return _u
 }
 
+// SetPriority sets the "priority" field.
+func (_u *TaskUpdateOne) SetPriority(v int) *TaskUpdateOne {
+	_u.mutation.ResetPriority()
+	_u.mutation.SetPriority(v)
+	return _u
+}
+
+// SetNillablePriority sets the "priority" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillablePriority(v *int) *TaskUpdateOne {
+	if v != nil {
+		_u.SetPriority(*v)
+	}
+	return _u
+}
+
+// AddPriority adds value to the "priority" field.
+func (_u *TaskUpdateOne) AddPriority(v int) *TaskUpdateOne {
+	_u.mutation.AddPriority(v)
+	return _u
+}
+
+// ClearPriority clears the value of the "priority" field.
+func (_u *TaskUpdateOne) ClearPriority() *TaskUpdateOne {
+	_u.mutation.ClearPriority()
+	return _u
+}
+
+// SetHandoffDepth sets the "handoff_depth" field.
+func (_u *TaskUpdateOne) SetHandoffDepth(v int) *TaskUpdateOne {
+	_u.mutation.ResetHandoffDepth()
+	_u.mutation.SetHandoffDepth(v)
+	return _u
+}
+
+// SetNillableHandoffDepth sets the "handoff_depth" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableHandoffDepth(v *int) *TaskUpdateOne {
+	if v != nil {
+		_u.SetHandoffDepth(*v)
+	}
+	return _u
+}
+
+// AddHandoffDepth adds value to the "handoff_depth" field.
+func (_u *TaskUpdateOne) AddHandoffDepth(v int) *TaskUpdateOne {
+	_u.mutation.AddHandoffDepth(v)
+	return _u
+}
+
+// ClearHandoffDepth clears the value of the "handoff_depth" field.
+func (_u *TaskUpdateOne) ClearHandoffDepth() *TaskUpdateOne {
+	_u.mutation.ClearHandoffDepth()
+	return _u
+}
+
 // SetStartedAt sets the "started_at" field.
 func (_u *TaskUpdateOne) SetStartedAt(v time.Time) *TaskUpdateOne {
 	_u.mutation.SetStartedAt(v)
@@ -1156,6 +1282,24 @@ func (_u *TaskUpdateOne) sqlSave(ctx context.Context) (_node *Task, err error) {
 	}
 	if _u.mutation.OwnerPidCleared() {
 		_spec.ClearField(task.FieldOwnerPid, field.TypeInt)
+	}
+	if value, ok := _u.mutation.Priority(); ok {
+		_spec.SetField(task.FieldPriority, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedPriority(); ok {
+		_spec.AddField(task.FieldPriority, field.TypeInt, value)
+	}
+	if _u.mutation.PriorityCleared() {
+		_spec.ClearField(task.FieldPriority, field.TypeInt)
+	}
+	if value, ok := _u.mutation.HandoffDepth(); ok {
+		_spec.SetField(task.FieldHandoffDepth, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedHandoffDepth(); ok {
+		_spec.AddField(task.FieldHandoffDepth, field.TypeInt, value)
+	}
+	if _u.mutation.HandoffDepthCleared() {
+		_spec.ClearField(task.FieldHandoffDepth, field.TypeInt)
 	}
 	if value, ok := _u.mutation.StartedAt(); ok {
 		_spec.SetField(task.FieldStartedAt, field.TypeTime, value)

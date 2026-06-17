@@ -473,6 +473,29 @@ func paramDecoded(c *fiber.Ctx, key string) string {
 	return decoded
 }
 
+const (
+	// handoffAlarmDepth: once a task's context-overflow handoff chain reaches this
+	// many links, warn via Discord — a long chain usually means the model keeps
+	// running out of context without finishing (a no-progress loop).
+	handoffAlarmDepth = 8
+	// maxHandoffChain: hard ceiling. Beyond this we stop auto-chaining and fall
+	// back to plain trimming, so a stuck task can't spawn follow-ups without bound.
+	maxHandoffChain = 12
+)
+
+// taskHandoffDepth returns the handoff-chain depth recorded on the given task,
+// or 0 when it can't be resolved (unknown id / lookup failure).
+func taskHandoffDepth(taskID int) int {
+	if taskID == 0 {
+		return 0
+	}
+	t, err := queue.GetTask(taskID)
+	if err != nil || t == nil {
+		return 0
+	}
+	return t.HandoffDepth
+}
+
 // initEmbeddedExecutor registers the embedded executor with the worker package.
 // This bridges the MCP server (with its tool handlers) to the embedded agent loop.
 func initEmbeddedExecutor(mcpServer *mcp.Server) {
@@ -610,28 +633,39 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			MCPDispatch:   mcpDispatch,
 			InjectCh:      injectCh,
 			// Context-overflow handoff: when the conversation outgrows the
-			// context window and this sheep has no other pending tasks, finish
-			// the task with a summary and queue the remaining work as a
-			// follow-up task instead of trimming old turns.
+			// context window, finish the task with a summary and queue the
+			// remaining work as a follow-up instead of trimming old turns.
+			// Always prefer handoff over trimming — the follow-up is created with
+			// priority 1 (see EnqueueFollowUp), so it runs ahead of any queued
+			// pending tasks rather than being pushed to the back of the queue
+			// (the old "only when queue is empty" guard is gone). The sole
+			// refusal is a runaway guard: once this work has handed itself off
+			// maxHandoffChain times it's likely looping without progress, so we
+			// stop growing the chain and let plain trimming carry it to the end.
 			ShouldHandoff: func() bool {
-				s, serr := worker.Get(sheepName)
-				if serr != nil {
-					return false
-				}
-				n, cerr := queue.CountPendingTasksBySheep(s.ID)
-				return cerr == nil && n == 0
+				return taskHandoffDepth(opts.TaskID) < maxHandoffChain
 			},
 			EnqueueFollowUp: func(followUpPrompt string) error {
 				s, serr := worker.Get(sheepName)
 				if serr != nil {
 					return serr
 				}
+				depth := taskHandoffDepth(opts.TaskID) + 1
+				projectID := 0
+				projectName := ""
 				if s.Edges.Project != nil {
-					_, serr = queue.CreateTask(followUpPrompt, s.ID, s.Edges.Project.ID)
-				} else {
-					_, serr = queue.CreateManagerTask(followUpPrompt, s.ID)
+					projectID = s.Edges.Project.ID
+					projectName = s.Edges.Project.Name
 				}
-				return serr
+				if _, err := queue.CreateFollowUpTask(followUpPrompt, s.ID, projectID, depth); err != nil {
+					return err
+				}
+				// A deep chain means the model keeps exhausting its context
+				// without finishing — alert a human so they can step in.
+				if depth >= handoffAlarmDepth {
+					go discord.NewTaskNotifier().SendHandoffDepthAlert(sheepName, projectName, depth)
+				}
+				return nil
 			},
 		})
 		if err != nil {

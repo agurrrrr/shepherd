@@ -52,6 +52,34 @@ func CreateManagerTask(prompt string, sheepID int) (*ent.Task, error) {
 	return t, nil
 }
 
+// CreateFollowUpTask creates a continuation task produced by a context-overflow
+// handoff. It is given priority 1 so it runs ahead of ordinary pending tasks
+// (priority 0) — keeping the handoff chain A→A'→A” contiguous instead of being
+// pushed to the back of the FIFO queue. handoffDepth records how many times this
+// line of work has handed itself off (parent depth + 1), for loop detection and
+// alarms. projectID <= 0 creates a manager task (no project association).
+func CreateFollowUpTask(prompt string, sheepID, projectID, handoffDepth int) (*ent.Task, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	create := client.Task.Create().
+		SetPrompt(prompt).
+		SetStatus(task.StatusPending).
+		SetSheepID(sheepID).
+		SetPriority(1).
+		SetHandoffDepth(handoffDepth)
+	if projectID > 0 {
+		create = create.SetProjectID(projectID)
+	}
+
+	t, err := create.Save(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create follow-up task: %w", err)
+	}
+
+	return t, nil
+}
+
 // GetTask returns a task by ID.
 func GetTask(id int) (*ent.Task, error) {
 	ctx := context.Background()
@@ -148,7 +176,11 @@ func ListTasksByProject(projectName string) ([]*ent.Task, error) {
 	return tasks, nil
 }
 
-// GetPendingTask returns the oldest pending task (FIFO).
+// GetPendingTask returns the next pending task to run. Higher priority first,
+// then oldest-created (FIFO) within the same priority. Context-overflow handoff
+// follow-ups are created with priority 1 so they run ahead of ordinary pending
+// tasks (priority 0), keeping a handoff chain A→A'→A” contiguous instead of
+// being pushed to the back of the queue.
 func GetPendingTask() (*ent.Task, error) {
 	ctx := context.Background()
 	client := db.Client()
@@ -157,7 +189,7 @@ func GetPendingTask() (*ent.Task, error) {
 		Where(task.StatusEQ(task.StatusPending)).
 		WithSheep().
 		WithProject().
-		Order(ent.Asc(task.FieldCreatedAt)).
+		Order(ent.Desc(task.FieldPriority), ent.Asc(task.FieldCreatedAt)).
 		First(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
@@ -169,7 +201,9 @@ func GetPendingTask() (*ent.Task, error) {
 	return t, nil
 }
 
-// GetPendingTaskBySheep returns the oldest pending task for the given sheep (FIFO).
+// GetPendingTaskBySheep returns the next pending task for the given sheep.
+// Higher priority first, then oldest-created (FIFO) within the same priority —
+// so a handoff follow-up (priority 1) runs before queued ordinary tasks.
 func GetPendingTaskBySheep(sheepID int) (*ent.Task, error) {
 	ctx := context.Background()
 	client := db.Client()
@@ -181,7 +215,7 @@ func GetPendingTaskBySheep(sheepID int) (*ent.Task, error) {
 		).
 		WithSheep().
 		WithProject().
-		Order(ent.Asc(task.FieldCreatedAt)).
+		Order(ent.Desc(task.FieldPriority), ent.Asc(task.FieldCreatedAt)).
 		First(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {

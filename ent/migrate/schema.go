@@ -211,6 +211,8 @@ var (
 		{Name: "prompt_tokens", Type: field.TypeInt64, Nullable: true, Default: 0},
 		{Name: "completion_tokens", Type: field.TypeInt64, Nullable: true, Default: 0},
 		{Name: "owner_pid", Type: field.TypeInt, Nullable: true, Default: 0},
+		{Name: "priority", Type: field.TypeInt, Nullable: true, Default: 0},
+		{Name: "handoff_depth", Type: field.TypeInt, Nullable: true, Default: 0},
 		{Name: "started_at", Type: field.TypeTime, Nullable: true},
 		{Name: "completed_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
@@ -226,19 +228,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "tasks_issues_tasks",
-				Columns:    []*schema.Column{TasksColumns[15]},
+				Columns:    []*schema.Column{TasksColumns[17]},
 				RefColumns: []*schema.Column{IssuesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "tasks_projects_tasks",
-				Columns:    []*schema.Column{TasksColumns[16]},
+				Columns:    []*schema.Column{TasksColumns[18]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "tasks_sheep_tasks",
-				Columns:    []*schema.Column{TasksColumns[17]},
+				Columns:    []*schema.Column{TasksColumns[19]},
 				RefColumns: []*schema.Column{SheepColumns[0]},
 				OnDelete:   schema.SetNull,
 			},

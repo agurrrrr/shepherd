@@ -215,8 +215,16 @@ func init() {
 	taskDescOwnerPid := taskFields[10].Descriptor()
 	// task.DefaultOwnerPid holds the default value on creation for the owner_pid field.
 	task.DefaultOwnerPid = taskDescOwnerPid.Default.(int)
+	// taskDescPriority is the schema descriptor for priority field.
+	taskDescPriority := taskFields[11].Descriptor()
+	// task.DefaultPriority holds the default value on creation for the priority field.
+	task.DefaultPriority = taskDescPriority.Default.(int)
+	// taskDescHandoffDepth is the schema descriptor for handoff_depth field.
+	taskDescHandoffDepth := taskFields[12].Descriptor()
+	// task.DefaultHandoffDepth holds the default value on creation for the handoff_depth field.
+	task.DefaultHandoffDepth = taskDescHandoffDepth.Default.(int)
 	// taskDescCreatedAt is the schema descriptor for created_at field.
-	taskDescCreatedAt := taskFields[13].Descriptor()
+	taskDescCreatedAt := taskFields[15].Descriptor()
 	// task.DefaultCreatedAt holds the default value on creation for the created_at field.
 	task.DefaultCreatedAt = taskDescCreatedAt.Default.(func() time.Time)
 	wikipageFields := schema.WikiPage{}.Fields()
