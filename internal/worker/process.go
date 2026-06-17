@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/agurrrrr/shepherd/ent"
 	"github.com/agurrrrr/shepherd/ent/sheep"
+	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/daemon"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/envutil"
 )
@@ -205,22 +208,61 @@ func ClearSession(sheepName string) error {
 
 // RecoverStuckSheep recovers sheep that are stuck in working/error status.
 // This should be called on startup to clean up after abnormal termination.
+//
+// It is ownership-aware: a sheep that still owns a genuinely-running task under a
+// live, *different* process is left untouched. Without this guard, recovery that
+// runs while the real daemon is still alive — a PID-file race in
+// daemon.IsRunning(), a redundant launch, or a CLI subcommand that recovers on
+// startup — would reset a working sheep to idle even though its task keeps
+// running, leaving the dashboard showing that task as "finished" while it is in
+// fact still executing (task #6362). RecoverStuckTasks already skips such
+// live-owned running tasks the same way; mirroring that here keeps sheep status
+// and task status from ever disagreeing into a running-task/idle-sheep desync.
 func RecoverStuckSheep() (int, error) {
 	ctx := context.Background()
 	client := db.Client()
+	selfPID := os.Getpid()
 
-	// Change sheep in working or error status to idle
-	count, err := client.Sheep.Update().
+	// Collect sheep that own a running task under another live process. These
+	// must be preserved — their task is still executing, just not in this process.
+	protected := make(map[int]bool)
+	running, err := client.Task.Query().
+		Where(task.StatusEQ(task.StatusRunning)).
+		WithSheep().
+		All(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query running tasks: %w", err)
+	}
+	for _, t := range running {
+		if t.OwnerPid != 0 && t.OwnerPid != selfPID && daemon.IsPIDAlive(t.OwnerPid) && t.Edges.Sheep != nil {
+			protected[t.Edges.Sheep.ID] = true
+		}
+	}
+
+	// Reset working/error sheep to idle, skipping any preserved above.
+	stuck, err := client.Sheep.Query().
 		Where(
 			sheep.Or(
 				sheep.StatusEQ(sheep.StatusWorking),
 				sheep.StatusEQ(sheep.StatusError),
 			),
 		).
-		SetStatus(sheep.StatusIdle).
-		Save(ctx)
+		All(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to recover sheep status: %w", err)
+		return 0, fmt.Errorf("failed to query stuck sheep: %w", err)
+	}
+
+	count := 0
+	for _, s := range stuck {
+		if protected[s.ID] {
+			continue
+		}
+		if _, err := client.Sheep.UpdateOneID(s.ID).
+			SetStatus(sheep.StatusIdle).
+			Save(ctx); err != nil {
+			return count, fmt.Errorf("failed to recover sheep status: %w", err)
+		}
+		count++
 	}
 
 	return count, nil
