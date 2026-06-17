@@ -520,8 +520,8 @@ func StatusToKorean(status task.Status) string {
 	}
 }
 
-// RecoverStuckTasks marks running tasks as failed and stale pending tasks as stopped
-// after abnormal termination. This should be called on startup.
+// RecoverStuckTasks marks running tasks as failed after abnormal termination.
+// This should be called on startup.
 //
 // A "running" row is only failed when its owning process is actually gone. The
 // owner_pid recorded by StartTask is checked against the live process table:
@@ -560,21 +560,37 @@ func RecoverStuckTasks() (int, error) {
 		runningCount++
 	}
 
-	// Cancel pending tasks created before this startup (stale from previous session)
-	pendingCount, err := client.Task.Update().
+	return runningCount, nil
+}
+
+// CancelStalePendingTasks cancels pending tasks that belong to a previous session.
+// This should only be called by the daemon on startup — not by CLI commands —
+// because CLI callers would otherwise cancel their own legitimately queued tasks.
+func CancelStalePendingTasks() (int, error) {
+	ctx := context.Background()
+	client := db.Client()
+	now := time.Now()
+
+	// Only cancel pending tasks that were created before this process started.
+	// Tasks created in the current session (e.g. by a CLI command running in the
+	// same process) must not be touched. We use a small grace window: tasks
+	// created within the last 2 seconds are considered "current session".
+	cutoff := now.Add(-2 * time.Second)
+
+	count, err := client.Task.Update().
 		Where(
 			task.StatusEQ(task.StatusPending),
-			task.CreatedAtLT(now),
+			task.CreatedAtLT(cutoff),
 		).
 		SetStatus(task.StatusStopped).
 		SetError("cancelled: stale task from previous session").
 		SetCompletedAt(now).
 		Save(ctx)
 	if err != nil {
-		return runningCount, fmt.Errorf("failed to cancel stale pending tasks: %w", err)
+		return 0, fmt.Errorf("failed to cancel stale pending tasks: %w", err)
 	}
 
-	return runningCount + pendingCount, nil
+	return count, nil
 }
 
 // CancelPendingTasks marks all pending tasks as stopped (cancelled).

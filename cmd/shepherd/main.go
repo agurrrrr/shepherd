@@ -4203,6 +4203,18 @@ func recoverFromAbnormalTermination(isDaemon bool) {
 	} else if taskCount > 0 {
 		fmt.Printf(i18n.T().CLITaskRecoveredInfoFmt, taskCount)
 	}
+
+	// Cancel stale pending tasks from previous daemon session.
+	// Only the daemon should do this — CLI callers would otherwise cancel
+	// their own legitimately queued tasks.
+	if isDaemon {
+		pendingCount, err := queue.CancelStalePendingTasks()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  Failed to cancel stale pending tasks: %v\n", err)
+		} else if pendingCount > 0 {
+			fmt.Printf("📋 %d stale pending tasks cancelled\n", pendingCount)
+		}
+	}
 }
 
 // setupGracefulShutdown sets up signal handlers for graceful shutdown.
