@@ -89,7 +89,13 @@ type CallToolParams struct {
 
 type CallToolResult struct {
 	Content []ContentBlock `json:"content"`
-	IsError bool           `json:"isError,omitempty"`
+	// StructuredContent carries a tool's typed result when it declares an
+	// outputSchema. Servers built on the official MCP SDKs (e.g. nagar-mcp) put
+	// the payload here and leave Content empty, only SHOULD-duplicating it into a
+	// text block. The client must read it as a fallback or such results look empty
+	// (task #6350).
+	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
+	IsError           bool            `json:"isError,omitempty"`
 }
 
 type ContentBlock struct {

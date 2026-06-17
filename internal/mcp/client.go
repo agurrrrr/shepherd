@@ -148,7 +148,17 @@ func (s *ExternalMCPServer) CallTool(name string, args map[string]interface{}) (
 		return "", fmt.Errorf("tool error (no message)")
 	}
 
-	// Concatenate all text content blocks
+	return renderToolResult(result), nil
+}
+
+// renderToolResult flattens a tools/call result into the text the agent sees.
+// It concatenates the text content blocks, and — when those yield nothing —
+// falls back to the structuredContent payload. MCP servers that declare an
+// outputSchema (e.g. nagar-mcp via the official Go SDK) return their data in
+// structuredContent and leave the text content array empty; the spec only
+// SHOULD-duplicates it into a text block, so without this fallback such results
+// look empty and the caller believes the tool returned nothing (task #6350).
+func renderToolResult(result CallToolResult) string {
 	var sb strings.Builder
 	for _, block := range result.Content {
 		if block.Type == "text" {
@@ -158,7 +168,12 @@ func (s *ExternalMCPServer) CallTool(name string, args map[string]interface{}) (
 			sb.WriteString(block.Text)
 		}
 	}
-	return sb.String(), nil
+
+	if sb.Len() == 0 && len(result.StructuredContent) > 0 && string(result.StructuredContent) != "null" {
+		return string(result.StructuredContent)
+	}
+
+	return sb.String()
 }
 
 // Close terminates the external MCP server process.
