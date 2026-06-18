@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -334,6 +335,41 @@ const defaultReadFileLines = 200
 // char cap is the real guarantee.)
 const maxReadFileChars = maxToolResultChars - 2000
 
+// argInt extracts an integer-valued tool argument, tolerating the several ways
+// local models encode numbers. A standard JSON number arrives as float64, but
+// weaker local models routinely emit numeric arguments as quoted strings
+// ("156") — and a plain `args[key].(float64)` assertion silently fails on those,
+// leaving the argument unread.
+//
+// That silent failure was the task #6410 stuck loop: the model paged read_file
+// with offset="156" (a string), the offset was ignored, read_file returned page 1
+// again with a footer naming the same offset, and the model re-issued the byte-
+// for-byte identical call until the repeated-tool-call guard killed the task.
+// Returns (value, true) only when a number was successfully parsed.
+func argInt(args map[string]interface{}, key string) (int, bool) {
+	switch v := args[key].(type) {
+	case float64:
+		return int(v), true
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" {
+			return 0, false
+		}
+		if n, err := strconv.Atoi(s); err == nil {
+			return n, true
+		}
+		// Tolerate "156.0" style values too.
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			return int(f), true
+		}
+	}
+	return 0, false
+}
+
 func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{}) (string, error) {
 	pathStr, _ := args["path"].(string)
 	if pathStr == "" {
@@ -394,8 +430,8 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 
 	// Resolve the starting line (1-indexed). Default to the top of the file.
 	start := 1
-	if offsetVal, ok := args["offset"].(float64); ok && offsetVal > 0 {
-		start = int(offsetVal)
+	if offsetVal, ok := argInt(args, "offset"); ok && offsetVal > 0 {
+		start = offsetVal
 	}
 	if start > totalLines {
 		return "", fmt.Errorf("offset %d exceeds file length %d", start, totalLines)
@@ -405,8 +441,8 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 	// window so a large file is paged rather than dumped — a dump just gets
 	// chopped by truncateToolResult and the model never sees the tail (#6309).
 	limit := defaultReadFileLines
-	if limitVal, ok := args["limit"].(float64); ok && limitVal > 0 {
-		limit = int(limitVal)
+	if limitVal, ok := argInt(args, "limit"); ok && limitVal > 0 {
+		limit = limitVal
 	}
 
 	window := lines[start-1:]
@@ -517,8 +553,8 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 	}
 
 	timeout := 120 // default 2 minutes
-	if timeoutVal, ok := args["timeout"].(float64); ok && timeoutVal > 0 {
-		timeout = int(timeoutVal)
+	if timeoutVal, ok := argInt(args, "timeout"); ok && timeoutVal > 0 {
+		timeout = timeoutVal
 	}
 
 	// Derive a child context from the parent (loop ctx) so that task stop (ctx

@@ -253,6 +253,89 @@ func TestReadfileTailReachableThroughPaging6309(t *testing.T) {
 	}
 }
 
+// The #6410 regression: weak local models routinely encode the offset as a
+// quoted string ("201"). A plain args["offset"].(float64) assertion silently
+// failed on those, so read_file returned page 1 again with a footer naming the
+// same offset, and the model re-issued the byte-for-byte identical call until
+// the repeated-tool-call stuck guard killed the task. A string offset must page
+// just like a numeric one.
+func TestReadfileStringOffset6410(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	var sb strings.Builder
+	for i := 1; i <= 500; i++ {
+		fmt.Fprintf(&sb, "line %d\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(sb.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// String offset must be honored exactly like the numeric form.
+	out, err := tr.readfile(context.Background(), map[string]interface{}{
+		"path":   "big.txt",
+		"offset": "201",
+	})
+	if err != nil {
+		t.Fatalf("readfile string offset error: %v", err)
+	}
+	if !strings.Contains(out, "line 201\n") {
+		t.Error("string offset=201 should start the page at line 201")
+	}
+	if strings.Contains(out, "line 1\n") {
+		t.Error("string offset=201 must not return page 1 (the #6410 stuck loop)")
+	}
+	next, ok := parseFooterOffset(out)
+	if !ok || next <= 201 {
+		t.Errorf("footer must advance past a string offset, got (%d, %v)", next, ok)
+	}
+
+	// "201.0" style strings are tolerated too.
+	out, err = tr.readfile(context.Background(), map[string]interface{}{
+		"path":   "big.txt",
+		"offset": "201.0",
+	})
+	if err != nil {
+		t.Fatalf("readfile float-string offset error: %v", err)
+	}
+	if !strings.Contains(out, "line 201\n") {
+		t.Error(`string offset "201.0" should start the page at line 201`)
+	}
+}
+
+// argInt accepts the numeric encodings local models actually emit and rejects
+// non-numeric junk (falling back to the caller's default).
+func TestArgInt(t *testing.T) {
+	cases := []struct {
+		name   string
+		val    interface{}
+		want   int
+		wantOK bool
+	}{
+		{"float64", float64(156), 156, true},
+		{"int", 156, 156, true},
+		{"int64", int64(156), 156, true},
+		{"string", "156", 156, true},
+		{"string with spaces", "  156 ", 156, true},
+		{"float string", "156.0", 156, true},
+		{"empty string", "", 0, false},
+		{"non-numeric string", "abc", 0, false},
+		{"missing key", nil, 0, false},
+		{"bool", true, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			args := map[string]interface{}{}
+			if c.val != nil {
+				args["offset"] = c.val
+			}
+			got, ok := argInt(args, "offset")
+			if got != c.want || ok != c.wantOK {
+				t.Errorf("argInt(%v) = (%d, %v), want (%d, %v)", c.val, got, ok, c.want, c.wantOK)
+			}
+		})
+	}
+}
+
 // A single line longer than the char cap must not deadlock: output stays under
 // the history budget and the footer advances past the giant line.
 func TestReadfileGiantLineAdvancesNoDeadlock(t *testing.T) {
