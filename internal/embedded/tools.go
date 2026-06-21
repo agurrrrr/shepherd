@@ -47,6 +47,14 @@ type ToolRegistry struct {
 	// chat context. This prevents the model from calling read_file on the same
 	// image repeatedly, which would cause an infinite loop.
 	readImages map[string]bool
+	// lastReadPath / lastReadEndLine remember the most recent read_file call so
+	// a follow-up call to the same path WITHOUT an explicit offset can be
+	// auto-advanced to the next page. Weak local models routinely emit the
+	// offset only in their thinking ("offset 142") but omit it from the tool-
+	// call arguments JSON — without this, they'd loop on page 1 until the stuck
+	// guard kills the task (task #6505).
+	lastReadPath    string
+	lastReadEndLine int
 }
 
 // pendingImage is an image loaded by read_file, awaiting injection into the
@@ -430,9 +438,39 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 
 	// Resolve the starting line (1-indexed). Default to the top of the file.
 	start := 1
+	offsetGiven := false
 	if offsetVal, ok := argInt(args, "offset"); ok && offsetVal > 0 {
 		start = offsetVal
+		offsetGiven = true
 	}
+
+	// Auto-page: weak local models routinely emit the offset only in their
+	// thinking ("offset 142") but omit it from the tool-call arguments JSON.
+	// Without this, a follow-up read_file on the same path returns page 1 again,
+	// the tool-call signature stays identical, and the model loops until the
+	// stuck guard kills the task (task #6505). When the same path is read again
+	// with no explicit offset, advance past the last line we showed so the call
+	// makes guaranteed forward progress.
+	autoAdvanced := false
+	if !offsetGiven && tr.lastReadPath == path && tr.lastReadEndLine > 0 {
+		if tr.lastReadEndLine >= totalLines {
+			// The whole file has already been shown. Returning page 1 again
+			// would let a spinning model cycle forever (every page changes the
+			// signature), so return a stable message instead: it tells the model
+			// it already has the file and — being byte-identical turn after turn
+			// — lets the stuck guard catch genuine spinning. The offset=1 hatch
+			// still allows a real re-read (e.g. after the earlier read was
+			// trimmed from context). Deliberately leaves lastReadEndLine intact.
+			return fmt.Sprintf(
+				"[You have already read this entire file (%d lines); there is nothing after "+
+					"line %d. Proceed with what you've read. To re-read from the top, call "+
+					"read_file with \"offset\": 1.]",
+				totalLines, tr.lastReadEndLine), nil
+		}
+		start = tr.lastReadEndLine + 1
+		autoAdvanced = true
+	}
+
 	if start > totalLines {
 		return "", fmt.Errorf("offset %d exceeds file length %d", start, totalLines)
 	}
@@ -484,6 +522,20 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 			"\n\n[File has %d lines. Showing lines %d-%d. "+
 				"Call read_file with offset=%d to read more.]",
 			totalLines, start, endLine, endLine+1)
+	}
+
+	// Remember where this read ended so a follow-up call to the same path with
+	// no explicit offset auto-advances (see the auto-page block above).
+	tr.lastReadPath = path
+	tr.lastReadEndLine = endLine
+
+	if autoAdvanced {
+		shown = fmt.Sprintf(
+			"[⚠ Auto-paged: your previous read_file on this file omitted the \"offset\" "+
+				"argument, so this returned the NEXT page (lines %d-%d of %d) instead of "+
+				"repeating the same page. To read a specific page include \"offset\": N; "+
+				"to read from the top use \"offset\": 1.]\n\n",
+			start, endLine, totalLines) + shown
 	}
 
 	return shown, nil

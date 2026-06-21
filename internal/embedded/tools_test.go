@@ -302,6 +302,90 @@ func TestReadfileStringOffset6410(t *testing.T) {
 	}
 }
 
+// The #6505 regression: weak local models name the next offset in their
+// thinking but omit it from the tool-call arguments JSON, so every follow-up
+// read_file on the same path returned page 1 again and the model looped until
+// the stuck guard killed the task. A repeat read with NO offset must now
+// auto-advance to the next page, and once the file is exhausted it must return
+// a stable message (not page 1) so genuine spinning can still be caught.
+func TestReadfileAutoAdvanceNoOffset6505(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	const total = 500
+	var sb strings.Builder
+	for i := 1; i <= total; i++ {
+		fmt.Fprintf(&sb, "line %d\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(sb.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Page through the whole file calling read_file with NO offset every time,
+	// exactly as a model that keeps dropping the offset would. Each call must
+	// move strictly forward instead of repeating page 1.
+	prevEnd := 0
+	for page := 0; page < 50; page++ {
+		out, err := tr.readfile(context.Background(), map[string]interface{}{"path": "big.txt"})
+		if err != nil {
+			t.Fatalf("page %d: %v", page, err)
+		}
+		if page > 0 {
+			if !strings.Contains(out, "Auto-paged") {
+				t.Fatalf("page %d: repeat no-offset read must be flagged as auto-paged; got %q", page, lastChars(out))
+			}
+			if strings.Contains(out, "line 1\n") {
+				t.Fatalf("page %d: auto-paged read returned page 1 again (#6505 loop)", page)
+			}
+		}
+		if tr.lastReadEndLine <= prevEnd {
+			t.Fatalf("page %d: lastReadEndLine %d did not advance past %d", page, tr.lastReadEndLine, prevEnd)
+		}
+		prevEnd = tr.lastReadEndLine
+		if tr.lastReadEndLine >= total {
+			break
+		}
+	}
+	if prevEnd < total {
+		t.Fatalf("never reached EOF through auto-paging; stopped at %d/%d", prevEnd, total)
+	}
+
+	// File fully read: another no-offset read must return the stable
+	// "already read" message (not page 1) so the stuck guard can catch a
+	// spinning model, and lastReadEndLine must stay put.
+	endBefore := tr.lastReadEndLine
+	out, err := tr.readfile(context.Background(), map[string]interface{}{"path": "big.txt"})
+	if err != nil {
+		t.Fatalf("post-EOF read: %v", err)
+	}
+	if !strings.Contains(out, "already read this entire file") {
+		t.Errorf("post-EOF read should return the already-read message, got %q", lastChars(out))
+	}
+	if strings.Contains(out, "line 1\n") {
+		t.Error("post-EOF read must not wrap back to page 1")
+	}
+	if tr.lastReadEndLine != endBefore {
+		t.Errorf("post-EOF read changed lastReadEndLine %d -> %d", endBefore, tr.lastReadEndLine)
+	}
+
+	// The offset=1 escape hatch must still allow a deliberate re-read from top.
+	out, err = tr.readfile(context.Background(), map[string]interface{}{"path": "big.txt", "offset": 1})
+	if err != nil {
+		t.Fatalf("offset=1 re-read: %v", err)
+	}
+	if !strings.Contains(out, "line 1\n") {
+		t.Error("offset=1 must re-read from the top of the file")
+	}
+
+	// An explicit offset on a tracked path must NOT auto-advance.
+	out, err = tr.readfile(context.Background(), map[string]interface{}{"path": "big.txt", "offset": 50})
+	if err != nil {
+		t.Fatalf("explicit offset read: %v", err)
+	}
+	if !strings.Contains(out, "line 50\n") || strings.Contains(out, "Auto-paged") {
+		t.Error("explicit offset must be honored verbatim, not auto-advanced")
+	}
+}
+
 // argInt accepts the numeric encodings local models actually emit and rejects
 // non-numeric junk (falling back to the caller's default).
 func TestArgInt(t *testing.T) {

@@ -1,6 +1,11 @@
 package embedded
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestIsDegenerateOutput(t *testing.T) {
 	cases := []struct {
@@ -59,6 +64,57 @@ func TestToolCallsSignature(t *testing.T) {
 	y := sig(mk("bash", `{"command":"ls"}`), mk("read_file", `{"path":"a"}`))
 	if x != y {
 		t.Errorf("signature is order-dependent: %q vs %q", x, y)
+	}
+}
+
+// Registry-aware signatures must fold read_file paging progress in, so that a
+// model auto-paging through a file (identical no-offset args, advancing pages)
+// produces DIFFERENT signatures turn over turn and does not trip the stuck
+// guard, while a model re-reading the same exhausted page stays identical and
+// is caught (task #6505).
+func TestToolCallsSignatureWithRegistry(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte("x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	call := ToolCall{Func: ToolCallFunction{Name: "read_file", Args: `{"path":"big.txt"}`}}
+
+	// Before any read, nothing to fold in: identical to the plain signature.
+	base := toolCallsSignatureWithRegistry([]ToolCall{call}, tr)
+	if base != toolCallsSignature([]ToolCall{call}) {
+		t.Errorf("with no read progress, registry signature should match plain: %q", base)
+	}
+
+	// Simulate having paged to line 141 of big.txt.
+	resolved, err := tr.safePath("big.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr.lastReadPath = resolved
+	tr.lastReadEndLine = 141
+	at141 := toolCallsSignatureWithRegistry([]ToolCall{call}, tr)
+	if at141 == base {
+		t.Errorf("read progress must change the signature, both %q", at141)
+	}
+
+	// Advancing the page again changes it again (no false stuck trip).
+	tr.lastReadEndLine = 282
+	at282 := toolCallsSignatureWithRegistry([]ToolCall{call}, tr)
+	if at282 == at141 {
+		t.Errorf("further paging must change signature again: %q", at282)
+	}
+
+	// Same position twice (model re-reading the exhausted page) stays stable so
+	// the stuck guard can still catch it.
+	if toolCallsSignatureWithRegistry([]ToolCall{call}, tr) != at282 {
+		t.Error("identical read position must yield identical signature (stuck guard must still fire)")
+	}
+
+	// A read of a DIFFERENT path must not borrow this path's progress.
+	other := ToolCall{Func: ToolCallFunction{Name: "read_file", Args: `{"path":"other.txt"}`}}
+	if got := toolCallsSignatureWithRegistry([]ToolCall{other}, tr); strings.Contains(got, "@282") {
+		t.Errorf("progress leaked to a different path: %q", got)
 	}
 }
 

@@ -52,15 +52,45 @@ const minDegenerateRunes = 20
 // tool calls (name + trimmed args). Used to detect a model stuck repeating the
 // exact same call(s) turn after turn. Returns "" for no calls.
 func toolCallsSignature(calls []ToolCall) string {
+	return toolCallsSignatureWithRegistry(calls, nil)
+}
+
+// toolCallsSignatureWithRegistry is toolCallsSignature with awareness of
+// read_file paging progress. Consecutive read_file calls that omit the offset
+// auto-advance through the file (see ToolRegistry.readfile), so their args stay
+// byte-identical even though each returns a different page. Folding the last
+// read position into the signature keeps that legitimate progress from tripping
+// the stuck guard, while a model that keeps re-reading the SAME exhausted file
+// still produces a stable signature and is caught (task #6505).
+func toolCallsSignatureWithRegistry(calls []ToolCall, tr *ToolRegistry) string {
 	if len(calls) == 0 {
 		return ""
 	}
 	parts := make([]string, 0, len(calls))
 	for _, tc := range calls {
-		parts = append(parts, tc.Func.Name+"("+strings.TrimSpace(tc.Func.Args)+")")
+		sig := tc.Func.Name + "(" + strings.TrimSpace(tc.Func.Args) + ")"
+		if tr != nil && tc.Func.Name == "read_file" && tr.lastReadEndLine > 0 {
+			if p, ok := readFilePath(tc); ok {
+				if resolved, err := tr.safePath(p); err == nil && resolved == tr.lastReadPath {
+					sig += fmt.Sprintf("@%d", tr.lastReadEndLine)
+				}
+			}
+		}
+		parts = append(parts, sig)
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "|")
+}
+
+// readFilePath extracts the "path" argument from a read_file tool call,
+// reporting false when the args are unparseable or carry no usable path.
+func readFilePath(tc ToolCall) (string, bool) {
+	args, err := normalizeJSON(tc.Func.Args)
+	if err != nil {
+		return "", false
+	}
+	p, ok := args["path"].(string)
+	return p, ok && p != ""
 }
 
 // isDegenerateOutput reports whether s is dominated by U+FFFD replacement
@@ -394,7 +424,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			// progress — kill the task instead of letting the context grow until
 			// it degenerates. Updated before execution so a repeated rejection
 			// (e.g. read_file on an unviewable image) is caught.
-			sig := toolCallsSignature(msg.ToolCalls)
+			sig := toolCallsSignatureWithRegistry(msg.ToolCalls, toolRegistry)
 			if sig != "" && sig == lastToolSig {
 				repeatedToolTurns++
 			} else {
