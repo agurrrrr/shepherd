@@ -1583,9 +1583,18 @@ func GetMCPConfigJSON() string {
 
 // executeWithStreaming runs Claude Code with streaming output (no PTY).
 // This is used when auto_approve is enabled - no interactive prompts.
+//
+// stream-json input mode: claude is launched with --input-format stream-json so
+// stdin stays open and additional user messages can be injected mid-run via
+// RunningTask.InjectCh (same pattern as the embedded provider). The first user
+// message is written right after Start; subsequent ones arrive from injectCh.
+// Because claude keeps reading stdin after emitting its first "result" event,
+// we close stdin on that event so the process exits cleanly instead of idling
+// forever waiting for the next message.
 func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID, prompt string, opts InteractiveOptions, cancel context.CancelFunc) (*ExecuteResult, error) {
 	args := []string{
 		"--print",
+		"--input-format", "stream-json",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--dangerously-skip-permissions",
@@ -1606,13 +1615,27 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = projectPath
-	cmd.Stdin = strings.NewReader(prompt)
 	envutil.SetCleanEnv(cmd)
+
+	// stdin pipe — stream-json input keeps stdin open so inject messages can
+	// be appended as additional user turns while the run is in progress.
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
 
 	// Register running task. unregister with the returned token so a late finish
 	// can only remove our own entry, never a newer task's (stop+restart race).
 	rt := registerRunningTask(sheepName, cancel, cmd)
-	defer unregisterRunningTask(sheepName, rt)
+	// InjectCh enables mid-run prompt injection (InjectPrompt). Same buffer
+	// size as the embedded provider. The dispatch goroutine below drains it.
+	injectCh := make(chan string, 16)
+	rt.InjectCh = injectCh
+	defer func() {
+		close(injectCh)
+		_ = stdinPipe.Close()
+		unregisterRunningTask(sheepName, rt)
+	}()
 
 	// stdout pipe
 	stdout, err := cmd.StdoutPipe()
@@ -1631,12 +1654,45 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		return nil, fmt.Errorf("failed to start Claude Code: %w", err)
 	}
 
+	// Send the initial user prompt as a stream-json line. With --input-format
+	// stream-json the prompt is NOT passed via stdin as plain text — it must be
+	// a JSON envelope: {"type":"user","message":{"role":"user","content":"..."}}.
+	if _, err := stdinPipe.Write([]byte(streamJSONUserMessage(prompt))); err != nil {
+		return nil, fmt.Errorf("failed to write initial prompt to stdin: %w", err)
+	}
+
+	// Dispatch injected prompts to claude's stdin. Each injection becomes a new
+	// user turn in the same session. The goroutine exits when injectCh is
+	// closed (defer above) or ctx is cancelled; a failed write means stdin was
+	// already closed (claude finished), so we just stop.
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case inj, ok := <-injectCh:
+				if !ok {
+					return
+				}
+				if _, err := stdinPipe.Write([]byte(streamJSONUserMessage(inj))); err != nil {
+					return
+				}
+			}
+		}
+	}()
+
 	// Stream output
 	var outputBuilder strings.Builder
 	var mu sync.Mutex
 
 	// Channel to detect AskUserQuestion (stop task when Claude asks a question)
 	questionCh := make(chan string, 1)
+	// resultReceived signals the first "result" event — the terminal event of
+	// the current turn. Closing stdin at that point makes claude exit cleanly.
+	// Injections sent before this point are honored as additional turns; ones
+	// arriving after the result are dropped (same semantics as the embedded
+	// provider, which stops polling InjectCh once the run completes).
+	resultReceived := make(chan struct{}, 1)
 
 	// Read stdout
 	go func() {
@@ -1655,6 +1711,15 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 			mu.Lock()
 			outputBuilder.WriteString(line + "\n")
 			mu.Unlock()
+
+			// Detect the result event for the current turn so the main loop
+			// can close stdin and let claude exit.
+			if isStreamResultEvent(line) {
+				select {
+				case resultReceived <- struct{}{}:
+				default:
+				}
+			}
 
 			// Detect AskUserQuestion — signal to stop the task
 			if q := extractAskUserQuestion(line); q != "" {
@@ -1709,6 +1774,13 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		killProcessGroup(cmd)
 		<-cmdDone // Wait for process to exit
 		return nil, fmt.Errorf("question: %s", q)
+	case <-resultReceived:
+		// The current turn produced its final "result" event. Close stdin so
+		// claude sees EOF and exits instead of idling for the next message.
+		// Injections queued during the run have already been dispatched; ones
+		// still pending are treated as no-ops (the run is effectively done).
+		_ = stdinPipe.Close()
+		err = <-cmdDone
 	}
 
 	mu.Lock()
@@ -2061,6 +2133,47 @@ func parseStreamOutput(output string) *ExecuteResult {
 	}
 
 	return result
+}
+
+// streamJSONUserMessage encodes a user prompt as a stream-json input line for
+// claude's --input-format stream-json mode. Each line must be a complete JSON
+// object terminated by a newline:
+//
+//	{"type":"user","message":{"role":"user","content":"<prompt>"}}\n
+//
+// claude reads these from stdin one at a time, treating each as a new user
+// turn in the same session.
+func streamJSONUserMessage(prompt string) string {
+	b, _ := json.Marshal(struct {
+		Type    string `json:"type"`
+		Message struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"message"`
+	}{
+		Type: "user",
+		Message: struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}{Role: "user", Content: prompt},
+	})
+	return string(b) + "\n"
+}
+
+// isStreamResultEvent reports whether a stream-json line is a terminal "result"
+// event — the one claude emits when the current turn is complete. Used to know
+// when to close stdin so claude exits instead of waiting for another message.
+func isStreamResultEvent(line string) bool {
+	if !strings.HasPrefix(line, "{") {
+		return false
+	}
+	var msg struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(line), &msg); err != nil {
+		return false
+	}
+	return msg.Type == "result"
 }
 
 // executeInteractiveWithPty is defined in pty_unix.go / pty_windows.go
