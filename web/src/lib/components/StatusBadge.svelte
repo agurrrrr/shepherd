@@ -1,5 +1,5 @@
 <script>
-	let { status = 'idle' } = $props();
+	let { status = 'idle', taskId = null } = $props();
 
 	const statusConfig = {
 		idle: { label: 'Idle', css: 'badge-idle' },
@@ -13,6 +13,9 @@
 	};
 
 	let config = $derived(statusConfig[status] || statusConfig.idle);
+	let displayLabel = $derived(
+		taskId ? `${config.label} #${taskId}` : config.label
+	);
 </script>
 
-<span class="badge {config.css}">{config.label}</span>
+<span class="badge {config.css}">{displayLabel}</span>

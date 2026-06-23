@@ -268,16 +268,6 @@
 	{#if loading}
 		<span class="command-status">Processing...</span>
 	{/if}
-	{#if lastResult?.message && lastResult?.success}
-		<span class="command-status success">{lastResult.message}</span>
-	{:else if lastResult?.data && !lastResult?.message}
-		<span class="command-status success">
-			Task #{lastResult.data.task_id || lastResult.data.id} created
-			{#if !projectName}
-				({lastResult.data.sheep_name} / {lastResult.data.project_name})
-			{/if}
-		</span>
-	{/if}
 	{#if lastResult?.message && !lastResult?.success}
 		<span class="command-status error">{lastResult.message}</span>
 	{/if}

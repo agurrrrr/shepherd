@@ -29,6 +29,8 @@
 	// so Stop/Inject buttons show even when sheepStatus desyncs to 'idle' while a
 	// task is still marked running (e.g. after a server restart or missed SSE).
 	let hasRunningTask = $state(false);
+	// ID of the currently running task, displayed on the Working badge.
+	let runningTaskId = $state(null);
 	// Global OpenCode "thinking" default; per-project override lives in
 	// $thinkingByProject and wins when the user has explicitly toggled.
 	let opencodeThinkingDefault = $state(false);
@@ -158,6 +160,7 @@
 		liveOutput = [];
 		sheepStatus = 'idle';
 		hasRunningTask = false;
+		runningTaskId = null;
 		sheepName = '';
 		tasks = [];
 		tasksLoaded = false;
@@ -220,13 +223,21 @@
 		unsubs.push(onSSE('task_complete', (data) => {
 			if (data.project_name === projectName) {
 				hasRunningTask = false;
+				runningTaskId = null;
 				if (tasksLoaded) loadTasks();
 			}
 		}));
 		unsubs.push(onSSE('task_fail', (data) => {
 			if (data.project_name === projectName) {
 				hasRunningTask = false;
+				runningTaskId = null;
 				if (tasksLoaded) loadTasks();
+			}
+		}));
+		unsubs.push(onSSE('task_stop', (data) => {
+			if (data.project_name === projectName) {
+				hasRunningTask = false;
+				runningTaskId = null;
 			}
 		}));
 		unsubs.push(onSSE('task_start', (data) => {
@@ -234,6 +245,7 @@
 				// 새 작업 시작: 이전 출력 정리 후 프롬프트 표시
 				liveOutput = [`▶ ${data.prompt}`, ''];
 				hasRunningTask = true;
+				runningTaskId = data.task_id;
 				if (tasksLoaded) loadTasks();
 			}
 		}));
@@ -299,6 +311,7 @@
 		if (!projectName) return;
 		const res = await apiGet(`/api/tasks?project=${encodeURIComponent(projectName)}&status=running&limit=1`);
 		hasRunningTask = (res?.data?.length || 0) > 0;
+		runningTaskId = hasRunningTask ? res.data[0].id : null;
 	}
 
 	async function changeProvider(provider) {
@@ -629,7 +642,7 @@
 						</select>
 					{/if}
 					<span class="sheep-label">{sheepName}</span>
-					<StatusBadge status={sheepStatus} />
+					<StatusBadge status={sheepStatus} taskId={runningTaskId} />
 				{:else}
 					<span class="no-sheep">No sheep</span>
 				{/if}
