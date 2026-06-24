@@ -295,12 +295,35 @@ func isBinary(data []byte) bool {
 	if bytes.IndexByte(sample, 0) != -1 {
 		return true
 	}
-	// Trim a possibly-truncated trailing rune so a clean text file isn't
-	// misjudged when the sample boundary splits a multi-byte UTF-8 sequence.
+	// Trim the sample so it ends on a complete UTF-8 rune boundary.
+	// The old code only trimmed trailing continuation bytes (10xxxxxx) via
+	// utf8.RuneStart, but that left a dangling leading byte (e.g. the first
+	// byte of a 3-byte Korean character) whose expected continuation bytes
+	// were truncated. utf8.Valid() then returned false, causing every
+	// non-ASCII text file > 8 KB to be misclassified as binary (#6624).
+	//
+	// Fix: use utf8.DecodeLastRune to detect whether the trailing bytes form
+	// a complete rune. If not (RuneError + size 1), drop the last byte and
+	// retry. This correctly trims both continuation bytes AND the leading
+	// byte of a truncated multi-byte sequence.
 	if len(data) > sampleSize {
-		for len(sample) > 0 && !utf8.RuneStart(sample[len(sample)-1]) {
-			sample = sample[:len(sample)-1]
+		for len(sample) > 0 {
+			r, size := utf8.DecodeLastRune(sample)
+			if size == 0 {
+				break // empty sample — shouldn't happen but guard anyway
+			}
+			if r == utf8.RuneError && size == 1 {
+				// Last byte doesn't form a complete rune — drop it.
+				sample = sample[:len(sample)-1]
+				continue
+			}
+			break // Complete rune at the tail.
 		}
+	}
+	// If trimming consumed everything, the sample was all invalid bytes
+	// — definitely binary.
+	if len(sample) == 0 && len(data) > 0 {
+		return true
 	}
 	return !utf8.Valid(sample)
 }

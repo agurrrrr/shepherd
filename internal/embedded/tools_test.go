@@ -1,6 +1,7 @@
 package embedded
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -13,6 +14,15 @@ import (
 func TestIsBinary(t *testing.T) {
 	// Minimal JPEG header (SOI + APP0/JFIF marker) — what triggered task #5911.
 	jpeg := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
+	// Large Korean text (> 8 KB sample threshold) — the #6624 false-positive
+	// case. The old isBinary trimmed only continuation bytes, leaving a dangling
+	// leading byte that made utf8.Valid return false.
+	var largeKorean []byte
+	for i := 0; i < 1000; i++ {
+		largeKorean = append(largeKorean, []byte("안녕하세요 양들아 이것은 테스트입니다.\n")...)
+	}
+	// Pure multi-byte text that lands exactly on the sample boundary.
+	pureKoreanBoundary := bytes.Repeat([]byte("안"), 3000) // 9000 bytes
 	cases := []struct {
 		name string
 		data []byte
@@ -23,6 +33,9 @@ func TestIsBinary(t *testing.T) {
 		{"utf8 korean", []byte("안녕하세요 양들아"), false},
 		{"nul byte", []byte("abc\x00def"), true},
 		{"jpeg header", jpeg, true},
+		{"large korean >8KB", largeKorean, false},
+		{"pure korean at boundary", pureKoreanBoundary, false},
+		{"all continuation bytes", bytes.Repeat([]byte{0x80}, 10000), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -116,6 +129,36 @@ func TestReadfileVisionDisabledKeepsBinaryNotice(t *testing.T) {
 	}
 	if len(tr.DrainPendingImages()) != 0 {
 		t.Error("no images should be buffered when vision is off")
+	}
+}
+
+// TestReadfileLargeKoreanText regression test for #6624: a non-ASCII text
+// file > 8 KB must be read as text, not misclassified as binary by isBinary.
+// The old isBinary trimmed only trailing continuation bytes, leaving a dangling
+// leading byte that made utf8.Valid return false.
+func TestReadfileLargeKoreanText(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+
+	// Build a ~56 KB Korean text file (well above the 8 KB sample threshold).
+	var content strings.Builder
+	for i := 0; i < 1000; i++ {
+		content.WriteString("안녕하세요 양들아 이것은 테스트입니다.\n")
+	}
+	mdPath := filepath.Join(dir, "large_korean.md")
+	if err := os.WriteFile(mdPath, []byte(content.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := tr.readfile(context.Background(), map[string]interface{}{"path": "large_korean.md"})
+	if err != nil {
+		t.Fatalf("readfile returned error: %v", err)
+	}
+	if strings.Contains(out, "binary file") {
+		t.Errorf("large Korean text file was misclassified as binary:\n%s", out)
+	}
+	if !strings.Contains(out, "안녕하세요") {
+		t.Errorf("expected Korean text content in output, got (first 200 chars): %q", out[:min(200, len(out))])
 	}
 }
 
