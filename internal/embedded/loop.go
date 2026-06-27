@@ -2,7 +2,6 @@ package embedded
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -733,6 +732,9 @@ func appendPendingImages(messages []ChatMessage, tr *ToolRegistry) []ChatMessage
 	parts := make([]ContentPart, 0, len(imgs)+1)
 	parts = append(parts, ContentPart{Type: "text", Text: "Attached image(s) from the tool call(s) above:"})
 	for _, img := range imgs {
+		// Log the optimized image size for debugging context budget issues.
+		fmt.Printf("🖼️  image injected: %s (%s, ~%d tokens)\n",
+			img.name, FormatImageSize(img.dataURL), EstimateImageTokens(img.dataURL))
 		parts = append(parts, ContentPart{
 			Type:     "image_url",
 			ImageURL: &ImageURL{URL: img.dataURL},
@@ -1029,7 +1031,7 @@ func extractAttachedImages(prompt string) []ContentPart {
 			continue
 		}
 
-		dataURL := "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
+		dataURL := optimizeImageForContext(data, mime)
 		parts = append(parts, ContentPart{
 			Type:     "image_url",
 			ImageURL: &ImageURL{URL: dataURL},

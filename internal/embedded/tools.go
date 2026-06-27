@@ -3,7 +3,6 @@ package embedded
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
@@ -317,13 +316,16 @@ func (tr *ToolRegistry) bufferMCPImages(toolName, text string, images []MCPImage
 		return text + "\n" + note
 	}
 	for i, img := range images {
-		mime := img.MIMEType
-		if mime == "" {
-			mime = "image/png"
-		}
+		// Optimize (resize + re-encode) large images before they enter the
+		// chat context. A single 1080p PNG screenshot is ~2–3 MB as base64
+		// (3 000+ tokens); repeated mobile_take_screenshot calls would
+		// quickly exhaust the context window. optimizeMCPImage resizes to
+		// maxImageDim and re-encodes as JPEG quality 85, cutting payload by
+		// up to 80 % with negligible quality loss for screenshots (task #6688).
+		dataURL := optimizeMCPImage(img)
 		tr.pendingImages = append(tr.pendingImages, pendingImage{
 			name:    fmt.Sprintf("%s#%d", toolName, i+1),
-			dataURL: "data:" + mime + ";base64," + img.Data,
+			dataURL: dataURL,
 		})
 	}
 	note := fmt.Sprintf("[%s returned %d image(s), attached below for you to view directly.]", toolName, len(images))
@@ -491,7 +493,11 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 				), nil
 			}
 			tr.readImages[path] = true
-			dataURL := "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
+			// Optimize large images before injecting into context: a raw phone
+			// screenshot can be 2–3 MB as base64, consuming thousands of tokens.
+			// optimizeImageFile resizes and re-encodes to keep payload small
+			// while preserving visual quality (task #6688).
+			dataURL := optimizeImageFile(data, mime)
 			tr.pendingImages = append(tr.pendingImages, pendingImage{
 				name:    filepath.Base(path),
 				dataURL: dataURL,
