@@ -594,21 +594,26 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		// Dispatcher that routes MCP tool calls:
 		// 1. Built-in tools (task_*, get_*, skill_load, wiki_*, browser_*) → mcpServer
 		// 2. External MCP server tools → respective ExternalMCPServer
-		mcpDispatch := func(name string, args map[string]interface{}) (string, error) {
+		mcpDispatch := func(name string, args map[string]interface{}) (string, []embedded.MCPImage, error) {
 			// Check if this is an external MCP tool
 			if externalToolNames[name] {
 				// Find which server provides this tool
 				for _, ext := range externalServers {
 					for _, t := range ext.Tools() {
 						if t.Name == name {
-							return ext.CallTool(name, args)
+							// Use the multimodal call so image results (e.g.
+							// mobile_take_screenshot) reach the vision model
+							// instead of being dropped (task #6684).
+							text, imgs, err := ext.CallToolMultimodal(name, args)
+							return text, toEmbeddedMCPImages(imgs), err
 						}
 					}
 				}
-				return "", fmt.Errorf("external tool %q not found", name)
+				return "", nil, fmt.Errorf("external tool %q not found", name)
 			}
-			// Fall back to built-in shepherd MCP server
-			return mcpServer.ExecuteTool(name, args)
+			// Fall back to built-in shepherd MCP server (text-only result).
+			text, err := mcpServer.ExecuteTool(name, args)
+			return text, nil, err
 		}
 
 		// Create tool registry (used here to derive the tool definitions the model sees)
@@ -773,4 +778,17 @@ func toEmbeddedMCPDef(t mcp.Tool) embedded.MCPToolDef {
 			"required":   required,
 		},
 	}
+}
+
+// toEmbeddedMCPImages converts MCP image content blocks into the embedded
+// package's image type so the agent loop can surface them to a vision model.
+func toEmbeddedMCPImages(imgs []mcp.ToolImage) []embedded.MCPImage {
+	if len(imgs) == 0 {
+		return nil
+	}
+	out := make([]embedded.MCPImage, len(imgs))
+	for i, img := range imgs {
+		out[i] = embedded.MCPImage{MIMEType: img.MIMEType, Data: img.Data}
+	}
+	return out
 }

@@ -25,8 +25,18 @@ type MCPToolDef struct {
 	Parameters  map[string]interface{}
 }
 
-// MCPDispatcher dispatches tool calls to an external MCP server.
-type MCPDispatcher func(name string, args map[string]interface{}) (string, error)
+// MCPImage is an image returned by an MCP tool call (e.g. a screenshot from
+// mobile_take_screenshot or a browser screenshot). The embedded loop surfaces it
+// to a vision model as an image_url message part, mirroring how read_file
+// handles image files on disk (task #6684).
+type MCPImage struct {
+	MIMEType string // e.g. "image/png"
+	Data     string // base64-encoded image bytes (no "data:" prefix)
+}
+
+// MCPDispatcher dispatches a tool call to an external MCP server, returning the
+// text result and any image content blocks the tool produced.
+type MCPDispatcher func(name string, args map[string]interface{}) (string, []MCPImage, error)
 
 // ToolRegistry holds all tools available to the embedded agent loop.
 type ToolRegistry struct {
@@ -273,10 +283,54 @@ func (tr *ToolRegistry) Dispatch(ctx context.Context, name string, args map[stri
 
 	// Fall back to MCP tools
 	if tr.mcpDispatch != nil {
-		return tr.mcpDispatch(name, args)
+		result, images, err := tr.mcpDispatch(name, args)
+		if err != nil {
+			return result, err
+		}
+		return tr.bufferMCPImages(name, result, images), nil
 	}
 
 	return "", fmt.Errorf("unknown tool: %s", name)
+}
+
+// bufferMCPImages queues any images an MCP tool returned for injection into the
+// chat as an image_url message (drained later by appendPendingImages), mirroring
+// the read_file vision path. It is a no-op when the tool returned no images.
+//
+// When vision is enabled the images are buffered and a short note is appended to
+// the (often empty) text result so the model knows a picture is attached below.
+// When vision is disabled the images can't be shown, so it returns a plain note
+// instead of silently dropping them — otherwise mobile_take_screenshot looks
+// like it returned nothing and the model works blind (task #6684).
+func (tr *ToolRegistry) bufferMCPImages(toolName, text string, images []MCPImage) string {
+	if len(images) == 0 {
+		return text
+	}
+	if !tr.visionEnabled {
+		note := fmt.Sprintf(
+			"[%s returned %d image(s), but vision is not enabled for this endpoint so they cannot be viewed.]",
+			toolName, len(images),
+		)
+		if strings.TrimSpace(text) == "" {
+			return note
+		}
+		return text + "\n" + note
+	}
+	for i, img := range images {
+		mime := img.MIMEType
+		if mime == "" {
+			mime = "image/png"
+		}
+		tr.pendingImages = append(tr.pendingImages, pendingImage{
+			name:    fmt.Sprintf("%s#%d", toolName, i+1),
+			dataURL: "data:" + mime + ";base64," + img.Data,
+		})
+	}
+	note := fmt.Sprintf("[%s returned %d image(s), attached below for you to view directly.]", toolName, len(images))
+	if strings.TrimSpace(text) == "" {
+		return note
+	}
+	return text + "\n" + note
 }
 
 // isBinary reports whether data looks like a non-text (binary) file. It samples

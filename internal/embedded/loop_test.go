@@ -163,9 +163,9 @@ type dispatchedCall struct {
 	Args map[string]interface{}
 }
 
-func (r *recordingDispatcher) Dispatch(name string, args map[string]interface{}) (string, error) {
+func (r *recordingDispatcher) Dispatch(name string, args map[string]interface{}) (string, []MCPImage, error) {
 	r.calls = append(r.calls, dispatchedCall{Name: name, Args: args})
-	return r.result, r.err
+	return r.result, nil, r.err
 }
 
 // ─────────────────────────────────────────────

@@ -720,17 +720,18 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	}, nil
 }
 
-// appendPendingImages drains any images read_file buffered during the turn and
-// appends them as a single user message with image_url content parts, so a
-// vision-capable model can view them. Returns messages unchanged when there are
-// no pending images.
+// appendPendingImages drains any images buffered during the turn (by read_file
+// reading an image file, or by an MCP tool such as mobile_take_screenshot
+// returning an image block) and appends them as a single user message with
+// image_url content parts, so a vision-capable model can view them. Returns
+// messages unchanged when there are no pending images.
 func appendPendingImages(messages []ChatMessage, tr *ToolRegistry) []ChatMessage {
 	imgs := tr.DrainPendingImages()
 	if len(imgs) == 0 {
 		return messages
 	}
 	parts := make([]ContentPart, 0, len(imgs)+1)
-	parts = append(parts, ContentPart{Type: "text", Text: "Attached image(s) loaded by read_file:"})
+	parts = append(parts, ContentPart{Type: "text", Text: "Attached image(s) from the tool call(s) above:"})
 	for _, img := range imgs {
 		parts = append(parts, ContentPart{
 			Type:     "image_url",

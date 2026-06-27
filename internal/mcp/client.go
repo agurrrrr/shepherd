@@ -104,7 +104,28 @@ func (s *ExternalMCPServer) Tools() []Tool {
 }
 
 // CallTool calls a tool on this external MCP server and returns the text result.
+// ToolImage is an image content block returned by an MCP tool call (e.g. a
+// screenshot from mobile_take_screenshot). The embedded loop surfaces it to a
+// vision model as an image_url message part, the same way read_file does for
+// image files on disk.
+type ToolImage struct {
+	MIMEType string // e.g. "image/png"
+	Data     string // base64-encoded image bytes (no "data:" prefix)
+}
+
+// CallTool runs a tool and returns only its text result, preserving the
+// original text-only contract for callers that don't handle images.
 func (s *ExternalMCPServer) CallTool(name string, args map[string]interface{}) (string, error) {
+	text, _, err := s.CallToolMultimodal(name, args)
+	return text, err
+}
+
+// CallToolMultimodal runs a tool and returns its text result together with any
+// image content blocks it produced. Tools like mobile_take_screenshot return
+// their picture as an image block with no text; renderToolResult only flattens
+// text, so without surfacing the images here a vision model is blind to whatever
+// the tool shows it and ends up working from stale/imagined state (task #6684).
+func (s *ExternalMCPServer) CallToolMultimodal(name string, args map[string]interface{}) (string, []ToolImage, error) {
 	s.mu.Lock()
 	id := nextRequestID()
 	s.mu.Unlock()
@@ -124,31 +145,50 @@ func (s *ExternalMCPServer) CallTool(name string, args map[string]interface{}) (
 	}
 
 	if err := s.sendRequest(req); err != nil {
-		return "", fmt.Errorf("send tools/call: %w", err)
+		return "", nil, fmt.Errorf("send tools/call: %w", err)
 	}
 
 	resp, err := s.readResponse()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	if resp.Error != nil {
-		return "", fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
+		return "", nil, fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
 	}
 
 	var result CallToolResult
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		return "", fmt.Errorf("parse tools/call result: %w", err)
+		return "", nil, fmt.Errorf("parse tools/call result: %w", err)
 	}
 
 	if result.IsError {
 		if len(result.Content) > 0 {
-			return "", fmt.Errorf("tool error: %s", result.Content[0].Text)
+			return "", nil, fmt.Errorf("tool error: %s", result.Content[0].Text)
 		}
-		return "", fmt.Errorf("tool error (no message)")
+		return "", nil, fmt.Errorf("tool error (no message)")
 	}
 
-	return renderToolResult(result), nil
+	return renderToolResult(result), extractToolImages(result), nil
+}
+
+// extractToolImages pulls image content blocks out of a tools/call result so a
+// vision-capable caller can surface them to the model. Blocks without base64
+// data are skipped. renderToolResult only handles text blocks, so this is the
+// only place the picture survives (task #6684).
+func extractToolImages(result CallToolResult) []ToolImage {
+	var imgs []ToolImage
+	for _, block := range result.Content {
+		if block.Type != "image" || block.Data == "" {
+			continue
+		}
+		mime := block.MIMEType
+		if mime == "" {
+			mime = "image/png"
+		}
+		imgs = append(imgs, ToolImage{MIMEType: mime, Data: block.Data})
+	}
+	return imgs
 }
 
 // renderToolResult flattens a tools/call result into the text the agent sees.
@@ -194,7 +234,7 @@ func (s *ExternalMCPServer) initialize() error {
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "initialize",
-		Params:  mustMarshalJSON(map[string]interface{}{
+		Params: mustMarshalJSON(map[string]interface{}{
 			"protocolVersion": MCPVersion,
 			"capabilities":    map[string]interface{}{},
 			"clientInfo": map[string]interface{}{

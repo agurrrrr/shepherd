@@ -101,6 +101,13 @@ type CallToolResult struct {
 type ContentBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
+	// Data / MIMEType carry an image content block (type=="image"), e.g. a
+	// screenshot from mobile_take_screenshot or a browser screenshot. Data is
+	// the base64-encoded image bytes. Without these fields the image was
+	// unmarshaled into a Type-only block and silently dropped, so a vision model
+	// saw nothing when a tool returned a picture (task #6684).
+	Data     string `json:"data,omitempty"`
+	MIMEType string `json:"mimeType,omitempty"`
 }
 
 // Server represents the MCP server

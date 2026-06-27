@@ -112,6 +112,55 @@ func TestReadfileVisionImage(t *testing.T) {
 	}
 }
 
+// TestDispatchMCPImageSurfacedToVision is the regression test for task #6684:
+// an MCP tool (e.g. mobile_take_screenshot) that returns an image must have that
+// image buffered as a pending image so the vision model can see it — previously
+// the image was dropped and the model worked blind.
+func TestDispatchMCPImageSurfacedToVision(t *testing.T) {
+	disp := func(name string, args map[string]interface{}) (string, []MCPImage, error) {
+		return "", []MCPImage{{MIMEType: "image/png", Data: "QUJD"}}, nil
+	}
+	tr := NewToolRegistry(t.TempDir(), "test-sheep", []MCPToolDef{{Name: "mobile_take_screenshot"}}, disp)
+	tr.SetVision(true)
+
+	out, err := tr.Dispatch(context.Background(), "mobile_take_screenshot", nil)
+	if err != nil {
+		t.Fatalf("Dispatch returned error: %v", err)
+	}
+	if !strings.Contains(out, "attached below") {
+		t.Errorf("expected attached-image note in result, got %q", out)
+	}
+
+	imgs := tr.DrainPendingImages()
+	if len(imgs) != 1 {
+		t.Fatalf("expected 1 pending image, got %d", len(imgs))
+	}
+	if imgs[0].dataURL != "data:image/png;base64,QUJD" {
+		t.Errorf("unexpected data URL: %q", imgs[0].dataURL)
+	}
+}
+
+// TestDispatchMCPImageVisionDisabled verifies that when vision is off the image
+// is NOT buffered (the model can't view it) but the result still tells the model
+// an image came back, rather than looking like an empty/no-op tool call.
+func TestDispatchMCPImageVisionDisabled(t *testing.T) {
+	disp := func(name string, args map[string]interface{}) (string, []MCPImage, error) {
+		return "", []MCPImage{{MIMEType: "image/png", Data: "QUJD"}}, nil
+	}
+	tr := NewToolRegistry(t.TempDir(), "test-sheep", []MCPToolDef{{Name: "mobile_take_screenshot"}}, disp) // vision off
+
+	out, err := tr.Dispatch(context.Background(), "mobile_take_screenshot", nil)
+	if err != nil {
+		t.Fatalf("Dispatch returned error: %v", err)
+	}
+	if !strings.Contains(out, "vision is not enabled") {
+		t.Errorf("expected vision-disabled note, got %q", out)
+	}
+	if len(tr.DrainPendingImages()) != 0 {
+		t.Error("no images should be buffered when vision is off")
+	}
+}
+
 func TestReadfileVisionDisabledKeepsBinaryNotice(t *testing.T) {
 	dir := t.TempDir()
 	tr := NewToolRegistry(dir, "test-sheep", nil, nil) // vision off by default
