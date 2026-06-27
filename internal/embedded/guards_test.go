@@ -161,6 +161,38 @@ func TestIsFutureIntention(t *testing.T) {
 	}
 }
 
+func TestIsPauseSummary(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"empty", "", false},
+		// The exact #6690 false-completion: model wrote a progress summary headed
+		// "(중단 시점)" and stopped, the loop marked the task complete.
+		{"6690 case - 중단 시점", "## 진행 상황 요약 (중단 시점)\n- 완료된 테스트: ...\n다음 작업:\n1. ...", true},
+		{"작업이 중단", "작업이 중단되었습니다. 다음 라운드에서 계속해야 합니다.", true},
+		{"다음 라운드", "현재까지 진행 상황입니다. 다음 라운드에서 이어서 하겠습니다.", true},
+		{"다음 세션", "여기까지 정리했습니다. 다음 세션에서 계속합니다.", true},
+		{"이어서 진행하겠", "남은 항목은 다음에 이어서 진행하겠습니다.", true},
+		{"english to be continued", "Here's where I am so far. To be continued.", true},
+		{"english next session", "I'll pick this up in the next session.", true},
+		{"english pick up where", "Documenting progress so the next run can pick up where I left off.", true},
+		// Genuine completions must NOT trip the guard.
+		{"completion 완료", "모든 테스트를 완료했습니다. 빌드도 성공했습니다.", false},
+		{"completion with optional follow-up", "작업을 완료했습니다. 남은 개선 사항으로는 다크 모드 버그가 있습니다.", false},
+		{"english completion", "All tests pass. Remaining improvements could include caching.", false},
+		{"plain answer", "현재 테마는 다크로 설정되어 있습니다.", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isPauseSummary(tc.in); got != tc.want {
+				t.Errorf("isPauseSummary(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMentionsBuildWork(t *testing.T) {
 	cases := []struct {
 		name string

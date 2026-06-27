@@ -41,6 +41,15 @@ const maxRepeatedToolTurns = 4
 // declares then actually acts never exhausts the budget.
 const maxFutureIntentionNudges = 2
 
+// maxPauseSummaryNudges bounds how many times the pause-summary guard (task
+// #6690) nudges a model that voluntarily writes a "paused, continue later"
+// handoff-style summary ("진행 상황 요약 (중단 시점)", "다음 라운드에서 계속")
+// instead of finishing. Once exceeded, the remaining work is routed through the
+// real context handoff (queued as a follow-up) so it isn't silently abandoned;
+// if no handoff is available the task is reported incomplete rather than being
+// falsely marked complete.
+const maxPauseSummaryNudges = 2
+
 // replacementCharRatio / minDegenerateRunes gate the degeneration guard. A
 // short reply with a stray U+FFFD must not trip it, so require both a minimum
 // length and a high replacement-char fraction.
@@ -150,6 +159,32 @@ func isFutureIntention(content string) bool {
 		return true
 	}
 	return false
+}
+
+// pauseSummaryPattern matches the high-signal cues of a "paused mid-work,
+// continue later" handoff-style summary. Deliberately narrow: it only matches
+// phrasing that explicitly frames the message as an interruption point, never
+// the generic "remaining/optional follow-up" wording that legitimately closes a
+// completed task ("남은 개선 사항으로는…", "further work could…"). Case-insensitive
+// (harmless for Korean, which is caseless).
+var pauseSummaryPattern = regexp.MustCompile(
+	`(?i)중단\s*시점|중단된\s*시점|작업이\s*중단|여기서\s*중단|다음\s*라운드|다음\s*세션|다음\s*작업에서\s*계속|다음에\s*이어|다음에\s*계속|이어서\s*진행하겠|to be continued|next (round|session)|pick up where|continue (in|with|on) the next`)
+
+// isPauseSummary reports whether the model's final text answer reads as a
+// "paused, will continue later" handoff summary rather than a genuine
+// completion. A long continuation task — primed by the previous tasks' handoff
+// summaries sitting in its context — sometimes voluntarily writes a progress
+// summary and stops calling tools. The loop would otherwise treat that
+// no-tool-call turn as a successful completion and mark the task done with the
+// work abandoned and nothing queued to resume it (task #6690). This guard lets
+// the loop catch that case and either nudge the model to keep going or route the
+// remainder through the real context handoff.
+func isPauseSummary(content string) bool {
+	s := strings.TrimSpace(content)
+	if s == "" {
+		return false
+	}
+	return pauseSummaryPattern.MatchString(s)
 }
 
 // mentionsBuildWork reports whether text references build/compile/verification
@@ -284,6 +319,9 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		bashCalled            bool
 		codeModified          bool
 		futureIntentionNudges int
+		// pauseSummaryNudges counts consecutive "paused, continue later" handoff
+		// summaries so that guard's nudge loop is bounded (task #6690).
+		pauseSummaryNudges int
 	)
 
 	// markToolUsed records state-changing tool activity for the false-completion
@@ -693,6 +731,48 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				Result:           msg.Content,
 				Incomplete:       true,
 				IncompleteReason: "required build verification was never run (bash was not called)",
+				PromptTokens:     totalPromptTokens,
+				CompletionTokens: totalCompletionTokens,
+			}, nil
+		}
+
+		// ── Mitigation ③: Pause-summary / self-handoff guard (task #6690) ──
+		// The model returned no tool calls and its final answer reads as a
+		// "paused, will continue later" handoff summary, not a real completion.
+		// Treat it as unfinished. First nudge it to keep going in THIS task
+		// (cheap, bounded like the future-intention guard); if it persists, route
+		// the remainder through the real context handoff so the work is queued as
+		// a follow-up — and only if no handoff is available do we report
+		// incomplete, never silently mark it complete.
+		if isPauseSummary(msg.Content) {
+			pauseSummaryNudges++
+			if pauseSummaryNudges <= maxPauseSummaryNudges {
+				if opts.OnOutput != nil {
+					opts.OnOutput("⚠️ [중단 요약 감지]: 작업이 끝나지 않았습니다. 중단 요약 대신 실제 도구 호출로 계속 진행해주세요.")
+				}
+				messages = append(messages, ChatMessage{Role: ChatRoleAssistant, Content: msg.Content})
+				messages = append(messages, ChatMessage{
+					Role: ChatRoleUser,
+					Content: "아직 작업이 끝나지 않았습니다. '중단 시점' 요약을 작성하지 말고, " +
+						"남은 작업을 실제 도구 호출(bash, write_file, mobile_* 등)로 계속 진행해주세요. " +
+						"정말로 모든 작업이 끝났다면 무엇을 완료했는지만 명확히 보고해주세요.",
+				})
+				continue
+			}
+			// Persisted: hand the remaining work off as a follow-up task rather
+			// than abandoning it with a false completion.
+			if opts.EnqueueFollowUp != nil && (opts.ShouldHandoff == nil || opts.ShouldHandoff()) {
+				if res, ok := attemptHandoff(ctx, client, opts, messages, totalPromptTokens, totalCompletionTokens); ok {
+					return res, nil
+				}
+			}
+			if opts.OnOutput != nil {
+				opts.OnOutput("⚠️ [중단 요약 반복]: 작업을 끝내지 않고 중단 요약만 반복하여 미완료로 종료합니다.")
+			}
+			return &ExecuteResult{
+				Result:           msg.Content,
+				Incomplete:       true,
+				IncompleteReason: "model produced a pause/handoff summary instead of finishing the task",
 				PromptTokens:     totalPromptTokens,
 				CompletionTokens: totalCompletionTokens,
 			}, nil
