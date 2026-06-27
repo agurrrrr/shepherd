@@ -273,3 +273,68 @@ func TestOptimizeImageForContext_JPEGInput(t *testing.T) {
 		t.Errorf("JPEG input should produce JPEG output, got: %s", dataURL[:40])
 	}
 }
+
+func TestOptimizeImageForContext_TransparentBecomesWhite(t *testing.T) {
+	// A large PNG with a transparent region must be flattened onto white when
+	// re-encoded as JPEG — transparent pixels must NOT turn black.
+	const size = 2000 // large enough to force resize → JPEG re-encode
+	img := image.NewRGBA(image.Rect(0, 0, size, size))
+	for y := 0; y < size; y++ {
+		for x := 0; x < size; x++ {
+			if x < size/2 {
+				img.Set(x, y, color.RGBA{R: 0, G: 0, B: 0, A: 0}) // transparent
+			} else {
+				// Opaque, noisy region so the PNG is large and JPEG wins.
+				n := uint8((x*7 ^ y*13) & 0x3F)
+				img.Set(x, y, color.RGBA{R: 60 + n, G: 90 + n, B: 200, A: 255})
+			}
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+
+	dataURL := optimizeImageForContext(buf.Bytes(), "image/png")
+	if !strings.HasPrefix(dataURL, "data:image/jpeg;base64,") {
+		t.Fatalf("large transparent PNG should be re-encoded as JPEG, got: %s", dataURL[:40])
+	}
+
+	b64 := strings.TrimPrefix(dataURL, "data:image/jpeg;base64,")
+	rawOut, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	out, _, err := image.Decode(bytes.NewReader(rawOut))
+	if err != nil {
+		t.Fatalf("decode jpeg: %v", err)
+	}
+	// Sample the top-left, which was fully transparent: it must be ~white.
+	r, g, b, _ := out.At(5, 5).RGBA()
+	if r < 0xc000 || g < 0xc000 || b < 0xc000 {
+		t.Errorf("transparent region should flatten to ~white, got r=%d g=%d b=%d",
+			r>>8, g>>8, b>>8)
+	}
+}
+
+func TestOptimizeImageForContext_TinyImageKeepsPNG(t *testing.T) {
+	// A tiny flat-color PNG compresses to a few dozen bytes; the JPEG version
+	// would be larger, so the optimizer should keep the original PNG rather
+	// than inflate the payload.
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 16; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: 30, B: 30, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+	raw := buf.Bytes()
+
+	dataURL := optimizeImageForContext(raw, "image/png")
+	if !strings.HasPrefix(dataURL, "data:image/png;base64,") {
+		t.Errorf("tiny flat PNG should stay PNG (JPEG would be larger), got: %s", dataURL[:40])
+	}
+}

@@ -5,8 +5,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"image/color"
 	"image/jpeg"
-	"image/png"
+	_ "image/png" // register the PNG decoder for image.Decode
 	"net/http"
 	"strings"
 
@@ -33,9 +34,11 @@ const jpegQuality = 85
 // quality for UI screenshots and photos while cutting the base64 payload by
 // up to 80 %.
 //
-// Images already within dimension limits are still re-encoded as JPEG (from
-// PNG) since screenshots are typically 60–80 % smaller as JPEG with no visible
-// quality loss. Small JPEGs are left as-is.
+// Images already within dimension limits are still re-encoded as JPEG since
+// screenshots are typically 60–80 % smaller as JPEG with no visible quality
+// loss. But if the JPEG ends up larger than the original (common for tiny
+// icons or already-optimized PNGs), the original is kept instead — we never
+// want optimization to inflate the payload.
 //
 // Returns the original dataURL unchanged if decoding fails (we prefer a large
 // image over no image).
@@ -44,40 +47,57 @@ func optimizeImageForContext(rawBytes []byte, origMIME string) string {
 	if !strings.HasPrefix(mime, "image/") {
 		mime = "image/png"
 	}
+	origDataURL := "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(rawBytes)
 
 	// Decode the image. If decoding fails, return original unchanged — better
 	// to send a large image than no image at all.
 	img, _, err := image.Decode(bytes.NewReader(rawBytes))
 	if err != nil {
-		return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(rawBytes)
+		return origDataURL
 	}
 
 	bounds := img.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 
 	// Resize if either dimension exceeds maxImageDim.
+	resized := false
 	if w > maxImageDim || h > maxImageDim {
 		newW, newH := scaleDimensions(w, h, maxImageDim)
-		resized := image.NewRGBA(image.Rect(0, 0, newW, newH))
-		draw.CatmullRom.Scale(resized, resized.Rect, img, bounds, draw.Over, nil)
-		img = resized
+		dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
+		draw.CatmullRom.Scale(dst, dst.Rect, img, bounds, draw.Over, nil)
+		img = dst
+		resized = true
 	}
 
-	// Always try JPEG re-encoding — for screenshots this cuts payload by
-	// 60–80 % with negligible quality loss at quality 85.
-	dataURL, ok := reencodeAsJPEG(img)
-	if ok {
-		return dataURL
+	// JPEG has no alpha channel: encoding an image with transparency directly
+	// renders transparent regions as black. Flatten onto white (the typical
+	// screenshot/UI background) so transparent PNGs survive re-encoding intact.
+	img = flattenOntoWhite(img)
+
+	jpegBytes, err := encodeJPEG(img)
+	if err != nil || len(jpegBytes) == 0 {
+		// JPEG encoding failed (rare) — keep the original bytes.
+		return origDataURL
 	}
 
-	// JPEG encoding failed (rare) — fall back to PNG.
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err == nil {
-		return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
+	// Use the JPEG when we actually shrank the dimensions (smaller bytes are the
+	// whole point) or when the JPEG is genuinely smaller than the original. For
+	// tiny, already-well-compressed PNGs the JPEG can be larger — keep PNG then.
+	if resized || len(jpegBytes) < len(rawBytes) {
+		return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(jpegBytes)
 	}
+	return origDataURL
+}
 
-	// Last resort: return original.
-	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(rawBytes)
+// flattenOntoWhite composites img over an opaque white background, removing any
+// alpha channel. Fully opaque images are unchanged visually; transparent
+// regions become white instead of the black that JPEG would otherwise produce.
+func flattenOntoWhite(img image.Image) image.Image {
+	b := img.Bounds()
+	dst := image.NewRGBA(b)
+	draw.Draw(dst, b, image.NewUniform(color.White), image.Point{}, draw.Src)
+	draw.Draw(dst, b, img, b.Min, draw.Over)
+	return dst
 }
 
 // scaleDimensions computes new dimensions that fit within maxDim while
@@ -98,16 +118,14 @@ func scaleDimensions(w, h, maxDim int) (int, int) {
 	return newW, newH
 }
 
-// reencodeAsJPEG encodes an image as JPEG at quality 85 and returns a data URL.
-// Returns false if encoding fails or the result is larger than the original
-// (which can happen for tiny images where JPEG overhead dominates).
-func reencodeAsJPEG(img image.Image) (string, bool) {
+// encodeJPEG encodes an image as JPEG at quality 85 and returns the raw bytes.
+// The caller decides whether the result is worth using over the original.
+func encodeJPEG(img image.Image) ([]byte, error) {
 	var buf bytes.Buffer
-	err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: jpegQuality})
-	if err != nil || buf.Len() == 0 {
-		return "", false
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: jpegQuality}); err != nil {
+		return nil, err
 	}
-	return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), true
+	return buf.Bytes(), nil
 }
 
 // optimizeMCPImage applies the same optimization to an MCPImage (which carries
