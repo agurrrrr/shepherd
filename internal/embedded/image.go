@@ -157,12 +157,15 @@ func optimizeImageFile(data []byte, mime string) string {
 	return optimizeImageForContext(data, mime)
 }
 
-// EstimateImageTokens provides a rough token estimate for a base64 data URL,
-// useful for logging and budget tracking. OpenAI's vision models use ~85 tokens
-// per 512×512 tile; we approximate as bytes/750 since base64 in JSON is ~4/3×
-// the binary size and each token is ~4 bytes of JSON text.
+// EstimateImageTokens estimates how many prompt tokens a base64 data URL will
+// consume when sent to a local LLM server (llama.cpp, vLLM, etc.). Unlike
+// cloud APIs that replace images with fixed-size vision-encoder embeddings,
+// local servers tokenize the entire data URL string as regular text. Base64
+// uses a limited ASCII alphabet, so ~4 characters per token (same ratio as
+// estimateTextTokens for ASCII). This prevents context overflow caused by
+// underestimating large screenshots (task #6698).
 func EstimateImageTokens(dataURL string) int {
-	return len(dataURL) / 750
+	return len(dataURL) / 4
 }
 
 // FormatImageSize returns a human-readable size string for logging.

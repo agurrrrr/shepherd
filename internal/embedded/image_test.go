@@ -217,15 +217,16 @@ func TestOptimizeMCPImage_EmptyMIME(t *testing.T) {
 }
 
 func TestEstimateImageTokens(t *testing.T) {
-	// A 1KB data URL should estimate to ~1 token (1000/750).
+	// A 1KB data URL should estimate to ~250 tokens (1000/4).
+	// Local LLM servers tokenize the base64 data URL as regular text.
 	tokens := EstimateImageTokens(strings.Repeat("a", 750))
-	if tokens != 1 {
-		t.Errorf("750 chars should be ~1 token, got %d", tokens)
+	if tokens != 187 {
+		t.Errorf("750 chars should be ~187 tokens (750/4), got %d", tokens)
 	}
 
 	tokens = EstimateImageTokens(strings.Repeat("a", 7500))
-	if tokens != 10 {
-		t.Errorf("7500 chars should be ~10 tokens, got %d", tokens)
+	if tokens != 1875 {
+		t.Errorf("7500 chars should be ~1875 tokens (7500/4), got %d", tokens)
 	}
 }
 
