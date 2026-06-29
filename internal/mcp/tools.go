@@ -214,8 +214,9 @@ func handleGetHistory(args map[string]interface{}) (string, error) {
 
 		sb.WriteString(fmt.Sprintf("#%d [%s] %s - %s\n", t.ID, status, t.CreatedAt.Format("01/02 15:04"), sheepName))
 		sb.WriteString(fmt.Sprintf("  요청: %s\n", truncateString(t.Prompt, 50)))
-		if t.Summary != "" {
-			sb.WriteString(fmt.Sprintf("  결과: %s\n", truncateString(t.Summary, 50)))
+		summary := truncateString(t.Summary, 50)
+		if summary != "" {
+			sb.WriteString(fmt.Sprintf("  결과: %s\n", summary))
 		}
 		sb.WriteString("\n")
 	}
@@ -265,19 +266,25 @@ func handleGetTaskDetail(args map[string]interface{}) (string, error) {
 	}
 
 	sb.WriteString("\n--- 요청 ---\n")
-	sb.WriteString(t.Prompt)
+	sb.WriteString(sanitizeString(t.Prompt))
 	sb.WriteString("\n")
 
 	if t.Summary != "" {
-		sb.WriteString("\n--- 결과 요약 ---\n")
-		sb.WriteString(t.Summary)
-		sb.WriteString("\n")
+		summary := sanitizeString(t.Summary)
+		if summary != "" {
+			sb.WriteString("\n--- 결과 요약 ---\n")
+			sb.WriteString(summary)
+			sb.WriteString("\n")
+		}
 	}
 
 	if t.Error != "" {
-		sb.WriteString("\n--- 에러 ---\n")
-		sb.WriteString(t.Error)
-		sb.WriteString("\n")
+		errMsg := sanitizeString(t.Error)
+		if errMsg != "" {
+			sb.WriteString("\n--- 에러 ---\n")
+			sb.WriteString(errMsg)
+			sb.WriteString("\n")
+		}
 	}
 
 	if len(t.FilesModified) > 0 {
@@ -351,9 +358,51 @@ func handleGetStatus(args map[string]interface{}) (string, error) {
 	return sb.String(), nil
 }
 
+// sanitizeString removes control characters and null bytes that can corrupt
+// LLM context. Binary data in task summaries (e.g. from crashed/failed tasks)
+// causes models to emit immediate EOS tokens, producing empty responses.
+// U+FFFD (replacement char) is also stripped because it appears in corrupted
+// UTF-8 sequences and adds no semantic value.
+//
+// If sanitization removes more than half the original runes, the string is
+// considered binary garbage and returned as empty — scattered printable chars
+// from a binary blob (e.g. "Y+" from 780 bytes of null/control data) are
+// meaningless and still confuse the model.
+func sanitizeString(s string) string {
+	runes := []rune(s)
+	var b strings.Builder
+	b.Grow(len(runes))
+	for _, r := range runes {
+		if r == '\x00' || r == '\uFFFD' {
+			continue
+		}
+		if r < 0x20 && r != '\n' && r != '\r' && r != '\t' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	out := strings.TrimSpace(b.String())
+	if out == "" {
+		return ""
+	}
+	// If we removed more than half the original, treat as binary garbage.
+	if len(out) < len(runes)/2 {
+		return ""
+	}
+	return out
+}
+
 func truncateString(s string, maxLen int) string {
+	s = sanitizeString(s)
+	if s == "" {
+		return ""
+	}
 	lines := strings.Split(s, "\n")
 	s = lines[0]
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
 	if len(s) > maxLen {
 		return s[:maxLen] + "..."
 	}

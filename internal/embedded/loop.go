@@ -994,6 +994,27 @@ func truncate(s string, maxLen int) string {
 // recreating the deadlock from task #6309.
 const maxToolResultChars = 8000
 
+// sanitizeToolResult removes binary control characters (U+0000–U+0008,
+// U+000B, U+000C, U+000E–U+001F, U+007F) from tool output before it enters the
+// chat history. These characters — common in raw binary file contents, ADB
+// dumps, and crash logs returned by bash or MCP tools — cause local models
+// (notably Qwen3 via llama.cpp) to emit an immediate EOS on the very next
+// turn, producing an empty response with completion_tokens=1. The model sees a
+// corrupted token sequence after the control bytes and decides generation is
+// finished. Stripping them lets the model process tool results normally.
+// Tab (\t), newline (\n), and carriage return (\r) are preserved.
+func sanitizeToolResult(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 && r != '\t' && r != '\n' && r != '\r' {
+			return -1 // drop
+		}
+		if r == 0x7F { // DEL
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // truncateToolResult limits tool output stored in message history to
 // maxToolResultChars. It is the universal backstop every tool result passes
 // through. When it has to cut, it appends an ACTIONABLE recovery hint tailored
@@ -1008,7 +1029,11 @@ const maxToolResultChars = 8000
 // MCP tools). read_file (tools.go) keeps its own output below this limit so its
 // paging footer — which lives at the END of the output — survives, meaning
 // read_file results pass through here unchanged.
+//
+// Binary control characters are stripped first (sanitizeToolResult) to prevent
+// them from poisoning the model's context and causing empty-response loops.
 func truncateToolResult(s, toolName string) string {
+	s = sanitizeToolResult(s)
 	runes := []rune(s)
 	if len(runes) <= maxToolResultChars {
 		return s
