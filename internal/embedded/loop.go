@@ -848,6 +848,14 @@ func dispatchTool(ctx context.Context, tr *ToolRegistry, tc ToolCall, opts Execu
 	}
 	done := make(chan toolResult, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- toolResult{
+					result: "",
+					err:    fmt.Errorf("tool %s panicked: %v", tc.Func.Name, r),
+				}
+			}
+		}()
 		result, err := tr.Dispatch(ctx, tc.Func.Name, args)
 		done <- toolResult{result, err}
 	}()

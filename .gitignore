@@ -66,3 +66,4 @@ web/node_modules/
 web/.svelte-kit/
 internal/server/web_dist/*
 !internal/server/web_dist/.gitkeep
+mcp-server.log

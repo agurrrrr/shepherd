@@ -274,7 +274,16 @@ func (tr *ToolRegistry) WantsSheepName(name string) bool {
 	return false
 }
 
-func (tr *ToolRegistry) Dispatch(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+func (tr *ToolRegistry) Dispatch(ctx context.Context, name string, args map[string]interface{}) (result string, err error) {
+	// Recover from panics in native tool implementations or MCP dispatch so
+	// a single bad tool call cannot crash the entire shepherd process.
+	defer func() {
+		if r := recover(); r != nil {
+			result = ""
+			err = fmt.Errorf("tool %s panicked: %v", name, r)
+		}
+	}()
+
 	// Check native tools first
 	if fn, ok := tr.nativeTools[name]; ok {
 		return fn(ctx, args)
@@ -282,11 +291,11 @@ func (tr *ToolRegistry) Dispatch(ctx context.Context, name string, args map[stri
 
 	// Fall back to MCP tools
 	if tr.mcpDispatch != nil {
-		result, images, err := tr.mcpDispatch(name, args)
-		if err != nil {
-			return result, err
+		mcpResult, images, mcpErr := tr.mcpDispatch(name, args)
+		if mcpErr != nil {
+			return mcpResult, mcpErr
 		}
-		return tr.bufferMCPImages(name, result, images), nil
+		return tr.bufferMCPImages(name, mcpResult, images), nil
 	}
 
 	return "", fmt.Errorf("unknown tool: %s", name)

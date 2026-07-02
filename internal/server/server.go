@@ -594,7 +594,17 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		// Dispatcher that routes MCP tool calls:
 		// 1. Built-in tools (task_*, get_*, skill_load, wiki_*, browser_*) → mcpServer
 		// 2. External MCP server tools → respective ExternalMCPServer
-		mcpDispatch := func(name string, args map[string]interface{}) (string, []embedded.MCPImage, error) {
+		mcpDispatch := func(name string, args map[string]interface{}) (resultText string, images []embedded.MCPImage, err error) {
+			// Recover from panics in MCP tool handlers so a single bad tool call
+			// cannot crash the entire shepherd process. Without this, a nil-pointer
+			// or index-out-of-range in any tool handler propagates through the
+			// goroutine in dispatchTool and kills the daemon (task #6887/#6888).
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("tool %s panicked: %v", name, r)
+				}
+			}()
+
 			// Check if this is an external MCP tool
 			if externalToolNames[name] {
 				// Find which server provides this tool

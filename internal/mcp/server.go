@@ -161,11 +161,21 @@ func NewClient(minimal bool) *Server {
 
 // ExecuteTool runs a registered tool by name. Used by the daemon's
 // /api/_internal/mcp/call proxy endpoint to dispatch forwarded calls.
-func (s *Server) ExecuteTool(name string, args map[string]interface{}) (string, error) {
+func (s *Server) ExecuteTool(name string, args map[string]interface{}) (result string, err error) {
 	handler, ok := s.tools[name]
 	if !ok {
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
+	// Recover from panics in tool handlers so a single bad handler cannot
+	// crash the entire shepherd process. Without this, a nil-pointer or
+	// index-out-of-range in any handler propagates through the goroutine in
+	// dispatchTool and kills the daemon (task #6887/#6888).
+	defer func() {
+		if r := recover(); r != nil {
+			result = ""
+			err = fmt.Errorf("tool %s panicked: %v", name, r)
+		}
+	}()
 	return handler(args)
 }
 
