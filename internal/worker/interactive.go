@@ -190,7 +190,22 @@ func SetRunningTaskID(sheepName string, taskID int) {
 	}
 }
 
+// maxOutputBuilderBytes is the byte budget for the per-execution output
+// builder used in execute* functions. 10 MB is enough to hold the result
+// event (always at the tail of stream-json/opencode output) while preventing
+// unbounded memory growth from large tool outputs during long-running tasks.
+const maxOutputBuilderBytes = 10 * 1024 * 1024 // 10 MB
+
+// maxRunningTaskOutputBytes is the byte budget for the RunningTask output
+// buffer (crash-recovery copy). The last ~5 MB of output is more than enough
+// to reconstruct what happened before a crash or manual stop.
+const maxRunningTaskOutputBytes = 5 * 1024 * 1024 // 5 MB
+
 // AppendOutput appends output text to the running task's output buffer.
+// The buffer is capped at maxRunningTaskOutputBytes: when the limit is
+// exceeded, the oldest entries are dropped and a truncation marker is
+// inserted once. This prevents unbounded memory growth during long-running
+// tasks with large outputs (e.g. ADB logcat, base64 screenshots).
 func AppendOutput(sheepName string, text string) {
 	runningTasksMu.RLock()
 	task, ok := runningTasks[sheepName]
@@ -198,6 +213,34 @@ func AppendOutput(sheepName string, text string) {
 	if ok {
 		task.outputMu.Lock()
 		task.OutputLines = append(task.OutputLines, text)
+
+		// Enforce byte budget: if exceeded, keep only the tail and
+		// insert a marker once.
+		totalBytes := 0
+		for _, l := range task.OutputLines {
+			totalBytes += len(l)
+		}
+		if totalBytes > maxRunningTaskOutputBytes {
+			// Walk from the end, accumulating bytes until we have
+			// ~maxRunningTaskOutputBytes worth of tail lines.
+			cutoff := maxRunningTaskOutputBytes
+			startIdx := len(task.OutputLines)
+			for i := len(task.OutputLines) - 1; i >= 0; i-- {
+				cutoff -= len(task.OutputLines[i])
+				if cutoff <= 0 {
+					startIdx = i
+					break
+				}
+			}
+			// Insert marker at the front of the kept slice.
+			marker := "...[output truncated — showing tail only]..."
+			tailCount := len(task.OutputLines) - startIdx
+			kept := make([]string, 0, tailCount+1)
+			kept = append(kept, marker)
+			kept = append(kept, task.OutputLines[startIdx:]...)
+			task.OutputLines = kept
+		}
+
 		task.outputMu.Unlock()
 	}
 }
@@ -460,11 +503,11 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 		return nil, fmt.Errorf("failed to start OpenCode: %w", err)
 	}
 
-	var outputBuilder strings.Builder
+	// CappedBuffer prevents unbounded memory growth during long-running tasks.
+	var outputBuilder = NewCappedBuffer(maxOutputBuilderBytes)
 	var newSessionID string
 	var mu sync.Mutex
 
-	// Wait for goroutines to complete with WaitGroup
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -1681,8 +1724,11 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		}
 	}()
 
-	// Stream output
-	var outputBuilder strings.Builder
+	// Stream output — use CappedBuffer to prevent unbounded memory growth
+	// during long-running tasks with large outputs (e.g. ADB logcat, base64
+	// screenshots). The result event is always at the tail of stream-json
+	// output, so retaining the tail is safe for result parsing.
+	outputBuilder := NewCappedBuffer(maxOutputBuilderBytes)
 	var mu sync.Mutex
 
 	// Channel to detect AskUserQuestion (stop task when Claude asks a question)

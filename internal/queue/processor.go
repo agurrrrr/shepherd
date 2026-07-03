@@ -24,7 +24,76 @@ const (
 
 	// Circuit breaker settings
 	CircuitBreakerThreshold = 5 // Consecutive failures to trip breaker
+
+	// maxOutputLinesBytes is the byte budget for the per-task output lines
+	// collected in processor.go for DB storage. When exceeded, the slice is
+	// trimmed to head + tail with a truncation marker, preserving both the
+	// beginning and the end of the task output.
+	maxOutputLinesBytes = 20 * 1024 * 1024 // 20 MB
 )
+
+// capOutputLinesHeadTail trims an output lines slice to fit within
+// maxOutputLinesBytes, keeping the first ~20% (head) and the last ~80%
+// (tail) with a truncation marker inserted between them. Returns the
+// trimmed slice and its total byte size.
+//
+// The head/tail split ratio favors the tail because the end of the output
+// typically contains the task result and summary, which are more valuable
+// for debugging than the beginning.
+func capOutputLinesHeadTail(lines []string) ([]string, int) {
+	// Calculate total bytes.
+	totalBytes := 0
+	for _, l := range lines {
+		totalBytes += len(l)
+	}
+
+	if totalBytes <= maxOutputLinesBytes {
+		return lines, totalBytes
+	}
+
+	// Target: keep maxOutputLinesBytes worth of data.
+	// Split: head = 20%, tail = 80%.
+	headBudget := maxOutputLinesBytes / 5  // 4 MB
+	tailBudget := maxOutputLinesBytes - headBudget // 16 MB
+
+	// Collect head lines (from the start).
+	headEnd := 0
+	headBytes := 0
+	for i, l := range lines {
+		if headBytes+len(l) > headBudget {
+			break
+		}
+		headBytes += len(l)
+		headEnd = i + 1
+	}
+
+	// Collect tail lines (from the end).
+	tailStart := len(lines)
+	tailBytes := 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		if tailBytes+len(lines[i]) > tailBudget {
+			break
+		}
+		tailBytes += len(lines[i])
+		tailStart = i
+	}
+
+	// Ensure no overlap between head and tail.
+	if headEnd >= tailStart {
+		// Edge case: head and tail overlap. Just keep the tail.
+		headEnd = 0
+		headBytes = 0
+	}
+
+	marker := "...[output truncated — head + tail preserved]..."
+	result := make([]string, 0, headEnd+(len(lines)-tailStart)+1)
+	result = append(result, lines[:headEnd]...)
+	result = append(result, marker)
+	result = append(result, lines[tailStart:]...)
+
+	totalKept := headBytes + tailBytes + len(marker)
+	return result, totalKept
+}
 
 // Processor handles automatic execution of pending tasks.
 type Processor struct {
@@ -285,14 +354,26 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 	// Set TaskID on RunningTask (for saving output on interruption)
 	worker.SetRunningTaskID(sheepName, taskID)
 
-	// Output collection slice
+	// Output collection — capped at maxOutputLinesBytes to prevent unbounded
+	// memory growth. We keep head + tail: the first ~20% (head) and the last
+	// ~80% (tail), with a truncation marker in between. This preserves both
+	// the beginning of the task (useful for context) and the end (where the
+	// result/summary lives) while staying within a bounded memory footprint.
 	var outputLines []string
+	var outputLinesBytes int
 
 	// Set output callback
 	opts := worker.DefaultInteractiveOptions(
 		func(text string) {
 			// Collect output
 			outputLines = append(outputLines, text)
+			outputLinesBytes += len(text)
+
+			// Enforce byte budget with head+tail preservation.
+			if outputLinesBytes > maxOutputLinesBytes {
+				outputLines, outputLinesBytes = capOutputLinesHeadTail(outputLines)
+			}
+
 			// Also save output to RunningTask (used on interruption)
 			worker.AppendOutput(sheepName, text)
 			if p.OnOutput != nil {

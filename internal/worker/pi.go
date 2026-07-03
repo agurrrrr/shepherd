@@ -110,7 +110,7 @@ func executeWithPi(ctx context.Context, sheepName, projectPath, sessionID, promp
 		return nil, fmt.Errorf("failed to start pi: %w", err)
 	}
 
-	var outputBuilder strings.Builder
+	var outputBuilder = NewCappedBuffer(maxOutputBuilderBytes)
 	var newSessionID string
 	var mu sync.Mutex
 

@@ -70,7 +70,7 @@ func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sess
 	}
 
 	// Collect output
-	var outputBuilder strings.Builder
+	outputBuilder := NewCappedBuffer(maxOutputBuilderBytes)
 	var recentOutput strings.Builder // Recent output buffer (for menu detection)
 	var mu sync.Mutex
 	done := make(chan struct{})
