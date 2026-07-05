@@ -50,6 +50,16 @@ const maxFutureIntentionNudges = 2
 // falsely marked complete.
 const maxPauseSummaryNudges = 2
 
+// maxBuildGateNudges bounds how many times the build-verification gate (task
+// #6290, mitigation ②) nudges before failing — on the heuristic buildClaimed
+// path only. Task #7000 showed the gate failing a good advisory answer
+// instantly with no chance to recover, unlike guards ① and ③ which both nudge
+// first. The nudge asks the model to either run the build via bash or state why
+// verification is unnecessary. The explicit buildRequired path (a build command
+// named in the user prompt) still fails immediately: there the expectation is
+// unambiguous, so skipping it is a real false completion.
+const maxBuildGateNudges = 2
+
 // replacementCharRatio / minDegenerateRunes gate the degeneration guard. A
 // short reply with a stray U+FFFD must not trip it, so require both a minimum
 // length and a high replacement-char fraction.
@@ -187,23 +197,39 @@ func isPauseSummary(content string) bool {
 	return pauseSummaryPattern.MatchString(s)
 }
 
-// mentionsBuildWork reports whether text references build/compile/verification
-// work. Used by the build-verification gate to catch continuation tasks whose
-// *user prompt* carries no build keyword but whose model output claims
-// build-related work (e.g. "빌드 에러를 수정했습니다") without ever running bash
-// (task #6294). Kept deliberately narrow to avoid false positives.
-func mentionsBuildWork(text string) bool {
-	lower := strings.ToLower(text)
-	keywords := []string{
-		"빌드", "컴파일", "build", "compile",
-		"gradlew", "gradle", "compiledebug",
-	}
-	for _, k := range keywords {
-		if strings.Contains(lower, k) {
-			return true
-		}
-	}
-	return false
+// buildClaimKorean matches Korean past-tense/completion claims about build or
+// compile work ("빌드했습니다", "빌드가 성공했습니다", "컴파일 에러를 수정했습니다").
+// The build keyword and the completion verb must sit in the same sentence, so
+// advisory phrasing whose completion verb belongs to another clause ("재빌드 후
+// 업로드하세요. 문구를 수정했습니다.") doesn't pair across sentences. Future/
+// imperative forms (하세요, 하시면 됩니다, 완료되면) deliberately don't match.
+var buildClaimKorean = regexp.MustCompile(
+	`(빌드|컴파일)[^\n.!?]*?((성공|통과|완료|해결)(했|됐|되었)|수정했|고쳤|했습니다|했어요|됐습니다|되었습니다)`)
+
+// buildClaimEnglish matches English claims that a build/compile finished or was
+// fixed. Suggestions and instructions ("run ./gradlew …", "rebuild and upload",
+// "this should compile") don't match.
+var buildClaimEnglish = regexp.MustCompile(
+	`(?i)\b(build (succeeded|passed|completed|works)` +
+		`|builds? (successfully|cleanly|without errors)` +
+		`|built (successfully|cleanly|the)` +
+		`|build is (now )?(passing|green|working|fixed|clean)` +
+		`|compil(ed|es) (successfully|cleanly|fine|without errors)` +
+		`|compilation (succeeded|passed|completed)` +
+		`|(fixed|resolved) the (build|compile|compilation)` +
+		`|(build|compile|compilation) (error|failure|issue)s? (is|are|was|were|has been|have been) (fixed|resolved|gone))\b`)
+
+// claimsBuildWork reports whether text *claims completed* build/compile work.
+// Used by the build-verification gate to catch continuation tasks whose *user
+// prompt* carries no build keyword but whose model output claims build-related
+// work (e.g. "빌드 에러를 수정했습니다") without ever running bash (task #6294).
+// Task #7000: the previous any-keyword match ("빌드" anywhere) also caught
+// advice to the user ("재빌드 후 다시 업로드하세요") in an advisory answer and
+// failed a perfectly good completion, so only past-tense/completion claims
+// match now — recommendations and future intentions are the user's (or guard
+// ①'s) business, not this gate's.
+func claimsBuildWork(text string) bool {
+	return buildClaimKorean.MatchString(text) || buildClaimEnglish.MatchString(text)
 }
 
 // hasBuildCommandInPrompt reports whether the user prompt mentions a build or
@@ -319,6 +345,9 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		bashCalled            bool
 		codeModified          bool
 		futureIntentionNudges int
+		// buildGateNudges counts build-verification-gate nudges on the heuristic
+		// buildClaimed path, so that recovery loop is bounded (task #7000).
+		buildGateNudges int
 		// pauseSummaryNudges counts consecutive "paused, continue later" handoff
 		// summaries so that guard's nudge loop is bounded (task #6690).
 		pauseSummaryNudges int
@@ -771,13 +800,30 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// ── Mitigation ②: Build-verification gate (task #6290 / #6294) ──
 		// Mark incomplete if a build was expected but bash never ran. "Expected"
 		// means EITHER the user prompt names a build command, OR the model itself
-		// edited code AND its final message claims build-related work — the latter
-		// catches continuation tasks (e.g. "6284 이어서 작업해줘") whose prompt has no
-		// build keyword but whose output claims "빌드 에러를 수정했습니다" without ever
-		// verifying it (task #6294).
+		// edited code AND its final message claims completed build work — the
+		// latter catches continuation tasks (e.g. "6284 이어서 작업해줘") whose prompt
+		// has no build keyword but whose output claims "빌드 에러를 수정했습니다"
+		// without ever verifying it (task #6294). The heuristic buildClaimed path
+		// gets a bounded nudge before failing (task #7000): the claim detection is
+		// fallible, and the model can resolve the gate either way — run the build,
+		// or restate the completion without the unverified claim.
 		buildRequired := hasBuildCommandInPrompt(opts.UserPrompt)
-		buildClaimed := codeModified && mentionsBuildWork(msg.Content)
+		buildClaimed := codeModified && claimsBuildWork(msg.Content)
 		if (buildRequired || buildClaimed) && !bashCalled {
+			if !buildRequired && buildGateNudges < maxBuildGateNudges {
+				buildGateNudges++
+				if opts.OnOutput != nil {
+					opts.OnOutput("⚠️ [빌드 검증 게이트]: 빌드 완료를 보고했지만 bash 빌드 검증이 실행되지 않았습니다. 검증 또는 해명을 요청합니다.")
+				}
+				messages = append(messages, ChatMessage{Role: ChatRoleAssistant, Content: msg.Content})
+				messages = append(messages, ChatMessage{
+					Role: ChatRoleUser,
+					Content: "빌드 관련 작업을 완료했다고 보고했지만 bash로 빌드가 실행된 적이 없습니다. " +
+						"bash 도구로 빌드를 실행해 검증해주세요. 빌드 검증이 필요 없는 변경이라면 " +
+						"그 이유를 명시하고 완료 보고를 다시 작성해주세요.",
+				})
+				continue
+			}
 			if opts.OnOutput != nil {
 				opts.OnOutput("⚠️ [빌드 검증 게이트]: 빌드가 필요한 작업인데 bash 빌드 검증이 한 번도 실행되지 않았습니다.")
 			}

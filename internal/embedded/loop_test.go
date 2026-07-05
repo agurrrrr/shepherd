@@ -525,3 +525,119 @@ func TestEmptyToolCallIDFallback(t *testing.T) {
 		t.Errorf("expected preserved ID 'existing-id-123', got %q", tc2.ID)
 	}
 }
+
+// ─────────────────────────────────────────────
+// Build-verification gate nudge tests (task #7000)
+// ─────────────────────────────────────────────
+
+// buildGateWriteRound returns an SSE round where the model writes a file, so
+// codeModified becomes true and the heuristic buildClaimed path can arm.
+func buildGateWriteRound(t *testing.T) []string {
+	t.Helper()
+	return buildSSELines([]toolCallSpec{
+		{id: "call_w", name: "write_file", args: `{"path":"res/xml/config.xml","content":"<x/>"}`},
+	}, "", "")
+}
+
+// TestBuildGateNudgeRecovery is the regression test for task #7000: the model
+// edits a file and its final answer claims build work without ever calling
+// bash. The heuristic path must nudge instead of failing outright; when the
+// model re-reports without the unverified claim, the task completes normally.
+func TestBuildGateNudgeRecovery(t *testing.T) {
+	r1 := buildGateWriteRound(t)
+	r2 := buildSSELines(nil, "빌드 에러를 수정했습니다.", "stop")
+	r3 := buildSSELines(nil, "XML 속성 하나만 바꾼 변경이라 빌드 검증은 불필요합니다. 작업이 끝났습니다.", "stop")
+
+	srv := multiRoundServer(t, [][]string{r1, r2, r3})
+	defer srv.Close()
+
+	var outputs []string
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL,
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "접근성 설정 문제를 해결해줘.",
+		ProjectPath:   t.TempDir(),
+		MaxIterations: 6,
+		OnOutput:      func(s string) { outputs = append(outputs, s) },
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("result.Incomplete = true, want recovery via nudge: %s", result.IncompleteReason)
+	}
+	if !strings.Contains(result.Result, "빌드 검증은 불필요") {
+		t.Errorf("result = %q, want the clarified final answer", result.Result)
+	}
+	nudged := false
+	for _, o := range outputs {
+		if strings.Contains(o, "빌드 검증 게이트") {
+			nudged = true
+		}
+	}
+	if !nudged {
+		t.Error("expected a build-gate nudge output before completion")
+	}
+}
+
+// TestBuildGateNudgeExhaustion verifies the nudge loop is bounded: a model
+// that keeps claiming build work without running bash is failed after
+// maxBuildGateNudges chances.
+func TestBuildGateNudgeExhaustion(t *testing.T) {
+	r1 := buildGateWriteRound(t)
+	claim := buildSSELines(nil, "빌드 에러를 수정했습니다.", "stop")
+
+	srv := multiRoundServer(t, [][]string{r1, claim, claim, claim})
+	defer srv.Close()
+
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL,
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "접근성 설정 문제를 해결해줘.",
+		ProjectPath:   t.TempDir(),
+		MaxIterations: 8,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if !result.Incomplete {
+		t.Fatal("result.Incomplete = false, want incomplete after nudges exhausted")
+	}
+	if !strings.Contains(result.IncompleteReason, "build verification") {
+		t.Errorf("IncompleteReason = %q, want build verification failure", result.IncompleteReason)
+	}
+}
+
+// TestBuildGateRequiredPathStrict verifies suggestion ③ of #7001: when the
+// user prompt explicitly names a build command, the gate still fails
+// immediately without a nudge — the expectation is unambiguous there.
+func TestBuildGateRequiredPathStrict(t *testing.T) {
+	r1 := buildSSELines(nil, "코드를 수정했습니다.", "stop")
+
+	srv := multiRoundServer(t, [][]string{r1})
+	defer srv.Close()
+
+	var outputs []string
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL,
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "버그를 고친 다음 go build ./... 로 검증해줘.",
+		ProjectPath:   t.TempDir(),
+		MaxIterations: 4,
+		OnOutput:      func(s string) { outputs = append(outputs, s) },
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if !result.Incomplete {
+		t.Fatal("result.Incomplete = false, want immediate incomplete on the buildRequired path")
+	}
+	for _, o := range outputs {
+		if strings.Contains(o, "검증 또는 해명") {
+			t.Error("buildRequired path must not nudge, but a nudge output was emitted")
+		}
+	}
+}
