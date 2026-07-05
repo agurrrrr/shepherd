@@ -298,3 +298,42 @@ idle timeout — 전부 **일시적이고 몇 초~몇십 초 뒤 재시도하면
 - 관련 커밋/작업: #6008(반복 감지 도입), #6145(U+FFFD 가드), #6698(이미지 토큰),
   #6891/#6914(shepherd 프로세스 OOM — 본 건과 무관, llama-server는 OOM 킬 아님을
   dmesg로 확인)
+
+---
+
+## 8. 구현 이력 (#6957)
+
+커밋 `e5f9dfd` — 문서의 5개 우선순위를 모두 구현했다.
+
+| 항목 | 상태 | 구현 내용 |
+|------|------|----------|
+| §4.1 transient 재시도 | ✅ | `isTransientLLMError`, `AccumulateStreamWithRetry`, `HealthCheck`, `waitForRecovery` |
+| §4.2 반복 감지 강화 | ✅ | `tailPhraseRepeating` 상한 300→1200, `tailLinesCycling` 교차 검사 추가 |
+| §4.3 MaxTokens 상한 | ✅ | `min(ContextTokens/4, 12288)` — 메인 루프 + 핸드오프 모두 적용 |
+| §4.4 핸드오프 회수 | ✅ | `finishReason=repetition`, `finishReason=length+empty` 경로에 `attemptHandoff` 시도 |
+| §4.5 idle timeout 수리 | ✅ | `context.WithCancel`을 `http.NewRequestWithContext` 앞으로 이동 + 헬스체크 동반 |
+| §4.6 침묵 가시화 | ✅ | `ChatStreamWithProgress` — 30초 간격 `⏳ LLM 프롬프트 처리 중...` 메시지 |
+| §4.7 관측성 | ✅ | `[embedded] iter=N req start/done/error` 로그 추가 |
+
+### 테스트 케이스 (14개 신규)
+
+| 테스트 | 검증 내용 |
+|--------|----------|
+| `TestIsTransientLLMError` | 13개 케이스: EOF, connection reset, 5xx = transient; 4xx, Canceled = fatal |
+| `TestAccumulateStreamWithRetry` | 연결 끊김 후 재시도로 성공 |
+| `TestAccumulateStreamWithRetryContextCancel` | ctx 취소 시 즉시 종료 (무한 재시도 아님) |
+| `TestAccumulateStreamWithRetryFatalError` | HTTP 400은 재시도하지 않음 |
+| `TestTailLinesCyclingAlternatingKorean` | #6944 A/B 교차 패턴 감지 |
+| `TestTailPhraseRepeatingLongCycleKorean` | 355바이트 주기 한글 반복 감지 (구 상한 300 초과) |
+| `TestTailLinesCyclingNormalCode` | 정상 코드에 오탐 없음 |
+| `TestTailLinesCyclingTableOutput` | 테이블 행에 오탐 없음 |
+| `TestHealthCheck` | /models 정상 응답 시 nil |
+| `TestHealthCheckUnreachable` | 503 응답 시 에러 |
+
+### 미구현 항목
+
+- §4.7의 "실패 경로 usage 보존": 실패 시 `totalPromptTokens/totalCompletionTokens`를
+  `ExecuteResult`에 담는 것은 이미 기존 코드에서 누적값을 전달하고 있어 별도 수정 불필요.
+  단, `usage`가 nil인 경우(스트림 도중 절단)에는 여전히 0으로 기록됨 — 이는
+  `AccumulateStreamWithRetry`의 재시도 성공 시 정상적으로 보완됨.
+- §4.7의 "tools 정의 크기 가산": 추후 별도 구현 권장.
