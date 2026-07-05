@@ -2,9 +2,11 @@ package embedded
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -494,5 +496,261 @@ func TestChatStreamIdleTimeoutErrorMessage(t *testing.T) {
 	hasScan := strings.Contains(errMsg, "scan SSE")
 	if !hasIdle && !hasCtx && !hasScan {
 		t.Errorf("error message %q doesn't contain expected idle/ctx/scan indicator", errMsg)
+	}
+}
+
+// ─── Tests for transient error retry (task #6955, §4.1) ─────────────────────
+
+// TestIsTransientLLMError verifies the error classification function.
+func TestIsTransientLLMError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"unexpected EOF", fmt.Errorf("scan SSE: unexpected EOF"), true},
+		{"connection refused", fmt.Errorf("HTTP request: connection refused"), true},
+		{"broken pipe", fmt.Errorf("write: broken pipe"), true},
+		{"connection reset", fmt.Errorf("read: connection reset by peer"), true},
+		{"idle timeout", fmt.Errorf("stream idle timeout after 5m"), true},
+		{"HTTP 502", fmt.Errorf("API error 502: overloaded"), true},
+		{"HTTP 503", fmt.Errorf("API error 503: service unavailable"), true},
+		{"HTTP 529 overloaded", fmt.Errorf("API error 529: overloaded_error"), true},
+		{"context canceled", context.Canceled, false},
+		{"HTTP 400", fmt.Errorf("API error 400: bad request"), false},
+		{"HTTP 401", fmt.Errorf("API error 401: unauthorized"), false},
+		{"HTTP 404", fmt.Errorf("API error 404: not found"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isTransientLLMError(tc.err); got != tc.want {
+				t.Errorf("isTransientLLMError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAccumulateStreamWithRetry verifies that a transient error (connection
+// drop) is retried and succeeds on the second attempt.
+func TestAccumulateStreamWithRetry(t *testing.T) {
+	var attempt int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Health check endpoint
+		if r.URL.Path == "/models" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		n := atomic.AddInt32(&attempt, 1)
+		if n == 1 {
+			// First attempt: send a chunk then abruptly close the connection.
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			fl, _ := w.(http.Flusher)
+			_, _ = w.Write([]byte(`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}` + "\n\n"))
+			if fl != nil {
+				fl.Flush()
+			}
+			// Simulate connection drop — hijack and close.
+			hj, ok := w.(http.Hijacker)
+			if ok {
+				conn, _, _ := hj.Hijack()
+				conn.Close()
+			}
+			return
+		}
+		// Second attempt: normal response.
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fl, _ := w.(http.Flusher)
+		lines := []string{
+			`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Hello, world!"}}]}`,
+			`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+			`data: [DONE]`,
+		}
+		for _, l := range lines {
+			_, _ = w.Write([]byte(l + "\n\n"))
+			if fl != nil {
+				fl.Flush()
+			}
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "", "test-model")
+	msg, finish, _, err := c.AccumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, nil)
+	if err != nil {
+		t.Fatalf("AccumulateStreamWithRetry error: %v", err)
+	}
+	if finish != "stop" {
+		t.Fatalf("finish reason = %q, want stop", finish)
+	}
+	if msg.Content != "Hello, world!" {
+		t.Errorf("content = %q, want 'Hello, world!'", msg.Content)
+	}
+}
+
+// TestAccumulateStreamWithRetryContextCancel verifies that context cancellation
+// during retry wait is respected immediately (no infinite retry loop).
+func TestAccumulateStreamWithRetryContextCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Always drop the connection.
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fl, _ := w.(http.Flusher)
+		_, _ = w.Write([]byte(`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}` + "\n\n"))
+		if fl != nil {
+			fl.Flush()
+		}
+		hj, ok := w.(http.Hijacker)
+		if ok {
+			conn, _, _ := hj.Hijack()
+			conn.Close()
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "", "test-model")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	_, _, _, err := c.AccumulateStreamWithRetry(ctx, &ChatRequest{Model: "test-model"}, nil)
+	if err == nil {
+		t.Fatal("expected error from cancelled context, got nil")
+	}
+}
+
+// TestAccumulateStreamWithRetryFatalError verifies that non-transient errors
+// (e.g. HTTP 400) are not retried.
+func TestAccumulateStreamWithRetryFatalError(t *testing.T) {
+	var callCount int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"bad request"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "", "test-model")
+	_, _, _, err := c.AccumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, nil)
+	if err == nil {
+		t.Fatal("expected error from HTTP 400, got nil")
+	}
+	if !strings.Contains(err.Error(), "400") {
+		t.Errorf("error should mention HTTP 400: %v", err)
+	}
+	if count := atomic.LoadInt32(&callCount); count != 1 {
+		t.Errorf("expected 1 call (no retry for fatal error), got %d", count)
+	}
+}
+
+// ─── Tests for repetition guard enhancement (task #6955, §4.2) ──────────────
+
+// TestTailLinesCyclingAlternatingKorean reproduces the #6944 pattern: two
+// Korean sentences alternating A/B/A/B... The old tailLinesRepeating could
+// not catch this because no two adjacent lines are identical.
+func TestTailLinesCyclingAlternatingKorean(t *testing.T) {
+	lineA := "IME 창이 포커스를 잃지 않도록 하고 키보드 외부 터치 이벤트를 제어하기 위해 이 플래그들을 제거하거나 수정해야 할 것 같습니다."
+	lineB := "`FLAG_NOT_TOUCH_MODAL`과 `FLAG_WATCH_OUTSIDE_TOUCH`를 제거하면 IME 창이 모든 터치를 독점하게 되어 키보드가 즉시 사라지는 문제가 해결됩니다."
+
+	var sb strings.Builder
+	for i := 0; i < 8; i++ {
+		sb.WriteString(lineA + "\n\n")
+		sb.WriteString(lineB + "\n\n")
+	}
+
+	if !isDegenerateRepetition(sb.String()) {
+		t.Error("isDegenerateRepetition should detect alternating A/B Korean pattern")
+	}
+	if !tailLinesCycling(sb.String()) {
+		t.Error("tailLinesCycling should detect alternating A/B pattern")
+	}
+}
+
+// TestTailPhraseRepeatingLongCycleKorean verifies that a phrase cycle > 300 bytes
+// (the old limit) but < 1200 bytes (the new limit) is caught.
+func TestTailPhraseRepeatingLongCycleKorean(t *testing.T) {
+	// Two Korean sentences with "\n\n" separator = ~355 bytes per cycle
+	// (matching the #6944 pattern exactly).
+	lineA := "IME 창이 포커스를 잃지 않도록 하고 키보드 외부 터치 이벤트를 제어하기 위해 이 플래그들을 제거하거나 수정해야 할 것 같습니다."
+	lineB := "`FLAG_NOT_TOUCH_MODAL`과 `FLAG_WATCH_OUTSIDE_TOUCH`를 제거하면 IME 창이 모든 터치를 독점하게 되어 키보드가 즉시 사라지는 문제가 해결됩니다."
+	unit := lineA + "\n\n" + lineB + "\n\n"
+
+	if len(unit) <= 300 {
+		t.Fatalf("test unit must be > 300 bytes for meaningful test, got %d", len(unit))
+	}
+
+	result := strings.Repeat(unit, 10)
+	if !isDegenerateRepetition(result) {
+		t.Error("isDegenerateRepetition should detect long-cycle Korean repetition (> 300 bytes)")
+	}
+}
+
+// TestTailLinesCyclingNormalCode verifies that normal code output (repeated
+// short lines like "})" or "end") does NOT trigger the cycling detector.
+func TestTailLinesCyclingNormalCode(t *testing.T) {
+	code := `func main() {
+	if true {
+		for i := 0; i < 10; i++ {
+			fmt.Println(i)
+		}
+	}
+}
+`
+	if tailLinesCycling(code) {
+		t.Error("tailLinesCycling should not trigger on normal code output")
+	}
+}
+
+// TestTailLinesCyclingTableOutput verifies that a table with repeated rows
+// (which could look like cycling) doesn't trigger when rows are distinct.
+func TestTailLinesCyclingTableOutput(t *testing.T) {
+	table := `| Name | Value |
+|------|-------|
+| foo  | 1     |
+| bar  | 2     |
+| baz  | 3     |
+| qux  | 4     |
+| quux | 5     |
+`
+	if tailLinesCycling(table) {
+		t.Error("tailLinesCycling should not trigger on table with distinct rows")
+	}
+}
+
+// TestHealthCheck verifies the health check endpoint works correctly.
+func TestHealthCheck(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"data":[]}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "", "test-model")
+	if err := c.HealthCheck(context.Background(), 5*time.Second); err != nil {
+		t.Errorf("HealthCheck failed: %v", err)
+	}
+}
+
+// TestHealthCheckUnreachable verifies that health check fails when server is down.
+func TestHealthCheckUnreachable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "", "test-model")
+	err := c.HealthCheck(context.Background(), 5*time.Second)
+	if err == nil {
+		t.Error("HealthCheck should fail when server returns 503")
 	}
 }

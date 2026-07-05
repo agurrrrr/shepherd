@@ -382,6 +382,16 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		messages = trimmed
 
 		// Build request
+		// MaxTokens is capped at 12288 (task #6955, §4.3) to limit the damage
+		// when the repetition guard is slow to catch a loop. With 92K context,
+		// the old ContextTokens/4 = 23K let a looping model burn 17 minutes
+		// (task #6944). 12288 tokens (~20K chars) is enough for large write_file
+		// calls while keeping loop burn time under ~9 minutes at 23 t/s.
+		maxTok := opts.ContextTokens / 4
+		const maxTokensCap = 12288
+		if maxTok > maxTokensCap {
+			maxTok = maxTokensCap
+		}
 		req := &ChatRequest{
 			Model:       opts.Model,
 			Messages:    messages,
@@ -393,18 +403,33 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			// backstop; these just make the loop less likely in the first place.
 			FrequencyPenalty: DefaultFrequencyPenalty,
 			PresencePenalty:  DefaultPresencePenalty,
-			MaxTokens:        opts.ContextTokens / 4,
+			MaxTokens:        maxTok,
 			Stream:           true,
 			StreamOptions:    &StreamOptions{IncludeUsage: true},
 		}
 
-		// Accumulate streaming response
-		msg, finishReason, usage, err := client.AccumulateStream(ctx, req)
+		// Log LLM request for observability (task #6955, §4.7).
+		estTokens := 0
+		for _, m := range messages {
+			estTokens += estimateMessageTokens(m)
+		}
+		fmt.Printf("[embedded] iter=%d req start msgs=%d est_tokens=%d max_tokens=%d\n",
+			iteration, len(messages), estTokens, maxTok)
+
+		// Accumulate streaming response with automatic retry on transient
+		// errors (task #6955, §4.1). When the LLM server drops the connection
+		// (restart, overload, network blip), this retries with exponential
+		// backoff + health-check recovery instead of immediately failing the
+		// task and losing all conversation context.
+		msg, finishReason, usage, err := client.AccumulateStreamWithRetry(ctx, req, opts.OnOutput)
 		if err != nil {
+			fmt.Printf("[embedded] iter=%d req error=%v\n", iteration, err)
 			return &ExecuteResult{
 				Result:           "",
 				Incomplete:       true,
 				IncompleteReason: fmt.Sprintf("API error: %v", err),
+				PromptTokens:     totalPromptTokens,
+				CompletionTokens: totalCompletionTokens,
 			}, nil
 		}
 
@@ -413,6 +438,15 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			totalPromptTokens += usage.PromptTokens
 			totalCompletionTokens += usage.CompletionTokens
 		}
+
+		// Log LLM response for observability (task #6955, §4.7).
+		var pt, ct int64
+		if usage != nil {
+			pt = usage.PromptTokens
+			ct = usage.CompletionTokens
+		}
+		fmt.Printf("[embedded] iter=%d req done finish=%s prompt_tok=%d completion_tok=%d\n",
+			iteration, finishReason, pt, ct)
 
 		// Surface the model's "thinking" (reasoning_content) for this turn so the
 		// live output shows what the model is reasoning about, like Claude does.
@@ -427,7 +461,18 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// looping it does not recover, and feeding the garbage back only spreads it.
 		// Checked before tool handling so a stray parse of the repeated text can't
 		// trigger a bogus tool call.
+		//
+		// Task #6955, §4.4: before giving up entirely, try a context handoff —
+		// the conversation history is still clean (looping text was never appended
+		// to messages), so a handoff can salvage the work done so far by asking
+		// for a summary + follow-up. If handoff fails or isn't available, fall
+		// back to the original incomplete behavior.
 		if finishReason == "repetition" {
+			if opts.EnqueueFollowUp != nil {
+				if res, ok := attemptHandoff(ctx, client, opts, messages, totalPromptTokens, totalCompletionTokens); ok {
+					return res, nil
+				}
+			}
 			return &ExecuteResult{
 				Result:           "",
 				Incomplete:       true,
@@ -631,7 +676,16 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// When the model hits context length limit with finish_reason: "length"
 		// and returns empty content, we should report it as a truncation error
 		// rather than counting it toward the empty response loop counter.
+		//
+		// Task #6955, §4.4: try a context handoff first — the history is clean
+		// (the truncated output was never appended to messages), so a handoff
+		// can salvage the work done so far. Falls back to incomplete on failure.
 		if finishReason == "length" && contentEmpty {
+			if opts.EnqueueFollowUp != nil {
+				if res, ok := attemptHandoff(ctx, client, opts, messages, totalPromptTokens, totalCompletionTokens); ok {
+					return res, nil
+				}
+			}
 			return &ExecuteResult{
 				Result:           "",
 				Incomplete:       true,
@@ -929,11 +983,17 @@ func attemptHandoff(ctx context.Context, client *Client, opts ExecuteOptions, tr
 		Content: instruction,
 	})
 
+	// Apply the same MaxTokens cap as the main loop (task #6955, §4.3).
+	handoffMaxTok := opts.ContextTokens / 4
+	const maxTokensCap = 12288
+	if handoffMaxTok > maxTokensCap {
+		handoffMaxTok = maxTokensCap
+	}
 	req := &ChatRequest{
 		Model:         opts.Model,
 		Messages:      msgs,
 		Temperature:   DefaultTemperature,
-		MaxTokens:     opts.ContextTokens / 4,
+		MaxTokens:     handoffMaxTok,
 		Stream:        true,
 		StreamOptions: &StreamOptions{IncludeUsage: true},
 	}
