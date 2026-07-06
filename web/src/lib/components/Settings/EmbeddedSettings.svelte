@@ -127,7 +127,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	onMount(loadEndpoints);
 
 	// ── MAGI consensus config ───────────────────────────────────────
-	let magiConfig = null;
+	let magiConfig = defaultMagiConfig();
 	let magiErrors = [];
 	let magiWarnings = [];
 	let magiSaving = false;
