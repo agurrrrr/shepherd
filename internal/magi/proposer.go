@@ -118,6 +118,16 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 			// Separate the self-reported confidence from the answer body.
 			cleaned, conf := ExtractConfidence(content)
 
+			// Content gate: tool-call text or empty prose is a failure, not
+			// an answer — record it like a transport error so the wiring
+			// fallback can engage (lesson from task #7031).
+			if gateErr := CheckAnswerContent(cleaned); gateErr != nil {
+				result.Err = gateErr
+				emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, false, 0, gateErr))
+				results[slot] = result
+				return
+			}
+
 			result.Answer = cleaned
 			result.Confidence = conf
 			result.Usage = usage

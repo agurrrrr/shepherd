@@ -106,7 +106,7 @@ const judgeJSONSchema = `[출력 형식]
 }
 
 필드 의미:
-- verdict: 세 답변의 핵심 결론이 모두 일치하면 "unanimous", 2개가 일치하면 "majority", 모두 다르면 "split"
+- verdict: 기권을 제외한 유효 답변 기준 — 핵심 결론이 모두 일치하면 "unanimous", 다수가 일치하면 "majority", 모두 다르거나 유효 답변이 1개 이하면 "split"
 - synthesis: 종합 답변 (최종 산출물)
 - dissent: 소수의견 요약 (없으면 빈 문자열)
 - confidence: 종합 답변에 대한 확신 (0-10 정수)`
@@ -124,6 +124,13 @@ func BuildJudgePrompt(results []ProposerResult, taskPrompt string) string {
 	b.WriteString("- 답변의 **길이가 아니라 근거의 질**로 평가하라.\n")
 	b.WriteString("- 어느 모델이 썼는지는 알 수 없으며 추측하지 마라.\n")
 	b.WriteString("- 답변 제시 순서에 영향받지 마라.\n\n")
+
+	// Abstention rule (lesson from task #7031): content-free answers must not
+	// count toward the majority, or a single substantive answer gets packaged
+	// as consensus with high confidence.
+	b.WriteString("[기권 처리 규칙]\n")
+	b.WriteString("- 결론이 없는 답변(도구 호출 시도만 있음, 실질 내용 없음, 절차 안내만 있고 결론 없음)은 '기권'으로 취급하고 다수결 집계에서 제외하라.\n")
+	b.WriteString("- 기권을 제외한 유효 답변이 1개 이하면 합의가 성립하지 않는다: verdict를 \"split\"으로 하고, dissent에 어떤 답변을 왜 기권 처리했는지 명시하라.\n\n")
 
 	b.WriteString("[원 태스크]\n")
 	b.WriteString(capText(taskPrompt, 4000))

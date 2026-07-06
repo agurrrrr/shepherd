@@ -799,8 +799,11 @@ func initMagiExecutor() {
 			return nil, fmt.Errorf("magi aggregator: unknown type %q", magiCfg.Aggregator.Type)
 		}
 
-		// 5. Build base system prompt (same builder as embedded, no MCP guide).
-		baseSystem := worker.BuildSystemPromptForEmbedded(sheepName, projectPath, "")
+		// 5. Build the MAGI deliberation base prompt. The embedded builder is
+		// deliberately NOT reused here: its prompt claims tool access, which
+		// made tool-free proposers emit tool-call text as their whole answer
+		// (task #7031).
+		baseSystem := worker.BuildSystemPromptForMagi(projectPath)
 
 		// 6. Assemble magi.Options and run the pipeline.
 		magiOpts := magi.Options{
