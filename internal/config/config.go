@@ -495,6 +495,7 @@ type EmbeddedEndpoint struct {
 // EmbeddedConfig is the top-level config for embedded endpoints.
 type EmbeddedConfig struct {
 	Endpoints []EmbeddedEndpoint `mapstructure:"endpoints"`
+	Magi      *MagiConfig         `mapstructure:"magi" yaml:"magi,omitempty"`
 }
 
 // UnmarshalEmbeddedYAML parses embedded config from YAML data.
