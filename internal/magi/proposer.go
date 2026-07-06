@@ -23,10 +23,13 @@ const minConvergenceReserve = 20 * time.Second
 const convergenceDirective = `이제 추가 조사(도구 사용)를 멈추고, 지금까지 확인한 내용만으로 최종 답변을 작성하라.
 더 이상 도구를 호출할 수 없다. 완결된 최종 답변을 쓰고, 마지막 줄에 "CONFIDENCE: <0-10 정수>"를 추가하라.`
 
-// emptyAnswerNudge re-prompts a proposer that returned an empty answer. Exactly
-// one nudge is allowed before the proposer is declared failed — a single empty
-// response must not discard the whole deliberation (lesson from task #7066).
-const emptyAnswerNudge = `빈 응답이 반환되었다. 지금까지의 맥락을 바탕으로 반드시 최종 답변을 작성하라.
+// finalAnswerNudge re-prompts a proposer whose last turn produced no usable
+// answer — an empty response, or tool-call markup emitted as text (which the
+// content gate rejects; task #7077 CASPER). Exactly one nudge is allowed before
+// the proposer is declared failed, so a single unusable turn must not discard
+// the whole deliberation (lesson from task #7066).
+const finalAnswerNudge = `직전 응답에는 실질적인 최종 답변이 없다(빈 응답이거나 도구 호출 형식만 반환됨).
+더 이상 도구를 호출하지 말고, 지금까지 확인한 맥락만으로 완결된 최종 답변을 산문으로 작성하라.
 마지막 줄에 "CONFIDENCE: <0-10 정수>"를 포함하라.`
 
 // chatTurn performs one streaming chat request and returns the assistant
@@ -34,7 +37,10 @@ const emptyAnswerNudge = `빈 응답이 반환되었다. 지금까지의 맥락�
 // proposer mini agent loop (callEndpoint) — including the tool-exploration,
 // forced-convergence, and empty-response-nudge paths — without a live LLM.
 var chatTurn = func(ctx context.Context, client *embedded.Client, req *embedded.ChatRequest, onToken func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
-	msg, _, usage, err := client.AccumulateStreamWithRetry(ctx, req, nil, onToken)
+	// Proposer retry budget (task #7077): short, ctx-bounded — a dead endpoint
+	// fails fast instead of exhausting the main-agent's patient retry policy and
+	// consuming the whole per-proposer timeout.
+	msg, _, usage, err := client.AccumulateStreamProposer(ctx, req, nil, onToken)
 	var u embedded.ChatUsage
 	if usage != nil {
 		u = *usage
@@ -106,15 +112,16 @@ var callEndpoint = func(
 		toolRegistry = embedded.NewToolRegistry(projectPath, sheepName, mcpDefs, dispatch)
 	}
 
-	// Compute the convergence cutoff from the ctx deadline. Tool exploration
-	// runs until this instant; the reserved tail is for forcing a final answer.
-	// In production RunProposers always sets a deadline, so hasCutoff is true;
-	// the no-deadline branch exists only for tests (which return a final answer
-	// promptly and never loop unbounded).
-	convergeAt, hasCutoff := convergenceCutoff(ctx)
+	// Compute the convergence cutoff and reserve from the ctx deadline. Tool
+	// exploration runs until convergeAt; the reserved tail (reserve) funds a
+	// forced final-answer request. In production RunProposers always sets a
+	// deadline, so hasCutoff is true; the no-deadline branch exists only for
+	// tests (which return a final answer promptly and never loop unbounded).
+	convergeAt, reserve, hasCutoff := convergenceCutoff(ctx)
 
 	// ── Tool exploration phase (bounded by wall clock, not a round count) ──
 	turn := 0
+	var exploreErr error // a non-cancel error mid-exploration → salvage, don't discard
 	for {
 		// Approaching the deadline → stop exploring and force a final answer.
 		if hasCutoff && !time.Now().Before(convergeAt) {
@@ -135,16 +142,32 @@ var callEndpoint = func(
 		msg, usage, err := chatTurn(ctx, client, req, onToken)
 		addUsage(&totalUsage, usage)
 		if err != nil {
-			return "", totalUsage, err
+			// User cancellation → abort immediately, no salvage.
+			if ctx.Err() == context.Canceled {
+				return "", totalUsage, err
+			}
+			// A transient send error (or the exploration deadline) mid-loop must
+			// not discard the accumulated tool context (task #7077 MELCHIOR —
+			// previously any send error returned instantly, throwing away useful
+			// exploration). Fall through to forced convergence to salvage a final
+			// answer; remember the error in case convergence also fails.
+			exploreErr = err
+			break
 		}
 
-		// A nil message, or an empty answer with no tool calls, falls through
-		// to forced convergence, which nudges once for a real answer.
+		// A nil message, or an answer that carries no substantive content (empty
+		// or tool-call markup), falls through to forced convergence, which
+		// nudges once for a real answer.
 		if msg == nil {
 			break
 		}
 		if len(msg.ToolCalls) == 0 {
-			if msg.Content != "" {
+			// Only a gate-passing answer ends exploration here. Tool-call markup
+			// emitted as text (task #7077 CASPER) has non-empty Content yet no
+			// substance — returning it here would let the RunProposers gate
+			// reject it with no chance to recover, so break to a nudged forced
+			// convergence instead.
+			if msg.Content != "" && CheckAnswerContent(msg.Content) == nil {
 				return msg.Content, totalUsage, nil
 			}
 			break
@@ -161,33 +184,55 @@ var callEndpoint = func(
 	}
 
 	// ── Forced convergence: drop tools, demand a final answer ──
-	content, u, err := forceFinalAnswer(ctx, client, ep, messages, temperature, maxTokens, onToken, true)
+	//
+	// Run it on an independent budget detached from the exploration deadline
+	// (task #7077 BALTHASAR). Sharing ctx was the defect: an exploration turn
+	// that ran up to — or past — the deadline left the forced request no time to
+	// produce an answer, so the reserve meant to *save* convergence was instead
+	// consumed by exploration and convergence died with "context deadline
+	// exceeded". WithoutCancel guarantees a fresh `reserve` budget regardless of
+	// how exploration ended (deadline hit, transient error, or clean cutoff).
+	fcCtx := ctx
+	if hasCutoff {
+		var fcCancel context.CancelFunc
+		fcCtx, fcCancel = context.WithTimeout(context.WithoutCancel(ctx), reserve)
+		defer fcCancel()
+	}
+
+	content, u, err := forceFinalAnswer(fcCtx, client, ep, messages, temperature, maxTokens, onToken, true)
 	addUsage(&totalUsage, u)
+	// Convergence could not rescue an answer after a mid-exploration transport
+	// failure → surface the original transport error; it is more diagnostic than
+	// "no substantive answer after nudge" for the failure line.
+	if err != nil && exploreErr != nil {
+		return "", totalUsage, exploreErr
+	}
 	return content, totalUsage, err
 }
 
 // convergenceCutoff returns the instant at which a proposer must stop tool
-// exploration and force a final answer, reserving a tail of the remaining
-// budget for that forced request. The bool is false when ctx has no deadline,
-// in which case exploration is unbounded (tests only — production always sets
-// a per-proposer timeout).
-func convergenceCutoff(ctx context.Context) (time.Time, bool) {
-	dl, ok := ctx.Deadline()
-	if !ok {
-		return time.Time{}, false
+// exploration and force a final answer, plus the reserve — the tail of the
+// remaining budget set aside to fund that forced request (used as an
+// independent, detached timeout by callEndpoint). ok is false when ctx has no
+// deadline, in which case exploration is unbounded (tests only — production
+// always sets a per-proposer timeout).
+func convergenceCutoff(ctx context.Context) (convergeAt time.Time, reserve time.Duration, ok bool) {
+	dl, has := ctx.Deadline()
+	if !has {
+		return time.Time{}, 0, false
 	}
 	remaining := time.Until(dl)
 	if remaining <= 0 {
-		return dl, true // already past — converge immediately
+		return dl, minConvergenceReserve, true // already past — converge immediately
 	}
-	reserve := remaining / 4
+	reserve = remaining / 4
 	if reserve < minConvergenceReserve {
 		reserve = minConvergenceReserve
 	}
 	if reserve > remaining/2 {
 		reserve = remaining / 2 // never spend more than half on convergence
 	}
-	return dl.Add(-reserve), true
+	return dl.Add(-reserve), reserve, true
 }
 
 // forceFinalAnswer performs the terminal, tools-off request(s) that produce a
@@ -214,8 +259,9 @@ func forceFinalAnswer(
 	}
 
 	var usage embedded.ChatUsage
+	var lastGateErr error
 
-	// Two attempts: the initial request plus one nudge on an empty answer.
+	// Two attempts: the initial request plus one nudge on an unusable answer.
 	for attempt := 0; attempt < 2; attempt++ {
 		req := &embedded.ChatRequest{
 			Model:       ep.Model,
@@ -231,21 +277,33 @@ func forceFinalAnswer(
 		if err != nil {
 			return "", usage, err
 		}
-		if msg != nil && msg.Content != "" {
-			return msg.Content, usage, nil
+
+		// Success = a gate-passing answer, not merely non-empty content. A
+		// tool-call-markup response has non-empty Content yet no substance, so a
+		// bare Content != "" check let it slip past unnudged and then fail the
+		// RunProposers gate (task #7077 CASPER). Align the nudge trigger with the
+		// gate so an unusable answer earns its one retry.
+		var content string
+		if msg != nil {
+			content = msg.Content
+		}
+		if gateErr := CheckAnswerContent(content); gateErr == nil {
+			return content, usage, nil
+		} else {
+			lastGateErr = gateErr
 		}
 
-		// Empty answer — nudge once more.
+		// Unusable answer — nudge once more.
 		if msg != nil {
 			msgs = append(msgs, *msg)
 		}
 		msgs = append(msgs, embedded.ChatMessage{
 			Role:    embedded.ChatRoleUser,
-			Content: emptyAnswerNudge,
+			Content: finalAnswerNudge,
 		})
 	}
 
-	return "", usage, fmt.Errorf("empty response from %s after convergence nudge", ep.ID)
+	return "", usage, fmt.Errorf("%s: no substantive answer after convergence nudge: %w", ep.ID, lastGateErr)
 }
 
 // executeProposerToolCall validates and runs a single tool call from a

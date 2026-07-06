@@ -601,22 +601,36 @@ func (c *Client) HealthCheck(ctx context.Context, timeout time.Duration) error {
 
 // retryConfig holds parameters for transient-error retries.
 type retryConfig struct {
-	maxRetries      int           // max retry attempts (not counting the initial try)
-	initialDelay    time.Duration // delay before first retry
-	maxDelay        time.Duration // cap on delay between retries
+	maxRetries     int           // max retry attempts (not counting the initial try)
+	initialDelay   time.Duration // delay before first retry
+	maxDelay       time.Duration // cap on delay between retries
 	totalWaitLimit time.Duration // total wall-clock budget for all retries
 }
 
+// defaultRetryConfig is the main-agent policy: patient reconnection across a
+// long-running interactive session (up to ~62s of backoff over 5 retries).
 var defaultRetryConfig = retryConfig{
-	maxRetries:      5,
-	initialDelay:    2 * time.Second,
-	maxDelay:        60 * time.Second,
-	totalWaitLimit:  10 * time.Minute,
+	maxRetries:     5,
+	initialDelay:   2 * time.Second,
+	maxDelay:       60 * time.Second,
+	totalWaitLimit: 10 * time.Minute,
 }
 
-// nextDelay computes exponential backoff with jitter for the given attempt.
+// proposerRetryConfig is the MAGI-proposer policy: a short budget so a dead
+// endpoint fails fast instead of burning the whole per-proposer timeout on the
+// main-agent's patient policy (task #7077 MELCHIOR — a 500-ing endpoint spent
+// ~62s exhausting the default 6 attempts, then all accumulated work was
+// discarded). The caller's ctx deadline bounds this further.
+var proposerRetryConfig = retryConfig{
+	maxRetries:     3,
+	initialDelay:   1 * time.Second,
+	maxDelay:       6 * time.Second,
+	totalWaitLimit: 40 * time.Second,
+}
+
+// nextDelay computes exponential backoff for the given attempt.
 func (rc retryConfig) nextDelay(attempt int) time.Duration {
-	d := rc.initialDelay << uint(attempt) // 2s, 4s, 8s, 16s, 32s...
+	d := rc.initialDelay << uint(attempt) // e.g. 2s, 4s, 8s, 16s, 32s...
 	if d > rc.maxDelay {
 		d = rc.maxDelay
 	}
@@ -624,12 +638,28 @@ func (rc retryConfig) nextDelay(attempt int) time.Duration {
 }
 
 // AccumulateStreamWithRetry wraps AccumulateStream with automatic retry on
-// transient errors. Between retries it waits for the server to recover via
-// health checks (up to totalWaitLimit total). The OnOutput callback (if set)
-// receives status messages so the user can see what's happening.
+// transient errors using the main-agent policy. Between retries it waits for the
+// server to recover via health checks. The OnOutput callback (if set) receives
+// status messages so the user can see what's happening.
 func (c *Client) AccumulateStreamWithRetry(ctx context.Context, req *ChatRequest, onOutput func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
-	rc := defaultRetryConfig
+	return c.accumulateStreamWithRetry(ctx, req, defaultRetryConfig, onOutput, onToken)
+}
+
+// AccumulateStreamProposer is AccumulateStreamWithRetry with the short
+// proposerRetryConfig budget (task #7077). MAGI proposers use it so one dead
+// endpoint cannot hold a per-proposer budget hostage.
+func (c *Client) AccumulateStreamProposer(ctx context.Context, req *ChatRequest, onOutput func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
+	return c.accumulateStreamWithRetry(ctx, req, proposerRetryConfig, onOutput, onToken)
+}
+
+// accumulateStreamWithRetry is the shared retry loop. The retry budget is
+// bounded by the smaller of rc.totalWaitLimit and the ctx deadline, so retries
+// never outlive the caller's own timeout (task #7077).
+func (c *Client) accumulateStreamWithRetry(ctx context.Context, req *ChatRequest, rc retryConfig, onOutput func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
 	deadline := time.Now().Add(rc.totalWaitLimit)
+	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
+		deadline = dl
+	}
 
 	var lastErr error
 	for attempt := 0; attempt <= rc.maxRetries; attempt++ {

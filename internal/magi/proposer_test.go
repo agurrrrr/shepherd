@@ -758,8 +758,8 @@ func TestCallEndpoint_EmptyAnswerTwiceFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when both attempts are empty")
 	}
-	if !strings.Contains(err.Error(), "empty response") {
-		t.Errorf("expected empty-response error, got %v", err)
+	if !strings.Contains(err.Error(), "no substantive answer") {
+		t.Errorf("expected no-substantive-answer error, got %v", err)
 	}
 	if len(fake.reqs) != 2 {
 		t.Errorf("expected exactly 2 attempts, got %d", len(fake.reqs))
@@ -810,22 +810,193 @@ func TestCallEndpoint_WriteToolRejected(t *testing.T) {
 // floor, capped at half the remaining budget, and false when no deadline.
 func TestConvergenceCutoff(t *testing.T) {
 	// No deadline → no cutoff.
-	if _, ok := convergenceCutoff(context.Background()); ok {
+	if _, _, ok := convergenceCutoff(context.Background()); ok {
 		t.Error("expected no cutoff for a deadline-less context")
 	}
 
 	// Generous budget → reserve is 1/4 (below the half cap, above the floor).
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Second)
 	defer cancel()
-	cutoff, ok := convergenceCutoff(ctx)
+	cutoff, reserve, ok := convergenceCutoff(ctx)
 	if !ok {
 		t.Fatal("expected a cutoff for a deadline context")
 	}
 	dl, _ := ctx.Deadline()
-	reserve := dl.Sub(cutoff)
-	// reserve should be ~50s (200/4). Allow small slack for scheduling drift
-	// between context creation and the cutoff computation.
+	// reserve should be ~50s (200/4) and cutoff = deadline - reserve. Allow
+	// small slack for scheduling drift between context creation and the
+	// computation.
 	if reserve < 49*time.Second || reserve > 51*time.Second {
 		t.Errorf("expected ~50s reserve, got %v", reserve)
+	}
+	if gap := dl.Sub(cutoff); gap < 49*time.Second || gap > 51*time.Second {
+		t.Errorf("expected cutoff ~50s before deadline, got %v", gap)
+	}
+}
+
+// ─── task #7077 regression tests (the three real-world failure modes) ──────────
+//
+// These drive callEndpoint through the seams that the earlier convergence tests
+// left uncovered: an exploration turn whose deadline actually fires (BALTHASAR),
+// tool-call markup returned as text that the gate rejects (CASPER), and a
+// transient send error mid-exploration (MELCHIOR).
+
+// TestCallEndpoint_ConvergenceSurvivesExpiredExplorationCtx reproduces BALTHASAR:
+// an exploration turn runs the per-proposer deadline out, yet forced convergence
+// must still produce an answer because it runs on a detached, freshly-budgeted
+// context. Sharing the exploration ctx (the old behavior) would hand the forced
+// request an already-expired context → "context deadline exceeded".
+func TestCallEndpoint_ConvergenceSurvivesExpiredExplorationCtx(t *testing.T) {
+	restore := withFakeChatTurn(func(ctx context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		if len(req.Tools) > 0 {
+			// Slow exploration turn: block until the ORIGINAL deadline fires.
+			select {
+			case <-time.After(500 * time.Millisecond):
+			case <-ctx.Done():
+			}
+			return toolCallMsg("get_status", `{}`), embedded.ChatUsage{}, nil
+		}
+		// Forced-convergence request. A real client would fail on an expired
+		// ctx; if the fix works this ctx is detached and still live.
+		if ctx.Err() != nil {
+			return nil, embedded.ChatUsage{}, ctx.Err()
+		}
+		return answerMsg("탐색 데드라인이 지났어도 누적 맥락으로 최종 답변을 완성했다.\nCONFIDENCE: 5"), embedded.ChatUsage{}, nil
+	})
+	defer restore()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	content, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("forced convergence should survive an expired exploration ctx, got err: %v", err)
+	}
+	if !strings.Contains(content, "최종 답변을 완성") {
+		t.Errorf("expected the converged answer, got %q", content)
+	}
+}
+
+// TestCallEndpoint_ToolCallTextGetsNudged reproduces CASPER: a proposer returns
+// tool-call markup as its answer text (non-empty Content, no structured tool
+// calls). The old loop returned it verbatim and the RunProposers gate then
+// rejected it with no recovery. Now it must be nudged into a real answer.
+func TestCallEndpoint_ToolCallTextGetsNudged(t *testing.T) {
+	fake := &fakeChatTurn{script: []scriptedTurn{
+		{msg: answerMsg(`<tool_call>{"name": "read_file", "arguments": {"path": "x"}}</tool_call>`)},
+		{msg: answerMsg("파일을 확인한 결과 문제는 데드라인 공유였고, 독립 컨텍스트 분리로 해결된다.\nCONFIDENCE: 7")},
+	}}
+	defer withFakeChatTurn(fake.turn)()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "read_file"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	content, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("tool-call-text should be nudged, not fail: %v", err)
+	}
+	if CheckAnswerContent(content) != nil {
+		t.Errorf("recovered answer must pass the content gate, got %q", content)
+	}
+	if len(fake.reqs) != 2 {
+		t.Fatalf("expected 2 requests (exploration + tools-off convergence), got %d", len(fake.reqs))
+	}
+	if len(fake.reqs[0].Tools) == 0 {
+		t.Error("first request should be the tool-exploration turn")
+	}
+	if len(fake.reqs[1].Tools) != 0 {
+		t.Error("convergence request must drop tools")
+	}
+}
+
+// TestCallEndpoint_TransientErrorSalvagedByConvergence reproduces MELCHIOR's
+// salvage case: a transient send error AFTER useful tool exploration must not
+// discard the accumulated context — forced convergence recovers a final answer.
+func TestCallEndpoint_TransientErrorSalvagedByConvergence(t *testing.T) {
+	fake := &fakeChatTurn{script: []scriptedTurn{
+		{msg: toolCallMsg("get_status", `{}`)},                                  // explores successfully
+		{err: errors.New("transient error after 4 retries: API error 500")},     // send error mid-loop
+		{msg: answerMsg("서버 오류 직전까지 모은 맥락으로 최종 답변을 정리했다.\nCONFIDENCE: 4")}, // salvaged
+	}}
+	defer withFakeChatTurn(fake.turn)()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	content, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("a transient error after exploration should be salvaged, got err: %v", err)
+	}
+	if !strings.Contains(content, "최종 답변을 정리") {
+		t.Errorf("expected the salvaged answer, got %q", content)
+	}
+}
+
+// TestCallEndpoint_TransientErrorSurfacedWhenConvergenceFails verifies that when
+// the endpoint is truly down — exploration errors AND convergence cannot rescue
+// an answer — the original transport error is surfaced (more diagnostic than
+// "no substantive answer") rather than swallowed.
+func TestCallEndpoint_TransientErrorSurfacedWhenConvergenceFails(t *testing.T) {
+	fake := &fakeChatTurn{script: []scriptedTurn{
+		{err: errors.New("transient error after 4 retries: API error 500: Internal Server Error")},
+		{msg: emptyMsg()}, // convergence attempt 1 → empty
+		{msg: emptyMsg()}, // convergence attempt 2 (nudge) → empty
+	}}
+	defer withFakeChatTurn(fake.turn)()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err == nil {
+		t.Fatal("expected an error when the endpoint is down")
+	}
+	if !strings.Contains(err.Error(), "API error 500") {
+		t.Errorf("expected the original transport error surfaced, got %v", err)
+	}
+}
+
+// TestCallEndpoint_UserCancelAbortsWithoutSalvage verifies that a user
+// cancellation aborts immediately — it must NOT fall through to the salvage /
+// forced-convergence path (that path is only for transient/deadline errors).
+func TestCallEndpoint_UserCancelAbortsWithoutSalvage(t *testing.T) {
+	fake := &fakeChatTurn{script: []scriptedTurn{
+		{err: context.Canceled},
+	}}
+	defer withFakeChatTurn(fake.turn)()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // user stop
+
+	_, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if len(fake.reqs) != 1 {
+		t.Errorf("user cancel must not attempt forced convergence, got %d requests", len(fake.reqs))
 	}
 }
