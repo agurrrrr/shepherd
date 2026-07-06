@@ -21,6 +21,7 @@
 | 8 | `step-08-worker-wiring.md` | worker/server 배선 (`SetMagiExecutor`) + 폴백 | 2, 7 |
 | 9 | `step-09-webui.md` | 설정 API + WebUI (EmbeddedSettings의 MAGI 섹션) | 1, 2 |
 | 10 | `step-10-verification.md` | 통합 검증 체크리스트 + A/B 측정 준비 | 8, 9 |
+| 11 | `step-11-context-injection.md` | 제안자 읽기 컨텍스트 사전 주입 (Phase 1.5 — 작업 #7031/#7033 교훈) | 8 |
 
 1↔2는 서로 독립이라 순서를 바꿔도 된다. 9는 8과 독립이다.
 
