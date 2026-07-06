@@ -18,6 +18,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/discord"
 	"github.com/agurrrrr/shepherd/internal/embedded"
+	"github.com/agurrrrr/shepherd/internal/magi"
 	"github.com/agurrrrr/shepherd/internal/mcp"
 	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/queue"
@@ -60,6 +61,9 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 
 	// Initialize embedded provider executor (avoids import cycle: worker → mcp → queue → worker)
 	initEmbeddedExecutor(mcpServer)
+
+	// Initialize magi provider executor (avoids import cycle: worker → magi → embedded)
+	initMagiExecutor()
 
 	s := &Server{
 		app:       app,
@@ -692,6 +696,132 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			SessionID:        result.SessionID,
 			FilesModified:    result.FilesModified,
 			CostUSD:          result.CostUSD,
+			PromptTokens:     result.PromptTokens,
+			CompletionTokens: result.CompletionTokens,
+			Incomplete:       result.Incomplete,
+			IncompleteReason: result.IncompleteReason,
+		}, nil
+	})
+}
+
+// initMagiExecutor registers the magi consensus executor with the worker
+// package. This bridges the magi pipeline (proposers → aggregator → verdict)
+// to the worker's provider switch. The worker falls back to a single embedded
+// run when fewer than 2 proposers succeed (design §5.1).
+func initMagiExecutor() {
+	worker.SetMagiExecutor(func(
+		ctx context.Context,
+		sheepName, projectPath string,
+		prompt string,
+		opts worker.InteractiveOptions,
+		cancel context.CancelFunc,
+	) (*worker.ExecuteResult, error) {
+		// 1. Load magi config.
+		magiCfg, err := config.GetMagiConfig()
+		if err != nil {
+			return nil, fmt.Errorf("magi config error: %w", err)
+		}
+		if magiCfg == nil || !magiCfg.Enabled {
+			return nil, fmt.Errorf("magi is not configured or disabled. Configure it in Settings > Embedded > MAGI")
+		}
+
+		// 2. Validate — hard errors make the config unusable; warnings are advisory.
+		embeddedCfg, err := config.LoadEmbeddedConfig()
+		if err != nil {
+			return nil, fmt.Errorf("load embedded config for magi validation: %w", err)
+		}
+		errs, _ := config.ValidateMagiConfig(embeddedCfg)
+		if len(errs) > 0 {
+			return nil, fmt.Errorf("magi config validation failed: %s", strings.Join(errs, "; "))
+		}
+
+		// 3. Resolve proposer endpoints → magi.EndpointRef.
+		proposers := make([]magi.ProposerSpec, len(magiCfg.Proposers))
+		var firstProposerEP *magi.EndpointRef
+		for i, p := range magiCfg.Proposers {
+			ep, epErr := config.GetEmbeddedEndpointByID(p.EndpointID)
+			if epErr != nil {
+				return nil, fmt.Errorf("magi proposer %d: config error: %w", i+1, epErr)
+			}
+			if ep == nil {
+				return nil, fmt.Errorf("magi proposer endpoint %q not found or disabled", p.EndpointID)
+			}
+			ref := magi.EndpointRef{
+				ID:            ep.ID,
+				BaseURL:       ep.BaseURL,
+				APIKey:        ep.APIKey,
+				Model:         ep.Model,
+				ContextTokens: ep.ContextTokens,
+			}
+			proposers[i] = magi.ProposerSpec{
+				Endpoint:     ref,
+				PersonaKey:   p.Persona,
+				CustomPrompt: p.CustomPrompt,
+			}
+			if firstProposerEP == nil {
+				firstProposerEP = &ref
+			}
+		}
+
+		// 4. Resolve aggregator.
+		var aggregator magi.AggregatorSpec
+		switch magiCfg.Aggregator.Type {
+		case "endpoint":
+			ep, epErr := config.GetEmbeddedEndpointByID(magiCfg.Aggregator.EndpointID)
+			if epErr != nil {
+				return nil, fmt.Errorf("magi aggregator: config error: %w", epErr)
+			}
+			if ep == nil {
+				return nil, fmt.Errorf("magi aggregator endpoint %q not found or disabled", magiCfg.Aggregator.EndpointID)
+			}
+			aggregator = magi.AggregatorSpec{
+				Type:     "endpoint",
+				Endpoint: magi.EndpointRef{ID: ep.ID, BaseURL: ep.BaseURL, APIKey: ep.APIKey, Model: ep.Model, ContextTokens: ep.ContextTokens},
+			}
+			// Fallback to first proposer endpoint (design §7).
+			if firstProposerEP != nil {
+				aggregator.FallbackEndpoint = *firstProposerEP
+			}
+		case "claude_cli":
+			aggregator = magi.AggregatorSpec{
+				Type:    "claude_cli",
+				WorkDir: projectPath,
+			}
+			// Fallback to first proposer endpoint (design §7).
+			if firstProposerEP != nil {
+				aggregator.FallbackEndpoint = *firstProposerEP
+			}
+		default:
+			return nil, fmt.Errorf("magi aggregator: unknown type %q", magiCfg.Aggregator.Type)
+		}
+
+		// 5. Build base system prompt (same builder as embedded, no MCP guide).
+		baseSystem := worker.BuildSystemPromptForEmbedded(sheepName, projectPath, "")
+
+		// 6. Assemble magi.Options and run the pipeline.
+		magiOpts := magi.Options{
+			SheepName:           sheepName,
+			TaskPrompt:          prompt,
+			BaseSystem:          baseSystem,
+			Proposers:           proposers,
+			Aggregator:          aggregator,
+			ConfidenceThreshold: magiCfg.Escalation.ConfidenceThreshold,
+			MaxDebateRounds:     magiCfg.Escalation.MaxDebateRounds,
+			ProposerTimeout:     time.Duration(magiCfg.ProposerTimeoutSeconds) * time.Second,
+			OnOutput:            opts.OnOutput,
+		}
+
+		result, err := magi.Run(ctx, magiOpts)
+		if err != nil {
+			// ErrInsufficientProposers is returned as-is so the worker fallback
+			// branch can identify it via errors.Is (design §5.1).
+			return nil, err
+		}
+
+		// 7. Convert embedded.ExecuteResult → worker.ExecuteResult (same field
+		// mapping as the embedded executor closure).
+		return &worker.ExecuteResult{
+			Result:           result.Result,
 			PromptTokens:     result.PromptTokens,
 			CompletionTokens: result.CompletionTokens,
 			Incomplete:       result.Incomplete,

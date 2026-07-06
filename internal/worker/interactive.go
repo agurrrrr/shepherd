@@ -393,6 +393,13 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		if execErr == nil && result != nil && result.Incomplete {
 			execErr = fmt.Errorf("incomplete: %s", result.IncompleteReason)
 		}
+	case sheep.ProviderMagi:
+		// Magi: multi-model consensus deliberation, no subprocess
+		result, execErr = executeWithMagi(ctx, sheepName, proj.Path, prompt, opts, cancel)
+		// Same incomplete-surfacing rule as embedded (see #5468 note above).
+		if execErr == nil && result != nil && result.Incomplete {
+			execErr = fmt.Errorf("incomplete: %s", result.IncompleteReason)
+		}
 	case sheep.ProviderAuto:
 		// auto mode: use Claude by default
 		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
