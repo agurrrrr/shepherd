@@ -113,6 +113,10 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Post("/config/embedded/:id/set-active", s.handleSetActiveEndpoint)
 	api.Post("/config/embedded/test", s.handleTestEmbeddedEndpoint)
 
+	// MAGI consensus config (stored in embedded.yaml magi section)
+	api.Get("/config/magi", s.handleGetMagiConfig)
+	api.Put("/config/magi", s.handleUpdateMagiConfig)
+
 	// Backup & portable task history
 	api.Get("/settings/db-backup", s.handleDownloadDBBackup)
 	api.Get("/settings/tasks-export", s.handleExportTasks)

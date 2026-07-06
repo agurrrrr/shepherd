@@ -570,3 +570,67 @@ func embeddedEndpointFromJSON(body config.EmbeddedEndpointJSON) config.EmbeddedE
 		ContextTokens: body.ContextTokens,
 	}
 }
+
+// GET /api/config/magi
+// Returns the magi consensus config from embedded.yaml, plus validation
+// errors and warnings (design §7, §2.2).
+func (s *Server) handleGetMagiConfig(c *fiber.Ctx) error {
+	cfg, err := config.LoadEmbeddedConfig()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to load embedded config: "+err.Error())
+	}
+
+	errs, warnings := config.ValidateMagiConfig(cfg)
+
+	if cfg.Magi == nil {
+		return success(c, fiber.Map{
+			"magi":     nil,
+			"errors":   errs,
+			"warnings": warnings,
+		})
+	}
+
+	config.ApplyMagiDefaults(cfg.Magi)
+	return success(c, fiber.Map{
+		"magi":     cfg.Magi,
+		"errors":   errs,
+		"warnings": warnings,
+	})
+}
+
+// PUT /api/config/magi
+// Updates the magi section of embedded.yaml. Hard validation errors block
+// the save (400); warnings are advisory and do not block (design §2.2).
+func (s *Server) handleUpdateMagiConfig(c *fiber.Ctx) error {
+	var magi config.MagiConfig
+	if err := c.BodyParser(&magi); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+
+	config.ApplyMagiDefaults(&magi)
+
+	// Load full embedded config to validate magi in context (endpoints must exist).
+	cfg, err := config.LoadEmbeddedConfig()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to load embedded config: "+err.Error())
+	}
+	cfg.Magi = &magi
+
+	errs, warnings := config.ValidateMagiConfig(cfg)
+	if len(errs) > 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "magi config validation failed",
+			"errors":  errs,
+		})
+	}
+
+	if err := config.SaveMagiConfig(&magi); err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to save magi config: "+err.Error())
+	}
+
+	return success(c, fiber.Map{
+		"ok":       true,
+		"warnings": warnings,
+	})
+}

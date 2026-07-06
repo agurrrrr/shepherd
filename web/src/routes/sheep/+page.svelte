@@ -75,6 +75,8 @@
 						<option value="claude">Claude</option>
 						<option value="opencode">OpenCode</option>
 						<option value="pi">Pi</option>
+						<option value="embedded">Embedded</option>
+						<option value="magi">MAGI 🧠</option>
 						<option value="auto">Auto</option>
 					</select>
 				</div>
@@ -109,6 +111,8 @@
 							<option value="claude">Claude</option>
 							<option value="opencode">OpenCode</option>
 							<option value="pi">Pi</option>
+							<option value="embedded">Embedded</option>
+							<option value="magi">MAGI 🧠</option>
 							<option value="auto">Auto</option>
 						</select>
 						<button class="btn btn-danger btn-sm" onclick={() => removeSheep(s.name)}>Remove</button>

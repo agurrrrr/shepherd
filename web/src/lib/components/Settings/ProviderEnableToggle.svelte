@@ -1,7 +1,7 @@
 <script>
-	/** @type {{ claude: boolean, opencode: boolean, pi: boolean, embedded: boolean }} */
+	/** @type {{ claude: boolean, opencode: boolean, pi: boolean, embedded: boolean, magi: boolean }} */
 	export let providerEnabled;
-	/** @type {'claude' | 'opencode' | 'pi' | 'embedded'} */
+	/** @type {'claude' | 'opencode' | 'pi' | 'embedded' | 'magi'} */
 	export let provider;
 	/** @type {string} 예: '🟠 Claude' */
 	export let label;

@@ -68,12 +68,13 @@
 	);
 
 	// Provider 사용유무 (설정에서 끄면 선택지에서 숨김). 기본 모두 켜짐.
-	let providerEnabled = $state({ claude: true, opencode: true, pi: true, embedded: true });
+	let providerEnabled = $state({ claude: true, opencode: true, pi: true, embedded: true, magi: true });
 	const PROVIDER_OPTIONS = [
 		{ value: 'claude', label: 'Claude' },
 		{ value: 'opencode', label: 'OpenCode' },
 		{ value: 'pi', label: 'Pi' },
-		{ value: 'embedded', label: 'Embedded' }
+		{ value: 'embedded', label: 'Embedded' },
+		{ value: 'magi', label: 'MAGI 🧠' }
 	];
 	// Model option list and global default for the sheep's current provider.
 	let activeModelOptions = $derived(
@@ -267,7 +268,8 @@
 				claude: configRes.data.provider_enabled_claude !== false,
 				opencode: configRes.data.provider_enabled_opencode !== false,
 				pi: configRes.data.provider_enabled_pi !== false,
-				embedded: configRes.data.provider_enabled_embedded !== false
+				embedded: configRes.data.provider_enabled_embedded !== false,
+				magi: configRes.data.provider_enabled_magi !== false
 			};
 		}
 		if (modelRes?.data) {

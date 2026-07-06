@@ -7,6 +7,7 @@
 	import OpenCodeSettings from '$lib/components/Settings/OpenCodeSettings.svelte';
 	import PiSettings from '$lib/components/Settings/PiSettings.svelte';
 	import EmbeddedSettings from '$lib/components/Settings/EmbeddedSettings.svelte';
+	import ProviderEnableToggle from '$lib/components/Settings/ProviderEnableToggle.svelte';
 	import PreviewSection from '$lib/components/Settings/PreviewSection.svelte';
 	import MCPSection from '$lib/components/Settings/MCPSection.svelte';
 	import SkillSyncSection from '$lib/components/Settings/SkillSyncSection.svelte';
@@ -29,7 +30,7 @@
 	let modelOptions = $state({ claude: [], opencode: [], pi: [] });
 
 	// Provider enabled flags (shared mutable state)
-	let providerEnabled = $state({ claude: true, opencode: true, pi: true, embedded: true });
+	let providerEnabled = $state({ claude: true, opencode: true, pi: true, embedded: true, magi: true });
 
 	// Tab state
 	let activeTab = $state('common');
@@ -38,7 +39,8 @@
 		{ value: 'claude', label: 'Claude' },
 		{ value: 'opencode', label: 'OpenCode' },
 		{ value: 'pi', label: 'Pi' },
-		{ value: 'embedded', label: 'Embedded' }
+		{ value: 'embedded', label: 'Embedded' },
+		{ value: 'magi', label: 'MAGI 🧠' }
 	];
 
 	// 모든 탭을 항상 노출한다. 사용유무 토글이 각 provider 탭 안으로 이동했으므로,
@@ -73,7 +75,8 @@
 					claude: configRes.data.provider_enabled_claude !== false,
 					opencode: configRes.data.provider_enabled_opencode !== false,
 					pi: configRes.data.provider_enabled_pi !== false,
-					embedded: configRes.data.provider_enabled_embedded !== false
+					embedded: configRes.data.provider_enabled_embedded !== false,
+					magi: configRes.data.provider_enabled_magi !== false
 				};
 			}
 			if (mcpRes?.data) mcpStatus = mcpRes.data;
@@ -115,6 +118,7 @@
 			provider_enabled_opencode: providerEnabled.opencode,
 			provider_enabled_pi: providerEnabled.pi,
 			provider_enabled_embedded: providerEnabled.embedded,
+			provider_enabled_magi: providerEnabled.magi,
 			max_sheep: parseInt(configData.max_sheep) || 12,
 			max_concurrent_tasks: parseInt(configData.max_concurrent_tasks) || 0,
 			concurrency_limits: buildConcurrencyLimits(),
@@ -217,6 +221,13 @@
 			{/if}
 			{#if activeTab === 'embedded'}
 				<EmbeddedSettings {configData} {providerEnabled} reloadEndpoints={reloadEmbeddedEndpoints} />
+			{/if}
+			{#if activeTab === 'magi'}
+				<div class="magi-tab-content">
+					<ProviderEnableToggle {providerEnabled} provider="magi" label="🧠 MAGI" />
+					<p class="hint">MAGI 합의 시스템: 3개의 서로 다른 모델이 블라인드로 답안을 제시하고 판정자가 종합합니다. 설정은 Settings > Embedded 탭의 하단 MAGI 섹션에서 관리합니다.</p>
+					<p class="hint">→ <button class="link-btn" onclick={() => activeTab = 'embedded'}>Embedded 탭에서 MAGI 설정 열기</button></p>
+				</div>
 			{/if}
 
 			<!-- Save/Restart actions -->
@@ -380,5 +391,23 @@
 			padding: 6px 10px;
 			font-size: 13px;
 		}
+	}
+
+	.magi-tab-content {
+		padding: 8px 0;
+	}
+	.magi-tab-content .hint {
+		font-size: 13px;
+		color: var(--text-secondary);
+		margin: 8px 0;
+	}
+	.link-btn {
+		background: none;
+		border: none;
+		color: var(--accent);
+		cursor: pointer;
+		font-size: 13px;
+		text-decoration: underline;
+		padding: 0;
 	}
 </style>
