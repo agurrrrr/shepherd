@@ -10,23 +10,53 @@ import (
 	"github.com/agurrrrr/shepherd/internal/embedded"
 )
 
-// maxProposerToolRounds limits how many tool-call iterations a single proposer
-// can make before we force a final answer. Each round is one LLM call that
-// returns tool_calls; the proposer reads files / queries state and then
-// produces its deliberation answer.
-const maxProposerToolRounds = 10
+// minConvergenceReserve is the wall-clock time reserved at the tail of a
+// proposer's budget to force a final answer once tool exploration must stop.
+// Without a reserve, the forced (tools-off) request would race the hard
+// deadline and be cut off before producing an answer.
+const minConvergenceReserve = 20 * time.Second
 
-// callEndpoint sends a chat request — with optional read-only tools — and
-// runs a mini agent loop until the model produces a final text answer (no
-// tool_calls). It is the single seam for tests — override via the package
-// variable to inject fakes.
+// convergenceDirective is appended (as a user turn) when a proposer must stop
+// exploring and produce its final answer — because the wall-clock budget is
+// nearly spent. Tools are dropped from that request so the model cannot keep
+// investigating.
+const convergenceDirective = `이제 추가 조사(도구 사용)를 멈추고, 지금까지 확인한 내용만으로 최종 답변을 작성하라.
+더 이상 도구를 호출할 수 없다. 완결된 최종 답변을 쓰고, 마지막 줄에 "CONFIDENCE: <0-10 정수>"를 추가하라.`
+
+// emptyAnswerNudge re-prompts a proposer that returned an empty answer. Exactly
+// one nudge is allowed before the proposer is declared failed — a single empty
+// response must not discard the whole deliberation (lesson from task #7066).
+const emptyAnswerNudge = `빈 응답이 반환되었다. 지금까지의 맥락을 바탕으로 반드시 최종 답변을 작성하라.
+마지막 줄에 "CONFIDENCE: <0-10 정수>"를 포함하라.`
+
+// chatTurn performs one streaming chat request and returns the assistant
+// message plus token usage. It is a package variable so tests can drive the
+// proposer mini agent loop (callEndpoint) — including the tool-exploration,
+// forced-convergence, and empty-response-nudge paths — without a live LLM.
+var chatTurn = func(ctx context.Context, client *embedded.Client, req *embedded.ChatRequest, onToken func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+	msg, _, usage, err := client.AccumulateStreamWithRetry(ctx, req, nil, onToken)
+	var u embedded.ChatUsage
+	if usage != nil {
+		u = *usage
+	}
+	return msg, u, err
+}
+
+// callEndpoint sends a chat request — with optional read-only tools — and runs
+// a mini agent loop until the model produces a final text answer. It is a
+// package variable so higher-level tests can inject a fake wholesale.
 //
-// Phase 1.5: when tools and dispatch are non-empty, the request includes
-// them and the model may return tool_calls. Each tool call is validated
-// via IsReadOnlyTool (write tools are rejected), executed via the
-// ToolRegistry (native) or dispatch (MCP), and the result is fed back as
-// a tool-role message. The loop terminates when the model returns a
-// content-only message (no tool_calls) or maxProposerToolRounds is hit.
+// Boundary (design: 라운드 카운트 제거 — 타임아웃만으로 경계): there is no
+// tool-round count. Tool exploration runs until the per-proposer wall-clock
+// budget (the ctx deadline set in RunProposers) is nearly spent. A tail of that
+// budget (see minConvergenceReserve) is reserved so that, just before the
+// deadline, a forced convergence request — tools removed — can demand a final
+// answer from whatever context has accumulated. This replaces the old
+// "exceeded max tool rounds → hard failure → discard all work" behavior: the
+// boundary is now a soft convergence trigger, never a discard (task #7066).
+//
+// Empty answers get exactly one nudge before the proposer is declared failed,
+// so a single empty turn does not collapse the deliberation.
 //
 // onToken (may be nil) receives live content deltas for streaming UI.
 var callEndpoint = func(
@@ -42,16 +72,24 @@ var callEndpoint = func(
 ) (string, embedded.ChatUsage, error) {
 	client := embedded.NewClient(ep.BaseURL, ep.APIKey, ep.Model)
 
-	// Build initial messages.
 	messages := []embedded.ChatMessage{
 		{Role: embedded.ChatRoleSystem, Content: systemPrompt},
 		{Role: embedded.ChatRoleUser, Content: userPrompt},
 	}
 
+	var totalUsage embedded.ChatUsage
+
+	// No tools → single-shot request; nudge once if the answer comes back empty.
+	if len(tools) == 0 {
+		content, u, err := forceFinalAnswer(ctx, client, ep, messages, temperature, maxTokens, onToken, false)
+		addUsage(&totalUsage, u)
+		return content, totalUsage, err
+	}
+
 	// Create a per-proposer ToolRegistry for native tools (read_file, grep,
 	// glob). MCP tools are routed through the shared dispatch function.
 	var toolRegistry *embedded.ToolRegistry
-	if len(tools) > 0 && projectPath != "" {
+	if projectPath != "" {
 		// Build MCPToolDefs from the OpenAIToolDef list so the ToolRegistry
 		// knows about MCP tools for WantsSheepName checks.
 		var mcpDefs []embedded.MCPToolDef
@@ -68,122 +106,217 @@ var callEndpoint = func(
 		toolRegistry = embedded.NewToolRegistry(projectPath, sheepName, mcpDefs, dispatch)
 	}
 
-	var totalUsage embedded.ChatUsage
+	// Compute the convergence cutoff from the ctx deadline. Tool exploration
+	// runs until this instant; the reserved tail is for forcing a final answer.
+	// In production RunProposers always sets a deadline, so hasCutoff is true;
+	// the no-deadline branch exists only for tests (which return a final answer
+	// promptly and never loop unbounded).
+	convergeAt, hasCutoff := convergenceCutoff(ctx)
 
-	for round := 0; round <= maxProposerToolRounds; round++ {
+	// ── Tool exploration phase (bounded by wall clock, not a round count) ──
+	turn := 0
+	for {
+		// Approaching the deadline → stop exploring and force a final answer.
+		if hasCutoff && !time.Now().Before(convergeAt) {
+			break
+		}
+
+		turn++
 		req := &embedded.ChatRequest{
 			Model:       ep.Model,
 			Messages:    messages,
 			Temperature: temperature,
 			MaxTokens:   maxTokens,
 			Stream:      true,
-		}
-		if len(tools) > 0 {
-			req.Tools = tools
-			req.ToolChoice = "auto"
+			Tools:       tools,
+			ToolChoice:  "auto",
 		}
 
-		msg, _, usage, err := client.AccumulateStreamWithRetry(ctx, req, nil, onToken)
+		msg, usage, err := chatTurn(ctx, client, req, onToken)
+		addUsage(&totalUsage, usage)
 		if err != nil {
 			return "", totalUsage, err
 		}
 
-		if usage != nil {
-			totalUsage.PromptTokens += usage.PromptTokens
-			totalUsage.CompletionTokens += usage.CompletionTokens
-			totalUsage.TotalTokens += usage.TotalTokens
-		}
-
-		// Guard: nil message or empty content with no tool calls is a failure.
+		// A nil message, or an empty answer with no tool calls, falls through
+		// to forced convergence, which nudges once for a real answer.
 		if msg == nil {
-			return "", totalUsage, fmt.Errorf("empty response from %s", ep.ID)
+			break
 		}
-
-		// No tool calls → final text answer.
 		if len(msg.ToolCalls) == 0 {
-			if msg.Content == "" {
-				return "", totalUsage, fmt.Errorf("empty response from %s", ep.ID)
+			if msg.Content != "" {
+				return msg.Content, totalUsage, nil
 			}
-			return msg.Content, totalUsage, nil
+			break
 		}
 
-		// Tool calls present — execute each one.
-		// Add the assistant message with tool calls to history.
+		// Tool calls present — execute each one and feed the results back.
 		messages = append(messages, *msg)
-
 		for idx, tc := range msg.ToolCalls {
-			// Assign fallback ID if missing.
 			if tc.ID == "" {
-				tc.ID = fmt.Sprintf("call_%d_%d", round, idx)
+				tc.ID = fmt.Sprintf("call_%d_%d", turn, idx)
 			}
+			messages = append(messages, executeProposerToolCall(ctx, tc, toolRegistry, dispatch, sheepName))
+		}
+	}
 
-			toolName := tc.Func.Name
+	// ── Forced convergence: drop tools, demand a final answer ──
+	content, u, err := forceFinalAnswer(ctx, client, ep, messages, temperature, maxTokens, onToken, true)
+	addUsage(&totalUsage, u)
+	return content, totalUsage, err
+}
 
-			// Validate: only read-only tools are allowed.
-			if !IsReadOnlyTool(toolName) {
-				messages = append(messages, embedded.ChatMessage{
-					Role:       embedded.ChatRoleTool,
-					Content:    fmt.Sprintf("Error: tool %q is not allowed in MAGI deliberation (write tools are prohibited). Use only read-only tools.", toolName),
-					ToolCallID: tc.ID,
-				})
-				continue
-			}
+// convergenceCutoff returns the instant at which a proposer must stop tool
+// exploration and force a final answer, reserving a tail of the remaining
+// budget for that forced request. The bool is false when ctx has no deadline,
+// in which case exploration is unbounded (tests only — production always sets
+// a per-proposer timeout).
+func convergenceCutoff(ctx context.Context) (time.Time, bool) {
+	dl, ok := ctx.Deadline()
+	if !ok {
+		return time.Time{}, false
+	}
+	remaining := time.Until(dl)
+	if remaining <= 0 {
+		return dl, true // already past — converge immediately
+	}
+	reserve := remaining / 4
+	if reserve < minConvergenceReserve {
+		reserve = minConvergenceReserve
+	}
+	if reserve > remaining/2 {
+		reserve = remaining / 2 // never spend more than half on convergence
+	}
+	return dl.Add(-reserve), true
+}
 
-			// Parse arguments.
-			var args map[string]interface{}
-			if tc.Func.Args != "" {
-				if err := json.Unmarshal([]byte(tc.Func.Args), &args); err != nil {
-					messages = append(messages, embedded.ChatMessage{
-						Role:       embedded.ChatRoleTool,
-						Content:    fmt.Sprintf("JSON parse error for %s: %v", toolName, err),
-						ToolCallID: tc.ID,
-					})
-					continue
-				}
-			}
-			if args == nil {
-				args = make(map[string]interface{})
-			}
+// forceFinalAnswer performs the terminal, tools-off request(s) that produce a
+// proposer's final answer. When appendDirective is set, a convergence
+// instruction is added first (used when tool exploration was cut short). An
+// empty answer triggers exactly one nudge before the proposer is declared
+// failed, so a single empty response never collapses the deliberation.
+func forceFinalAnswer(
+	ctx context.Context,
+	client *embedded.Client,
+	ep EndpointRef,
+	messages []embedded.ChatMessage,
+	temperature float32,
+	maxTokens int,
+	onToken func(string),
+	appendDirective bool,
+) (string, embedded.ChatUsage, error) {
+	msgs := messages
+	if appendDirective {
+		msgs = append(msgs, embedded.ChatMessage{
+			Role:    embedded.ChatRoleUser,
+			Content: convergenceDirective,
+		})
+	}
 
-			// Inject sheep_name for MCP tools that need it.
-			if toolRegistry != nil && toolRegistry.WantsSheepName(toolName) {
-				args["sheep_name"] = sheepName
-			}
+	var usage embedded.ChatUsage
 
-			// Execute the tool.
-			var resultStr string
-			var execErr error
-			if toolRegistry != nil {
-				resultStr, execErr = toolRegistry.Dispatch(ctx, toolName, args)
-			} else if dispatch != nil {
-				resultStr, _, execErr = dispatch(toolName, args)
-			} else {
-				execErr = fmt.Errorf("no tool dispatcher available for %s", toolName)
-			}
+	// Two attempts: the initial request plus one nudge on an empty answer.
+	for attempt := 0; attempt < 2; attempt++ {
+		req := &embedded.ChatRequest{
+			Model:       ep.Model,
+			Messages:    msgs,
+			Temperature: temperature,
+			MaxTokens:   maxTokens,
+			Stream:      true,
+			// No tools — this request must yield a text answer.
+		}
 
-			if execErr != nil {
-				resultStr = fmt.Sprintf("Error: %v", execErr)
-			}
+		msg, u, err := chatTurn(ctx, client, req, onToken)
+		addUsage(&usage, u)
+		if err != nil {
+			return "", usage, err
+		}
+		if msg != nil && msg.Content != "" {
+			return msg.Content, usage, nil
+		}
 
-			messages = append(messages, embedded.ChatMessage{
+		// Empty answer — nudge once more.
+		if msg != nil {
+			msgs = append(msgs, *msg)
+		}
+		msgs = append(msgs, embedded.ChatMessage{
+			Role:    embedded.ChatRoleUser,
+			Content: emptyAnswerNudge,
+		})
+	}
+
+	return "", usage, fmt.Errorf("empty response from %s after convergence nudge", ep.ID)
+}
+
+// executeProposerToolCall validates and runs a single tool call from a
+// proposer, returning the tool-role result message. Only read-only tools are
+// permitted; write tools are rejected with an error fed back to the model so
+// proposers may read but never mutate shared state (design §Phase 1.5).
+func executeProposerToolCall(
+	ctx context.Context,
+	tc embedded.ToolCall,
+	toolRegistry *embedded.ToolRegistry,
+	dispatch embedded.MCPDispatcher,
+	sheepName string,
+) embedded.ChatMessage {
+	toolName := tc.Func.Name
+
+	// Validate: only read-only tools are allowed.
+	if !IsReadOnlyTool(toolName) {
+		return embedded.ChatMessage{
+			Role:       embedded.ChatRoleTool,
+			Content:    fmt.Sprintf("Error: tool %q is not allowed in MAGI deliberation (write tools are prohibited). Use only read-only tools.", toolName),
+			ToolCallID: tc.ID,
+		}
+	}
+
+	// Parse arguments.
+	var args map[string]interface{}
+	if tc.Func.Args != "" {
+		if err := json.Unmarshal([]byte(tc.Func.Args), &args); err != nil {
+			return embedded.ChatMessage{
 				Role:       embedded.ChatRoleTool,
-				Content:    truncateToolResult(resultStr),
+				Content:    fmt.Sprintf("JSON parse error for %s: %v", toolName, err),
 				ToolCallID: tc.ID,
-			})
-		}
-
-		// Loop continues — model will see tool results and produce next response.
-	}
-
-	// Exceeded max rounds — return whatever content we have from the last
-	// message (if any), or an error.
-	if len(messages) > 0 {
-		last := messages[len(messages)-1]
-		if last.Role == embedded.ChatRoleAssistant && last.Content != "" {
-			return last.Content, totalUsage, nil
+			}
 		}
 	}
-	return "", totalUsage, fmt.Errorf("proposer exceeded max tool rounds (%d) without final answer", maxProposerToolRounds)
+	if args == nil {
+		args = make(map[string]interface{})
+	}
+
+	// Inject sheep_name for MCP tools that need it.
+	if toolRegistry != nil && toolRegistry.WantsSheepName(toolName) {
+		args["sheep_name"] = sheepName
+	}
+
+	// Execute the tool.
+	var resultStr string
+	var execErr error
+	switch {
+	case toolRegistry != nil:
+		resultStr, execErr = toolRegistry.Dispatch(ctx, toolName, args)
+	case dispatch != nil:
+		resultStr, _, execErr = dispatch(toolName, args)
+	default:
+		execErr = fmt.Errorf("no tool dispatcher available for %s", toolName)
+	}
+	if execErr != nil {
+		resultStr = fmt.Sprintf("Error: %v", execErr)
+	}
+
+	return embedded.ChatMessage{
+		Role:       embedded.ChatRoleTool,
+		Content:    truncateToolResult(resultStr),
+		ToolCallID: tc.ID,
+	}
+}
+
+// addUsage accumulates token usage in place.
+func addUsage(dst *embedded.ChatUsage, u embedded.ChatUsage) {
+	dst.PromptTokens += u.PromptTokens
+	dst.CompletionTokens += u.CompletionTokens
+	dst.TotalTokens += u.TotalTokens
 }
 
 // truncateToolResult caps a tool result to a reasonable size for the chat

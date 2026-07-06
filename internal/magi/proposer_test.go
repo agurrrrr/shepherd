@@ -571,3 +571,261 @@ func TestRunProposers_BlindIsolation(t *testing.T) {
 		t.Errorf("slot 1 answer should not contain melchior's answer")
 	}
 }
+
+// ─── callEndpoint mini agent loop tests ───────────────────────────────────
+//
+// These drive the REAL callEndpoint via the chatTurn seam so the tool
+// exploration, forced-convergence, and empty-response-nudge paths are covered
+// (the fakeCallEndpoint tests above replace callEndpoint wholesale and never
+// exercise its loop).
+
+// scriptedTurn is one programmed response from a scripted fake chatTurn.
+type scriptedTurn struct {
+	msg *embedded.ChatMessage
+	err error
+}
+
+// fakeChatTurn returns a scripted sequence of assistant messages and records
+// every request it saw so tests can assert on tool presence and appended
+// directive/nudge turns.
+type fakeChatTurn struct {
+	mu     sync.Mutex
+	script []scriptedTurn
+	idx    int
+	reqs   []*embedded.ChatRequest
+}
+
+func (f *fakeChatTurn) turn(_ context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reqs = append(f.reqs, req)
+	if f.idx >= len(f.script) {
+		return &embedded.ChatMessage{Role: embedded.ChatRoleAssistant}, embedded.ChatUsage{}, nil
+	}
+	tn := f.script[f.idx]
+	f.idx++
+	return tn.msg, embedded.ChatUsage{}, tn.err
+}
+
+func withFakeChatTurn(fn func(context.Context, *embedded.Client, *embedded.ChatRequest, func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error)) func() {
+	orig := chatTurn
+	chatTurn = fn
+	return func() { chatTurn = orig }
+}
+
+func toolCallMsg(name, args string) *embedded.ChatMessage {
+	return &embedded.ChatMessage{
+		Role: embedded.ChatRoleAssistant,
+		ToolCalls: []embedded.ToolCall{
+			{ID: "tc1", Type: "function", Func: embedded.ToolCallFunction{Name: name, Args: args}},
+		},
+	}
+}
+
+func answerMsg(content string) *embedded.ChatMessage {
+	return &embedded.ChatMessage{Role: embedded.ChatRoleAssistant, Content: content}
+}
+
+func emptyMsg() *embedded.ChatMessage {
+	return &embedded.ChatMessage{Role: embedded.ChatRoleAssistant, Content: ""}
+}
+
+// TestCallEndpoint_ToolExplorationThenAnswer verifies that a proposer reads via
+// a tool call and then returns a final answer, with the tool dispatched once.
+func TestCallEndpoint_ToolExplorationThenAnswer(t *testing.T) {
+	fake := &fakeChatTurn{script: []scriptedTurn{
+		{msg: toolCallMsg("get_status", `{}`)},
+		{msg: answerMsg("final answer\nCONFIDENCE: 8")},
+	}}
+	defer withFakeChatTurn(fake.turn)()
+
+	var dispatched []string
+	dispatch := func(name string, _ map[string]interface{}) (string, []embedded.MCPImage, error) {
+		dispatched = append(dispatched, name)
+		return "status: ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	content, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if content != "final answer\nCONFIDENCE: 8" {
+		t.Errorf("unexpected content: %q", content)
+	}
+	if len(dispatched) != 1 || dispatched[0] != "get_status" {
+		t.Errorf("expected get_status dispatched once, got %v", dispatched)
+	}
+	if len(fake.reqs) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(fake.reqs))
+	}
+	if len(fake.reqs[0].Tools) == 0 {
+		t.Error("exploration request should include tools")
+	}
+}
+
+// TestCallEndpoint_ForcedConvergenceNearDeadline verifies that when a model
+// keeps calling tools, the loop stops exploring near the deadline and forces a
+// final answer via a tools-off request — instead of hard-failing (task #7066).
+func TestCallEndpoint_ForcedConvergenceNearDeadline(t *testing.T) {
+	var mu sync.Mutex
+	var toolReqs, finalReqs int
+	restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(req.Tools) > 0 {
+			toolReqs++
+			// Slow exploration turn so the deadline is reached in a bounded
+			// number of iterations.
+			time.Sleep(20 * time.Millisecond)
+			return toolCallMsg("get_status", `{}`), embedded.ChatUsage{}, nil
+		}
+		finalReqs++ // convergence request (tools dropped) → final answer
+		return answerMsg("converged answer\nCONFIDENCE: 5"), embedded.ChatUsage{}, nil
+	})
+	defer restore()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	content, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if content != "converged answer\nCONFIDENCE: 5" {
+		t.Errorf("expected converged answer, got %q", content)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if toolReqs == 0 {
+		t.Error("expected at least one tool-exploration request before convergence")
+	}
+	if finalReqs == 0 {
+		t.Error("expected a tools-off convergence request")
+	}
+}
+
+// TestCallEndpoint_EmptyAnswerNudgeRecovers verifies that an empty answer is
+// rescued by a single nudge instead of an immediate hard failure.
+func TestCallEndpoint_EmptyAnswerNudgeRecovers(t *testing.T) {
+	fake := &fakeChatTurn{script: []scriptedTurn{
+		{msg: emptyMsg()},
+		{msg: answerMsg("recovered\nCONFIDENCE: 6")},
+	}}
+	defer withFakeChatTurn(fake.turn)()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// No tools → forceFinalAnswer path with appendDirective=false.
+	content, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, nil, nil, "", "sheep")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if content != "recovered\nCONFIDENCE: 6" {
+		t.Errorf("expected recovered answer, got %q", content)
+	}
+	if len(fake.reqs) != 2 {
+		t.Fatalf("expected 2 requests (initial + nudge), got %d", len(fake.reqs))
+	}
+	last := fake.reqs[1].Messages[len(fake.reqs[1].Messages)-1]
+	if last.Role != embedded.ChatRoleUser || !strings.Contains(last.Content, "빈 응답") {
+		t.Errorf("nudge request should append the empty-answer nudge, got %+v", last)
+	}
+}
+
+// TestCallEndpoint_EmptyAnswerTwiceFails verifies that two consecutive empty
+// answers (initial + nudge) produce a failure, and no third attempt is made.
+func TestCallEndpoint_EmptyAnswerTwiceFails(t *testing.T) {
+	fake := &fakeChatTurn{script: []scriptedTurn{
+		{msg: emptyMsg()},
+		{msg: emptyMsg()},
+	}}
+	defer withFakeChatTurn(fake.turn)()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, nil, nil, "", "sheep")
+	if err == nil {
+		t.Fatal("expected error when both attempts are empty")
+	}
+	if !strings.Contains(err.Error(), "empty response") {
+		t.Errorf("expected empty-response error, got %v", err)
+	}
+	if len(fake.reqs) != 2 {
+		t.Errorf("expected exactly 2 attempts, got %d", len(fake.reqs))
+	}
+}
+
+// TestCallEndpoint_WriteToolRejected verifies that a write tool requested by a
+// proposer is never dispatched; the rejection is fed back as a tool result.
+func TestCallEndpoint_WriteToolRejected(t *testing.T) {
+	fake := &fakeChatTurn{script: []scriptedTurn{
+		{msg: toolCallMsg("write_file", `{"path":"x"}`)},
+		{msg: answerMsg("done\nCONFIDENCE: 7")},
+	}}
+	defer withFakeChatTurn(fake.turn)()
+
+	var dispatched []string
+	dispatch := func(name string, _ map[string]interface{}) (string, []embedded.MCPImage, error) {
+		dispatched = append(dispatched, name)
+		return "should not run", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "write_file"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	content, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if content != "done\nCONFIDENCE: 7" {
+		t.Errorf("unexpected content: %q", content)
+	}
+	if len(dispatched) != 0 {
+		t.Errorf("write tool must not be dispatched, got %v", dispatched)
+	}
+	found := false
+	for _, m := range fake.reqs[1].Messages {
+		if m.Role == embedded.ChatRoleTool && strings.Contains(m.Content, "not allowed") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a tool-role rejection message in the follow-up request")
+	}
+}
+
+// TestConvergenceCutoff verifies the reserve computation: default 1/4 with a
+// floor, capped at half the remaining budget, and false when no deadline.
+func TestConvergenceCutoff(t *testing.T) {
+	// No deadline → no cutoff.
+	if _, ok := convergenceCutoff(context.Background()); ok {
+		t.Error("expected no cutoff for a deadline-less context")
+	}
+
+	// Generous budget → reserve is 1/4 (below the half cap, above the floor).
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Second)
+	defer cancel()
+	cutoff, ok := convergenceCutoff(ctx)
+	if !ok {
+		t.Fatal("expected a cutoff for a deadline context")
+	}
+	dl, _ := ctx.Deadline()
+	reserve := dl.Sub(cutoff)
+	// reserve should be ~50s (200/4). Allow small slack for scheduling drift
+	// between context creation and the cutoff computation.
+	if reserve < 49*time.Second || reserve > 51*time.Second {
+		t.Errorf("expected ~50s reserve, got %v", reserve)
+	}
+}
