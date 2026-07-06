@@ -113,9 +113,15 @@ func ValidateMagiConfig(cfg *EmbeddedConfig) (errs []string, warnings []string) 
 	}
 
 	for i, p := range m.Proposers {
-		ep, exists := endpointByID[p.EndpointID]
-		if !exists || !ep.Enabled {
-			errs = append(errs, fmt.Sprintf("proposer %d: endpoint %q not found or disabled", i+1, p.EndpointID))
+		// Empty endpoint_id is a warning (not yet configured), not a hard error.
+		// A non-empty ID that doesn't exist or is disabled is a hard error.
+		if p.EndpointID == "" {
+			warnings = append(warnings, fmt.Sprintf("proposer %d: no endpoint selected", i+1))
+		} else {
+			ep, exists := endpointByID[p.EndpointID]
+			if !exists || !ep.Enabled {
+				errs = append(errs, fmt.Sprintf("proposer %d: endpoint %q not found or disabled", i+1, p.EndpointID))
+			}
 		}
 
 		if !validPersonas[p.Persona] {
@@ -135,7 +141,7 @@ func ValidateMagiConfig(cfg *EmbeddedConfig) (errs []string, warnings []string) 
 		// before defaults are applied. Treat "" as acceptable.
 	case "endpoint":
 		if m.Aggregator.EndpointID == "" {
-			errs = append(errs, "aggregator: endpoint \"\" not found or disabled")
+			warnings = append(warnings, "aggregator: no endpoint selected")
 		} else {
 			ep, exists := endpointByID[m.Aggregator.EndpointID]
 			if !exists || !ep.Enabled {

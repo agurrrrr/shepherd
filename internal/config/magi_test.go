@@ -260,6 +260,42 @@ func TestValidateMagiConfig_DisabledSkipsValidation(t *testing.T) {
 	}
 }
 
+func TestValidateMagiConfig_EnabledEmptyEndpointsAreWarnings(t *testing.T) {
+	cfg := validMagiConfig()
+	// All proposers have empty endpoint_id — should be warnings, not errors.
+	cfg.Magi.Proposers[0].EndpointID = ""
+	cfg.Magi.Proposers[1].EndpointID = ""
+	cfg.Magi.Proposers[2].EndpointID = ""
+	// Aggregator type endpoint with empty ID — also a warning.
+	cfg.Magi.Aggregator.Type = "endpoint"
+	cfg.Magi.Aggregator.EndpointID = ""
+
+	errs, warnings := ValidateMagiConfig(cfg)
+	if len(errs) != 0 {
+		t.Fatalf("empty endpoint_ids should be warnings not errors, got errors: %v", errs)
+	}
+	// Should have 3 proposer warnings + 1 aggregator warning.
+	if len(warnings) < 4 {
+		t.Fatalf("expected at least 4 warnings (3 proposers + 1 aggregator), got %d: %v", len(warnings), warnings)
+	}
+	foundProposer := false
+	foundAggregator := false
+	for _, w := range warnings {
+		if strings.Contains(w, "proposer 1: no endpoint selected") {
+			foundProposer = true
+		}
+		if strings.Contains(w, "aggregator: no endpoint selected") {
+			foundAggregator = true
+		}
+	}
+	if !foundProposer {
+		t.Fatalf("expected proposer no-endpoint warning, got: %v", warnings)
+	}
+	if !foundAggregator {
+		t.Fatalf("expected aggregator no-endpoint warning, got: %v", warnings)
+	}
+}
+
 func TestApplyMagiDefaults(t *testing.T) {
 	m := &MagiConfig{
 		Escalation:             MagiEscalation{ConfidenceThreshold: 0, MaxDebateRounds: 0},
