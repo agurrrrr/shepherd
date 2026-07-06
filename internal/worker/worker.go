@@ -68,8 +68,8 @@ func CreateWithOptions(opts CreateOptions) (*ent.Sheep, error) {
 	if provider == "" {
 		provider = "claude"
 	}
-	if provider != "claude" && provider != "opencode" && provider != "pi" && provider != "embedded" && provider != "auto" {
-		return nil, fmt.Errorf("'%s' is not a valid provider (claude, opencode, pi, embedded, auto)", provider)
+	if provider != "claude" && provider != "opencode" && provider != "pi" && provider != "embedded" && provider != "magi" && provider != "auto" {
+		return nil, fmt.Errorf("'%s' is not a valid provider (claude, opencode, pi, embedded, magi, auto)", provider)
 	}
 
 	// Create sheep
@@ -319,8 +319,8 @@ func UpdateProvider(name string, provider string) error {
 	client := db.Client()
 
 	// Validate provider
-	if provider != "claude" && provider != "opencode" && provider != "pi" && provider != "embedded" && provider != "auto" {
-		return fmt.Errorf("'%s' is not a valid provider (claude, opencode, pi, embedded, auto)", provider)
+	if provider != "claude" && provider != "opencode" && provider != "pi" && provider != "embedded" && provider != "magi" && provider != "auto" {
+		return fmt.Errorf("'%s' is not a valid provider (claude, opencode, pi, embedded, magi, auto)", provider)
 	}
 
 	// Clear session ID when changing provider (different providers use different session systems)
@@ -373,6 +373,8 @@ func ProviderEmoji(provider sheep.Provider) string {
 		return "🟣" // Pi = purple
 	case sheep.ProviderEmbedded:
 		return "🔶" // Embedded = orange diamond
+	case sheep.ProviderMagi:
+		return "🧠" // Magi = multi-model consensus
 	case sheep.ProviderAuto:
 		return "🔵" // Auto = blue
 	default:

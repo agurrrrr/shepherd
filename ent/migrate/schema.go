@@ -133,7 +133,7 @@ var (
 		{Name: "name", Type: field.TypeString, Unique: true},
 		{Name: "status", Type: field.TypeEnum, Enums: []string{"idle", "working", "error"}, Default: "idle"},
 		{Name: "session_id", Type: field.TypeString, Nullable: true},
-		{Name: "provider", Type: field.TypeEnum, Enums: []string{"claude", "opencode", "pi", "embedded", "auto"}, Default: "claude"},
+		{Name: "provider", Type: field.TypeEnum, Enums: []string{"claude", "opencode", "pi", "embedded", "magi", "auto"}, Default: "claude"},
 		{Name: "consecutive_failures", Type: field.TypeInt, Default: 0},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},

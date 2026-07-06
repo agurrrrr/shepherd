@@ -56,6 +56,7 @@ func Init() error {
 	viper.SetDefault("provider_enabled_opencode", true)
 	viper.SetDefault("provider_enabled_pi", true)
 	viper.SetDefault("provider_enabled_embedded", true)
+	viper.SetDefault("provider_enabled_magi", true)
 
 	// 프롬프트 주입 설정
 	viper.SetDefault("session_reuse", true)
@@ -271,7 +272,7 @@ func IsProviderEnabled(provider string) bool {
 		p = "claude"
 	}
 	switch p {
-	case "claude", "opencode", "pi", "embedded":
+	case "claude", "opencode", "pi", "embedded", "magi":
 		return GetBool("provider_enabled_" + p)
 	default:
 		return true
