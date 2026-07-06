@@ -63,7 +63,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	initEmbeddedExecutor(mcpServer)
 
 	// Initialize magi provider executor (avoids import cycle: worker → magi → embedded)
-	initMagiExecutor()
+	initMagiExecutor(mcpServer)
 
 	s := &Server{
 		app:       app,
@@ -712,7 +712,7 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 // package. This bridges the magi pipeline (proposers → aggregator → verdict)
 // to the worker's provider switch. The worker falls back to a single embedded
 // run when fewer than 2 proposers succeed (design §5.1).
-func initMagiExecutor() {
+func initMagiExecutor(mcpServer *mcp.Server) {
 	worker.SetMagiExecutor(func(
 		ctx context.Context,
 		sheepName, projectPath string,
@@ -799,15 +799,160 @@ func initMagiExecutor() {
 			return nil, fmt.Errorf("magi aggregator: unknown type %q", magiCfg.Aggregator.Type)
 		}
 
-		// 5. Build the MAGI deliberation base prompt. The embedded builder is
-		// deliberately NOT reused here: its prompt claims tool access, which
-		// made tool-free proposers emit tool-call text as their whole answer
-		// (task #7031).
-		baseSystem := worker.BuildSystemPromptForMagi(projectPath)
+		// 5. Build the MAGI deliberation base prompt.
+		// Phase 1.5: proposers now have read-only tools, so the prompt includes
+		// the MCP guide, skills, memory, and custom prompt — same context
+		// sections as the embedded agent, but with a MAGI-specific identity.
+
+		// 5a. Resolve project name for per-project MCP settings.
+		projectName, _ := project.GetByPath(projectPath)
+
+		// 5b. Collect MCP tool definitions — same pattern as initEmbeddedExecutor.
+		var mcpDefs []embedded.MCPToolDef
+		for _, t := range mcp.ListCoreToolDefs() {
+			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
+		}
+		for _, t := range mcp.ListWikiToolDefs() {
+			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
+		}
+		// Browser tools are excluded — three models sharing one Chrome profile
+		// would race on navigation/clicks.
+
+		// Collect external MCP server tools enabled for this project.
+		var externalServers map[string]*mcp.ExternalMCPServer
+		var externalToolNames map[string]bool
+		if projectName != "" {
+			activeServers, activeErr := getProjectActiveMCPServers(projectName)
+			if activeErr == nil && len(activeServers) > 0 {
+				manager := mcp.GetMCPManager()
+				externalServers = make(map[string]*mcp.ExternalMCPServer)
+				externalToolNames = make(map[string]bool)
+
+				for _, srv := range activeServers {
+					ext, spawnErr := manager.GetOrCreate(srv)
+					if spawnErr != nil {
+						fmt.Printf("[magi] warning: failed to spawn MCP server %q: %v\n", srv.Name, spawnErr)
+						continue
+					}
+					externalServers[srv.Name] = ext
+					for _, t := range ext.Tools() {
+						mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
+						externalToolNames[t.Name] = true
+					}
+				}
+			}
+		}
+
+		// 5c. Filter to read-only tools only (Phase 1.5).
+		var readOnlyMCPDefs []embedded.MCPToolDef
+		for _, d := range mcpDefs {
+			if magi.IsReadOnlyTool(d.Name) {
+				readOnlyMCPDefs = append(readOnlyMCPDefs, d)
+			}
+		}
+
+		// 5d. Build MCP guide from the read-only tool set.
+		mcpGuide := buildMCPGuide(readOnlyMCPDefs, projectName)
+
+		// 5e. Build the system prompt with MAGI identity + read-only tools.
+		baseSystem := worker.BuildSystemPromptForMagi(sheepName, projectPath, mcpGuide)
+
+		// 5f. Build the MCP dispatcher (same pattern as initEmbeddedExecutor).
+		mcpDispatch := func(name string, args map[string]interface{}) (resultText string, images []embedded.MCPImage, err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("tool %s panicked: %v", name, r)
+				}
+			}()
+
+			// Check if this is an external MCP tool.
+			if externalToolNames[name] {
+				for _, ext := range externalServers {
+					for _, t := range ext.Tools() {
+						if t.Name == name {
+							text, imgs, err := ext.CallToolMultimodal(name, args)
+							return text, toEmbeddedMCPImages(imgs), err
+						}
+					}
+				}
+				return "", nil, fmt.Errorf("external tool %q not found", name)
+			}
+			// Fall back to built-in shepherd MCP server.
+			text, err := mcpServer.ExecuteTool(name, args)
+			return text, nil, err
+		}
+
+		// 5g. Build OpenAI tool definitions from the read-only MCP defs.
+		// Native tools (read_file, grep, glob) are added by the ToolRegistry
+		// inside each proposer's callEndpoint; we only need the MCP defs here
+		// so the ToolRegistry can be constructed with them.
+		var toolDefs []embedded.OpenAIToolDef
+		// Add native read-only tools.
+		nativeReadOnly := []embedded.OpenAIToolDef{
+			{
+				Type: "function",
+				Function: embedded.OpenAIFunction{
+					Name:        "read_file",
+					Description: "Read the contents of a file. For text files, returns the text. For image files (png/jpeg/gif/webp), when the task has attached images, returns the image for you to view directly. Large text files are returned one page at a time.",
+					Parameters: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"path":   map[string]interface{}{"type": "string", "description": "Path to the file"},
+							"offset": map[string]interface{}{"type": "number", "description": "Line number to start from (1-indexed)."},
+							"limit":  map[string]interface{}{"type": "number", "description": "Maximum number of lines to read."},
+						},
+						"required": []string{"path"},
+					},
+				},
+			},
+			{
+				Type: "function",
+				Function: embedded.OpenAIFunction{
+					Name:        "grep",
+					Description: "Search for a pattern in files using ripgrep.",
+					Parameters: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"pattern": map[string]interface{}{"type": "string", "description": "Pattern to search for"},
+							"glob":    map[string]interface{}{"type": "string", "description": "Glob pattern to filter files (optional)"},
+						},
+						"required": []string{"pattern"},
+					},
+				},
+			},
+			{
+				Type: "function",
+				Function: embedded.OpenAIFunction{
+					Name:        "glob",
+					Description: "Find files matching a glob pattern in the project directory.",
+					Parameters: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"pattern": map[string]interface{}{"type": "string", "description": "Glob pattern (e.g., **/*.go)"},
+						},
+						"required": []string{"pattern"},
+					},
+				},
+			},
+		}
+		toolDefs = append(toolDefs, nativeReadOnly...)
+
+		// Add read-only MCP tools.
+		for _, d := range readOnlyMCPDefs {
+			toolDefs = append(toolDefs, embedded.OpenAIToolDef{
+				Type: "function",
+				Function: embedded.OpenAIFunction{
+					Name:        d.Name,
+					Description: d.Description,
+					Parameters:  d.Parameters,
+				},
+			})
+		}
 
 		// 6. Assemble magi.Options and run the pipeline.
 		magiOpts := magi.Options{
 			SheepName:           sheepName,
+			ProjectPath:         projectPath,
 			TaskPrompt:          prompt,
 			BaseSystem:          baseSystem,
 			Proposers:           proposers,
@@ -821,6 +966,8 @@ func initMagiExecutor() {
 					opts.OnOutput(fmt.Sprintf("[MAGI:%d] %s", slot, text))
 				}
 			},
+			ToolDefs:     toolDefs,
+			ToolDispatch: mcpDispatch,
 		}
 
 		result, err := magi.Run(ctx, magiOpts)

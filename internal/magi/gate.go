@@ -37,7 +37,12 @@ var toolCallBlockRe = regexp.MustCompile(
 // minSubstantiveRunes is the minimum prose length that must remain after
 // stripping tool-call markup. A short preamble like "먼저 코드를 확인하겠습니다."
 // followed by a tool call is not an answer.
-const minSubstantiveRunes = 120
+//
+// Phase 1.5: lowered from 120 to 60 because proposers with read-only tools
+// may produce concise, well-supported answers after tool use. The gate's
+// purpose is to catch contentless tool-call-only output, not to enforce a
+// minimum answer length on tool-augmented deliberation.
+const minSubstantiveRunes = 60
 
 // CheckAnswerContent returns a non-nil error when the answer carries no
 // substantive content: empty text, a bare tool-call JSON object, or tool-call

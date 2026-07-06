@@ -16,8 +16,11 @@ type Persona struct {
 // commonDeliberationRules is the shared rule block appended to every persona
 // prompt (design §6). Extracted as a constant so all three personas — and
 // custom personas — share identical rules.
+//
+// Phase 1.5: proposers now have read-only tools. The rules reflect this.
 const commonDeliberationRules = `[심의 규칙]
-- 이 심의에서 너는 도구를 사용할 수 없다. 텍스트로만 완결된 답을 작성하라.
+- 이 심의에서 너는 읽기 전용 도구를 사용할 수 있다. 파일 읽기(read_file, grep, glob), 작업 히스토리 조회(get_history, get_task_detail), 위키 조회, 외부 MCP 조회 도구를 사용해 코드와 상태를 직접 확인하라.
+- 쓰기 도구(write_file, edit_file, bash, task_start 등)는 사용할 수 없다. 쓰기 도구 호출 시도는 답변을 무효화한다.
 - 다른 심의자의 존재를 언급하지 마라. 너의 독립적 결론만 제시하라.
 - 답변의 마지막 줄에 반드시 "CONFIDENCE: <0-10 정수>" 한 줄을 추가하라.`
 

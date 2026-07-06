@@ -114,34 +114,55 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 }
 
 // BuildSystemPromptForMagi builds the base system prompt for MAGI proposers.
-// Phase 1 deliberation is tool-free (design §8), so this prompt must NOT
-// claim tool access — reusing BuildSystemPromptForEmbedded made models
-// faithfully attempt tool calls and produce contentless answers (task #7031).
-// It also omits the MCP guide, skills, memory, and custom prompt sections,
-// all of which presuppose an agent that can act.
-func BuildSystemPromptForMagi(projectPath string) string {
+// Phase 1.5: proposers now have read-only tools, so the prompt must claim
+// tool access and include the MCP guide, skills, memory, and custom prompt —
+// the same context sections as BuildSystemPromptForEmbedded, but with a
+// MAGI-specific identity.
+//
+// The mcpGuide parameter is the project-specific MCP tool guide (pre-built by
+// the caller). If empty, the default hardcoded guide is used.
+func BuildSystemPromptForMagi(sheepName, projectPath, mcpGuide string) string {
 	var sections []string
 
-	// Deliberator identity — advisory only, no tools.
+	// MAGI deliberator identity — with read-only tools.
 	sections = append(sections,
 		"너는 shepherd MAGI 합의 시스템의 심의자다. 이 심의는 자문 전용이며, 너의 답변은 다른 심의자들의 답변과 함께 판정자에게 전달된다.")
 
 	sections = append(sections,
-		"[심의 환경 — 도구 없음]\n"+
-			"- 이 심의에서 너는 어떤 도구도 사용할 수 없다. 파일 읽기/쓰기, 셸 명령 실행, MCP 도구 호출 전부 불가능하다.\n"+
-			"- 도구 호출을 시도하지 마라. 도구 호출 문법을 출력하면 그 답변은 무효 처리된다.\n"+
-			"- 오직 태스크 설명에 포함된 정보와 너의 일반 지식만으로 추론하라.")
+		"[심의 환경 — 읽기 전용 도구]\n"+
+			"- 이 심의에서 너는 읽기 전용 도구를 사용할 수 있다. 파일 읽기(read_file, grep, glob), 작업 히스토리 조회(get_history, get_task_detail), 위키 조회, 외부 MCP 조회 도구를 사용해 코드와 상태를 직접 확인하라.\n"+
+			"- 쓰기 도구(write_file, edit_file, bash, task_start 등)는 사용할 수 없다. 쓰기 도구 호출 시도는 답변을 무효화한다.\n"+
+			"- 도구를 사용해 코드와 상태를 직접 확인한 후, 확인된 사실에 기반하여 답변하라.")
 
 	if projectPath != "" {
 		sections = append(sections, fmt.Sprintf(
-			"[심의 대상]\n프로젝트 루트: %s (참고 정보일 뿐, 이 경로에 접근할 수는 없다)",
+			"[작업 환경]\n현재 작업 디렉토리(프로젝트 루트): %s\n"+
+				"- bash 명령, 파일 읽기/쓰기, glob/grep 도구는 모두 이 디렉토리를 기준으로 실행된다.\n"+
+				"- 파일 경로는 이 디렉토리 기준 상대경로를 사용하라.",
 			projectPath))
 	}
 
-	sections = append(sections,
-		"[답변 규칙]\n"+
-			"- 확인된 사실과 추정을 명확히 구분하고, 추정에는 근거를 붙여라.\n"+
-			"- 코드·로그·설정을 직접 확인해야만 결론 낼 수 있는 문제라면, 추측을 결론처럼 단정하지 마라. 대신 무엇을 어떻게 확인해야 하는지(파일, 명령어, 로그) 구체적인 검증 절차를 제시하라.")
+	// Available tools guide — use project-specific guide if provided
+	if mcpGuide != "" {
+		sections = append(sections, mcpGuide)
+	} else if config.GetBool("include_mcp_guide") {
+		sections = append(sections, embeddedMCPGuide())
+	}
+
+	// Project skills
+	if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
+		sections = append(sections, fmt.Sprintf("[Project Skills - use skill_load MCP tool for full content]\n%s", skillsText))
+	}
+
+	// Sheep memory
+	if memText := buildSheepMemorySection(sheepName); memText != "" {
+		sections = append(sections, memText)
+	}
+
+	// Custom prompt
+	if custom := config.GetString("custom_prompt_embedded"); custom != "" {
+		sections = append(sections, fmt.Sprintf("[User Custom Instructions]\n%s", custom))
+	}
 
 	return joinSections(sections)
 }

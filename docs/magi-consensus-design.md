@@ -318,6 +318,25 @@ config 스키마, provider 등록, WebUI 설정 탭, `SetMagiExecutor` 배선.
 **magi 모드 `advisory`에서는 태스크 전체를 무툴 심의로 처리**한다.
 (#7000에서 본 것처럼 자문형 태스크는 실제로 존재하는 주요 부류다.)
 
+### Phase 1.5 — 읽기 전용 도구 주입
+Phase 1과 Phase 2 사이의 중간 단계. Phase 1의 무툴 심의는 "코드를 직접 확인해야
+하는 문제"에서 추측을 결론으로 내는 한계가 있었다 (#7031/#7033 교훈). Phase 1.5는
+proposer에게 **읽기 전용 도구**를 주입하여 이 한계를 극복한다:
+
+- **도구 셋**: `read_file`, `grep`, `glob` (네이티브), `get_history`, `get_task_detail`,
+  `get_status`, `skill_load`, `wiki_*` (shepherd MCP), 외부 MCP 서버의 읽기 전용 메서드
+  (`list_`, `get_`, `read_`, `status` 등 이름 기반 휴리스틱으로 분류)
+- **제외 도구**: `write_file`, `edit_file`, `bash` (파일 시스템 변경), `task_start`,
+  `task_complete`, `task_error` (태스크 상태 변이), 브라우저 도구 (Chrome 프로필 충돌),
+  모든 `_add_`, `_delete_`, `_update_`, `_start`, `_stop` 패턴의 외부 MCP 도구
+- **핵심 설계**: 모든 proposer가 동일한 읽기 전용 툴 셋을 공유 (per-proposer가 아님).
+  각 proposer는 독립적인 `ToolRegistry`를 생성하여 파일을 병렬로 읽을 수 있음.
+  `callEndpoint`가 미니 에이전트 루프로 변경되어 최대 10회 도구 호출 후 최종 답변 도출.
+- **게이트 조정**: `minSubstantiveRunes`를 120에서 60으로 낮춤 — 도구 사용 후 간결한
+  답변이 임계값에 걸려 실패하는 것을 방지.
+- **쓰기 도구 제외 이유**: 3개 모델이 동일한 파일 시스템/클러스터에 동시 쓰기를
+  시도하면 충돌이 발생함. Phase 2의 단일 executor 패턴에서만 쓰기를 허용.
+
 ### Phase 2 — 플랜 합의 + 단일 executor
 에이전틱 태스크: ① orchestrator가 공유 컨텍스트 팩(파일 트리, 관련 파일 발췌)을
 만들어 3 proposer에 동일 제공 → ② "실행 계획"을 §5 파이프라인으로 합의 →

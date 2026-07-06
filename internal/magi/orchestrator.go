@@ -14,15 +14,25 @@ import (
 // server) resolves config and prompts; this package stays dependency-free.
 type Options struct {
 	SheepName           string
-	TaskPrompt          string        // the user's task prompt
-	BaseSystem          string        // base system prompt (BuildSystemPromptForEmbedded output)
+	ProjectPath         string // needed for ToolRegistry (read_file, grep, glob)
+	TaskPrompt          string // the user's task prompt
+	BaseSystem          string // base system prompt (BuildSystemPromptForEmbedded output)
 	Proposers           []ProposerSpec
 	Aggregator          AggregatorSpec
-	ConfidenceThreshold int           // default 7 (caller applies config defaults)
-	MaxDebateRounds     int           // 0 = never debate, 1 = design default
-	ProposerTimeout     time.Duration // per-proposer (default 120s)
-	OnOutput            func(string)  // live output sink, may be nil
+	ConfidenceThreshold int                         // default 7 (caller applies config defaults)
+	MaxDebateRounds     int                         // 0 = never debate, 1 = design default
+	ProposerTimeout     time.Duration               // per-proposer (default 120s)
+	OnOutput            func(string)                // live output sink, may be nil
 	OnProposerToken     func(slot int, text string) // live token stream, may be nil
+
+	// Phase 1.5: read-only tool injection. All proposers share the same tool
+	// set — per-proposer divergence would make the blind comparison unfair.
+	// ToolDefs is the filtered (read-only) OpenAI tool definitions.
+	// ToolDispatch routes MCP tool calls to the shepherd MCP server or external
+	// MCP servers. Native tools (read_file/grep/glob) are handled by a
+	// per-proposer ToolRegistry created inside RunProposers.
+	ToolDefs     []embedded.OpenAIToolDef
+	ToolDispatch embedded.MCPDispatcher
 }
 
 // ErrInsufficientProposers signals that fewer than 2 proposers answered.
@@ -74,6 +84,10 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 		Timeout:         timeout,
 		OnOutput:        emit,
 		OnProposerToken: opts.OnProposerToken,
+		ToolDefs:        opts.ToolDefs,
+		ToolDispatch:    opts.ToolDispatch,
+		ProjectPath:     opts.ProjectPath,
+		SheepName:       opts.SheepName,
 	})
 	totalCalls += len(opts.Proposers)
 
@@ -173,6 +187,10 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 		Timeout:         timeout,
 		OnOutput:        emit,
 		OnProposerToken: opts.OnProposerToken,
+		ToolDefs:        opts.ToolDefs,
+		ToolDispatch:    opts.ToolDispatch,
+		ProjectPath:     opts.ProjectPath,
+		SheepName:       opts.SheepName,
 	}, debateRound1, verdict.AgreementAxis, opts.TaskPrompt)
 	totalCalls += len(debateRound1)
 

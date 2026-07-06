@@ -52,7 +52,7 @@ func (d *dualFake) install() func() {
 	}
 }
 
-func (d *dualFake) epCall(ctx context.Context, ep EndpointRef, systemPrompt, userPrompt string, temperature float32, maxTokens int, onToken func(string)) (string, embedded.ChatUsage, error) {
+func (d *dualFake) epCall(ctx context.Context, ep EndpointRef, systemPrompt, userPrompt string, temperature float32, maxTokens int, onToken func(string), tools []embedded.OpenAIToolDef, dispatch embedded.MCPDispatcher, projectPath, sheepName string) (string, embedded.ChatUsage, error) {
 	d.mu.Lock()
 	d.epTotal++
 	idx := d.epCount[ep.ID]
@@ -63,7 +63,7 @@ func (d *dualFake) epCall(ctx context.Context, ep EndpointRef, systemPrompt, use
 	if idx >= len(funcs) || funcs[idx] == nil {
 		return "", embedded.ChatUsage{}, fmt.Errorf("no fake for %s round %d", ep.ID, idx)
 	}
-	return funcs[idx](ctx, ep, systemPrompt, userPrompt, temperature, maxTokens, onToken)
+	return funcs[idx](ctx, ep, systemPrompt, userPrompt, temperature, maxTokens, onToken, tools, dispatch, projectPath, sheepName)
 }
 
 func (d *dualFake) aggCall(ctx context.Context, spec AggregatorSpec, systemPrompt, userPrompt string) (string, embedded.ChatUsage, error) {
@@ -81,7 +81,7 @@ func (d *dualFake) aggCall(ctx context.Context, spec AggregatorSpec, systemPromp
 // ─── Fake helpers ─────────────────────────────────────────────────────
 
 func okUsage(answer string, u embedded.ChatUsage) fakeFunc {
-	return func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int, _ func(string)) (string, embedded.ChatUsage, error) {
+	return func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int, _ func(string), _ []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, _ string) (string, embedded.ChatUsage, error) {
 		return answer, u, nil
 	}
 }

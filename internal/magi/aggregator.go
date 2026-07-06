@@ -14,10 +14,10 @@ import (
 
 // AggregatorSpec selects the judging backend (resolved by the wiring layer).
 type AggregatorSpec struct {
-	Type            string       // "claude_cli" | "endpoint"
-	Endpoint        EndpointRef // used when Type == "endpoint"
+	Type             string      // "claude_cli" | "endpoint"
+	Endpoint         EndpointRef // used when Type == "endpoint"
 	FallbackEndpoint EndpointRef // used when claude CLI fails (design §7)
-	WorkDir         string      // project path for the claude CLI subprocess
+	WorkDir          string      // project path for the claude CLI subprocess
 }
 
 // aggregatorOnOutput is the live-output sink used by aggregatorComplete
@@ -40,14 +40,15 @@ var aggregatorComplete = func(ctx context.Context, spec AggregatorSpec, systemPr
 }
 
 // aggregatorEndpoint calls a local OpenAI-compatible endpoint at temperature 0.2
-// for deterministic judging (design §5.3).
+// for deterministic judging (design §5.3). The aggregator does not use tools —
+// it only judges the proposers' answers.
 func aggregatorEndpoint(ctx context.Context, ep EndpointRef, systemPrompt, userPrompt string) (string, embedded.ChatUsage, error) {
 	ctxTokens := ep.ContextTokens
 	if ctxTokens == 0 {
 		ctxTokens = embedded.DefaultContextTokens
 	}
 	maxTokens := ctxTokens / 4
-	return callEndpoint(ctx, ep, systemPrompt, userPrompt, 0.2, maxTokens, nil)
+	return callEndpoint(ctx, ep, systemPrompt, userPrompt, 0.2, maxTokens, nil, nil, nil, "", "")
 }
 
 // aggregatorClaudeCLI invokes "claude --print" as a subprocess. On failure

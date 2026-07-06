@@ -72,8 +72,11 @@ func TestAllPersonasContainCommonRules(t *testing.T) {
 		if !strings.Contains(p.Prompt, "CONFIDENCE") {
 			t.Errorf("persona %q: prompt missing CONFIDENCE instruction", key)
 		}
-		if !strings.Contains(p.Prompt, "도구를 사용할 수 없다") {
-			t.Errorf("persona %q: prompt missing tool restriction", key)
+		if !strings.Contains(p.Prompt, "읽기 전용 도구를 사용할 수 있다") {
+			t.Errorf("persona %q: prompt missing read-only tool permission", key)
+		}
+		if !strings.Contains(p.Prompt, "쓰기 도구") {
+			t.Errorf("persona %q: prompt missing write tool restriction", key)
 		}
 		if !strings.Contains(p.Prompt, "독립적 결론") {
 			t.Errorf("persona %q: prompt missing independence instruction", key)
