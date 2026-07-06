@@ -4,31 +4,31 @@ import "fmt"
 
 // MagiProposer selects one embedded endpoint as a deliberation member.
 type MagiProposer struct {
-	EndpointID   string `mapstructure:"endpoint_id" yaml:"endpoint_id"`
-	Persona      string `mapstructure:"persona" yaml:"persona"` // melchior | balthasar | casper | custom
-	CustomPrompt string `mapstructure:"custom_prompt" yaml:"custom_prompt,omitempty"`
+	EndpointID   string `mapstructure:"endpoint_id" json:"endpoint_id" yaml:"endpoint_id"`
+	Persona      string `mapstructure:"persona" json:"persona" yaml:"persona"` // melchior | balthasar | casper | custom
+	CustomPrompt string `mapstructure:"custom_prompt" json:"custom_prompt,omitempty" yaml:"custom_prompt,omitempty"`
 }
 
 // MagiAggregator selects the synthesis/judging backend.
 type MagiAggregator struct {
-	Type       string `mapstructure:"type" yaml:"type"` // claude_cli | endpoint
-	EndpointID string `mapstructure:"endpoint_id" yaml:"endpoint_id,omitempty"`
+	Type       string `mapstructure:"type" json:"type" yaml:"type"` // claude_cli | endpoint
+	EndpointID string `mapstructure:"endpoint_id" json:"endpoint_id,omitempty" yaml:"endpoint_id,omitempty"`
 }
 
 // MagiEscalation controls the debate-escalation gate (design §5.3, §5.4).
 type MagiEscalation struct {
-	ConfidenceThreshold int `mapstructure:"confidence_threshold" yaml:"confidence_threshold"`
-	MaxDebateRounds     int `mapstructure:"max_debate_rounds" yaml:"max_debate_rounds"`
+	ConfidenceThreshold int `mapstructure:"confidence_threshold" json:"confidence_threshold" yaml:"confidence_threshold"`
+	MaxDebateRounds     int `mapstructure:"max_debate_rounds" json:"max_debate_rounds" yaml:"max_debate_rounds"`
 }
 
 // MagiConfig is the magi consensus provider settings (design §7).
 type MagiConfig struct {
-	Enabled                bool           `mapstructure:"enabled" yaml:"enabled"`
-	Proposers              []MagiProposer `mapstructure:"proposers" yaml:"proposers"`
-	Aggregator             MagiAggregator `mapstructure:"aggregator" yaml:"aggregator"`
-	Escalation             MagiEscalation `mapstructure:"escalation" yaml:"escalation"`
-	ProposerTimeoutSeconds int            `mapstructure:"proposer_timeout_seconds" yaml:"proposer_timeout_seconds"`
-	Mode                   string         `mapstructure:"mode" yaml:"mode"` // advisory (Phase 1); plan/review reserved
+	Enabled                bool           `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	Proposers              []MagiProposer `mapstructure:"proposers" json:"proposers" yaml:"proposers"`
+	Aggregator             MagiAggregator `mapstructure:"aggregator" json:"aggregator" yaml:"aggregator"`
+	Escalation             MagiEscalation `mapstructure:"escalation" json:"escalation" yaml:"escalation"`
+	ProposerTimeoutSeconds int            `mapstructure:"proposer_timeout_seconds" json:"proposer_timeout_seconds" yaml:"proposer_timeout_seconds"`
+	Mode                   string         `mapstructure:"mode" json:"mode" yaml:"mode"` // advisory (Phase 1); plan/review reserved
 }
 
 // ApplyMagiDefaults fills zero-value fields with defaults. Call after load.
@@ -82,6 +82,12 @@ func ValidateMagiConfig(cfg *EmbeddedConfig) (errs []string, warnings []string) 
 		return errs, warnings
 	}
 	m := cfg.Magi
+
+	// When MAGI is disabled, skip hard validation — user can save
+	// a partially configured (or empty) magi section without errors.
+	if !m.Enabled {
+		return errs, warnings
+	}
 
 	// --- Hard errors ---
 

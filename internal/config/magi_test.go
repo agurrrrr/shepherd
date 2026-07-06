@@ -244,6 +244,22 @@ func TestValidateMagiConfig_NilMagi(t *testing.T) {
 	}
 }
 
+func TestValidateMagiConfig_DisabledSkipsValidation(t *testing.T) {
+	cfg := validMagiConfig()
+	cfg.Magi.Enabled = false
+	// Even with empty endpoint_ids, disabled magi should produce no errors.
+	cfg.Magi.Proposers[0].EndpointID = ""
+	cfg.Magi.Proposers[1].EndpointID = ""
+	cfg.Magi.Proposers[2].EndpointID = ""
+	errs, warnings := ValidateMagiConfig(cfg)
+	if len(errs) != 0 {
+		t.Fatalf("disabled magi should skip validation, got errors: %v", errs)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("disabled magi should skip warnings, got: %v", warnings)
+	}
+}
+
 func TestApplyMagiDefaults(t *testing.T) {
 	m := &MagiConfig{
 		Escalation:             MagiEscalation{ConfidenceThreshold: 0, MaxDebateRounds: 0},
