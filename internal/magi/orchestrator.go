@@ -238,8 +238,15 @@ func buildAdoptedText(v *Verdict) string {
 	return text
 }
 
-// finalize builds the ExecuteResult and emits the cost summary line.
+// finalize builds the ExecuteResult and emits the final synthesis + cost summary.
+// The synthesis text is emitted with [MAGI:*] prefix so the frontend's unified
+// panel displays the actual answer — without this, only status messages appear
+// in the main window and the final result is invisible until task completion.
 func finalize(text string, usage embedded.ChatUsage, calls int, emit func(string)) *embedded.ExecuteResult {
+	// Emit the final synthesis so it appears in the unified panel.
+	if text != "" {
+		emit(fmt.Sprintf("[MAGI:*] 📋 최종 종합:\n%s\n", text))
+	}
 	totalTokens := usage.PromptTokens + usage.CompletionTokens
 	emit(fmt.Sprintf("[MAGI:*] 📊 MAGI 심의 비용: %d 토큰 (호출 %d회)\n", totalTokens, calls))
 
