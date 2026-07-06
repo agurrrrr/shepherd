@@ -6,6 +6,7 @@
 	import { thinkingByProject, modelByProject } from '$lib/stores.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
+	import MagiStreamPanel from '$lib/components/MagiStreamPanel.svelte';
 	import CommandInput from '$lib/components/CommandInput.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import GitGraph from '$lib/components/GitGraph.svelte';
@@ -696,7 +697,11 @@
 			<!-- Live Output tab -->
 			{#if activeTab === 'output'}
 				<div class="output-fill">
-					<OutputViewer lines={liveOutput} maxHeight="none" />
+					{#if sheepProvider === 'magi'}
+						<MagiStreamPanel lines={liveOutput} maxHeight="none" />
+					{:else}
+						<OutputViewer lines={liveOutput} maxHeight="none" />
+					{/if}
 				</div>
 			{/if}
 

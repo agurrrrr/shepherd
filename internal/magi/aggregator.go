@@ -47,7 +47,7 @@ func aggregatorEndpoint(ctx context.Context, ep EndpointRef, systemPrompt, userP
 		ctxTokens = embedded.DefaultContextTokens
 	}
 	maxTokens := ctxTokens / 4
-	return callEndpoint(ctx, ep, systemPrompt, userPrompt, 0.2, maxTokens)
+	return callEndpoint(ctx, ep, systemPrompt, userPrompt, 0.2, maxTokens, nil)
 }
 
 // aggregatorClaudeCLI invokes "claude --print" as a subprocess. On failure

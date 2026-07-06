@@ -578,7 +578,7 @@ func TestAccumulateStreamWithRetry(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "", "test-model")
-	msg, finish, _, err := c.AccumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, nil)
+	msg, finish, _, err := c.AccumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, nil, nil)
 	if err != nil {
 		t.Fatalf("AccumulateStreamWithRetry error: %v", err)
 	}
@@ -619,7 +619,7 @@ func TestAccumulateStreamWithRetryContextCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	_, _, _, err := c.AccumulateStreamWithRetry(ctx, &ChatRequest{Model: "test-model"}, nil)
+	_, _, _, err := c.AccumulateStreamWithRetry(ctx, &ChatRequest{Model: "test-model"}, nil, nil)
 	if err == nil {
 		t.Fatal("expected error from cancelled context, got nil")
 	}
@@ -637,7 +637,7 @@ func TestAccumulateStreamWithRetryFatalError(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "", "test-model")
-	_, _, _, err := c.AccumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, nil)
+	_, _, _, err := c.AccumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, nil, nil)
 	if err == nil {
 		t.Fatal("expected error from HTTP 400, got nil")
 	}

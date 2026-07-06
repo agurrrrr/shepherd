@@ -450,7 +450,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// (restart, overload, network blip), this retries with exponential
 		// backoff + health-check recovery instead of immediately failing the
 		// task and losing all conversation context.
-		msg, finishReason, usage, err := client.AccumulateStreamWithRetry(ctx, req, opts.OnOutput)
+		msg, finishReason, usage, err := client.AccumulateStreamWithRetry(ctx, req, opts.OnOutput, nil)
 		if err != nil {
 			fmt.Printf("[embedded] iter=%d req error=%v\n", iteration, err)
 			return &ExecuteResult{

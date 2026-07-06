@@ -300,12 +300,13 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 // AccumulateStream runs ChatStream and accumulates the full response.
 // Returns the assembled message, finish reason, and token usage.
 func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatMessage, string, *ChatUsage, error) {
-	return c.AccumulateStreamWithProgress(ctx, req, nil)
+	return c.AccumulateStreamWithProgress(ctx, req, nil, nil)
 }
 
 // AccumulateStreamWithProgress is like AccumulateStream but forwards progress
-// messages (for long prompt processing visibility, task #6955 §4.6).
-func (c *Client) AccumulateStreamWithProgress(ctx context.Context, req *ChatRequest, onProgress func(string)) (*ChatMessage, string, *ChatUsage, error) {
+// messages (for long prompt processing visibility, task #6955 §4.6) and live
+// token deltas via onToken (may be nil).
+func (c *Client) AccumulateStreamWithProgress(ctx context.Context, req *ChatRequest, onProgress func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
 	var (
 		contentBuilder   strings.Builder
 		reasoningBuilder strings.Builder
@@ -334,6 +335,9 @@ func (c *Client) AccumulateStreamWithProgress(ctx context.Context, req *ChatRequ
 
 		if event.Delta.Content != "" {
 			contentBuilder.WriteString(event.Delta.Content)
+			if onToken != nil {
+				onToken(event.Delta.Content)
+			}
 		}
 
 		if event.Delta.ReasoningContent != "" {
@@ -623,13 +627,13 @@ func (rc retryConfig) nextDelay(attempt int) time.Duration {
 // transient errors. Between retries it waits for the server to recover via
 // health checks (up to totalWaitLimit total). The OnOutput callback (if set)
 // receives status messages so the user can see what's happening.
-func (c *Client) AccumulateStreamWithRetry(ctx context.Context, req *ChatRequest, onOutput func(string)) (*ChatMessage, string, *ChatUsage, error) {
+func (c *Client) AccumulateStreamWithRetry(ctx context.Context, req *ChatRequest, onOutput func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
 	rc := defaultRetryConfig
 	deadline := time.Now().Add(rc.totalWaitLimit)
 
 	var lastErr error
 	for attempt := 0; attempt <= rc.maxRetries; attempt++ {
-		msg, finishReason, usage, err := c.AccumulateStreamWithProgress(ctx, req, onOutput)
+		msg, finishReason, usage, err := c.AccumulateStreamWithProgress(ctx, req, onOutput, onToken)
 		if err == nil {
 			return msg, finishReason, usage, nil
 		}

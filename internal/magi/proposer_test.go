@@ -23,7 +23,7 @@ func testEndpoint(id, model string) EndpointRef {
 }
 
 // fakeFunc is the signature of a single fake callEndpoint function.
-type fakeFunc func(ctx context.Context, ep EndpointRef, systemPrompt, userPrompt string, temperature float32, maxTokens int) (string, embedded.ChatUsage, error)
+type fakeFunc func(ctx context.Context, ep EndpointRef, systemPrompt, userPrompt string, temperature float32, maxTokens int, onToken func(string)) (string, embedded.ChatUsage, error)
 
 // fakeCallEndpoint replaces callEndpoint for testing. Functions are dispatched
 // by endpoint ID so concurrent calls are routed correctly regardless of
@@ -35,7 +35,7 @@ type fakeCallEndpoint struct {
 	received []string // system prompts received
 }
 
-func (f *fakeCallEndpoint) call(ctx context.Context, ep EndpointRef, systemPrompt, userPrompt string, temperature float32, maxTokens int) (string, embedded.ChatUsage, error) {
+func (f *fakeCallEndpoint) call(ctx context.Context, ep EndpointRef, systemPrompt, userPrompt string, temperature float32, maxTokens int, onToken func(string)) (string, embedded.ChatUsage, error) {
 	f.mu.Lock()
 	f.calls++
 	f.received = append(f.received, systemPrompt)
@@ -44,7 +44,7 @@ func (f *fakeCallEndpoint) call(ctx context.Context, ep EndpointRef, systemPromp
 	if fn == nil {
 		return "", embedded.ChatUsage{}, errors.New("no fake for endpoint " + ep.ID)
 	}
-	return fn(ctx, ep, systemPrompt, userPrompt, temperature, maxTokens)
+	return fn(ctx, ep, systemPrompt, userPrompt, temperature, maxTokens, onToken)
 }
 
 // withFakeCallEndpoint swaps callEndpoint and returns a restore function.
@@ -57,21 +57,21 @@ func withFakeCallEndpoint(fake *fakeCallEndpoint) func() {
 // okFake returns a fakeFunc that always succeeds with the given answer and
 // confidence. Usage: okFake("answer\nCONFIDENCE: 8")
 func okFake(answer string) fakeFunc {
-	return func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int) (string, embedded.ChatUsage, error) {
+	return func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int, _ func(string)) (string, embedded.ChatUsage, error) {
 		return answer, embedded.ChatUsage{}, nil
 	}
 }
 
 // errFake returns a fakeFunc that always fails with the given error.
 func errFake(err string) fakeFunc {
-	return func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int) (string, embedded.ChatUsage, error) {
+	return func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int, _ func(string)) (string, embedded.ChatUsage, error) {
 		return "", embedded.ChatUsage{}, errors.New(err)
 	}
 }
 
 // slowFake returns a fakeFunc that blocks until ctx is cancelled.
 func slowFake() fakeFunc {
-	return func(ctx context.Context, _ EndpointRef, _, _ string, _ float32, _ int) (string, embedded.ChatUsage, error) {
+	return func(ctx context.Context, _ EndpointRef, _, _ string, _ float32, _ int, _ func(string)) (string, embedded.ChatUsage, error) {
 		<-ctx.Done()
 		return "", embedded.ChatUsage{}, ctx.Err()
 	}
@@ -387,7 +387,7 @@ func TestRunProposers_TemperatureDefault(t *testing.T) {
 var capturedTemp float32
 fake := &fakeCallEndpoint{
 funcs: map[string]fakeFunc{
-"ep1": func(_ context.Context, _ EndpointRef, _, _ string, temp float32, _ int) (string, embedded.ChatUsage, error) {
+"ep1": func(_ context.Context, _ EndpointRef, _, _ string, temp float32, _ int, _ func(string)) (string, embedded.ChatUsage, error) {
 capturedTemp = temp
 return "answer\nCONFIDENCE: 5", embedded.ChatUsage{}, nil
 },
@@ -420,7 +420,7 @@ func TestRunProposers_SystemPromptContainsPersona(t *testing.T) {
 var capturedSystem string
 fake := &fakeCallEndpoint{
 funcs: map[string]fakeFunc{
-"ep1": func(_ context.Context, _ EndpointRef, sys string, _ string, _ float32, _ int) (string, embedded.ChatUsage, error) {
+"ep1": func(_ context.Context, _ EndpointRef, sys string, _ string, _ float32, _ int, _ func(string)) (string, embedded.ChatUsage, error) {
 capturedSystem = sys
 return "answer\nCONFIDENCE: 5", embedded.ChatUsage{}, nil
 },
@@ -457,7 +457,7 @@ func TestRunProposers_MaxTokens(t *testing.T) {
 var capturedMaxTokens int
 fake := &fakeCallEndpoint{
 funcs: map[string]fakeFunc{
-"ep1": func(_ context.Context, _ EndpointRef, _ string, _ string, _ float32, mt int) (string, embedded.ChatUsage, error) {
+"ep1": func(_ context.Context, _ EndpointRef, _ string, _ string, _ float32, mt int, _ func(string)) (string, embedded.ChatUsage, error) {
 capturedMaxTokens = mt
 return "answer\nCONFIDENCE: 5", embedded.ChatUsage{}, nil
 },
@@ -488,7 +488,7 @@ func TestRunProposers_MaxTokens_DefaultContext(t *testing.T) {
 var capturedMaxTokens int
 fake := &fakeCallEndpoint{
 funcs: map[string]fakeFunc{
-"ep1": func(_ context.Context, _ EndpointRef, _ string, _ string, _ float32, mt int) (string, embedded.ChatUsage, error) {
+"ep1": func(_ context.Context, _ EndpointRef, _ string, _ string, _ float32, mt int, _ func(string)) (string, embedded.ChatUsage, error) {
 capturedMaxTokens = mt
 return "answer\nCONFIDENCE: 5", embedded.ChatUsage{}, nil
 },
@@ -526,13 +526,13 @@ receivedUserPrompts := make(map[string]string)
 
 fake := &fakeCallEndpoint{
 funcs: map[string]fakeFunc{
-"ep1": func(_ context.Context, _ EndpointRef, _ string, userPrompt string, _ float32, _ int) (string, embedded.ChatUsage, error) {
+"ep1": func(_ context.Context, _ EndpointRef, _ string, userPrompt string, _ float32, _ int, _ func(string)) (string, embedded.ChatUsage, error) {
 mu.Lock()
 receivedUserPrompts["ep1"] = userPrompt
 mu.Unlock()
 return "answer from melchior\nCONFIDENCE:7", embedded.ChatUsage{}, nil
 },
-"ep2": func(_ context.Context, _ EndpointRef, _ string, userPrompt string, _ float32, _ int) (string, embedded.ChatUsage, error) {
+"ep2": func(_ context.Context, _ EndpointRef, _ string, userPrompt string, _ float32, _ int, _ func(string)) (string, embedded.ChatUsage, error) {
 mu.Lock()
 receivedUserPrompts["ep2"] = userPrompt
 mu.Unlock()

@@ -816,6 +816,11 @@ func initMagiExecutor() {
 			MaxDebateRounds:     magiCfg.Escalation.MaxDebateRounds,
 			ProposerTimeout:     time.Duration(magiCfg.ProposerTimeoutSeconds) * time.Second,
 			OnOutput:            opts.OnOutput,
+			OnProposerToken: func(slot int, text string) {
+				if opts.OnOutput != nil {
+					opts.OnOutput(fmt.Sprintf("[MAGI:%d] %s", slot, text))
+				}
+			},
 		}
 
 		result, err := magi.Run(ctx, magiOpts)

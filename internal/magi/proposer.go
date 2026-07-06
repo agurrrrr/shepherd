@@ -15,7 +15,9 @@ import (
 //
 // Design §8 Phase 1: advisory deliberation is tool-free. The wiring layer
 // handles tool-augmented execution separately.
-var callEndpoint = func(ctx context.Context, ep EndpointRef, systemPrompt, userPrompt string, temperature float32, maxTokens int) (string, embedded.ChatUsage, error) {
+//
+// onToken (may be nil) receives live content deltas for streaming UI.
+var callEndpoint = func(ctx context.Context, ep EndpointRef, systemPrompt, userPrompt string, temperature float32, maxTokens int, onToken func(string)) (string, embedded.ChatUsage, error) {
 	client := embedded.NewClient(ep.BaseURL, ep.APIKey, ep.Model)
 
 	req := &embedded.ChatRequest{
@@ -30,7 +32,7 @@ var callEndpoint = func(ctx context.Context, ep EndpointRef, systemPrompt, userP
 		// No Tools — advisory mode (design §8 Phase 1).
 	}
 
-	msg, _, usage, err := client.AccumulateStreamWithRetry(ctx, req, nil)
+	msg, _, usage, err := client.AccumulateStreamWithRetry(ctx, req, nil, onToken)
 	if err != nil {
 		return "", embedded.ChatUsage{}, err
 	}
@@ -53,12 +55,13 @@ var callEndpoint = func(ctx context.Context, ep EndpointRef, systemPrompt, userP
 
 // RunProposersOptions bundles inputs for one blind parallel round.
 type RunProposersOptions struct {
-	Proposers   []ProposerSpec
-	BaseSystem  string        // base system prompt from the wiring layer
-	UserPrompts []string      // per-slot user prompt (round 1: all identical; debate round: per-slot)
-	Timeout     time.Duration // per-proposer timeout (design: default 120s, set by caller)
-	Temperature float32       // 0 → default 0.7 (diversity)
-	OnOutput    func(string)  // live output sink, may be nil
+	Proposers       []ProposerSpec
+	BaseSystem      string        // base system prompt from the wiring layer
+	UserPrompts     []string      // per-slot user prompt (round 1: all identical; debate round: per-slot)
+	Timeout         time.Duration // per-proposer timeout (design: default 120s, set by caller)
+	Temperature     float32       // 0 → default 0.7 (diversity)
+	OnOutput        func(string)  // live output sink, may be nil
+	OnProposerToken func(slot int, text string) // live token stream, may be nil
 }
 
 // RunProposers calls every proposer in parallel and returns one result per
@@ -107,7 +110,11 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 			}
 			maxTokens := ctxTokens / 4
 
-			content, usage, err := callEndpoint(callCtx, sp.Endpoint, systemPrompt, userPrompt, temp, maxTokens)
+			content, usage, err := callEndpoint(callCtx, sp.Endpoint, systemPrompt, userPrompt, temp, maxTokens, func(token string) {
+				if opts.OnProposerToken != nil {
+					opts.OnProposerToken(slot, token)
+				}
+			})
 			if err != nil {
 				result.Err = err
 				emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, false, 0, err))
@@ -164,21 +171,24 @@ func emitOutput(mu *sync.Mutex, onOutput func(string), line string) {
 
 // formatProposerLine builds the live-output line for one proposer's completion.
 // Format (design §5.2):
-//   success: "  🔬 MELCHIOR-1 (qwen3-27b) 응답 완료 — 신뢰도 8/10\n"
-//   failure: "  🔬 MELCHIOR-1 (qwen3-27b) 응답 실패 — <err>\n"
+//   success: "[MAGI:0]   🔬 MELCHIOR-1 (qwen3-27b) 응답 완료 — 신뢰도 8/10\n"
+//   failure: "[MAGI:0]   🔬 MELCHIOR-1 (qwen3-27b) 응답 실패 — <err>\n"
 // When confidence is -1 (not reported), shows "신뢰도 미보고".
+// The [MAGI:N] prefix allows the frontend to route the line to the correct
+// proposer panel (slot N = 0, 1, or 2).
 func formatProposerLine(spec ProposerSpec, slot int, success bool, confidence int, err error) string {
 	emoji := PersonaEmoji(spec)
 	displayName := PersonaDisplayName(spec, slot)
 	model := spec.Endpoint.Model
+	prefix := fmt.Sprintf("[MAGI:%d] ", slot)
 
 	if success {
 		confStr := "신뢰도 미보고"
 		if confidence >= 0 {
 			confStr = fmt.Sprintf("신뢰도 %d/10", confidence)
 		}
-		return fmt.Sprintf("  %s %s (%s) 응답 완료 — %s\n", emoji, displayName, model, confStr)
+		return fmt.Sprintf("%s %s %s (%s) 응답 완료 — %s\n", prefix, emoji, displayName, model, confStr)
 	}
 
-	return fmt.Sprintf("  %s %s (%s) 응답 실패 — %v\n", emoji, displayName, model, err)
+	return fmt.Sprintf("%s %s %s (%s) 응답 실패 — %v\n", prefix, emoji, displayName, model, err)
 }

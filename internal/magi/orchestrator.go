@@ -22,6 +22,7 @@ type Options struct {
 	MaxDebateRounds     int           // 0 = never debate, 1 = design default
 	ProposerTimeout     time.Duration // per-proposer (default 120s)
 	OnOutput            func(string)  // live output sink, may be nil
+	OnProposerToken     func(slot int, text string) // live token stream, may be nil
 }
 
 // ErrInsufficientProposers signals that fewer than 2 proposers answered.
@@ -49,7 +50,7 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	for i, p := range opts.Proposers {
 		names[i] = PersonaDisplayName(p, i)
 	}
-	emit(fmt.Sprintf("🧠 MAGI 심의 개시 — %s\n", strings.Join(names, "·")))
+	emit(fmt.Sprintf("[MAGI:*] 🧠 MAGI 심의 개시 — %s\n", strings.Join(names, "·")))
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -67,11 +68,12 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	}
 
 	round1 := RunProposers(ctx, RunProposersOptions{
-		Proposers:   opts.Proposers,
-		BaseSystem:  opts.BaseSystem,
-		UserPrompts: userPrompts,
-		Timeout:     timeout,
-		OnOutput:    emit,
+		Proposers:       opts.Proposers,
+		BaseSystem:      opts.BaseSystem,
+		UserPrompts:     userPrompts,
+		Timeout:         timeout,
+		OnOutput:        emit,
+		OnProposerToken: opts.OnProposerToken,
 	})
 	totalCalls += len(opts.Proposers)
 
@@ -91,13 +93,13 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	successCount := len(successful)
 
 	if successCount <= 1 {
-		emit(fmt.Sprintf("⚠️ MAGI 심의 불가 (성공 응답 %d/%d) — 단일 임베디드 실행으로 폴백합니다\n",
+		emit(fmt.Sprintf("[MAGI:*] ⚠️ MAGI 심의 불가 (성공 응답 %d/%d) — 단일 임베디드 실행으로 폴백합니다\n",
 			successCount, len(opts.Proposers)))
 		return nil, ErrInsufficientProposers
 	}
 
 	if successCount == 2 {
-		emit("⚠️ 심의자 1명 이탈 — 2인 심의로 계속합니다\n")
+		emit("[MAGI:*] ⚠️ 심의자 1명 이탈 — 2인 심의로 계속합니다\n")
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -133,23 +135,23 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 		// 채택 경로.
 		adopted = true
 		finalText = buildAdoptedText(verdict)
-		emit(fmt.Sprintf("✅ 합의 도달 (%s, 신뢰도 %d/10) — 종합 응답 채택\n",
+		emit(fmt.Sprintf("[MAGI:*] ✅ 합의 도달 (%s, 신뢰도 %d/10) — 종합 응답 채택\n",
 			verdict.Verdict, verdict.Confidence))
 	} else {
 		// split 또는 저신뢰.
 		if opts.MaxDebateRounds == 0 {
 			// 토론 없이 교착 처리로 종결.
 			finalText = DeadlockResult(verdict)
-			emit(fmt.Sprintf("⚖️ 합의 판정: %s, 신뢰도 %d/10 — 토론 미설정으로 종결\n",
+			emit(fmt.Sprintf("[MAGI:*] ⚖️ 합의 판정: %s, 신뢰도 %d/10 — 토론 미설정으로 종결\n",
 				verdict.Verdict, verdict.Confidence))
 			return finalize(finalText, totalUsage, totalCalls, emit), nil
 		}
 
 		// 토론 진입.
-		emit(fmt.Sprintf("⚖️ 합의 판정: %s, 신뢰도 %d/10 — 토론 라운드 진입\n",
+		emit(fmt.Sprintf("[MAGI:*] ⚖️ 합의 판정: %s, 신뢰도 %d/10 — 토론 라운드 진입\n",
 			verdict.Verdict, verdict.Confidence))
 		if verdict.AgreementAxis != "" {
-			emit(fmt.Sprintf("  (쟁점: %s)\n", verdict.AgreementAxis))
+			emit(fmt.Sprintf("[MAGI:*]   (쟁점: %s)\n", verdict.AgreementAxis))
 		}
 	}
 
@@ -167,9 +169,10 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	debateRound1 := successful // only successful proposers re-debate
 
 	debated := RunDebateRound(ctx, RunProposersOptions{
-		BaseSystem:  opts.BaseSystem,
-		Timeout:     timeout,
-		OnOutput:    emit,
+		BaseSystem:      opts.BaseSystem,
+		Timeout:         timeout,
+		OnOutput:        emit,
+		OnProposerToken: opts.OnProposerToken,
 	}, debateRound1, verdict.AgreementAxis, opts.TaskPrompt)
 	totalCalls += len(debateRound1)
 
@@ -203,7 +206,7 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	// 합의 도달 → 채택.
 	if isAcceptable(verdict2, opts.ConfidenceThreshold) {
 		finalText = buildAdoptedText(verdict2)
-		emit(fmt.Sprintf("✅ 합의 도달 (%s, 신뢰도 %d/10) — 종합 응답 채택\n",
+		emit(fmt.Sprintf("[MAGI:*] ✅ 합의 도달 (%s, 신뢰도 %d/10) — 종합 응답 채택\n",
 			verdict2.Verdict, verdict2.Confidence))
 		return finalize(finalText, totalUsage, totalCalls, emit), nil
 	}
@@ -238,7 +241,7 @@ func buildAdoptedText(v *Verdict) string {
 // finalize builds the ExecuteResult and emits the cost summary line.
 func finalize(text string, usage embedded.ChatUsage, calls int, emit func(string)) *embedded.ExecuteResult {
 	totalTokens := usage.PromptTokens + usage.CompletionTokens
-	emit(fmt.Sprintf("📊 MAGI 심의 비용: %d 토큰 (호출 %d회)\n", totalTokens, calls))
+	emit(fmt.Sprintf("[MAGI:*] 📊 MAGI 심의 비용: %d 토큰 (호출 %d회)\n", totalTokens, calls))
 
 	return &embedded.ExecuteResult{
 		Result:           text,

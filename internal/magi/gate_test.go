@@ -89,7 +89,7 @@ func TestRunProposers_ContentGate(t *testing.T) {
 	orig := callEndpoint
 	defer func() { callEndpoint = orig }()
 
-	callEndpoint = func(ctx context.Context, ep EndpointRef, systemPrompt, userPrompt string, temperature float32, maxTokens int) (string, embedded.ChatUsage, error) {
+	callEndpoint = func(ctx context.Context, ep EndpointRef, systemPrompt, userPrompt string, temperature float32, maxTokens int, onToken func(string)) (string, embedded.ChatUsage, error) {
 		if ep.ID == "ep-tool" {
 			return "<tool_call>\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"main.go\"}}\n</tool_call>", embedded.ChatUsage{}, nil
 		}
