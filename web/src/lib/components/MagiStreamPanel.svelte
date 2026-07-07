@@ -65,6 +65,20 @@
 		for (const raw of lines) {
 			const { slot, text } = parseLine(raw);
 
+			// Detect debate round entry → reset per-slot state so streaming
+			// tokens are captured again instead of being dropped by the
+			// completed[] guard set during round 1.
+			if (slot === '*' && text.includes('토론 라운드 진입')) {
+				for (let i = 0; i < 3; i++) {
+					proposerTexts[i] = '';
+					proposerSummaries[i] = '';
+					completed[i] = false;
+				}
+				unifiedLines.push(text);
+				lastSlot = '*';
+				continue;
+			}
+
 			if (slot === null) {
 				// Continuation — append to whichever slot was last active.
 				if (lastSlot === '*') {
@@ -159,19 +173,28 @@
 	});
 
 	// ── Auto-scroll ──
+	// Only trigger scroll when the actual content length changes, not on
+	// every panelData recompute (which fires for every SSE token even when
+	// the proposer text is unchanged due to completed[] guard).
 	let propContainers = $state([null, null, null]);
 	let unifiedContainer = $state(null);
+	let lastScrollLengths = [0, 0, 0];
+	let lastUnifiedLen = 0;
 
 	$effect(() => {
 		for (let i = 0; i < 3; i++) {
 			const el = propContainers[i];
-			if (el && panelData.proposerTexts[i].length > 0) {
+			const len = panelData.proposerTexts[i].length;
+			if (el && len > 0 && len !== lastScrollLengths[i]) {
+				lastScrollLengths[i] = len;
 				requestAnimationFrame(() => {
 					el.scrollTop = el.scrollHeight;
 				});
 			}
 		}
-		if (unifiedContainer && panelData.unifiedLines.length > 0) {
+		const unifiedLen = panelData.unifiedLines.length;
+		if (unifiedContainer && unifiedLen > 0 && unifiedLen !== lastUnifiedLen) {
+			lastUnifiedLen = unifiedLen;
 			requestAnimationFrame(() => {
 				unifiedContainer.scrollTop = unifiedContainer.scrollHeight;
 			});
