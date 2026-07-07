@@ -3,6 +3,7 @@ package magi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -146,12 +147,21 @@ var callEndpoint = func(
 			if ctx.Err() == context.Canceled {
 				return "", totalUsage, err
 			}
-			// A transient send error (or the exploration deadline) mid-loop must
-			// not discard the accumulated tool context (task #7077 MELCHIOR —
-			// previously any send error returned instantly, throwing away useful
-			// exploration). Fall through to forced convergence to salvage a final
-			// answer; remember the error in case convergence also fails.
-			exploreErr = err
+			// A transient send error mid-loop must not discard the accumulated
+			// tool context (task #7077 MELCHIOR — previously any send error
+			// returned instantly, throwing away useful exploration). Fall through
+			// to forced convergence to salvage a final answer; remember the error
+			// in case convergence also fails.
+			//
+			// The exploration deadline is the *expected* convergence trigger, not
+			// a transport failure — never record it as exploreErr. Otherwise a
+			// deadline that fires mid-turn followed by a failed convergence would
+			// surface a bare "context deadline exceeded" instead of the far more
+			// diagnostic "no substantive answer after convergence nudge" (task
+			// #7081 review).
+			if !errors.Is(err, context.DeadlineExceeded) {
+				exploreErr = err
+			}
 			break
 		}
 
@@ -192,6 +202,12 @@ var callEndpoint = func(
 	// consumed by exploration and convergence died with "context deadline
 	// exceeded". WithoutCancel guarantees a fresh `reserve` budget regardless of
 	// how exploration ended (deadline hit, transient error, or clean cutoff).
+	//
+	// Trade-off: WithoutCancel also detaches parent *cancellation*, so a user
+	// stop issued after exploration ends is ignored for up to `reserve` while
+	// convergence runs. This is deliberate — MAGI's completeness requirement
+	// (always attempt a final answer from accumulated context) is favored over
+	// instant cancellation at the tail of the budget (task #7081 review).
 	fcCtx := ctx
 	if hasCutoff {
 		var fcCancel context.CancelFunc

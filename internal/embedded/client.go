@@ -529,14 +529,19 @@ func tailPhraseRepeating(s string) bool {
 //
 // Cases classified as fatal (no retry):
 //   - context.Canceled — user stopped the task; must not retry
+//   - context.DeadlineExceeded — the call budget is spent; retrying can't help
 //   - HTTP 4xx (400 bad request, 401/403 auth) — retrying won't help
 //   - errRepetitionDetected — model degeneration, not a transport error
 func isTransientLLMError(err error) bool {
 	if err == nil {
 		return false
 	}
-	// User cancellation is never transient.
-	if errors.Is(err, context.Canceled) {
+	// User cancellation and deadline expiry are never transient: retrying a
+	// canceled/expired context fails immediately again, and for MAGI proposers a
+	// hit deadline is the *expected* convergence trigger, not a transport blip
+	// (previously classified non-transient only implicitly, via string matching;
+	// task #7081 review).
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	// Repetition abort is not a transport error.

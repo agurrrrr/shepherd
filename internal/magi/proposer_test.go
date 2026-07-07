@@ -1000,3 +1000,43 @@ func TestCallEndpoint_UserCancelAbortsWithoutSalvage(t *testing.T) {
 		t.Errorf("user cancel must not attempt forced convergence, got %d requests", len(fake.reqs))
 	}
 }
+
+// TestCallEndpoint_ExplorationDeadlineNotSurfacedAsError verifies the task #7081
+// review point: when the exploration deadline fires (the *expected* convergence
+// trigger) and forced convergence then also fails to produce an answer, the
+// surfaced error is the diagnostic "no substantive answer" — NOT a bare
+// "context deadline exceeded". The deadline is by design, so it must not be
+// recorded as exploreErr and win over the convergence failure.
+func TestCallEndpoint_ExplorationDeadlineNotSurfacedAsError(t *testing.T) {
+	restore := withFakeChatTurn(func(ctx context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		if len(req.Tools) > 0 {
+			// Exploration turn: run the per-proposer deadline out, then report the
+			// ctx error like a real client would.
+			<-ctx.Done()
+			return nil, embedded.ChatUsage{}, ctx.Err()
+		}
+		// Forced convergence runs on a detached, freshly-budgeted ctx — keep it
+		// failing empty so convergence cannot rescue an answer.
+		return emptyMsg(), embedded.ChatUsage{}, nil
+	})
+	defer restore()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	_, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err == nil {
+		t.Fatal("expected an error when convergence cannot produce an answer")
+	}
+	if !strings.Contains(err.Error(), "no substantive answer") {
+		t.Errorf("convergence failure should be surfaced, got %v", err)
+	}
+	if strings.Contains(err.Error(), "deadline exceeded") {
+		t.Errorf("the expected exploration deadline must not be the surfaced error, got %v", err)
+	}
+}
