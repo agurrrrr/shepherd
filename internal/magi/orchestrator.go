@@ -62,6 +62,12 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	}
 	emit(fmt.Sprintf("[MAGI:*] 🧠 MAGI 심의 개시 — %s\n", strings.Join(names, "·")))
 
+	// Per-slot name announcement so the frontend can render custom display
+	// names in proposer headers before any tokens arrive.
+	for i, p := range opts.Proposers {
+		emit(fmt.Sprintf("[MAGI:%d] 🧩 %s %s\n", i, PersonaEmoji(p), PersonaDisplayName(p, i)))
+	}
+
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

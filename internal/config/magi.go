@@ -6,6 +6,7 @@ import "fmt"
 type MagiProposer struct {
 	EndpointID   string `mapstructure:"endpoint_id" json:"endpoint_id" yaml:"endpoint_id"`
 	Persona      string `mapstructure:"persona" json:"persona" yaml:"persona"` // melchior | balthasar | casper | custom
+	DisplayName  string `mapstructure:"display_name" json:"display_name,omitempty" yaml:"display_name,omitempty"` // custom display name; overrides MELCHIOR-N when non-empty
 	CustomPrompt string `mapstructure:"custom_prompt" json:"custom_prompt,omitempty" yaml:"custom_prompt,omitempty"`
 }
 

@@ -28,6 +28,7 @@ type EndpointRef struct {
 type ProposerSpec struct {
 	Endpoint     EndpointRef
 	PersonaKey   string // melchior | balthasar | casper | custom
+	DisplayName  string // custom display name; overrides MELCHIOR-N when non-empty
 	CustomPrompt string // used when PersonaKey == "custom"
 }
 

@@ -155,9 +155,9 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		return {
 			enabled: false,
 			proposers: [
-				{ endpoint_id: '', persona: 'melchior', custom_prompt: '' },
-				{ endpoint_id: '', persona: 'balthasar', custom_prompt: '' },
-				{ endpoint_id: '', persona: 'casper', custom_prompt: '' }
+				{ endpoint_id: '', persona: 'melchior', display_name: '', custom_prompt: '' },
+				{ endpoint_id: '', persona: 'balthasar', display_name: '', custom_prompt: '' },
+				{ endpoint_id: '', persona: 'casper', display_name: '', custom_prompt: '' }
 			],
 			aggregator: { type: 'claude_cli', endpoint_id: '' },
 			escalation: { confidence_threshold: 7, max_debate_rounds: 1 },
@@ -363,6 +363,12 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 							<option value={p.value}>{p.label}</option>
 						{/each}
 					</select>
+					<input
+						class="input magi-input magi-display-name"
+						type="text"
+						bind:value={proposer.display_name}
+						placeholder="표시 이름 (선택)"
+					/>
 					{#if proposer.persona === 'custom'}
 						<textarea
 							class="input textarea magi-custom-prompt"
@@ -699,6 +705,10 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		flex: 1 1 100%;
 		max-width: none;
 		resize: vertical;
+	}
+	.magi-display-name {
+		flex: 0 1 140px;
+		max-width: 160px;
 	}
 	.magi-aggregator {
 		display: flex;

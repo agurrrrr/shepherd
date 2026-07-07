@@ -93,8 +93,13 @@ func BuildProposerSystemPrompt(base string, spec ProposerSpec, slot int) string 
 }
 
 // PersonaDisplayName returns the display name for a spec, resolving built-in
-// personas and generating CUSTOM-N for custom ones.
+// personas and generating CUSTOM-N for custom ones. When the spec carries a
+// non-empty DisplayName (user-provided custom name), it takes precedence over
+// the built-in name (e.g. "MELCHIOR-1" → user's custom name).
 func PersonaDisplayName(spec ProposerSpec, slot int) string {
+	if spec.DisplayName != "" {
+		return spec.DisplayName
+	}
 	if p, ok := GetPersona(spec.PersonaKey); ok {
 		return p.DisplayName
 	}

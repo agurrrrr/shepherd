@@ -760,6 +760,7 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 			proposers[i] = magi.ProposerSpec{
 				Endpoint:     ref,
 				PersonaKey:   p.Persona,
+				DisplayName:  p.DisplayName,
 				CustomPrompt: p.CustomPrompt,
 			}
 			if firstProposerEP == nil {

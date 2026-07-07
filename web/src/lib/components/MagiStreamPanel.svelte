@@ -6,12 +6,17 @@
 
 	const carta = new Carta({ sanitizer: DOMPurify.sanitize });
 
-	// Persona metadata per slot
-	const personaInfo = [
+	// Persona metadata per slot — defaults, overridden by 🧩 announcement lines
+	const defaultPersonaInfo = [
 		{ emoji: '🔬', name: 'MELCHIOR-1', color: '#58a6ff' },
 		{ emoji: '📜', name: 'BALTHASAR-2', color: '#f0883e' },
 		{ emoji: '⚡', name: 'CASPER-3', color: '#56d364' },
 	];
+
+	// Dynamic persona info — updated when the orchestrator emits 🧩 lines
+	let dynamicPersonaInfo = $state(null);
+
+	let personaInfo = $derived(dynamicPersonaInfo || defaultPersonaInfo);
 
 	let mdCache = $state({});
 
@@ -91,6 +96,30 @@
 		}
 
 		return { proposerTexts, proposerSummaries, unifiedLines, completed };
+	});
+
+	// ── Dynamic persona name detection ──
+	// The orchestrator emits "[MAGI:N] 🧩 <emoji> <name>" lines at startup
+	// to announce each proposer's display name. Parse these to override the
+	// default personaInfo so custom names appear in panel headers.
+	$effect(() => {
+		for (const raw of lines) {
+			const line = stripAnsi(raw);
+			const m = line.match(/^\[MAGI:(\d)\]\s*🧩\s+(\S+)\s+(.+)$/);
+			if (m) {
+				const slot = parseInt(m[1], 10);
+				const emoji = m[2];
+				const name = m[3].trim();
+				if (slot >= 0 && slot <= 2) {
+					if (!dynamicPersonaInfo) {
+						dynamicPersonaInfo = defaultPersonaInfo.map(p => ({ ...p }));
+					}
+					if (dynamicPersonaInfo[slot].name !== name || dynamicPersonaInfo[slot].emoji !== emoji) {
+						dynamicPersonaInfo[slot] = { ...dynamicPersonaInfo[slot], emoji, name };
+					}
+				}
+			}
+		}
 	});
 
 	// ── Markdown rendering cache ──
