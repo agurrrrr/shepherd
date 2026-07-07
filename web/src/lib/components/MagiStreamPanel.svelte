@@ -519,8 +519,10 @@ padding: 4px
 		font-size: 12px;
 	}
 
-	/* Responsive: stack panels on narrow screens */
-	@media (max-width: 768px) {
+	/* Responsive: stack panels vertically only on clearly portrait narrow screens.
+	   When aspect ratio is close to 1:1 (square-ish) or landscape, keep horizontal layout
+	   so the three proposer cards stay side by side. */
+	@media (max-width: 768px) and (max-aspect-ratio: 4/5) {
 		.proposer-row {
 			grid-template-columns: 1fr;
 		}
