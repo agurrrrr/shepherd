@@ -709,6 +709,16 @@ func callOpenCodeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userP
 }
 
 // parseOpenCodeEvent extracts displayable text from a single OpenCode JSON line.
+//
+// OpenCode v1.16+ emits events in the AI SDK streaming format:
+//
+//   {"type":"text","part":{"type":"text","text":"Hello!"}}
+//   {"type":"step_start","part":{"type":"step-start"}}
+//   {"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}
+//
+// The text content lives in part.text (not a top-level "content" field).
+// Older versions used {"type":"message","content":"..."} — we keep that as
+// a fallback for compatibility.
 func parseOpenCodeEvent(line string) string {
 	line = strings.TrimSpace(line)
 	if line == "" || !strings.HasPrefix(line, "{") {
@@ -719,16 +729,19 @@ func parseOpenCodeEvent(line string) string {
 		return ""
 	}
 	eventType, _ := event["type"].(string)
+
+	// v1.16+ format: text lives in part.text.
+	if eventType == "text" {
+		if part, ok := event["part"].(map[string]interface{}); ok {
+			if text, ok := part["text"].(string); ok {
+				return text
+			}
+		}
+	}
+
+	// Legacy format fallback: top-level content field.
 	switch eventType {
-	case "message":
-		if content, ok := event["content"].(string); ok {
-			return content
-		}
-	case "text":
-		if content, ok := event["content"].(string); ok {
-			return content
-		}
-	case "assistant":
+	case "message", "text", "assistant":
 		if content, ok := event["content"].(string); ok {
 			return content
 		}
@@ -738,9 +751,13 @@ func parseOpenCodeEvent(line string) string {
 
 // extractOpenCodeFinalText extracts the final assistant message from a
 // sequence of OpenCode JSON events.
+//
+// It concatenates all text parts from "text"-type events (v1.16+ format).
+// For legacy format (top-level "content"), it takes the last non-empty value.
 func extractOpenCodeFinalText(raw string) string {
 	lines := strings.Split(raw, "\n")
-	var lastText string
+	var parts []string
+	var lastLegacyText string
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || !strings.HasPrefix(line, "{") {
@@ -751,11 +768,26 @@ func extractOpenCodeFinalText(raw string) string {
 			continue
 		}
 		eventType, _ := event["type"].(string)
-		if eventType == "message" || eventType == "text" || eventType == "assistant" {
+
+		// v1.16+ format: accumulate all text parts.
+		if eventType == "text" {
+			if part, ok := event["part"].(map[string]interface{}); ok {
+				if text, ok := part["text"].(string); ok && text != "" {
+					parts = append(parts, text)
+				}
+			}
+		}
+
+		// Legacy format fallback.
+		if eventType == "message" || eventType == "assistant" {
 			if content, ok := event["content"].(string); ok && content != "" {
-				lastText = content
+				lastLegacyText = content
 			}
 		}
 	}
-	return lastText
+
+	if len(parts) > 0 {
+		return strings.Join(parts, "")
+	}
+	return lastLegacyText
 }
