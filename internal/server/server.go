@@ -739,33 +739,51 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 			return nil, fmt.Errorf("magi config validation failed: %s", strings.Join(errs, "; "))
 		}
 
-		// 3. Resolve proposer endpoints → magi.EndpointRef.
+		// 3. Resolve proposer endpoints → magi.ProposerSpec.
 		proposers := make([]magi.ProposerSpec, len(magiCfg.Proposers))
 		var firstProposerEP *magi.EndpointRef
 		for i, p := range magiCfg.Proposers {
-			ep, epErr := config.GetEmbeddedEndpointByID(p.EndpointID)
-			if epErr != nil {
-				return nil, fmt.Errorf("magi proposer %d: config error: %w", i+1, epErr)
+			provider := p.Provider
+			if provider == "" {
+				provider = "embedded"
 			}
-			if ep == nil {
-				return nil, fmt.Errorf("magi proposer endpoint %q not found or disabled", p.EndpointID)
-			}
-			ref := magi.EndpointRef{
-				ID:            ep.ID,
-				BaseURL:       ep.BaseURL,
-				APIKey:        ep.APIKey,
-				Model:         ep.Model,
-				ContextTokens: ep.ContextTokens,
-			}
-			proposers[i] = magi.ProposerSpec{
-				Endpoint:     ref,
+
+			spec := magi.ProposerSpec{
 				PersonaKey:   p.Persona,
 				DisplayName:  p.DisplayName,
 				CustomPrompt: p.CustomPrompt,
 			}
-			if firstProposerEP == nil {
-				firstProposerEP = &ref
+
+			switch provider {
+			case "claude_cli":
+				spec.Provider = magi.ProviderClaudeCLI
+				spec.ModelID = p.ModelID
+			case "opencode_cli":
+				spec.Provider = magi.ProviderOpenCodeCLI
+				spec.ModelID = p.ModelID
+			default: // "embedded"
+				spec.Provider = magi.ProviderEmbedded
+				ep, epErr := config.GetEmbeddedEndpointByID(p.EndpointID)
+				if epErr != nil {
+					return nil, fmt.Errorf("magi proposer %d: config error: %w", i+1, epErr)
+				}
+				if ep == nil {
+					return nil, fmt.Errorf("magi proposer endpoint %q not found or disabled", p.EndpointID)
+				}
+				ref := magi.EndpointRef{
+					ID:            ep.ID,
+					BaseURL:       ep.BaseURL,
+					APIKey:        ep.APIKey,
+					Model:         ep.Model,
+					ContextTokens: ep.ContextTokens,
+				}
+				spec.Endpoint = ref
+				if firstProposerEP == nil {
+					firstProposerEP = &ref
+				}
 			}
+
+			proposers[i] = spec
 		}
 
 		// 4. Resolve aggregator.

@@ -7,7 +7,7 @@
 	import OpenCodeSettings from '$lib/components/Settings/OpenCodeSettings.svelte';
 	import PiSettings from '$lib/components/Settings/PiSettings.svelte';
 	import EmbeddedSettings from '$lib/components/Settings/EmbeddedSettings.svelte';
-	import ProviderEnableToggle from '$lib/components/Settings/ProviderEnableToggle.svelte';
+	import MagiSettings from '$lib/components/Settings/MagiSettings.svelte';
 	import PreviewSection from '$lib/components/Settings/PreviewSection.svelte';
 	import MCPSection from '$lib/components/Settings/MCPSection.svelte';
 	import SkillSyncSection from '$lib/components/Settings/SkillSyncSection.svelte';
@@ -223,11 +223,7 @@
 				<EmbeddedSettings {configData} {providerEnabled} reloadEndpoints={reloadEmbeddedEndpoints} />
 			{/if}
 			{#if activeTab === 'magi'}
-				<div class="magi-tab-content">
-					<ProviderEnableToggle {providerEnabled} provider="magi" label="🧠 MAGI" />
-					<p class="hint">MAGI 합의 시스템: 3개의 서로 다른 모델이 블라인드로 답안을 제시하고 판정자가 종합합니다. 설정은 Settings > Embedded 탭의 하단 MAGI 섹션에서 관리합니다.</p>
-					<p class="hint">→ <button class="link-btn" onclick={() => activeTab = 'embedded'}>Embedded 탭에서 MAGI 설정 열기</button></p>
-				</div>
+				<MagiSettings {configData} {providerEnabled} {modelOptions} />
 			{/if}
 
 			<!-- Save/Restart actions -->
@@ -391,23 +387,5 @@
 			padding: 6px 10px;
 			font-size: 13px;
 		}
-	}
-
-	.magi-tab-content {
-		padding: 8px 0;
-	}
-	.magi-tab-content .hint {
-		font-size: 13px;
-		color: var(--text-secondary);
-		margin: 8px 0;
-	}
-	.link-btn {
-		background: none;
-		border: none;
-		color: var(--accent);
-		cursor: pointer;
-		font-size: 13px;
-		text-decoration: underline;
-		padding: 0;
 	}
 </style>

@@ -2,10 +2,16 @@ package config
 
 import "fmt"
 
-// MagiProposer selects one embedded endpoint as a deliberation member.
+// MagiProposer selects one LLM backend as a deliberation member.
+// Provider determines which backend type to use:
+//   - "embedded" (default): uses an embedded endpoint (EndpointID refers to embedded.yaml endpoint)
+//   - "claude_cli": uses Claude CLI (ModelID selects a claude model alias like "opus", "sonnet")
+//   - "opencode_cli": uses OpenCode CLI (ModelID selects an opencode model)
 type MagiProposer struct {
-	EndpointID   string `mapstructure:"endpoint_id" json:"endpoint_id" yaml:"endpoint_id"`
-	Persona      string `mapstructure:"persona" json:"persona" yaml:"persona"` // melchior | balthasar | casper | custom
+	Provider     string `mapstructure:"provider" json:"provider,omitempty" yaml:"provider,omitempty"` // embedded | claude_cli | opencode_cli (default: embedded)
+	EndpointID   string `mapstructure:"endpoint_id" json:"endpoint_id" yaml:"endpoint_id"`           // embedded endpoint ID (when provider == "embedded")
+	ModelID      string `mapstructure:"model_id" json:"model_id,omitempty" yaml:"model_id,omitempty"` // model alias for claude_cli/opencode_cli
+	Persona      string `mapstructure:"persona" json:"persona" yaml:"persona"`                        // melchior | balthasar | casper | custom
 	DisplayName  string `mapstructure:"display_name" json:"display_name,omitempty" yaml:"display_name,omitempty"` // custom display name; overrides MELCHIOR-N when non-empty
 	CustomPrompt string `mapstructure:"custom_prompt" json:"custom_prompt,omitempty" yaml:"custom_prompt,omitempty"`
 }
@@ -48,6 +54,12 @@ func ApplyMagiDefaults(m *MagiConfig) {
 	}
 	if m.Aggregator.Type == "" {
 		m.Aggregator.Type = "claude_cli"
+	}
+	// Backfill provider default for proposers (backward compat: empty → "embedded").
+	for i := range m.Proposers {
+		if m.Proposers[i].Provider == "" {
+			m.Proposers[i].Provider = "embedded"
+		}
 	}
 }
 
@@ -114,15 +126,30 @@ func ValidateMagiConfig(cfg *EmbeddedConfig) (errs []string, warnings []string) 
 	}
 
 	for i, p := range m.Proposers {
-		// Empty endpoint_id is a warning (not yet configured), not a hard error.
-		// A non-empty ID that doesn't exist or is disabled is a hard error.
-		if p.EndpointID == "" {
-			warnings = append(warnings, fmt.Sprintf("proposer %d: no endpoint selected", i+1))
-		} else {
-			ep, exists := endpointByID[p.EndpointID]
-			if !exists || !ep.Enabled {
-				errs = append(errs, fmt.Sprintf("proposer %d: endpoint %q not found or disabled", i+1, p.EndpointID))
+		provider := p.Provider
+		if provider == "" {
+			provider = "embedded"
+		}
+
+		switch provider {
+		case "embedded":
+			// Empty endpoint_id is a warning (not yet configured), not a hard error.
+			// A non-empty ID that doesn't exist or is disabled is a hard error.
+			if p.EndpointID == "" {
+				warnings = append(warnings, fmt.Sprintf("proposer %d: no endpoint selected", i+1))
+			} else {
+				ep, exists := endpointByID[p.EndpointID]
+				if !exists || !ep.Enabled {
+					errs = append(errs, fmt.Sprintf("proposer %d: endpoint %q not found or disabled", i+1, p.EndpointID))
+				}
 			}
+		case "claude_cli":
+			// ModelID is optional — empty means CLI default.
+			// No hard validation needed; the CLI will resolve the model.
+		case "opencode_cli":
+			// ModelID is optional — empty means OpenCode config default.
+		default:
+			errs = append(errs, fmt.Sprintf("proposer %d: unknown provider %q", i+1, provider))
 		}
 
 		if !validPersonas[p.Persona] {
@@ -161,17 +188,37 @@ func ValidateMagiConfig(cfg *EmbeddedConfig) (errs []string, warnings []string) 
 
 	// Collect model and base_url info for proposers whose endpoints exist.
 	type proposerEndpointInfo struct {
-		model   string
-		baseURL string
-		persona string
+		model    string
+		baseURL  string
+		persona  string
+		provider string
 	}
 	var infos []proposerEndpointInfo
 	for _, p := range m.Proposers {
-		if ep, ok := endpointByID[p.EndpointID]; ok && ep.Enabled {
+		provider := p.Provider
+		if provider == "" {
+			provider = "embedded"
+		}
+		if provider == "embedded" {
+			if ep, ok := endpointByID[p.EndpointID]; ok && ep.Enabled {
+				infos = append(infos, proposerEndpointInfo{
+					model:    ep.Model,
+					baseURL:  ep.BaseURL,
+					persona:  p.Persona,
+					provider: provider,
+				})
+			}
+		} else {
+			// claude_cli / opencode_cli — model is ModelID (or default).
+			model := p.ModelID
+			if model == "" {
+				model = provider + ":default"
+			}
 			infos = append(infos, proposerEndpointInfo{
-				model:   ep.Model,
-				baseURL: ep.BaseURL,
-				persona: p.Persona,
+				model:    model,
+				baseURL:  provider, // use provider as baseURL-equivalent for duplicate detection
+				persona:  p.Persona,
+				provider: provider,
 			})
 		}
 	}
@@ -193,10 +240,10 @@ func ValidateMagiConfig(cfg *EmbeddedConfig) (errs []string, warnings []string) 
 		}
 	}
 
-	// Duplicate base_url (design §4).
+	// Duplicate base_url (design §4) — only meaningful for embedded proposers.
 	baseURLCount := make(map[string]int)
 	for _, info := range infos {
-		if info.baseURL != "" {
+		if info.provider == "embedded" && info.baseURL != "" {
 			baseURLCount[info.baseURL]++
 		}
 	}

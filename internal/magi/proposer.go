@@ -1,14 +1,19 @@
 package magi
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/agurrrrr/shepherd/internal/embedded"
+	"github.com/agurrrrr/shepherd/internal/envutil"
 )
 
 // minConvergenceReserve is the wall-clock time reserved at the tail of a
@@ -421,7 +426,6 @@ type RunProposersOptions struct {
 	ProjectPath  string
 	SheepName    string
 }
-
 // RunProposers calls every proposer in parallel and returns one result per
 // slot, in slot order. Individual failures are recorded in Result.Err —
 // callers decide whether enough succeeded (design §5.1).
@@ -460,19 +464,40 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 				userPrompt = opts.UserPrompts[slot]
 			}
 
-			// Compute max tokens: ContextTokens / 4 (same rule as the
-			// embedded agent loop). Fall back to DefaultContextTokens.
-			ctxTokens := sp.Endpoint.ContextTokens
-			if ctxTokens == 0 {
-				ctxTokens = embedded.DefaultContextTokens
+			// Dispatch to the appropriate backend based on Provider.
+			provider := sp.Provider
+			if provider == "" {
+				provider = ProviderEmbedded
 			}
-			maxTokens := ctxTokens / 4
 
-			content, usage, err := callEndpoint(callCtx, sp.Endpoint, systemPrompt, userPrompt, temp, maxTokens, func(token string) {
+			var content string
+			var usage embedded.ChatUsage
+			var err error
+
+			tokenCb := func(token string) {
 				if opts.OnProposerToken != nil {
 					opts.OnProposerToken(slot, token)
 				}
-			}, opts.ToolDefs, opts.ToolDispatch, opts.ProjectPath, opts.SheepName)
+			}
+
+			switch provider {
+			case ProviderClaudeCLI:
+				content, usage, err = callClaudeCLI(callCtx, sp, systemPrompt, userPrompt, opts.ProjectPath, tokenCb)
+			case ProviderOpenCodeCLI:
+				content, usage, err = callOpenCodeCLI(callCtx, sp, systemPrompt, userPrompt, opts.ProjectPath, tokenCb)
+			default: // ProviderEmbedded
+				// Compute max tokens: ContextTokens / 4 (same rule as the
+				// embedded agent loop). Fall back to DefaultContextTokens.
+				ctxTokens := sp.Endpoint.ContextTokens
+				if ctxTokens == 0 {
+					ctxTokens = embedded.DefaultContextTokens
+				}
+				maxTokens := ctxTokens / 4
+
+				content, usage, err = callEndpoint(callCtx, sp.Endpoint, systemPrompt, userPrompt, temp, maxTokens, tokenCb,
+					opts.ToolDefs, opts.ToolDispatch, opts.ProjectPath, opts.SheepName)
+			}
+
 			if err != nil {
 				result.Err = err
 				emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, false, 0, err))
@@ -539,7 +564,7 @@ func emitOutput(mu *sync.Mutex, onOutput func(string), line string) {
 func formatProposerLine(spec ProposerSpec, slot int, success bool, confidence int, err error) string {
 	emoji := PersonaEmoji(spec)
 	displayName := PersonaDisplayName(spec, slot)
-	model := spec.Endpoint.Model
+	model := proposerModelLabel(spec)
 	prefix := fmt.Sprintf("[MAGI:%d] ", slot)
 
 	if success {
@@ -551,4 +576,186 @@ func formatProposerLine(spec ProposerSpec, slot int, success bool, confidence in
 	}
 
 	return fmt.Sprintf("%s %s %s (%s) 응답 실패 — %v\n", prefix, emoji, displayName, model, err)
+}
+
+// proposerModelLabel returns a display string for the model used by a proposer.
+func proposerModelLabel(spec ProposerSpec) string {
+	provider := spec.Provider
+	if provider == "" {
+		provider = ProviderEmbedded
+	}
+	switch provider {
+	case ProviderClaudeCLI:
+		if spec.ModelID != "" {
+			return "claude:" + spec.ModelID
+		}
+		return "claude:default"
+	case ProviderOpenCodeCLI:
+		if spec.ModelID != "" {
+			return "opencode:" + spec.ModelID
+		}
+		return "opencode:default"
+	default:
+		return spec.Endpoint.Model
+	}
+}
+
+// ── CLI-based proposer backends ──────────────────────────────────────
+//
+// claude_cli and opencode_cli proposers run as subprocesses (like the
+// aggregator's claude_cli path). They do NOT support read-only tools —
+// the CLI subprocess owns its own tool loop. This is acceptable because
+// MAGI Phase 1.5 tools are advisory (read-only exploration); a CLI
+// proposer with its own agentic capabilities is a valid alternative.
+//
+// Streaming: CLI stdout is line-buffered; each line is forwarded to the
+// onToken callback so the frontend can render live output.
+
+// callClaudeCLI runs `claude --print` with an optional model flag.
+func callClaudeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPrompt, workDir string, onToken func(string)) (string, embedded.ChatUsage, error) {
+	args := []string{"--print"}
+	if spec.ModelID != "" {
+		args = append(args, "--model", spec.ModelID)
+	}
+
+	cmd := exec.CommandContext(ctx, "claude", args...)
+	cmd.Dir = workDir
+	cmd.Stdin = strings.NewReader(systemPrompt + "\n\n" + userPrompt)
+	envutil.SetCleanEnv(cmd)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", embedded.ChatUsage{}, fmt.Errorf("claude pipe: %w", err)
+	}
+	cmd.Stderr = nil
+
+	if err := cmd.Start(); err != nil {
+		return "", embedded.ChatUsage{}, fmt.Errorf("claude start: %w", err)
+	}
+
+	var buf bytes.Buffer
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		buf.WriteString(line + "\n")
+		if onToken != nil {
+			onToken(line + "\n")
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return "", embedded.ChatUsage{}, fmt.Errorf("claude wait: %w", err)
+	}
+
+	output := strings.TrimSpace(buf.String())
+	if output == "" {
+		return "", embedded.ChatUsage{}, fmt.Errorf("claude returned empty output")
+	}
+	return output, embedded.ChatUsage{}, nil
+}
+
+// callOpenCodeCLI runs `opencode run --format json` with an optional model flag.
+func callOpenCodeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPrompt, workDir string, onToken func(string)) (string, embedded.ChatUsage, error) {
+	args := []string{"run", "--format", "json"}
+	if spec.ModelID != "" {
+		args = append(args, "-m", spec.ModelID)
+	}
+
+	cmd := exec.CommandContext(ctx, "opencode", args...)
+	cmd.Dir = workDir
+	cmd.Stdin = strings.NewReader(systemPrompt + "\n\n" + userPrompt)
+	envutil.SetCleanEnv(cmd)
+	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", embedded.ChatUsage{}, fmt.Errorf("opencode pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", embedded.ChatUsage{}, fmt.Errorf("opencode start: %w", err)
+	}
+
+	var buf bytes.Buffer
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		buf.WriteString(line + "\n")
+
+		// Parse OpenCode JSON events to extract text content for streaming.
+		parsed := parseOpenCodeEvent(line)
+		if parsed != "" && onToken != nil {
+			onToken(parsed + "\n")
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return "", embedded.ChatUsage{}, fmt.Errorf("opencode wait: %w", err)
+	}
+
+	output := strings.TrimSpace(buf.String())
+	if output == "" {
+		return "", embedded.ChatUsage{}, fmt.Errorf("opencode returned empty output")
+	}
+
+	// Extract the final text from OpenCode JSON event stream.
+	finalText := extractOpenCodeFinalText(output)
+	if finalText == "" {
+		finalText = output // fallback to raw output
+	}
+	return finalText, embedded.ChatUsage{}, nil
+}
+
+// parseOpenCodeEvent extracts displayable text from a single OpenCode JSON line.
+func parseOpenCodeEvent(line string) string {
+	line = strings.TrimSpace(line)
+	if line == "" || !strings.HasPrefix(line, "{") {
+		return ""
+	}
+	var event map[string]interface{}
+	if err := json.Unmarshal([]byte(line), &event); err != nil {
+		return ""
+	}
+	eventType, _ := event["type"].(string)
+	switch eventType {
+	case "message":
+		if content, ok := event["content"].(string); ok {
+			return content
+		}
+	case "text":
+		if content, ok := event["content"].(string); ok {
+			return content
+		}
+	case "assistant":
+		if content, ok := event["content"].(string); ok {
+			return content
+		}
+	}
+	return ""
+}
+
+// extractOpenCodeFinalText extracts the final assistant message from a
+// sequence of OpenCode JSON events.
+func extractOpenCodeFinalText(raw string) string {
+	lines := strings.Split(raw, "\n")
+	var lastText string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var event map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		eventType, _ := event["type"].(string)
+		if eventType == "message" || eventType == "text" || eventType == "assistant" {
+			if content, ok := event["content"].(string); ok && content != "" {
+				lastText = content
+			}
+		}
+	}
+	return lastText
 }

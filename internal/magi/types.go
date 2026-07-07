@@ -24,12 +24,23 @@ type EndpointRef struct {
 	ContextTokens int
 }
 
+// ProposerProvider identifies which LLM backend a proposer uses.
+type ProposerProvider string
+
+const (
+	ProviderEmbedded   ProposerProvider = "embedded"
+	ProviderClaudeCLI  ProposerProvider = "claude_cli"
+	ProviderOpenCodeCLI ProposerProvider = "opencode_cli"
+)
+
 // ProposerSpec is one deliberation member: an endpoint plus its persona.
 type ProposerSpec struct {
-	Endpoint     EndpointRef
-	PersonaKey   string // melchior | balthasar | casper | custom
-	DisplayName  string // custom display name; overrides MELCHIOR-N when non-empty
-	CustomPrompt string // used when PersonaKey == "custom"
+	Provider     ProposerProvider // embedded | claude_cli | opencode_cli
+	Endpoint     EndpointRef     // used when Provider == "embedded"
+	ModelID      string           // model alias for claude_cli/opencode_cli (empty = default)
+	PersonaKey   string           // melchior | balthasar | casper | custom
+	DisplayName  string           // custom display name; overrides MELCHIOR-N when non-empty
+	CustomPrompt string           // used when PersonaKey == "custom"
 }
 
 // ProposerResult is one proposer's round answer.
