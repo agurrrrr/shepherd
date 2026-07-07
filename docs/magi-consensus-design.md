@@ -293,7 +293,7 @@ magi:
   escalation:
     confidence_threshold: 7      # 이 미만이면 토론
     max_debate_rounds: 1
-  proposer_timeout_seconds: 120
+  proposer_timeout_seconds: 300
   mode: advisory                 # advisory | plan | review (Phase 게이트, §8)
 ```
 

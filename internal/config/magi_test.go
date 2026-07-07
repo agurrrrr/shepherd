@@ -22,7 +22,7 @@ func validMagiConfig() *EmbeddedConfig {
 			},
 			Aggregator:             MagiAggregator{Type: "claude_cli"},
 			Escalation:             MagiEscalation{ConfidenceThreshold: 7, MaxDebateRounds: 1},
-			ProposerTimeoutSeconds: 120,
+			ProposerTimeoutSeconds: 300,
 			Mode:                   "advisory",
 		},
 	}
@@ -308,8 +308,8 @@ func TestApplyMagiDefaults(t *testing.T) {
 	if m.Escalation.ConfidenceThreshold != 7 {
 		t.Errorf("threshold: got %d, want 7", m.Escalation.ConfidenceThreshold)
 	}
-	if m.ProposerTimeoutSeconds != 120 {
-		t.Errorf("timeout: got %d, want 120", m.ProposerTimeoutSeconds)
+	if m.ProposerTimeoutSeconds != 300 {
+		t.Errorf("timeout: got %d, want 300", m.ProposerTimeoutSeconds)
 	}
 	if m.Mode != "advisory" {
 		t.Errorf("mode: got %q, want advisory", m.Mode)
@@ -390,7 +390,7 @@ magi:
   escalation:
     confidence_threshold: 7
     max_debate_rounds: 1
-  proposer_timeout_seconds: 120
+  proposer_timeout_seconds: 300
   mode: advisory
 `
 

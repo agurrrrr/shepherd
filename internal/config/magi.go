@@ -47,7 +47,7 @@ func ApplyMagiDefaults(m *MagiConfig) {
 		m.Escalation.MaxDebateRounds = 1
 	}
 	if m.ProposerTimeoutSeconds <= 0 {
-		m.ProposerTimeoutSeconds = 120
+		m.ProposerTimeoutSeconds = 300
 	}
 	if m.Mode == "" {
 		m.Mode = "advisory"
