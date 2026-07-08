@@ -17,8 +17,10 @@ import (
 //                 skill_load,
 //                 wiki_read_page, wiki_list_pages, wiki_search
 //   - Browser:    ALL browser tools are allowed (navigation, interaction,
-//                 session lifecycle, capture, debug) — proposers can fully
-//                 interact with web pages during research.
+//                 session lifecycle, capture, debug) — each proposer runs in
+//                 its own browser session (per-proposer profile via
+//                 PersonaSheepName, task #7139) so DOM manipulation conflicts
+//                 are eliminated.
 //   - External:   any project-enabled MCP server method whose name
 //                 matches a readonly heuristic
 
@@ -44,9 +46,9 @@ var allowedShepherdMCPTools = map[string]bool{
 // allowedBrowserTools are browser automation tools that are all permitted
 // for MAGI proposers. Previously, interaction tools (click, type, select,
 // etc.) and session lifecycle tools (start/stop) were blocked to prevent
-// race conditions between three concurrent models. However, browser tools
-// are now all allowed so proposers can fully interact with web pages during
-// research — each proposer runs in its own browser session context.
+// race conditions between three concurrent models. However, each proposer
+// now runs in its own browser session (via PersonaSheepName, task #7139),
+// so all browser tools are safe to use concurrently.
 var allowedBrowserTools = map[string]bool{
 	// Navigation & page control
 	"browser_open":             true, // navigate to a URL (opens a page)

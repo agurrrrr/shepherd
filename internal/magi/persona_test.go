@@ -179,3 +179,50 @@ func TestPersonaEmoji_Custom(t *testing.T) {
 		t.Errorf("PersonaEmoji = %q, want %q", emoji, "🔮")
 	}
 }
+
+func TestPersonaSheepName_BuiltInPersonas(t *testing.T) {
+	tests := []struct {
+		name     string
+		sheep    string
+		spec     ProposerSpec
+		slot     int
+		expected string
+	}{
+		{"melchior slot 0", "햄찌", ProposerSpec{PersonaKey: "melchior"}, 0, "햄찌-MELCHIOR-1"},
+		{"balthasar slot 1", "햄찌", ProposerSpec{PersonaKey: "balthasar"}, 1, "햄찌-BALTHASAR-2"},
+		{"casper slot 2", "햄찌", ProposerSpec{PersonaKey: "casper"}, 2, "햄찌-CASPER-3"},
+		{"ascii sheep name", "alice", ProposerSpec{PersonaKey: "melchior"}, 0, "alice-MELCHIOR-1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := PersonaSheepName(tt.sheep, tt.spec, tt.slot)
+			if got != tt.expected {
+				t.Errorf("PersonaSheepName(%q, ...) = %q, want %q", tt.sheep, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestPersonaSheepName_CustomDisplayName(t *testing.T) {
+	spec := ProposerSpec{PersonaKey: "custom", DisplayName: "ARES-7"}
+	got := PersonaSheepName("햄찌", spec, 0)
+	if got != "햄찌-ARES-7" {
+		t.Errorf("PersonaSheepName with custom DisplayName = %q, want %q", got, "햄찌-ARES-7")
+	}
+}
+
+func TestPersonaSheepName_EmptySheepName(t *testing.T) {
+	spec := ProposerSpec{PersonaKey: "melchior"}
+	got := PersonaSheepName("", spec, 0)
+	if got != "" {
+		t.Errorf("PersonaSheepName with empty sheepName should return empty string, got %q", got)
+	}
+}
+
+func TestPersonaSheepName_CustomPersona(t *testing.T) {
+	spec := ProposerSpec{PersonaKey: "custom"}
+	got := PersonaSheepName("햄찌", spec, 2)
+	if got != "햄찌-CUSTOM-3" {
+		t.Errorf("PersonaSheepName for custom persona = %q, want %q", got, "햄찌-CUSTOM-3")
+	}
+}

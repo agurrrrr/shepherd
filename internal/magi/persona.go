@@ -106,6 +106,24 @@ func PersonaDisplayName(spec ProposerSpec, slot int) string {
 	return fmt.Sprintf("CUSTOM-%d", slot+1)
 }
 
+// PersonaSheepName generates a per-proposer browser session name by combining
+// the base sheep name with the persona display name. This ensures each MAGI
+// proposer gets its own isolated browser profile (~/.shepherd/browser/<name>),
+// preventing concurrent DOM manipulation conflicts when three models run in
+// parallel.
+//
+// Example: sheepName="햄찌", slot=0, PersonaKey="melchior" → "햄찌-MELCHIOR-1"
+//
+// When sheepName is empty (e.g. in tests that don't use browser tools), an
+// empty string is returned — callEndpoint already handles empty sheepName
+// gracefully (no injection into args).
+func PersonaSheepName(sheepName string, spec ProposerSpec, slot int) string {
+	if sheepName == "" {
+		return ""
+	}
+	return sheepName + "-" + PersonaDisplayName(spec, slot)
+}
+
 // PersonaEmoji returns the emoji for a spec.
 func PersonaEmoji(spec ProposerSpec) string {
 	if p, ok := GetPersona(spec.PersonaKey); ok {

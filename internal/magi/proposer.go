@@ -494,8 +494,14 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 				}
 				maxTokens := ctxTokens / 4
 
+				// Generate a per-proposer sheep name so each MAGI proposer
+				// gets its own isolated browser session profile. Without this,
+				// three concurrent models share one Chrome instance and their
+				// DOM manipulations collide (task #7139).
+				perSlotSheepName := PersonaSheepName(opts.SheepName, sp, slot)
+
 				content, usage, err = callEndpoint(callCtx, sp.Endpoint, systemPrompt, userPrompt, temp, maxTokens, tokenCb,
-					opts.ToolDefs, opts.ToolDispatch, opts.ProjectPath, opts.SheepName)
+					opts.ToolDefs, opts.ToolDispatch, opts.ProjectPath, perSlotSheepName)
 			}
 
 			if err != nil {

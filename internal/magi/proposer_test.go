@@ -572,6 +572,101 @@ func TestRunProposers_BlindIsolation(t *testing.T) {
 	}
 }
 
+// TestRunProposers_PerSlotSheepName verifies that each proposer receives a
+// unique sheep name derived from the base sheep name + persona display name.
+// This ensures each MAGI proposer gets its own isolated browser session
+// (task #7139).
+func TestRunProposers_PerSlotSheepName(t *testing.T) {
+	var mu sync.Mutex
+	receivedNames := make(map[string]string) // endpoint ID → sheepName
+
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": func(_ context.Context, _ EndpointRef, _ string, _ string, _ float32, _ int, _ func(string), _ []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, sn string) (string, embedded.ChatUsage, error) {
+				mu.Lock()
+				receivedNames["ep1"] = sn
+				mu.Unlock()
+				return "answer\nCONFIDENCE: 8", embedded.ChatUsage{}, nil
+			},
+			"ep2": func(_ context.Context, _ EndpointRef, _ string, _ string, _ float32, _ int, _ func(string), _ []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, sn string) (string, embedded.ChatUsage, error) {
+				mu.Lock()
+				receivedNames["ep2"] = sn
+				mu.Unlock()
+				return "answer\nCONFIDENCE: 7", embedded.ChatUsage{}, nil
+			},
+			"ep3": func(_ context.Context, _ EndpointRef, _ string, _ string, _ float32, _ int, _ func(string), _ []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, sn string) (string, embedded.ChatUsage, error) {
+				mu.Lock()
+				receivedNames["ep3"] = sn
+				mu.Unlock()
+				return "answer\nCONFIDENCE: 9", embedded.ChatUsage{}, nil
+			},
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	opts := RunProposersOptions{
+		Proposers: []ProposerSpec{
+			{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"},
+			{Endpoint: testEndpoint("ep2", "model-b"), PersonaKey: "balthasar"},
+			{Endpoint: testEndpoint("ep3", "model-c"), PersonaKey: "casper"},
+		},
+		BaseSystem:  "test",
+		UserPrompts: []string{"prompt"},
+		Timeout:     5 * time.Second,
+		SheepName:   "햄찌",
+	}
+
+	RunProposers(context.Background(), opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	expected := map[string]string{
+		"ep1": "햄찌-MELCHIOR-1",
+		"ep2": "햄찌-BALTHASAR-2",
+		"ep3": "햄찌-CASPER-3",
+	}
+	for ep, want := range expected {
+		if got := receivedNames[ep]; got != want {
+			t.Errorf("endpoint %s: sheepName = %q, want %q", ep, got, want)
+		}
+	}
+}
+
+// TestRunProposers_EmptySheepName verifies that when SheepName is empty (e.g.
+// tests that don't use browser tools), callEndpoint receives an empty string
+// and does not inject sheep_name into tool args.
+func TestRunProposers_EmptySheepName(t *testing.T) {
+	var receivedName string
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": func(_ context.Context, _ EndpointRef, _ string, _ string, _ float32, _ int, _ func(string), _ []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, sn string) (string, embedded.ChatUsage, error) {
+				receivedName = sn
+				return "answer\nCONFIDENCE: 5", embedded.ChatUsage{}, nil
+			},
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	opts := RunProposersOptions{
+		Proposers: []ProposerSpec{
+			{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"},
+		},
+		BaseSystem:  "test",
+		UserPrompts: []string{"prompt"},
+		Timeout:     5 * time.Second,
+		SheepName:   "", // empty — no browser session
+	}
+
+	RunProposers(context.Background(), opts)
+
+	if receivedName != "" {
+		t.Errorf("empty SheepName should produce empty per-slot name, got %q", receivedName)
+	}
+}
+
 // ─── callEndpoint mini agent loop tests ───────────────────────────────────
 //
 // These drive the REAL callEndpoint via the chatTurn seam so the tool
