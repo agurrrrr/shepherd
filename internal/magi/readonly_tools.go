@@ -4,23 +4,25 @@ import (
 	"strings"
 )
 
-// Phase 1.5 - Read-only tool filtering for MAGI proposers.
+// Phase 1.5 - Tool permission filtering for MAGI proposers.
 //
 // Proposers run 3-way parallel against the same filesystem / cluster /
-// network. Write-side effects would collide. But reading code, listing
-// K8s pods, checking OPNsense firewall rules - none of that mutates
-// anything. So we give proposers every tool whose execution is free of
-// persistent side effects:
+// network. For those shared resources write-side effects would collide, so
+// we restrict proposers to side-effect-free reads (reading code, listing
+// K8s pods, checking OPNsense firewall rules — none of that mutates
+// anything). Browser tools are the deliberate exception: ALL browser tools
+// are permitted — including interaction (click/type) and JS eval — because
+// each proposer runs in its own isolated browser session (per-proposer
+// profile via PersonaSheepName, tasks #7138/#7139), so there is no shared
+// browser state to collide on. The set of permitted tools is therefore:
 //
 //   - Native:     read_file, grep, glob
 //   - Shepherd:   get_history, get_task_detail, get_status,
 //                 skill_load,
 //                 wiki_read_page, wiki_list_pages, wiki_search
-//   - Browser:    ALL browser tools are allowed (navigation, interaction,
-//                 session lifecycle, capture, debug) — each proposer runs in
-//                 its own browser session (per-proposer profile via
-//                 PersonaSheepName, task #7139) so DOM manipulation conflicts
-//                 are eliminated.
+//   - Browser:    ALL browser tools (navigation, interaction, session
+//                 lifecycle, capture, debug) — safe because each proposer is
+//                 isolated to its own session (PersonaSheepName, #7138/#7139)
 //   - External:   any project-enabled MCP server method whose name
 //                 matches a readonly heuristic
 
@@ -51,39 +53,39 @@ var allowedShepherdMCPTools = map[string]bool{
 // so all browser tools are safe to use concurrently.
 var allowedBrowserTools = map[string]bool{
 	// Navigation & page control
-	"browser_open":             true, // navigate to a URL (opens a page)
-	"browser_navigate":        true, // navigate current page to URL
-	"browser_back":             true, // browser history back
-	"browser_forward":          true, // browser history forward
-	"browser_reload":            true, // reload current page
-	"browser_close":            true, // close a page
+	"browser_open":     true, // navigate to a URL (opens a page)
+	"browser_navigate": true, // navigate current page to URL
+	"browser_back":     true, // browser history back
+	"browser_forward":  true, // browser history forward
+	"browser_reload":   true, // reload current page
+	"browser_close":    true, // close a page
 	// Element interaction
-	"browser_click":           true, // clicks an element
-	"browser_type":             true, // types text into an input
-	"browser_select":           true, // selects a dropdown option
-	"browser_check":            true, // checks/unchecks a checkbox
-	"browser_hover":            true, // hovers over an element
-	"browser_scroll":           true, // scroll the page
-	"browser_eval":             true, // executes JavaScript
+	"browser_click":  true, // clicks an element
+	"browser_type":   true, // types text into an input
+	"browser_select": true, // selects a dropdown option
+	"browser_check":  true, // checks/unchecks a checkbox
+	"browser_hover":  true, // hovers over an element
+	"browser_scroll": true, // scroll the page
+	"browser_eval":   true, // executes JavaScript
 	// Information extraction
-	"browser_get_text":        true, // extract text from selector
-	"browser_get_html":        true, // extract HTML from selector
-	"browser_get_attribute":   true, // get element attribute
-	"browser_get_url":         true, // get current URL
-	"browser_get_title":       true, // get page title
+	"browser_get_text":      true, // extract text from selector
+	"browser_get_html":      true, // extract HTML from selector
+	"browser_get_attribute": true, // get element attribute
+	"browser_get_url":       true, // get current URL
+	"browser_get_title":     true, // get page title
 	// Wait / synchronization
-	"browser_wait_load":       true, // wait for page load
-	"browser_wait_idle":       true, // wait for network idle
-	"browser_wait_selector":   true, // wait for element to appear
-	"browser_wait_hidden":     true, // wait for element to disappear
+	"browser_wait_load":     true, // wait for page load
+	"browser_wait_idle":     true, // wait for network idle
+	"browser_wait_selector": true, // wait for element to appear
+	"browser_wait_hidden":   true, // wait for element to disappear
 	// Capture
-	"browser_screenshot":      true, // capture screenshot
-	"browser_pdf":              true, // generate PDF
+	"browser_screenshot": true, // capture screenshot
+	"browser_pdf":        true, // generate PDF
 	// Session lifecycle
-	"browser_session_start":   true, // creates a new Chrome profile session
-	"browser_session_stop":    true, // destroys a session
-	"browser_list_pages":      true, // list open pages
-	"browser_list_sessions":   true, // list active sessions
+	"browser_session_start": true, // creates a new Chrome profile session
+	"browser_session_stop":  true, // destroys a session
+	"browser_list_pages":    true, // list open pages
+	"browser_list_sessions": true, // list active sessions
 	// Debug / monitoring
 	"browser_console_start":    true, // start console message collection
 	"browser_console_messages": true, // read collected console messages
@@ -101,10 +103,10 @@ var blockedShepherdMCPTools = map[string]bool{
 	"task_error":    true,
 }
 
-// blockedBrowserTools is now empty — all browser tools are allowed for
-// MAGI proposers. Kept as an empty map (rather than deleted) so the
-// IsReadOnlyTool check structure remains clear and future adjustments
-// are easy to make.
+// blockedBrowserTools is intentionally empty — all browser tools are allowed
+// for MAGI proposers (tasks #7138/#7139). Kept as an empty map (rather than
+// deleted) so the IsAllowedProposerTool block/allow check structure remains
+// symmetric and re-blocking a browser tool later is a one-line change.
 var blockedBrowserTools = map[string]bool{}
 
 // readonlyKeywordPatterns are substrings that strongly suggest a tool is a
@@ -126,6 +128,9 @@ var readonlyKeywordPatterns = []string{
 
 // mutatingKeywordPatterns are substrings that strongly suggest a tool mutates
 // state. Negative wins ties - if both patterns match, the tool is excluded.
+// These heuristics apply to external MCP tools only: browser tools are
+// resolved earlier via the explicit allowedBrowserTools map, so patterns like
+// "_start"/"_stop" never reach browser_session_start / browser_session_stop.
 var mutatingKeywordPatterns = []string{
 	"_add_",
 	"_delete_",
@@ -144,9 +149,11 @@ var mutatingKeywordPatterns = []string{
 	"_promote_",
 }
 
-// IsReadOnlyTool reports whether the named tool has no persistent side
-// effects and is safe for concurrent use by multiple MAGI proposers.
-func IsReadOnlyTool(name string) bool {
+// IsAllowedProposerTool reports whether the named tool may be invoked by a
+// MAGI proposer. Filesystem / cluster / network tools are limited to
+// side-effect-free reads (safe for concurrent proposers); browser tools are
+// all allowed because each proposer runs in its own isolated session.
+func IsAllowedProposerTool(name string) bool {
 	if blockedShepherdMCPTools[name] {
 		return false
 	}

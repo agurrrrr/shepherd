@@ -4,16 +4,16 @@ import (
 	"testing"
 )
 
-func TestIsReadOnlyTool_NativeReadTools(t *testing.T) {
+func TestIsAllowedProposerTool_NativeReadTools(t *testing.T) {
 	tools := []string{"read_file", "grep", "glob"}
 	for _, name := range tools {
-		if !IsReadOnlyTool(name) {
-			t.Errorf("IsReadOnlyTool(%q) = false; want true (native read tool)", name)
+		if !IsAllowedProposerTool(name) {
+			t.Errorf("IsAllowedProposerTool(%q) = false; want true (native read tool)", name)
 		}
 	}
 }
 
-func TestIsReadOnlyTool_ShepherdReadMCPTools(t *testing.T) {
+func TestIsAllowedProposerTool_ShepherdReadMCPTools(t *testing.T) {
 	tools := []string{
 		"get_history",
 		"get_task_detail",
@@ -24,13 +24,13 @@ func TestIsReadOnlyTool_ShepherdReadMCPTools(t *testing.T) {
 		"wiki_search",
 	}
 	for _, name := range tools {
-		if !IsReadOnlyTool(name) {
-			t.Errorf("IsReadOnlyTool(%q) = false; want true (shepherd read MCP tool)", name)
+		if !IsAllowedProposerTool(name) {
+			t.Errorf("IsAllowedProposerTool(%q) = false; want true (shepherd read MCP tool)", name)
 		}
 	}
 }
 
-func TestIsReadOnlyTool_ExternalReadMCPTools(t *testing.T) {
+func TestIsAllowedProposerTool_ExternalReadMCPTools(t *testing.T) {
 	tools := []string{
 		"k8s_list_pods",
 		"k8s_list_nodes",
@@ -66,13 +66,13 @@ func TestIsReadOnlyTool_ExternalReadMCPTools(t *testing.T) {
 		"get_releases",
 	}
 	for _, name := range tools {
-		if !IsReadOnlyTool(name) {
-			t.Errorf("IsReadOnlyTool(%q) = false; want true (external read MCP tool)", name)
+		if !IsAllowedProposerTool(name) {
+			t.Errorf("IsAllowedProposerTool(%q) = false; want true (external read MCP tool)", name)
 		}
 	}
 }
 
-func TestIsReadOnlyTool_WriteTools(t *testing.T) {
+func TestIsAllowedProposerTool_WriteTools(t *testing.T) {
 	tools := []string{
 		"write_file",
 		"edit_file",
@@ -82,13 +82,13 @@ func TestIsReadOnlyTool_WriteTools(t *testing.T) {
 		"task_error",
 	}
 	for _, name := range tools {
-		if IsReadOnlyTool(name) {
-			t.Errorf("IsReadOnlyTool(%q) = true; want false (write tool)", name)
+		if IsAllowedProposerTool(name) {
+			t.Errorf("IsAllowedProposerTool(%q) = true; want false (write tool)", name)
 		}
 	}
 }
 
-func TestIsReadOnlyTool_ExternalWriteMCPTools(t *testing.T) {
+func TestIsAllowedProposerTool_ExternalWriteMCPTools(t *testing.T) {
 	tools := []string{
 		"k8s_delete_pod",
 		"k8s_scale_deployment",
@@ -122,13 +122,13 @@ func TestIsReadOnlyTool_ExternalWriteMCPTools(t *testing.T) {
 		"promote_release",
 	}
 	for _, name := range tools {
-		if IsReadOnlyTool(name) {
-			t.Errorf("IsReadOnlyTool(%q) = true; want false (external write MCP tool)", name)
+		if IsAllowedProposerTool(name) {
+			t.Errorf("IsAllowedProposerTool(%q) = true; want false (external write MCP tool)", name)
 		}
 	}
 }
 
-func TestIsReadOnlyTool_BlockedShepherdMCPTools(t *testing.T) {
+func TestIsAllowedProposerTool_BlockedShepherdMCPTools(t *testing.T) {
 	// These are explicitly blocked even though they might match a read heuristic.
 	tools := []string{
 		"task_start",
@@ -136,13 +136,13 @@ func TestIsReadOnlyTool_BlockedShepherdMCPTools(t *testing.T) {
 		"task_error",
 	}
 	for _, name := range tools {
-		if IsReadOnlyTool(name) {
-			t.Errorf("IsReadOnlyTool(%q) = true; want false (blocked shepherd MCP tool)", name)
+		if IsAllowedProposerTool(name) {
+			t.Errorf("IsAllowedProposerTool(%q) = true; want false (blocked shepherd MCP tool)", name)
 		}
 	}
 }
 
-func TestIsReadOnlyTool_BrowserTools(t *testing.T) {
+func TestIsAllowedProposerTool_BrowserTools(t *testing.T) {
 	// All browser tools are now allowed for MAGI proposers — both
 	// navigation/reading tools and interaction/lifecycle tools.
 	allBrowserTools := []string{
@@ -188,28 +188,28 @@ func TestIsReadOnlyTool_BrowserTools(t *testing.T) {
 		"browser_network_request",
 	}
 	for _, name := range allBrowserTools {
-		if !IsReadOnlyTool(name) {
-			t.Errorf("IsReadOnlyTool(%q) = false; want true (all browser tools are now allowed)", name)
+		if !IsAllowedProposerTool(name) {
+			t.Errorf("IsAllowedProposerTool(%q) = false; want true (all browser tools are now allowed)", name)
 		}
 	}
 }
 
-func TestIsReadOnlyTool_UnknownTool(t *testing.T) {
+func TestIsAllowedProposerTool_UnknownTool(t *testing.T) {
 	// Unknown tools with no matching patterns should return false.
-	if IsReadOnlyTool("some_random_tool") {
-		t.Errorf("IsReadOnlyTool(\"some_random_tool\") = true; want false (no pattern match)")
+	if IsAllowedProposerTool("some_random_tool") {
+		t.Errorf("IsAllowedProposerTool(\"some_random_tool\") = true; want false (no pattern match)")
 	}
 }
 
-func TestIsReadOnlyTool_MutatingWinsOverRead(t *testing.T) {
+func TestIsAllowedProposerTool_MutatingWinsOverRead(t *testing.T) {
 	// When both a read and mutating pattern match, mutating wins.
 	// e.g. "ops_add_dns_override" has "get_" (no, it doesn't) but has "_add_" and "_delete_".
 	// Better example: "k8s_list_nodes" has "list_" (read) — should be true.
-	if !IsReadOnlyTool("k8s_list_nodes") {
-		t.Errorf("IsReadOnlyTool(\"k8s_list_nodes\") = false; want true (list_ is read)")
+	if !IsAllowedProposerTool("k8s_list_nodes") {
+		t.Errorf("IsAllowedProposerTool(\"k8s_list_nodes\") = false; want true (list_ is read)")
 	}
 	// "ops_add_firewall_rule" has "_add_" (mutating) — should be false.
-	if IsReadOnlyTool("ops_add_firewall_rule") {
-		t.Errorf("IsReadOnlyTool(\"ops_add_firewall_rule\") = true; want false (_add_ is mutating)")
+	if IsAllowedProposerTool("ops_add_firewall_rule") {
+		t.Errorf("IsAllowedProposerTool(\"ops_add_firewall_rule\") = true; want false (_add_ is mutating)")
 	}
 }

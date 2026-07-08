@@ -834,11 +834,11 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 		for _, t := range mcp.ListWikiToolDefs() {
 			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
 		}
-		// Browser tools are included — read-only navigation and reading tools
-		// (browser_open, browser_get_text, browser_screenshot, etc.) enable web
-		// research for MAGI proposers. Interaction tools (click, type, select)
-		// and session lifecycle tools (start/stop) are filtered out by
-		// magi.IsReadOnlyTool() in step 5c below.
+		// Browser tools are included in full — navigation, reading, interaction
+		// (click/type/select), session lifecycle, capture, and debug — enabling
+		// web research and automation for MAGI proposers. All browser tools are
+		// permitted by magi.IsAllowedProposerTool() (step 5c below) because each
+		// proposer runs in its own isolated browser session (tasks #7138/#7139).
 		for _, t := range mcp.ListBrowserToolDefs() {
 			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
 		}
@@ -868,18 +868,19 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 			}
 		}
 
-		// 5c. Filter to read-only tools only (Phase 1.5).
-		var readOnlyMCPDefs []embedded.MCPToolDef
+		// 5c. Filter to the proposer-permitted tool set (Phase 1.5): read/query
+		// tools plus the full browser tool set; shared-state mutations dropped.
+		var proposerMCPDefs []embedded.MCPToolDef
 		for _, d := range mcpDefs {
-			if magi.IsReadOnlyTool(d.Name) {
-				readOnlyMCPDefs = append(readOnlyMCPDefs, d)
+			if magi.IsAllowedProposerTool(d.Name) {
+				proposerMCPDefs = append(proposerMCPDefs, d)
 			}
 		}
 
-		// 5d. Build MCP guide from the read-only tool set.
-		mcpGuide := buildMCPGuide(readOnlyMCPDefs, projectName)
+		// 5d. Build MCP guide from the proposer-permitted tool set.
+		mcpGuide := buildMCPGuide(proposerMCPDefs, projectName)
 
-		// 5e. Build the system prompt with MAGI identity + read-only tools.
+		// 5e. Build the system prompt with MAGI identity + permitted tools.
 		baseSystem := worker.BuildSystemPromptForMagi(sheepName, projectPath, mcpGuide)
 
 		// 5f. Build the MCP dispatcher (same pattern as initEmbeddedExecutor).
@@ -962,8 +963,8 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 		}
 		toolDefs = append(toolDefs, nativeReadOnly...)
 
-		// Add read-only MCP tools.
-		for _, d := range readOnlyMCPDefs {
+		// Add the proposer-permitted MCP tools (read/query + browser).
+		for _, d := range proposerMCPDefs {
 			toolDefs = append(toolDefs, embedded.OpenAIToolDef{
 				Type: "function",
 				Function: embedded.OpenAIFunction{

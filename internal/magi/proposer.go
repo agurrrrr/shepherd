@@ -328,9 +328,10 @@ func forceFinalAnswer(
 }
 
 // executeProposerToolCall validates and runs a single tool call from a
-// proposer, returning the tool-role result message. Only read-only tools are
-// permitted; write tools are rejected with an error fed back to the model so
-// proposers may read but never mutate shared state (design §Phase 1.5).
+// proposer, returning the tool-role result message. Only tools permitted for
+// proposers are run (read/query tools plus the isolated browser tool set);
+// tools that mutate shared filesystem / cluster / task state are rejected with
+// an error fed back to the model (design §Phase 1.5, see IsAllowedProposerTool).
 func executeProposerToolCall(
 	ctx context.Context,
 	tc embedded.ToolCall,
@@ -340,11 +341,11 @@ func executeProposerToolCall(
 ) embedded.ChatMessage {
 	toolName := tc.Func.Name
 
-	// Validate: only read-only tools are allowed.
-	if !IsReadOnlyTool(toolName) {
+	// Validate: only tools permitted for proposers are allowed.
+	if !IsAllowedProposerTool(toolName) {
 		return embedded.ChatMessage{
 			Role:       embedded.ChatRoleTool,
-			Content:    fmt.Sprintf("Error: tool %q is not allowed in MAGI deliberation (write tools are prohibited). Use only read-only tools.", toolName),
+			Content:    fmt.Sprintf("Error: tool %q is not allowed in MAGI deliberation. Tools that mutate shared filesystem, cluster, or task state are prohibited; use query/read tools or browser tools.", toolName),
 			ToolCallID: tc.ID,
 		}
 	}
@@ -426,6 +427,7 @@ type RunProposersOptions struct {
 	ProjectPath  string
 	SheepName    string
 }
+
 // RunProposers calls every proposer in parallel and returns one result per
 // slot, in slot order. Individual failures are recorded in Result.Err —
 // callers decide whether enough succeeded (design §5.1).
@@ -480,11 +482,20 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 				}
 			}
 
+			// Generate a per-proposer sheep name so each MAGI proposer gets
+			// its own isolated browser session profile. Without this, three
+			// concurrent models share one Chrome instance and their DOM
+			// manipulations collide (task #7139). This applies to every
+			// provider — the embedded loop injects it directly into browser
+			// tool args, while CLI providers receive it as a prompt directive
+			// (they run external agent loops we cannot intercept).
+			perSlotSheepName := PersonaSheepName(opts.SheepName, sp, slot)
+
 			switch provider {
 			case ProviderClaudeCLI:
-				content, usage, err = callClaudeCLI(callCtx, sp, systemPrompt, userPrompt, opts.ProjectPath, tokenCb)
+				content, usage, err = callClaudeCLI(callCtx, sp, systemPrompt, userPrompt, opts.ProjectPath, perSlotSheepName, tokenCb)
 			case ProviderOpenCodeCLI:
-				content, usage, err = callOpenCodeCLI(callCtx, sp, systemPrompt, userPrompt, opts.ProjectPath, tokenCb)
+				content, usage, err = callOpenCodeCLI(callCtx, sp, systemPrompt, userPrompt, opts.ProjectPath, perSlotSheepName, tokenCb)
 			default: // ProviderEmbedded
 				// Compute max tokens: ContextTokens / 4 (same rule as the
 				// embedded agent loop). Fall back to DefaultContextTokens.
@@ -493,12 +504,6 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 					ctxTokens = embedded.DefaultContextTokens
 				}
 				maxTokens := ctxTokens / 4
-
-				// Generate a per-proposer sheep name so each MAGI proposer
-				// gets its own isolated browser session profile. Without this,
-				// three concurrent models share one Chrome instance and their
-				// DOM manipulations collide (task #7139).
-				perSlotSheepName := PersonaSheepName(opts.SheepName, sp, slot)
 
 				content, usage, err = callEndpoint(callCtx, sp.Endpoint, systemPrompt, userPrompt, temp, maxTokens, tokenCb,
 					opts.ToolDefs, opts.ToolDispatch, opts.ProjectPath, perSlotSheepName)
@@ -609,16 +614,35 @@ func proposerModelLabel(spec ProposerSpec) string {
 // ── CLI-based proposer backends ──────────────────────────────────────
 //
 // claude_cli and opencode_cli proposers run as subprocesses (like the
-// aggregator's claude_cli path). They do NOT support read-only tools —
-// the CLI subprocess owns its own tool loop. This is acceptable because
-// MAGI Phase 1.5 tools are advisory (read-only exploration); a CLI
-// proposer with its own agentic capabilities is a valid alternative.
+// aggregator's claude_cli path). The CLI subprocess owns its own tool loop,
+// so shepherd cannot intercept individual tool calls to enforce the proposer
+// permission set the embedded path applies via IsAllowedProposerTool. This is
+// acceptable because a CLI proposer with its own agentic capabilities is a
+// valid alternative. The one cross-cutting concern shepherd still injects is
+// browser session isolation: a per-slot sheep_name directive is appended to
+// the prompt (browserSessionDirective) so concurrent CLI proposers don't
+// collide on one Chrome instance.
 //
 // Streaming: CLI stdout is line-buffered; each line is forwarded to the
 // onToken callback so the frontend can render live output.
 
-// callClaudeCLI runs `claude --print` with an optional model flag.
-func callClaudeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPrompt, workDir string, onToken func(string)) (string, embedded.ChatUsage, error) {
+// browserSessionDirective returns a system-prompt addendum that pins a CLI
+// proposer's browser tool calls to its own per-slot sheep session, preventing
+// DOM conflicts when proposers run concurrently. Unlike the embedded path —
+// which overrides sheep_name directly in the tool args — CLI providers run an
+// external agent loop we cannot intercept, so isolation can only be requested
+// via the prompt. Returns "" when sheepName is empty (no browser isolation).
+func browserSessionDirective(sheepName string) string {
+	if sheepName == "" {
+		return ""
+	}
+	return fmt.Sprintf("\n\n[브라우저 세션 격리] 브라우저 도구(browser_*)를 사용할 경우 반드시 sheep_name=%q 를 지정하라. 다른 세션 이름을 쓰면 동시에 심의 중인 다른 모델과 브라우저 세션이 충돌한다.", sheepName)
+}
+
+// callClaudeCLI runs `claude --print` with an optional model flag. sheepName
+// pins any browser tool calls to a per-proposer session (see
+// browserSessionDirective); pass "" to skip browser isolation.
+func callClaudeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPrompt, workDir, sheepName string, onToken func(string)) (string, embedded.ChatUsage, error) {
 	args := []string{"--print"}
 	if spec.ModelID != "" {
 		args = append(args, "--model", spec.ModelID)
@@ -626,7 +650,7 @@ func callClaudeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPro
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = workDir
-	cmd.Stdin = strings.NewReader(systemPrompt + "\n\n" + userPrompt)
+	cmd.Stdin = strings.NewReader(systemPrompt + browserSessionDirective(sheepName) + "\n\n" + userPrompt)
 	envutil.SetCleanEnv(cmd)
 
 	stdout, err := cmd.StdoutPipe()
@@ -661,8 +685,10 @@ func callClaudeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPro
 	return output, embedded.ChatUsage{}, nil
 }
 
-// callOpenCodeCLI runs `opencode run --format json` with an optional model flag.
-func callOpenCodeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPrompt, workDir string, onToken func(string)) (string, embedded.ChatUsage, error) {
+// callOpenCodeCLI runs `opencode run --format json` with an optional model
+// flag. sheepName pins any browser tool calls to a per-proposer session (see
+// browserSessionDirective); pass "" to skip browser isolation.
+func callOpenCodeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPrompt, workDir, sheepName string, onToken func(string)) (string, embedded.ChatUsage, error) {
 	args := []string{"run", "--format", "json"}
 	if spec.ModelID != "" {
 		args = append(args, "-m", spec.ModelID)
@@ -670,7 +696,7 @@ func callOpenCodeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userP
 
 	cmd := exec.CommandContext(ctx, "opencode", args...)
 	cmd.Dir = workDir
-	cmd.Stdin = strings.NewReader(systemPrompt + "\n\n" + userPrompt)
+	cmd.Stdin = strings.NewReader(systemPrompt + browserSessionDirective(sheepName) + "\n\n" + userPrompt)
 	envutil.SetCleanEnv(cmd)
 	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
 
@@ -718,9 +744,9 @@ func callOpenCodeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userP
 //
 // OpenCode v1.16+ emits events in the AI SDK streaming format:
 //
-//   {"type":"text","part":{"type":"text","text":"Hello!"}}
-//   {"type":"step_start","part":{"type":"step-start"}}
-//   {"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}
+//	{"type":"text","part":{"type":"text","text":"Hello!"}}
+//	{"type":"step_start","part":{"type":"step-start"}}
+//	{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}
 //
 // The text content lives in part.text (not a top-level "content" field).
 // Older versions used {"type":"message","content":"..."} — we keep that as

@@ -17,10 +17,12 @@ type Persona struct {
 // prompt (design §6). Extracted as a constant so all three personas — and
 // custom personas — share identical rules.
 //
-// Phase 1.5: proposers now have read-only tools. The rules reflect this.
+// Phase 1.5+: proposers may use read/query tools plus the full browser tool
+// set (each proposer is isolated to its own browser session). Only tools that
+// mutate shared filesystem / cluster / task state are prohibited.
 const commonDeliberationRules = `[심의 규칙]
-- 이 심의에서 너는 읽기 전용 도구를 사용할 수 있다. 파일 읽기(read_file, grep, glob), 작업 히스토리 조회(get_history, get_task_detail), 위키 조회, 외부 MCP 조회 도구를 사용해 코드와 상태를 직접 확인하라.
-- 쓰기 도구(write_file, edit_file, bash, task_start 등)는 사용할 수 없다. 쓰기 도구 호출 시도는 답변을 무효화한다.
+- 이 심의에서 너는 조회 도구와 브라우저 도구를 사용할 수 있다. 파일 읽기(read_file, grep, glob), 작업 히스토리 조회(get_history, get_task_detail), 위키 조회, 외부 MCP 조회 도구, 그리고 브라우저 도구(browser_*)를 사용해 코드·상태를 직접 확인하고 웹을 조사하라.
+- 파일·클러스터·작업 상태를 변경하는 쓰기 도구(write_file, edit_file, bash, task_start 등)는 사용할 수 없다. 쓰기 도구 호출 시도는 답변을 무효화한다.
 - 다른 심의자의 존재를 언급하지 마라. 너의 독립적 결론만 제시하라.
 - 답변의 마지막 줄에 반드시 "CONFIDENCE: <0-10 정수>" 한 줄을 추가하라.`
 
@@ -107,12 +109,18 @@ func PersonaDisplayName(spec ProposerSpec, slot int) string {
 }
 
 // PersonaSheepName generates a per-proposer browser session name by combining
-// the base sheep name with the persona display name. This ensures each MAGI
-// proposer gets its own isolated browser profile (~/.shepherd/browser/<name>),
-// preventing concurrent DOM manipulation conflicts when three models run in
-// parallel.
+// the base sheep name, the slot index, and the persona display name. This
+// ensures each MAGI proposer gets its own isolated browser profile
+// (~/.shepherd/browser/<name>), preventing concurrent DOM manipulation
+// conflicts when three models run in parallel.
 //
-// Example: sheepName="햄찌", slot=0, PersonaKey="melchior" → "햄찌-MELCHIOR-1"
+// The slot index is included unconditionally to guarantee uniqueness: the
+// display name alone is not sufficient because two slots can share the same
+// built-in persona or the same custom DisplayName, which would collapse them
+// onto one browser profile and reintroduce the very race this prevents. The
+// slot is always distinct, so it is the uniqueness anchor.
+//
+// Example: sheepName="햄찌", slot=0, PersonaKey="melchior" → "햄찌-slot0-MELCHIOR-1"
 //
 // When sheepName is empty (e.g. in tests that don't use browser tools), an
 // empty string is returned — callEndpoint already handles empty sheepName
@@ -121,7 +129,7 @@ func PersonaSheepName(sheepName string, spec ProposerSpec, slot int) string {
 	if sheepName == "" {
 		return ""
 	}
-	return sheepName + "-" + PersonaDisplayName(spec, slot)
+	return fmt.Sprintf("%s-slot%d-%s", sheepName, slot, PersonaDisplayName(spec, slot))
 }
 
 // PersonaEmoji returns the emoji for a spec.

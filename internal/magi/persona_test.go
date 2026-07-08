@@ -72,8 +72,8 @@ func TestAllPersonasContainCommonRules(t *testing.T) {
 		if !strings.Contains(p.Prompt, "CONFIDENCE") {
 			t.Errorf("persona %q: prompt missing CONFIDENCE instruction", key)
 		}
-		if !strings.Contains(p.Prompt, "읽기 전용 도구를 사용할 수 있다") {
-			t.Errorf("persona %q: prompt missing read-only tool permission", key)
+		if !strings.Contains(p.Prompt, "조회 도구와 브라우저 도구를 사용할 수 있다") {
+			t.Errorf("persona %q: prompt missing query/browser tool permission", key)
 		}
 		if !strings.Contains(p.Prompt, "쓰기 도구") {
 			t.Errorf("persona %q: prompt missing write tool restriction", key)
@@ -188,10 +188,10 @@ func TestPersonaSheepName_BuiltInPersonas(t *testing.T) {
 		slot     int
 		expected string
 	}{
-		{"melchior slot 0", "햄찌", ProposerSpec{PersonaKey: "melchior"}, 0, "햄찌-MELCHIOR-1"},
-		{"balthasar slot 1", "햄찌", ProposerSpec{PersonaKey: "balthasar"}, 1, "햄찌-BALTHASAR-2"},
-		{"casper slot 2", "햄찌", ProposerSpec{PersonaKey: "casper"}, 2, "햄찌-CASPER-3"},
-		{"ascii sheep name", "alice", ProposerSpec{PersonaKey: "melchior"}, 0, "alice-MELCHIOR-1"},
+		{"melchior slot 0", "햄찌", ProposerSpec{PersonaKey: "melchior"}, 0, "햄찌-slot0-MELCHIOR-1"},
+		{"balthasar slot 1", "햄찌", ProposerSpec{PersonaKey: "balthasar"}, 1, "햄찌-slot1-BALTHASAR-2"},
+		{"casper slot 2", "햄찌", ProposerSpec{PersonaKey: "casper"}, 2, "햄찌-slot2-CASPER-3"},
+		{"ascii sheep name", "alice", ProposerSpec{PersonaKey: "melchior"}, 0, "alice-slot0-MELCHIOR-1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -206,8 +206,27 @@ func TestPersonaSheepName_BuiltInPersonas(t *testing.T) {
 func TestPersonaSheepName_CustomDisplayName(t *testing.T) {
 	spec := ProposerSpec{PersonaKey: "custom", DisplayName: "ARES-7"}
 	got := PersonaSheepName("햄찌", spec, 0)
-	if got != "햄찌-ARES-7" {
-		t.Errorf("PersonaSheepName with custom DisplayName = %q, want %q", got, "햄찌-ARES-7")
+	if got != "햄찌-slot0-ARES-7" {
+		t.Errorf("PersonaSheepName with custom DisplayName = %q, want %q", got, "햄찌-slot0-ARES-7")
+	}
+}
+
+// TestPersonaSheepName_SlotUniqueness verifies that two proposers sharing the
+// same persona (built-in or custom DisplayName) still get distinct session
+// names because the slot index is always included (task #7141 review item #3).
+func TestPersonaSheepName_SlotUniqueness(t *testing.T) {
+	// Same built-in persona assigned to two different slots.
+	a := PersonaSheepName("햄찌", ProposerSpec{PersonaKey: "melchior"}, 0)
+	b := PersonaSheepName("햄찌", ProposerSpec{PersonaKey: "melchior"}, 1)
+	if a == b {
+		t.Errorf("same built-in persona on different slots collided: both %q", a)
+	}
+
+	// Same custom DisplayName assigned to two different slots.
+	c := PersonaSheepName("햄찌", ProposerSpec{DisplayName: "TWIN"}, 0)
+	d := PersonaSheepName("햄찌", ProposerSpec{DisplayName: "TWIN"}, 2)
+	if c == d {
+		t.Errorf("same custom DisplayName on different slots collided: both %q", c)
 	}
 }
 
@@ -222,7 +241,7 @@ func TestPersonaSheepName_EmptySheepName(t *testing.T) {
 func TestPersonaSheepName_CustomPersona(t *testing.T) {
 	spec := ProposerSpec{PersonaKey: "custom"}
 	got := PersonaSheepName("햄찌", spec, 2)
-	if got != "햄찌-CUSTOM-3" {
-		t.Errorf("PersonaSheepName for custom persona = %q, want %q", got, "햄찌-CUSTOM-3")
+	if got != "햄찌-slot2-CUSTOM-3" {
+		t.Errorf("PersonaSheepName for custom persona = %q, want %q", got, "햄찌-slot2-CUSTOM-3")
 	}
 }

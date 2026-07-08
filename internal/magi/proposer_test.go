@@ -623,9 +623,9 @@ func TestRunProposers_PerSlotSheepName(t *testing.T) {
 	defer mu.Unlock()
 
 	expected := map[string]string{
-		"ep1": "햄찌-MELCHIOR-1",
-		"ep2": "햄찌-BALTHASAR-2",
-		"ep3": "햄찌-CASPER-3",
+		"ep1": "햄찌-slot0-MELCHIOR-1",
+		"ep2": "햄찌-slot1-BALTHASAR-2",
+		"ep3": "햄찌-slot2-CASPER-3",
 	}
 	for ep, want := range expected {
 		if got := receivedNames[ep]; got != want {
@@ -1018,9 +1018,9 @@ func TestCallEndpoint_ToolCallTextGetsNudged(t *testing.T) {
 // discard the accumulated context — forced convergence recovers a final answer.
 func TestCallEndpoint_TransientErrorSalvagedByConvergence(t *testing.T) {
 	fake := &fakeChatTurn{script: []scriptedTurn{
-		{msg: toolCallMsg("get_status", `{}`)},                                  // explores successfully
-		{err: errors.New("transient error after 4 retries: API error 500")},     // send error mid-loop
-		{msg: answerMsg("서버 오류 직전까지 모은 맥락으로 최종 답변을 정리했다.\nCONFIDENCE: 4")}, // salvaged
+		{msg: toolCallMsg("get_status", `{}`)},                              // explores successfully
+		{err: errors.New("transient error after 4 retries: API error 500")}, // send error mid-loop
+		{msg: answerMsg("서버 오류 직전까지 모은 맥락으로 최종 답변을 정리했다.\nCONFIDENCE: 4")},  // salvaged
 	}}
 	defer withFakeChatTurn(fake.turn)()
 
