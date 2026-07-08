@@ -16,6 +16,11 @@ import (
 	"github.com/agurrrrr/shepherd/internal/envutil"
 )
 
+// minPerTurnFraction limits how much of the convergence reserve can be spent on
+// a single exploration LLM call. Each turn gets at least reserve/minPerTurnFraction;
+// if less than that remains before convergeAt, the loop breaks to forced convergence.
+const minPerTurnFraction = 3
+
 // minConvergenceReserve is the wall-clock time reserved at the tail of a
 // proposer's budget to force a final answer once tool exploration must stop.
 // Without a reserve, the forced (tools-off) request would race the hard
@@ -145,7 +150,32 @@ var callEndpoint = func(
 			ToolChoice:  "auto",
 		}
 
-		msg, usage, err := chatTurn(ctx, client, req, onToken)
+		// Per-turn timeout: cap each LLM call at convergeAt so a slow turn
+		// cannot bleed into the convergence reserve. Without this, a turn
+		// started just before convergeAt could run past the parent ctx
+		// deadline (600s in production), producing "scan SSE: context
+		// deadline exceeded" and starving forced convergence of its reserved
+		// budget (task #7150).
+		//
+		// If the per-turn ctx expires but the parent ctx is still alive,
+		// this is a normal exploration cutoff — NOT a transport error — so
+		// exploreErr must stay clean and the loop falls through to forced
+		// convergence naturally.
+		callCtx := ctx
+		var turnCancel context.CancelFunc
+		if hasCutoff {
+			turnTimeout := time.Until(convergeAt)
+			minTurn := reserve / minPerTurnFraction
+			if turnTimeout < minTurn {
+				break // too little time left — don't start a new turn
+			}
+			callCtx, turnCancel = context.WithTimeout(ctx, turnTimeout)
+		}
+
+		msg, usage, err := chatTurn(callCtx, client, req, onToken)
+		if turnCancel != nil {
+			turnCancel()
+		}
 		addUsage(&totalUsage, usage)
 		if err != nil {
 			// User cancellation → abort immediately, no salvage.
@@ -164,6 +194,17 @@ var callEndpoint = func(
 			// surface a bare "context deadline exceeded" instead of the far more
 			// diagnostic "no substantive answer after convergence nudge" (task
 			// #7081 review).
+			//
+			// With per-turn timeout (task #7150): a DeadlineExceeded from the
+			// per-turn ctx is also an expected cutoff. Distinguish it from a
+			// parent-ctx expiry by checking ctx.Err() — if the parent ctx is
+			// still alive, the per-turn ctx expired and we break cleanly to
+			// forced convergence without recording exploreErr.
+			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				// Per-turn ctx expired but parent ctx is alive — normal
+				// exploration cutoff, not an error.
+				break
+			}
 			if !errors.Is(err, context.DeadlineExceeded) {
 				exploreErr = err
 			}

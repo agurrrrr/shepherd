@@ -1135,3 +1135,159 @@ func TestCallEndpoint_ExplorationDeadlineNotSurfacedAsError(t *testing.T) {
 		t.Errorf("the expected exploration deadline must not be the surfaced error, got %v", err)
 	}
 }
+
+// TestCallEndpoint_PerTurnTimeoutStopsSlowTurn verifies that a slow LLM turn
+// started near convergeAt is cut off by the per-turn timeout — not by the
+// parent ctx deadline. This is the core fix for task #7150: without per-turn
+// timeout, a slow turn would bleed into the convergence reserve and produce
+// "scan SSE: context deadline exceeded" when the parent ctx expires mid-stream.
+//
+// Setup: parent ctx = 600ms, reserve ≈ 150ms, convergeAt ≈ 450ms.
+// The exploration turn sleeps 500ms (would exceed convergeAt).
+// Per-turn timeout fires at convergeAt (~450ms), breaking the turn cleanly.
+// Forced convergence then runs on a detached ctx with ~150ms budget and
+// succeeds.
+func TestCallEndpoint_PerTurnTimeoutStopsSlowTurn(t *testing.T) {
+	var mu sync.Mutex
+	var explorationTurns, convergenceTurns int
+	var explorationCtxErr error
+
+	restore := withFakeChatTurn(func(ctx context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(req.Tools) > 0 {
+			explorationTurns++
+			// Simulate a slow LLM call that would run past convergeAt.
+			// The per-turn ctx should fire before the 500ms sleep completes.
+			select {
+			case <-time.After(500 * time.Millisecond):
+				// If we get here, per-turn timeout didn't fire — bug.
+				return toolCallMsg("get_status", `{}`), embedded.ChatUsage{}, nil
+			case <-ctx.Done():
+				explorationCtxErr = ctx.Err()
+				return nil, embedded.ChatUsage{}, ctx.Err()
+			}
+		}
+		convergenceTurns++
+		return answerMsg("per-turn timeout이 정상적으로 동작했다\nCONFIDENCE: 7"), embedded.ChatUsage{}, nil
+	})
+	defer restore()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	// Parent ctx: 600ms. Reserve ≈ 150ms (1/4 of 600ms). ConvergeAt ≈ 450ms.
+	// Per-turn timeout = time.Until(convergeAt) ≈ 450ms.
+	// The 500ms sleep in the fake turn will be cut off at ~450ms.
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
+	defer cancel()
+
+	content, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("expected convergence to succeed after per-turn timeout, got err: %v", err)
+	}
+	if !strings.Contains(content, "per-turn timeout") {
+		t.Errorf("expected the converged answer, got %q", content)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if explorationTurns != 1 {
+		t.Errorf("expected exactly 1 exploration turn, got %d", explorationTurns)
+	}
+	if convergenceTurns == 0 {
+		t.Error("expected at least one convergence turn")
+	}
+	if explorationCtxErr == nil {
+		t.Error("expected the exploration turn to report a ctx error (per-turn timeout)")
+	}
+	if !errors.Is(explorationCtxErr, context.DeadlineExceeded) {
+		t.Errorf("expected DeadlineExceeded from per-turn ctx, got %v", explorationCtxErr)
+	}
+}
+
+// TestCallEndpoint_PerTurnTimeoutNotRecordedAsExploreErr verifies that when
+// the per-turn ctx expires (parent ctx still alive), the DeadlineExceeded
+// error is NOT recorded as exploreErr — so if forced convergence also fails,
+// the surfaced error is the diagnostic "no substantive answer" rather than a
+// bare "context deadline exceeded". This is the task #7081 review point
+// extended to per-turn timeouts.
+func TestCallEndpoint_PerTurnTimeoutNotRecordedAsExploreErr(t *testing.T) {
+	restore := withFakeChatTurn(func(ctx context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		if len(req.Tools) > 0 {
+			// Slow turn — per-turn ctx will expire.
+			<-ctx.Done()
+			return nil, embedded.ChatUsage{}, ctx.Err()
+		}
+		// Convergence fails — both attempts return empty.
+		return emptyMsg(), embedded.ChatUsage{}, nil
+	})
+	defer restore()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
+	defer cancel()
+
+	_, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err == nil {
+		t.Fatal("expected an error when convergence cannot produce an answer")
+	}
+	if strings.Contains(err.Error(), "deadline exceeded") {
+		t.Errorf("per-turn timeout must not be surfaced as 'deadline exceeded', got %v", err)
+	}
+	if !strings.Contains(err.Error(), "no substantive answer") {
+		t.Errorf("expected 'no substantive answer' diagnostic, got %v", err)
+	}
+}
+
+// TestCallEndpoint_PerTurnTimeoutMinTurnThreshold verifies that when the
+// remaining time before convergeAt is less than the minimum turn threshold
+// (reserve / minPerTurnFraction), the loop breaks without starting a new turn
+// — even if convergeAt hasn't been reached yet. This prevents starting a turn
+// that would almost immediately be cut off.
+func TestCallEndpoint_PerTurnTimeoutMinTurnThreshold(t *testing.T) {
+	var mu sync.Mutex
+	var turnCount int
+
+	restore := withFakeChatTurn(func(ctx context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		mu.Lock()
+		turnCount++
+		mu.Unlock()
+		// Each turn sleeps just a bit so time advances.
+		time.Sleep(10 * time.Millisecond)
+		return toolCallMsg("get_status", `{}`), embedded.ChatUsage{}, nil
+	})
+	defer restore()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	// Parent ctx: 100ms. Reserve ≈ 25ms. ConvergeAt ≈ 75ms.
+	// minTurn = 25ms / 3 ≈ 8.3ms.
+	// After a couple of 10ms turns, remaining time < minTurn → break.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+
+	mu.Lock()
+	defer mu.Unlock()
+	// Should have done a few exploration turns but not an excessive number.
+	if turnCount == 0 {
+		t.Error("expected at least one exploration turn")
+	}
+	// The loop should have stopped well before the parent ctx expired.
+	// With 100ms budget and 10ms turns, we expect at most ~7 turns before
+	// the minTurn threshold kicks in.
+	if turnCount > 15 {
+		t.Errorf("expected the minTurn threshold to stop exploration early, got %d turns", turnCount)
+	}
+}
