@@ -834,8 +834,14 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 		for _, t := range mcp.ListWikiToolDefs() {
 			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
 		}
-		// Browser tools are excluded — three models sharing one Chrome profile
-		// would race on navigation/clicks.
+		// Browser tools are included — read-only navigation and reading tools
+		// (browser_open, browser_get_text, browser_screenshot, etc.) enable web
+		// research for MAGI proposers. Interaction tools (click, type, select)
+		// and session lifecycle tools (start/stop) are filtered out by
+		// magi.IsReadOnlyTool() in step 5c below.
+		for _, t := range mcp.ListBrowserToolDefs() {
+			mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
+		}
 
 		// Collect external MCP server tools enabled for this project.
 		var externalServers map[string]*mcp.ExternalMCPServer

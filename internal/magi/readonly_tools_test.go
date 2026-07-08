@@ -143,17 +143,55 @@ func TestIsReadOnlyTool_BlockedShepherdMCPTools(t *testing.T) {
 }
 
 func TestIsReadOnlyTool_BrowserTools(t *testing.T) {
-	// Browser tools should be excluded — they share a Chrome profile.
-	// browser_session_start contains "_start" which matches mutatingKeywordPatterns.
-	// browser_click, browser_type, etc. don't match any read pattern, so they
-	// return false by default (no keyword match).
+	// Browser navigation and reading tools are allowed for web research.
+	browserReadTools := []string{
+		"browser_open",
+		"browser_navigate",
+		"browser_back",
+		"browser_forward",
+		"browser_reload",
+		"browser_get_text",
+		"browser_get_html",
+		"browser_get_attribute",
+		"browser_get_url",
+		"browser_get_title",
+		"browser_screenshot",
+		"browser_pdf",
+		"browser_scroll",
+		"browser_wait_load",
+		"browser_wait_idle",
+		"browser_wait_selector",
+		"browser_wait_hidden",
+		"browser_list_pages",
+		"browser_list_sessions",
+		"browser_console_start",
+		"browser_console_messages",
+		"browser_network_start",
+		"browser_network_requests",
+		"browser_network_request",
+	}
+	for _, name := range browserReadTools {
+		if !IsReadOnlyTool(name) {
+			t.Errorf("IsReadOnlyTool(%q) = false; want true (browser read/navigation tool)", name)
+		}
+	}
+
+	// Browser interaction and session lifecycle tools are blocked — three
+	// concurrent models sharing one Chrome profile would race on these.
 	browserWriteTools := []string{
 		"browser_session_start",
 		"browser_session_stop",
+		"browser_close",
+		"browser_click",
+		"browser_type",
+		"browser_select",
+		"browser_check",
+		"browser_hover",
+		"browser_eval",
 	}
 	for _, name := range browserWriteTools {
 		if IsReadOnlyTool(name) {
-			t.Errorf("IsReadOnlyTool(%q) = true; want false (browser write tool)", name)
+			t.Errorf("IsReadOnlyTool(%q) = true; want false (browser interaction/lifecycle tool)", name)
 		}
 	}
 }
