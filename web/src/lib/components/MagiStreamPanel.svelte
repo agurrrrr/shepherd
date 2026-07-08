@@ -280,11 +280,16 @@
 	}
 
 	/* ── Proposer row ── */
+	/* Takes ~50% of the panel height; the unified (MAGI review) panel
+	   takes the other ~50% so its content stays visible even when
+	   streaming output grows long in the proposer cards. */
 	.proposer-row {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
 		gap: 8px;
-		flex-shrink: 0;
+		flex: 1 1 50%;
+		min-height: 120px;
+		overflow: hidden;
 	}
 
 	.proposer-panel {
@@ -294,8 +299,8 @@
 		border-radius: var(--radius);
 		display: flex;
 		flex-direction: column;
-		min-height: 180px;
-		max-height: 280px;
+		min-height: 0;
+		max-height: 100%;
 		overflow: hidden;
 	}
 
@@ -415,16 +420,18 @@ white-space: pre-wrap;
 color: var(--danger, #f85149);
 }
 
-/* ── Unified panel ── */
-.unified-panel {
-background: var(--bg-primary);
-border: 1px solid var(--border);
-border-radius: var(--radius);
-display: flex;
-flex-direction: column;
-flex: 1;
-min-height: 0;
-}
+	/* ── Unified panel ── */
+	/* Takes ~50% of the panel height so MAGI review output is always
+	   visible regardless of how tall the proposer cards grow. */
+	.unified-panel {
+		background: var(--bg-primary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 50%;
+		min-height: 120px;
+	}
 
 .unified-header {
 display: flex;
@@ -551,7 +558,7 @@ padding: 4px
 		}
 
 		.proposer-panel {
-			max-height: 200px;
+			max-height: none;
 		}
 	}
 </style>
