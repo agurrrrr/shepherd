@@ -143,55 +143,53 @@ func TestIsReadOnlyTool_BlockedShepherdMCPTools(t *testing.T) {
 }
 
 func TestIsReadOnlyTool_BrowserTools(t *testing.T) {
-	// Browser navigation and reading tools are allowed for web research.
-	browserReadTools := []string{
+	// All browser tools are now allowed for MAGI proposers — both
+	// navigation/reading tools and interaction/lifecycle tools.
+	allBrowserTools := []string{
+		// Navigation & page control
 		"browser_open",
 		"browser_navigate",
 		"browser_back",
 		"browser_forward",
 		"browser_reload",
+		"browser_close",
+		// Element interaction
+		"browser_click",
+		"browser_type",
+		"browser_select",
+		"browser_check",
+		"browser_hover",
+		"browser_scroll",
+		"browser_eval",
+		// Information extraction
 		"browser_get_text",
 		"browser_get_html",
 		"browser_get_attribute",
 		"browser_get_url",
 		"browser_get_title",
-		"browser_screenshot",
-		"browser_pdf",
-		"browser_scroll",
+		// Wait / synchronization
 		"browser_wait_load",
 		"browser_wait_idle",
 		"browser_wait_selector",
 		"browser_wait_hidden",
+		// Capture
+		"browser_screenshot",
+		"browser_pdf",
+		// Session lifecycle
+		"browser_session_start",
+		"browser_session_stop",
 		"browser_list_pages",
 		"browser_list_sessions",
+		// Debug / monitoring
 		"browser_console_start",
 		"browser_console_messages",
 		"browser_network_start",
 		"browser_network_requests",
 		"browser_network_request",
 	}
-	for _, name := range browserReadTools {
+	for _, name := range allBrowserTools {
 		if !IsReadOnlyTool(name) {
-			t.Errorf("IsReadOnlyTool(%q) = false; want true (browser read/navigation tool)", name)
-		}
-	}
-
-	// Browser interaction and session lifecycle tools are blocked — three
-	// concurrent models sharing one Chrome profile would race on these.
-	browserWriteTools := []string{
-		"browser_session_start",
-		"browser_session_stop",
-		"browser_close",
-		"browser_click",
-		"browser_type",
-		"browser_select",
-		"browser_check",
-		"browser_hover",
-		"browser_eval",
-	}
-	for _, name := range browserWriteTools {
-		if IsReadOnlyTool(name) {
-			t.Errorf("IsReadOnlyTool(%q) = true; want false (browser interaction/lifecycle tool)", name)
+			t.Errorf("IsReadOnlyTool(%q) = false; want true (all browser tools are now allowed)", name)
 		}
 	}
 }

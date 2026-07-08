@@ -16,10 +16,9 @@ import (
 //   - Shepherd:   get_history, get_task_detail, get_status,
 //                 skill_load,
 //                 wiki_read_page, wiki_list_pages, wiki_search
-//   - Browser:    navigation + reading tools (open, navigate, get_text,
-//                 screenshot, etc.) — enables web research without DOM
-//                 mutation. Interaction tools (click, type, select) and
-//                 lifecycle tools (session start/stop) remain blocked.
+//   - Browser:    ALL browser tools are allowed (navigation, interaction,
+//                 session lifecycle, capture, debug) — proposers can fully
+//                 interact with web pages during research.
 //   - External:   any project-enabled MCP server method whose name
 //                 matches a readonly heuristic
 
@@ -42,35 +41,53 @@ var allowedShepherdMCPTools = map[string]bool{
 	"wiki_search":     true,
 }
 
-// allowedBrowserTools are browser automation tools that only navigate or read
-// page state — no DOM mutation, no side effects on the page being viewed.
-// These enable web research for MAGI proposers without allowing interaction
-// that could race between three concurrent models.
+// allowedBrowserTools are browser automation tools that are all permitted
+// for MAGI proposers. Previously, interaction tools (click, type, select,
+// etc.) and session lifecycle tools (start/stop) were blocked to prevent
+// race conditions between three concurrent models. However, browser tools
+// are now all allowed so proposers can fully interact with web pages during
+// research — each proposer runs in its own browser session context.
 var allowedBrowserTools = map[string]bool{
-	"browser_open":            true, // navigate to a URL (opens a page)
+	// Navigation & page control
+	"browser_open":             true, // navigate to a URL (opens a page)
 	"browser_navigate":        true, // navigate current page to URL
-	"browser_back":            true, // browser history back
-	"browser_forward":         true, // browser history forward
-	"browser_reload":           true, // reload current page
+	"browser_back":             true, // browser history back
+	"browser_forward":          true, // browser history forward
+	"browser_reload":            true, // reload current page
+	"browser_close":            true, // close a page
+	// Element interaction
+	"browser_click":           true, // clicks an element
+	"browser_type":             true, // types text into an input
+	"browser_select":           true, // selects a dropdown option
+	"browser_check":            true, // checks/unchecks a checkbox
+	"browser_hover":            true, // hovers over an element
+	"browser_scroll":           true, // scroll the page
+	"browser_eval":             true, // executes JavaScript
+	// Information extraction
 	"browser_get_text":        true, // extract text from selector
 	"browser_get_html":        true, // extract HTML from selector
 	"browser_get_attribute":   true, // get element attribute
 	"browser_get_url":         true, // get current URL
 	"browser_get_title":       true, // get page title
-	"browser_screenshot":      true, // capture screenshot
-	"browser_pdf":             true, // generate PDF
-	"browser_scroll":          true, // scroll the page (no DOM mutation)
+	// Wait / synchronization
 	"browser_wait_load":       true, // wait for page load
 	"browser_wait_idle":       true, // wait for network idle
 	"browser_wait_selector":   true, // wait for element to appear
 	"browser_wait_hidden":     true, // wait for element to disappear
+	// Capture
+	"browser_screenshot":      true, // capture screenshot
+	"browser_pdf":              true, // generate PDF
+	// Session lifecycle
+	"browser_session_start":   true, // creates a new Chrome profile session
+	"browser_session_stop":    true, // destroys a session
 	"browser_list_pages":      true, // list open pages
 	"browser_list_sessions":   true, // list active sessions
-	"browser_console_start":   true, // start console message collection
+	// Debug / monitoring
+	"browser_console_start":    true, // start console message collection
 	"browser_console_messages": true, // read collected console messages
-	"browser_network_start":   true, // start network monitoring
+	"browser_network_start":    true, // start network monitoring
 	"browser_network_requests": true, // list collected network requests
-	"browser_network_request": true, // get specific network request details
+	"browser_network_request":  true, // get specific network request details
 }
 
 // blockedShepherdMCPTools are explicitly excluded even if a name-based
@@ -82,19 +99,11 @@ var blockedShepherdMCPTools = map[string]bool{
 	"task_error":    true,
 }
 
-// blockedBrowserTools are browser automation tools that mutate DOM state or
-// manage session lifecycle — three concurrent models would race on these.
-var blockedBrowserTools = map[string]bool{
-	"browser_session_start": true, // creates a new Chrome profile session
-	"browser_session_stop":  true, // destroys a session
-	"browser_close":         true, // closes a page
-	"browser_click":        true, // clicks an element (DOM mutation)
-	"browser_type":         true, // types text into an input (DOM mutation)
-	"browser_select":       true, // selects a dropdown option (DOM mutation)
-	"browser_check":        true, // checks/unchecks a checkbox (DOM mutation)
-	"browser_hover":        true, // hovers over an element (may trigger JS)
-	"browser_eval":         true, // executes arbitrary JS (can mutate DOM)
-}
+// blockedBrowserTools is now empty — all browser tools are allowed for
+// MAGI proposers. Kept as an empty map (rather than deleted) so the
+// IsReadOnlyTool check structure remains clear and future adjustments
+// are easy to make.
+var blockedBrowserTools = map[string]bool{}
 
 // readonlyKeywordPatterns are substrings that strongly suggest a tool is a
 // read/query operation (no side effects). Used for external MCP server tools
