@@ -8,9 +8,7 @@ AI coding orchestration platform that manages a flock of AI coding agents across
 
 Shepherd runs multiple AI coding agents ("sheep") in parallel across different codebases, routes tasks to the right worker, streams their live output, and keeps a full task history. It is built around a **Web UI + daemon** and speaks to a wide range of AI backends — cloud CLIs, self-hosted local models, and a built-in multi-model consensus engine (MAGI).
 
-![Shepherd Web UI](assets/webui-screenshot.png)
-
-> **Screenshot note:** Prefer fresh captures under `assets/` (`webui-dashboard.png`, `webui-magi-stream.png`, settings panels, …). Until those are re-shot against the current UI, the hero image above is the best available capture.
+![Shepherd Dashboard](assets/webui-dashboard.png)
 
 Three ways to drive it:
 
@@ -79,6 +77,8 @@ Task → Orchestrator
   - **Blocked**: file writes, bash, and other mutating cluster/FS tools
 - **Mode**: `advisory` (Phase 1) — best for high-stakes questions ("is this design sound?", "what's the root cause?"), not autonomous execution
 - Configure in the Web UI (**Settings → MAGI**); persisted under the `magi` section of `~/.shepherd/embedded.yaml`
+
+![MAGI Live Output — three proposers + aggregator verdict](assets/webui-magi-stream.png)
 
 > MAGI is advisory-only: it does not execute plans or edit code. Use it to get a well-vetted answer, then hand the plan to a coding provider.
 
@@ -707,17 +707,17 @@ MIT License — see [LICENSE](LICENSE).
 
 ## Screenshots (recommended assets)
 
-Capture with non-sensitive dummy data and a consistent dark UI. Suggested files under `assets/`:
+Capture with non-sensitive dummy data and a consistent dark UI. Files live under `assets/`:
 
-| Priority | File | Screen |
-|----------|------|--------|
-| Must | `webui-dashboard.png` | Dashboard — sheep cards, running tasks, stats, command input |
-| Must | `webui-magi-stream.png` | MAGI Live Output — 3-way parallel stream + personas + verdict |
-| Must | `webui-project-output.png` | Project → Live Output with full modern tab bar |
-| Must | `webui-settings-providers.png` | Settings — provider enable toggles |
-| Must | `webui-settings-embedded.png` | Settings → Embedded endpoints |
-| Must | `webui-settings-magi.png` | Settings → MAGI proposers + aggregator |
-| Should | `webui-task-detail.png`, `webui-git.png`, `webui-wiki.png`, `webui-issues.png`, `webui-files.png`, `webui-skills.png`, `webui-schedules.png`, `webui-sheep.png` | Supporting pages |
+| Status | File | Screen |
+|--------|------|--------|
+| ✅ | `webui-dashboard.png` | Dashboard — activity, recent tasks, stats, command input |
+| ✅ | `webui-magi-stream.png` | MAGI Live Output — 3-way parallel stream + personas + verdict |
+| ⬜ | `webui-project-output.png` | Project → Live Output with full modern tab bar |
+| ⬜ | `webui-settings-providers.png` | Settings — provider enable toggles |
+| ⬜ | `webui-settings-embedded.png` | Settings → Embedded endpoints |
+| ⬜ | `webui-settings-magi.png` | Settings → MAGI proposers + aggregator |
+| ⬜ | `webui-task-detail.png`, `webui-git.png`, `webui-wiki.png`, `webui-issues.png`, `webui-files.png`, `webui-skills.png`, `webui-schedules.png`, `webui-sheep.png` | Supporting pages |
 
 ---
 

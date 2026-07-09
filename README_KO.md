@@ -8,9 +8,7 @@
 
 Shepherd는 여러 AI 코딩 에이전트("양")를 서로 다른 코드베이스에서 병렬로 실행하고, 작업을 적절한 워커에 라우팅하며, 실시간 출력을 스트리밍하고, 전체 작업 히스토리를 보관합니다. **Web UI + 데몬** 중심으로 설계되었으며, 클라우드 CLI·자가호스팅 로컬 모델·내장 다중 모델 합의 엔진(MAGI)까지 폭넓은 AI 백엔드를 지원합니다.
 
-![Shepherd Web UI](assets/webui-screenshot.png)
-
-> **스크린샷 안내:** 가능하면 `assets/` 아래 최신 캡처(`webui-dashboard.png`, `webui-magi-stream.png`, 설정 패널 등)로 교체하세요. 재촬영 전까지는 위 히어로 이미지가 사용 가능한 최선본입니다.
+![Shepherd Dashboard](assets/webui-dashboard.png)
 
 세 가지 사용 방법:
 
@@ -79,6 +77,8 @@ Task → Orchestrator
   - **차단**: 파일 쓰기, bash, 그 외 FS/클러스터 변경 도구
 - **모드**: `advisory`(Phase 1) — "이 설계가 타당한가?", "근본 원인은?" 같은 고위험 질문에 적합. 자율 실행용이 아님
 - Web UI (**Settings → MAGI**)에서 설정; `~/.shepherd/embedded.yaml`의 `magi` 섹션에 저장
+
+![MAGI Live Output — 3 proposer 병렬 + aggregator 판정](assets/webui-magi-stream.png)
 
 > MAGI는 자문 전용입니다. 계획을 실행하거나 코드를 수정하지 않습니다. 검증된 답을 받은 뒤 코딩 프로바이더에 넘기세요.
 
@@ -705,17 +705,17 @@ MIT License — [LICENSE](LICENSE).
 
 ## 스크린샷 (권장 assets)
 
-더미·비민감 데이터, dark UI 일관. `assets/` 권장 파일:
+더미·비민감 데이터, dark UI 일관. 파일은 `assets/` 아래:
 
-| 우선순위 | 파일 | 화면 |
-|----------|------|--------|
-| 필수 | `webui-dashboard.png` | 대시보드 — 양 카드, 실행 중 작업, 통계, 커맨드 입력 |
-| 필수 | `webui-magi-stream.png` | MAGI Live Output — 3-way 병렬 + 페르소나 + 판정 |
-| 필수 | `webui-project-output.png` | 프로젝트 → Live Output (최신 탭 바 전부) |
-| 필수 | `webui-settings-providers.png` | Settings — 프로바이더 enable |
-| 필수 | `webui-settings-embedded.png` | Settings → Embedded 엔드포인트 |
-| 필수 | `webui-settings-magi.png` | Settings → MAGI proposer + aggregator |
-| 권장 | `webui-task-detail.png`, `webui-git.png`, `webui-wiki.png`, `webui-issues.png`, `webui-files.png`, `webui-skills.png`, `webui-schedules.png`, `webui-sheep.png` | 보조 페이지 |
+| 상태 | 파일 | 화면 |
+|------|------|--------|
+| ✅ | `webui-dashboard.png` | 대시보드 — 활동, 최근 작업, 통계, 커맨드 입력 |
+| ✅ | `webui-magi-stream.png` | MAGI Live Output — 3-way 병렬 + 페르소나 + 판정 |
+| ⬜ | `webui-project-output.png` | 프로젝트 → Live Output (최신 탭 바 전부) |
+| ⬜ | `webui-settings-providers.png` | Settings — 프로바이더 enable |
+| ⬜ | `webui-settings-embedded.png` | Settings → Embedded 엔드포인트 |
+| ⬜ | `webui-settings-magi.png` | Settings → MAGI proposer + aggregator |
+| ⬜ | `webui-task-detail.png`, `webui-git.png`, `webui-wiki.png`, `webui-issues.png`, `webui-files.png`, `webui-skills.png`, `webui-schedules.png`, `webui-sheep.png` | 보조 페이지 |
 
 ---
 
