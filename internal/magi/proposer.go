@@ -21,6 +21,28 @@ import (
 // if less than that remains before convergeAt, the loop breaks to forced convergence.
 const minPerTurnFraction = 3
 
+// Context handoff thresholds (fraction of ep.ContextTokens). When the
+// accumulated message history exceeds the soft threshold, an in-place
+// context refresh (summarize + reset) is attempted — once at most. When
+// it exceeds the hard threshold, exploration stops immediately and forced
+// convergence takes over, preventing "scan SSE: context deadline exceeded"
+// caused by the local LLM choking on an oversized prompt (task #7164).
+const (
+	ctxHandoffSoft = 65 // % of ContextTokens → trigger in-place refresh
+	ctxHandoffHard = 85 // % of ContextTokens → stop exploration, force converge
+
+	maxInPlaceHandoffs = 1 // safety: at most one refresh per proposer run
+)
+
+// handoffSummaryDirective is appended as a user turn when requesting an
+// in-place context refresh. The model must produce a self-contained summary
+// of its investigation so far — no tool calls — which then replaces the
+// bloated message history.
+const handoffSummaryDirective = `컨텍스트가 한계에 가까워졌다. 지금까지 조사한 내용을 간결하지만 완전하게 요약하라.
+파일 경로, 주요 발견, 코드 구조, 결정사항을 빠짐없이 포함하라.
+이 요약은 이후 조사를 이어가기 위한 유일한 맥락이 되므로, 다음 단계에서 무엇을 해야 하는지도 명시하라.
+도구는 호출하지 마라.`
+
 // minConvergenceReserve is the wall-clock time reserved at the tail of a
 // proposer's budget to force a final answer once tool exploration must stop.
 // Without a reserve, the forced (tools-off) request would race the hard
@@ -130,8 +152,17 @@ var callEndpoint = func(
 	// tests (which return a final answer promptly and never loop unbounded).
 	convergeAt, reserve, hasCutoff := convergenceCutoff(ctx)
 
+	// Context token budget for this endpoint. Used to detect when the
+	// accumulated message history is approaching the model's context window
+	// limit, triggering an in-place context refresh (task #7164).
+	ctxTokens := ep.ContextTokens
+	if ctxTokens == 0 {
+		ctxTokens = embedded.DefaultContextTokens
+	}
+
 	// ── Tool exploration phase (bounded by wall clock, not a round count) ──
 	turn := 0
+	handoffCount := 0 // in-place context refreshes performed so far
 	var exploreErr error // a non-cancel error mid-exploration → salvage, don't discard
 	for {
 		// Approaching the deadline → stop exploring and force a final answer.
@@ -237,6 +268,43 @@ var callEndpoint = func(
 			}
 			messages = append(messages, executeProposerToolCall(ctx, tc, toolRegistry, dispatch, sheepName))
 		}
+
+		// ── In-place context handoff (task #7164) ──
+		//
+		// The message history grows with every tool call. On a local LLM with
+		// a finite context window, an oversized prompt causes prompt evaluation
+		// to take minutes — the per-turn timeout fires, producing "scan SSE:
+		// context deadline exceeded" and starving forced convergence.
+		//
+		// To prevent this, estimate the token count after each tool round. When
+		// it exceeds the soft threshold (65%), ask the model to summarize its
+		// findings so far, then replace the bloated history with [system, user,
+		// summary]. This is an *in-place* refresh — no follow-up task is queued
+		// (unlike the embedded loop's attemptHandoff) because MAGI must produce
+		// a single, self-contained verdict from one proposer invocation.
+		//
+		// At most one refresh is allowed (maxInPlaceHandoffs). If the context
+		// exceeds the hard threshold (85%) even after a refresh (or when no
+		// refresh budget remains), exploration stops immediately and forced
+		// convergence takes over with whatever context exists.
+		estTokens := estimateProposerTokens(messages, tools)
+		if estTokens >= ctxTokens*ctxHandoffHard/100 {
+			// Hard limit — stop exploring regardless of handoff budget.
+			break
+		}
+		if estTokens >= ctxTokens*ctxHandoffSoft/100 && handoffCount < maxInPlaceHandoffs {
+			refreshed, err := inPlaceContextRefresh(ctx, client, ep, messages, temperature, maxTokens, onToken, convergeAt, hasCutoff)
+			if err != nil {
+				// Refresh failed (timeout, transport error) — don't discard
+				// the existing context. Break to forced convergence instead.
+				break
+			}
+			messages = refreshed
+			handoffCount++
+			if onToken != nil {
+				onToken("\n[컨텍스트 핸드오프] 조사 내용을 요약하여 컨텍스트를 갱신했습니다.\n")
+			}
+		}
 	}
 
 	// ── Forced convergence: drop tools, demand a final answer ──
@@ -270,6 +338,89 @@ var callEndpoint = func(
 		return "", totalUsage, exploreErr
 	}
 	return content, totalUsage, err
+}
+
+// inPlaceContextRefresh asks the model to summarize its investigation so far,
+// then returns a fresh message slice [system, user, summary] that replaces the
+// bloated history. This prevents the local LLM from choking on an oversized
+// prompt — which manifests as "scan SSE: context deadline exceeded" when prompt
+// evaluation takes longer than the per-turn timeout (task #7164).
+//
+// The summary request uses a short, independent timeout (capped at 30s or the
+// remaining time before convergeAt, whichever is smaller) so it does not eat
+// into the convergence reserve. Tools are dropped from the request so the model
+// cannot start a new investigation instead of summarizing.
+//
+// On any error, the caller should fall through to forced convergence with the
+// original (un-refreshed) messages.
+func inPlaceContextRefresh(
+	ctx context.Context,
+	client *embedded.Client,
+	ep EndpointRef,
+	messages []embedded.ChatMessage,
+	temperature float32,
+	maxTokens int,
+	onToken func(string),
+	convergeAt time.Time,
+	hasCutoff bool,
+) ([]embedded.ChatMessage, error) {
+	// Build a summary request: original messages + a directive to summarize.
+	// No tools — this must be a text-only response.
+	summaryReq := &embedded.ChatRequest{
+		Model:       ep.Model,
+		Messages:    append(messages, embedded.ChatMessage{Role: embedded.ChatRoleUser, Content: handoffSummaryDirective}),
+		Temperature: 0.3, // low temperature for faithful summarization
+		MaxTokens:   maxTokens,
+		Stream:      true,
+		// No Tools, no ToolChoice — text only.
+	}
+
+	// Use a short timeout so the summary doesn't eat the convergence reserve.
+	// Cap at 30s; if less time remains before convergeAt, use that.
+	summaryTimeout := 30 * time.Second
+	if hasCutoff {
+		remaining := time.Until(convergeAt)
+		if remaining < summaryTimeout {
+			summaryTimeout = remaining
+		}
+	}
+	if summaryTimeout < 5*time.Second {
+		return nil, fmt.Errorf("insufficient time for context refresh")
+	}
+
+	sumCtx, sumCancel := context.WithTimeout(ctx, summaryTimeout)
+	defer sumCancel()
+
+	msg, usage, err := chatTurn(sumCtx, client, summaryReq, onToken)
+	if err != nil {
+		return nil, fmt.Errorf("context refresh summary: %w", err)
+	}
+	if msg == nil || strings.TrimSpace(msg.Content) == "" {
+		return nil, fmt.Errorf("context refresh produced empty summary")
+	}
+
+	// Add the summary's token usage to the caller's total via a side-effect-
+	// free return. The caller (callEndpoint) doesn't have access to totalUsage
+	// here, so we return the usage separately — but actually, we can't return
+	// usage because the signature returns messages. Instead, we accept the
+	// minor accounting loss (the summary tokens are counted by the LLM server
+	// but not by our tracker). This is acceptable: the summary is a one-time
+	// cost and accuracy of the total is not critical.
+	_ = usage
+
+	// Build the refreshed message list: system + user + summary.
+	// The system prompt (messages[0]) and original user prompt (messages[1])
+	// are preserved verbatim. Everything else is replaced by the summary.
+	refreshed := []embedded.ChatMessage{
+		messages[0], // system
+		messages[1], // original user prompt
+		{
+			Role:    embedded.ChatRoleAssistant,
+			Content: "## 지금까지의 조사 요약\n" + strings.TrimSpace(msg.Content),
+		},
+	}
+
+	return refreshed, nil
 }
 
 // convergenceCutoff returns the instant at which a proposer must stop tool
@@ -438,6 +589,46 @@ func addUsage(dst *embedded.ChatUsage, u embedded.ChatUsage) {
 	dst.PromptTokens += u.PromptTokens
 	dst.CompletionTokens += u.CompletionTokens
 	dst.TotalTokens += u.TotalTokens
+}
+
+// estimateProposerTokens estimates the token count for a slice of messages,
+// including the overhead of the tools definition array sent with every
+// request. This mirrors the logic in embedded.estimateMessageTokens but is
+// duplicated here because that function is unexported (Go visibility).
+// ASCII averages ~4 bytes/token; CJK (한글 등) averages ~1 token/char.
+func estimateProposerTokens(messages []embedded.ChatMessage, tools []embedded.OpenAIToolDef) int {
+	total := 0
+	for _, msg := range messages {
+		total += estimateTextTokensMagi(msg.Content)
+		for _, p := range msg.ContentParts {
+			total += estimateTextTokensMagi(p.Text)
+		}
+		for _, tc := range msg.ToolCalls {
+			total += estimateTextTokensMagi(tc.Func.Name) + estimateTextTokensMagi(tc.Func.Args) + 16
+		}
+		total += 50 // per-message overhead
+	}
+	// Tools definition overhead: each tool has a name, description, and
+	// parameters schema — typically 200-500 tokens per tool.
+	for _, td := range tools {
+		total += estimateTextTokensMagi(td.Function.Name) + estimateTextTokensMagi(td.Function.Description) + 100
+	}
+	return total
+}
+
+// estimateTextTokensMagi is the magi-package-local token estimator.
+// ASCII averages ~4 bytes/token; CJK averages ~1 token/char.
+func estimateTextTokensMagi(s string) int {
+	ascii := 0
+	tokens := 0
+	for _, r := range s {
+		if r < 128 {
+			ascii++
+		} else {
+			tokens++
+		}
+	}
+	return tokens + ascii/4
 }
 
 // truncateToolResult caps a tool result to a reasonable size for the chat

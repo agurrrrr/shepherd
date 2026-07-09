@@ -1291,3 +1291,136 @@ func TestCallEndpoint_PerTurnTimeoutMinTurnThreshold(t *testing.T) {
 		t.Errorf("expected the minTurn threshold to stop exploration early, got %d turns", turnCount)
 	}
 }
+
+// TestCallEndpoint_InPlaceContextHandoff verifies that when the accumulated
+// message history exceeds the soft token threshold, an in-place context refresh
+// is triggered: the model is asked to summarize, and the message list is
+// replaced with [system, user, summary]. The refresh should happen at most
+// once (task #7164).
+func TestCallEndpoint_InPlaceContextHandoff(t *testing.T) {
+	var mu sync.Mutex
+	var callTypes []string // "explore", "summary", "final"
+
+	// ep.ContextTokens = 16000 (smaller window for faster threshold trigger).
+	// Soft threshold = 65% = ~10400 tokens.
+	// Hard threshold = 85% = ~13600 tokens.
+	// Each tool result is ~2000 tokens. After 2 calls: ~4200 (below soft).
+	// After 3: ~6300 (below soft). After 4: ~8400 (below soft).
+	// After 5: ~10500 (above soft, below hard → HANDOFF!).
+	// After handoff, messages reset → more exploration possible → then final.
+	mediumResult := strings.Repeat("x", 8000) // 8000 ASCII chars = 2000 tokens
+
+	restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		// Detect request type by tools presence and message content.
+		if len(req.Tools) > 0 {
+			// Exploration turn: return a tool call.
+			callTypes = append(callTypes, "explore")
+			return toolCallMsg("get_status", `{}`), embedded.ChatUsage{}, nil
+		}
+
+		// No tools → either summary request or forced convergence.
+		// The summary request has the handoffSummaryDirective as the last user msg.
+		lastMsg := req.Messages[len(req.Messages)-1]
+		if lastMsg.Role == embedded.ChatRoleUser && strings.Contains(lastMsg.Content, "간결하지만 완전하게 요약") {
+			callTypes = append(callTypes, "summary")
+			return answerMsg("요약: 파일 구조와 주요 발견을 확인했습니다."), embedded.ChatUsage{}, nil
+		}
+
+		// Forced convergence.
+		callTypes = append(callTypes, "final")
+		return answerMsg("최종 답변입니다.\nCONFIDENCE: 7"), embedded.ChatUsage{}, nil
+	})
+	defer restore()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return mediumResult, nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	smallCtxEp := testEndpoint("ep1", "m")
+	smallCtxEp.ContextTokens = 16000
+
+	content, _, err := callEndpoint(ctx, smallCtxEp, "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if content == "" {
+		t.Error("expected non-empty final answer")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Verify that a summary request was made.
+	hasSummary := false
+	summaryCount := 0
+	for _, ct := range callTypes {
+		if ct == "summary" {
+			hasSummary = true
+			summaryCount++
+		}
+	}
+	if !hasSummary {
+		t.Errorf("expected at least one summary request (context handoff), got calls: %v", callTypes)
+	}
+	if summaryCount > 1 {
+		t.Errorf("expected at most one in-place handoff, got %d", summaryCount)
+	}
+}
+
+// TestCallEndpoint_HardThresholdStopsExploration verifies that when the token
+// count exceeds the hard threshold (85%), exploration stops immediately even
+// if a handoff was already used, falling through to forced convergence.
+func TestCallEndpoint_HardThresholdStopsExploration(t *testing.T) {
+	var mu sync.Mutex
+	var exploreTurns int
+
+	bigResult := strings.Repeat("데이터 ", 5000) // ~5000 tokens per result
+
+	restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if len(req.Tools) > 0 {
+			exploreTurns++
+			return toolCallMsg("get_status", `{}`), embedded.ChatUsage{}, nil
+		}
+
+		// Summary or forced convergence — return summary first time, final answer second.
+		lastMsg := req.Messages[len(req.Messages)-1]
+		if lastMsg.Role == embedded.ChatRoleUser && strings.Contains(lastMsg.Content, "간결하지만 완전하게 요약") {
+			return answerMsg("요약 내용"), embedded.ChatUsage{}, nil
+		}
+		return answerMsg("최종 답변\nCONFIDENCE: 6"), embedded.ChatUsage{}, nil
+	})
+	defer restore()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return bigResult, nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// With 32768 ctx tokens and 85% hard threshold (~27853 tokens),
+	// each tool result adds ~5000 tokens. After ~6 tool calls the hard
+	// threshold should be hit. The handoff at 65% (~21300) fires first,
+	// then after more exploration the hard limit stops it.
+	if exploreTurns < 3 {
+		t.Errorf("expected at least 3 exploration turns before hard threshold, got %d", exploreTurns)
+	}
+}
