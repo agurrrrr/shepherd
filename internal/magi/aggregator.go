@@ -14,10 +14,11 @@ import (
 
 // AggregatorSpec selects the judging backend (resolved by the wiring layer).
 type AggregatorSpec struct {
-	Type             string      // "claude_cli" | "endpoint"
+	Type             string      // "claude_cli" | "opencode_cli" | "endpoint"
 	Endpoint         EndpointRef // used when Type == "endpoint"
-	FallbackEndpoint EndpointRef // used when claude CLI fails (design §7)
-	WorkDir          string      // project path for the claude CLI subprocess
+	FallbackEndpoint EndpointRef // used when claude/opencode CLI fails (design §7)
+	WorkDir          string      // project path for the CLI subprocess
+	ModelID          string      // model alias for claude_cli/opencode_cli (optional)
 }
 
 // aggregatorOnOutput is the live-output sink used by aggregatorComplete
@@ -34,6 +35,8 @@ var aggregatorComplete = func(ctx context.Context, spec AggregatorSpec, systemPr
 		return aggregatorEndpoint(ctx, spec.Endpoint, systemPrompt, userPrompt)
 	case "claude_cli":
 		return aggregatorClaudeCLI(ctx, spec, systemPrompt, userPrompt, aggregatorOnOutput)
+	case "opencode_cli":
+		return aggregatorOpenCodeCLI(ctx, spec, systemPrompt, userPrompt, aggregatorOnOutput)
 	default:
 		return "", embedded.ChatUsage{}, fmt.Errorf("unknown aggregator type %q", spec.Type)
 	}
@@ -84,6 +87,53 @@ func aggregatorClaudeCLI(ctx context.Context, spec AggregatorSpec, systemPrompt,
 	}
 
 	// Claude CLI does not report token usage — return zero value.
+	return output, embedded.ChatUsage{}, nil
+}
+
+// aggregatorOpenCodeCLI invokes "opencode run --format json" as a subprocess.
+// On failure it emits a live-output warning and falls back to the
+// FallbackEndpoint via the endpoint path (design §7).
+//
+// The onOutput parameter is wired through aggregatorComplete's closure so
+// the fallback warning reaches the live stream.
+func aggregatorOpenCodeCLI(ctx context.Context, spec AggregatorSpec, systemPrompt, userPrompt string, onOutput func(string)) (string, embedded.ChatUsage, error) {
+	args := []string{"run", "--format", "json"}
+	if spec.ModelID != "" {
+		args = append(args, "-m", spec.ModelID)
+	}
+
+	cmd := exec.CommandContext(ctx, "opencode", args...)
+	cmd.Dir = spec.WorkDir
+	cmd.Stdin = strings.NewReader(systemPrompt + "\n\n" + userPrompt)
+	envutil.SetCleanEnv(cmd)
+	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = nil
+
+	if err := cmd.Run(); err != nil {
+		if onOutput != nil {
+			onOutput("⚠️ OpenCode aggregator 실패 — 로컬 폴백 사용\n")
+		}
+		return aggregatorEndpoint(ctx, spec.FallbackEndpoint, systemPrompt, userPrompt)
+	}
+
+	raw := strings.TrimSpace(stdout.String())
+	if raw == "" {
+		if onOutput != nil {
+			onOutput("⚠️ OpenCode aggregator 실패 — 로컬 폴백 사용\n")
+		}
+		return aggregatorEndpoint(ctx, spec.FallbackEndpoint, systemPrompt, userPrompt)
+	}
+
+	// Extract the final text from OpenCode JSON event stream.
+	output := extractOpenCodeFinalText(raw)
+	if output == "" {
+		output = raw // fallback to raw output
+	}
+
+	// OpenCode CLI does not report token usage — return zero value.
 	return output, embedded.ChatUsage{}, nil
 }
 

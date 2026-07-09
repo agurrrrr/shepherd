@@ -814,6 +814,16 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 			if firstProposerEP != nil {
 				aggregator.FallbackEndpoint = *firstProposerEP
 			}
+		case "opencode_cli":
+			aggregator = magi.AggregatorSpec{
+				Type:    "opencode_cli",
+				WorkDir: projectPath,
+				ModelID: magiCfg.Aggregator.ModelID,
+			}
+			// Fallback to first proposer endpoint (design §7).
+			if firstProposerEP != nil {
+				aggregator.FallbackEndpoint = *firstProposerEP
+			}
 		default:
 			return nil, fmt.Errorf("magi aggregator: unknown type %q", magiCfg.Aggregator.Type)
 		}

@@ -41,7 +41,7 @@
 				{ provider: 'embedded', endpoint_id: '', persona: 'balthasar', display_name: '', custom_prompt: '', model_id: '' },
 				{ provider: 'embedded', endpoint_id: '', persona: 'casper', display_name: '', custom_prompt: '', model_id: '' }
 			],
-			aggregator: { type: 'claude_cli', endpoint_id: '' },
+			aggregator: { type: 'claude_cli', endpoint_id: '', model_id: '' },
 			escalation: { confidence_threshold: 7, max_debate_rounds: 1 },
 			proposer_timeout_seconds: 120,
 			mode: 'advisory'
@@ -65,6 +65,7 @@
 				if (!p.provider) p.provider = 'embedded';
 				if (!p.model_id) p.model_id = '';
 			}
+			if (!magiConfig.aggregator.model_id) magiConfig.aggregator.model_id = '';
 			magiErrors = res.data.errors || [];
 			magiWarnings = res.data.warnings || [];
 		} else {
@@ -201,6 +202,10 @@
 					<span>Claude CLI</span>
 				</label>
 				<label class="toggle">
+					<input type="radio" name="aggregator-type" value="opencode_cli" bind:group={magiConfig.aggregator.type} />
+					<span>OpenCode CLI</span>
+				</label>
+				<label class="toggle">
 					<input type="radio" name="aggregator-type" value="endpoint" bind:group={magiConfig.aggregator.type} />
 					<span>Endpoint</span>
 				</label>
@@ -213,9 +218,23 @@
 							{/if}
 						{/each}
 					</select>
+				{:else if magiConfig.aggregator.type === 'claude_cli'}
+					<select class="input magi-input" bind:value={magiConfig.aggregator.model_id}>
+						<option value="">기본 모델</option>
+						{#each modelOptions?.claude || [] as m}
+							<option value={m.id}>{m.label}</option>
+						{/each}
+					</select>
+				{:else if magiConfig.aggregator.type === 'opencode_cli'}
+					<select class="input magi-input" bind:value={magiConfig.aggregator.model_id}>
+						<option value="">기본 모델</option>
+						{#each modelOptions?.opencode || [] as m}
+							<option value={m.id}>{m.label}</option>
+						{/each}
+					</select>
 				{/if}
 			</div>
-			<p class="hint">판정자는 Embedded 엔드포인트 또는 Claude CLI를 사용할 수 있습니다.</p>
+			<p class="hint">판정자는 Embedded 엔드포인트, Claude CLI 또는 OpenCode CLI를 사용할 수 있습니다.</p>
 		</div>
 
 		<!-- Escalation -->

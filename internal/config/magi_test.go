@@ -172,6 +172,30 @@ func TestValidateMagiConfig_AggregatorEndpointValid(t *testing.T) {
 	}
 }
 
+func TestValidateMagiConfig_AggregatorOpenCodeCLI(t *testing.T) {
+	cfg := validMagiConfig()
+	cfg.Magi.Aggregator.Type = "opencode_cli"
+	cfg.Magi.Aggregator.ModelID = "claude-sonnet-4-20250514"
+	errs, _ := ValidateMagiConfig(cfg)
+	for _, e := range errs {
+		if strings.Contains(e, "aggregator") {
+			t.Fatalf("opencode_cli aggregator should be valid, got: %s", e)
+		}
+	}
+}
+
+func TestValidateMagiConfig_AggregatorOpenCodeCLINoModel(t *testing.T) {
+	cfg := validMagiConfig()
+	cfg.Magi.Aggregator.Type = "opencode_cli"
+	cfg.Magi.Aggregator.ModelID = "" // empty is OK — uses CLI default
+	errs, _ := ValidateMagiConfig(cfg)
+	for _, e := range errs {
+		if strings.Contains(e, "aggregator") {
+			t.Fatalf("opencode_cli aggregator with empty model_id should be valid, got: %s", e)
+		}
+	}
+}
+
 func TestValidateMagiConfig_SameModelWarning(t *testing.T) {
 	cfg := validMagiConfig()
 	for i := range cfg.Endpoints {
@@ -483,5 +507,77 @@ endpoints:
 
 	if len(cfg.Endpoints) != 1 {
 		t.Fatalf("expected 1 endpoint, got %d", len(cfg.Endpoints))
+	}
+}
+
+func TestUnmarshalEmbeddedYAML_MagiAggregatorOpenCodeCLI(t *testing.T) {
+	yamlIn := `
+endpoints:
+  - id: gpu0-qwen
+    base_url: http://192.168.x.a:8080
+    model: qwen3-27b
+    enabled: true
+  - id: gpu1-llama
+    base_url: http://192.168.x.b:8080
+    model: llama-3.3-70b
+    enabled: true
+  - id: mi50-mistral
+    base_url: http://192.168.x.c:8080
+    model: mistral-small
+    enabled: true
+
+magi:
+  enabled: true
+  proposers:
+    - endpoint_id: gpu0-qwen
+      persona: melchior
+    - endpoint_id: gpu1-llama
+      persona: balthasar
+    - endpoint_id: mi50-mistral
+      persona: casper
+  aggregator:
+    type: opencode_cli
+    model_id: claude-sonnet-4-20250514
+  escalation:
+    confidence_threshold: 7
+    max_debate_rounds: 1
+  proposer_timeout_seconds: 300
+  mode: advisory
+`
+
+	cfg, err := UnmarshalEmbeddedYAML([]byte(yamlIn))
+	if err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if cfg.Magi == nil {
+		t.Fatal("magi section should not be nil")
+	}
+
+	if cfg.Magi.Aggregator.Type != "opencode_cli" {
+		t.Errorf("aggregator type: got %q, want opencode_cli", cfg.Magi.Aggregator.Type)
+	}
+
+	if cfg.Magi.Aggregator.ModelID != "claude-sonnet-4-20250514" {
+		t.Errorf("aggregator model_id: got %q, want claude-sonnet-4-20250514", cfg.Magi.Aggregator.ModelID)
+	}
+
+	// Marshal back and re-parse to verify round-trip fidelity.
+	data, err := MarshalEmbeddedYAML(cfg)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	cfg2, err := UnmarshalEmbeddedYAML(data)
+	if err != nil {
+		t.Fatalf("re-unmarshal failed: %v", err)
+	}
+
+	if cfg2.Magi.Aggregator.Type != "opencode_cli" {
+		t.Errorf("round-trip aggregator type mismatch: got %q, want opencode_cli", cfg2.Magi.Aggregator.Type)
+	}
+
+	if cfg2.Magi.Aggregator.ModelID != "claude-sonnet-4-20250514" {
+		t.Errorf("round-trip aggregator model_id mismatch: got %q, want claude-sonnet-4-20250514", cfg2.Magi.Aggregator.ModelID)
 	}
 }

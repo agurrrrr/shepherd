@@ -18,8 +18,9 @@ type MagiProposer struct {
 
 // MagiAggregator selects the synthesis/judging backend.
 type MagiAggregator struct {
-	Type       string `mapstructure:"type" json:"type" yaml:"type"` // claude_cli | endpoint
-	EndpointID string `mapstructure:"endpoint_id" json:"endpoint_id,omitempty" yaml:"endpoint_id,omitempty"`
+	Type       string `mapstructure:"type" json:"type" yaml:"type"`                       // claude_cli | opencode_cli | endpoint
+	EndpointID string `mapstructure:"endpoint_id" json:"endpoint_id,omitempty" yaml:"endpoint_id,omitempty"` // embedded endpoint ID (when type == "endpoint")
+	ModelID    string `mapstructure:"model_id" json:"model_id,omitempty" yaml:"model_id,omitempty"`        // model alias for claude_cli/opencode_cli
 }
 
 // MagiEscalation controls the debate-escalation gate (design §5.3, §5.4).
@@ -167,6 +168,8 @@ func ValidateMagiConfig(cfg *EmbeddedConfig) (errs []string, warnings []string) 
 		// valid — empty defaults to claude_cli after ApplyMagiDefaults,
 		// but ValidateMagiConfig is a pure function that may be called
 		// before defaults are applied. Treat "" as acceptable.
+	case "opencode_cli":
+		// valid — ModelID is optional (empty means CLI default).
 	case "endpoint":
 		if m.Aggregator.EndpointID == "" {
 			warnings = append(warnings, "aggregator: no endpoint selected")
