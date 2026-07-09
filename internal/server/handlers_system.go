@@ -79,6 +79,7 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"provider_enabled_claude":         config.GetBool("provider_enabled_claude"),
 		"provider_enabled_opencode":       config.GetBool("provider_enabled_opencode"),
 		"provider_enabled_pi":             config.GetBool("provider_enabled_pi"),
+		"provider_enabled_grok":           config.GetBool("provider_enabled_grok"),
 		"provider_enabled_embedded":       config.GetBool("provider_enabled_embedded"),
 		"workspace_path":                  config.GetString("workspace_path"),
 		"server_port":                     config.GetInt("server_port"),
@@ -96,6 +97,7 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"custom_prompt_claude":            config.GetString("custom_prompt_claude"),
 		"custom_prompt_opencode":          config.GetString("custom_prompt_opencode"),
 		"custom_prompt_pi":                config.GetString("custom_prompt_pi"),
+		"custom_prompt_grok":              config.GetString("custom_prompt_grok"),
 		"opencode_compact_prompt":         config.GetBool("opencode_compact_prompt"),
 		"opencode_thinking_default":       config.GetBool("opencode_thinking_default"),
 		"opencode_thinking_proxy_enabled": config.GetBool("opencode_thinking_proxy_enabled"),
@@ -105,6 +107,7 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"model_claude":                    config.GetString("model_claude"),
 		"model_opencode":                  config.GetString("model_opencode"),
 		"model_pi":                        config.GetString("model_pi"),
+		"model_grok":                      config.GetString("model_grok"),
 		"task_timeout":                    config.GetString("task_timeout"),
 		"wiki_enabled":                    config.GetBool("wiki_enabled"),
 		"wiki_auto_ingest":                config.GetBool("wiki_auto_ingest"),
@@ -152,6 +155,11 @@ func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
 		pi = append(pi, option{ID: m.ID, Label: m.Label})
 	}
 
+	grok := []option{{ID: "", Label: "grok default (grok-4.5)"}}
+	for _, m := range config.ListGrokModels() {
+		grok = append(grok, option{ID: m.ID, Label: m.Label})
+	}
+
 	// Embedded options are the configured endpoints. The "Default" entry
 	// (empty ID) falls back to the globally active endpoint.
 	embedded := []option{{ID: "", Label: "Active endpoint"}}
@@ -175,6 +183,7 @@ func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
 		"claude":   claude,
 		"opencode": opencode,
 		"pi":       pi,
+		"grok":     grok,
 		"embedded": embedded,
 	})
 }
@@ -202,6 +211,7 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"provider_enabled_claude":         true,
 		"provider_enabled_opencode":       true,
 		"provider_enabled_pi":             true,
+		"provider_enabled_grok":           true,
 		"provider_enabled_embedded":       true,
 		"workspace_path":                  true,
 		"max_sheep":                       true,
@@ -217,6 +227,7 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"custom_prompt_claude":            true,
 		"custom_prompt_opencode":          true,
 		"custom_prompt_pi":                true,
+		"custom_prompt_grok":              true,
 		"opencode_compact_prompt":         true,
 		"opencode_thinking_default":       true,
 		"opencode_thinking_proxy_enabled": true,
@@ -226,6 +237,7 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"model_claude":                    true,
 		"model_opencode":                  true,
 		"model_pi":                        true,
+		"model_grok":                      true,
 		"task_timeout":                    true,
 		"wiki_enabled":                    true,
 		"wiki_auto_ingest":                true,

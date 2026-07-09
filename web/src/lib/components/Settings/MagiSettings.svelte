@@ -6,9 +6,9 @@
 
 	/** @type {{ embedded_active_id: string, custom_prompt_embedded: string }} */
 	export let configData;
-	/** @type {{ claude: boolean, opencode: boolean, pi: boolean, embedded: boolean, magi: boolean }} */
+	/** @type {{ claude: boolean, opencode: boolean, pi: boolean, grok: boolean, embedded: boolean, magi: boolean }} */
 	export let providerEnabled;
-	/** @type {{ claude: Array, opencode: Array, pi: Array, embedded: Array }} */
+	/** @type {{ claude: Array, opencode: Array, pi: Array, grok: Array, embedded: Array }} */
 	export let modelOptions;
 
 	let embeddedEndpoints = [];
@@ -30,7 +30,8 @@
 	const PROVIDERS = [
 		{ value: 'embedded', label: '🟣 Embedded' },
 		{ value: 'claude_cli', label: '🟠 Claude CLI' },
-		{ value: 'opencode_cli', label: '🟢 OpenCode CLI' }
+		{ value: 'opencode_cli', label: '🟢 OpenCode CLI' },
+		{ value: 'grok_cli', label: '⚫ Grok CLI' }
 	];
 
 	function defaultMagiConfig() {
@@ -103,7 +104,7 @@
 
 <ProviderEnableToggle {providerEnabled} provider="magi" label="🧠 MAGI" />
 
-<p class="hint">3개의 서로 다른 모델이 블라인드로 답안을 제시하고, 판정자가 종합합니다. Embedded 엔드포인트뿐 아니라 Claude CLI, OpenCode CLI도 심의자로 사용할 수 있습니다.</p>
+<p class="hint">3개의 서로 다른 모델이 블라인드로 답안을 제시하고, 판정자가 종합합니다. Embedded 엔드포인트뿐 아니라 Claude CLI, OpenCode CLI, Grok CLI도 심의자로 사용할 수 있습니다.</p>
 
 <div class="magi-section">
 	<div class="magi-header">
@@ -164,6 +165,13 @@
 								<option value={m.id}>{m.label}</option>
 							{/each}
 						</select>
+					{:else if proposer.provider === 'grok_cli'}
+						<select class="input magi-input" bind:value={proposer.model_id}>
+							<option value="">기본 모델</option>
+							{#each modelOptions?.grok || [] as m}
+								<option value={m.id}>{m.label}</option>
+							{/each}
+						</select>
 					{/if}
 
 					<!-- Persona -->
@@ -206,6 +214,10 @@
 					<span>OpenCode CLI</span>
 				</label>
 				<label class="toggle">
+					<input type="radio" name="aggregator-type" value="grok_cli" bind:group={magiConfig.aggregator.type} />
+					<span>Grok CLI</span>
+				</label>
+				<label class="toggle">
 					<input type="radio" name="aggregator-type" value="endpoint" bind:group={magiConfig.aggregator.type} />
 					<span>Endpoint</span>
 				</label>
@@ -232,9 +244,16 @@
 							<option value={m.id}>{m.label}</option>
 						{/each}
 					</select>
+				{:else if magiConfig.aggregator.type === 'grok_cli'}
+					<select class="input magi-input" bind:value={magiConfig.aggregator.model_id}>
+						<option value="">기본 모델</option>
+						{#each modelOptions?.grok || [] as m}
+							<option value={m.id}>{m.label}</option>
+						{/each}
+					</select>
 				{/if}
 			</div>
-			<p class="hint">판정자는 Embedded 엔드포인트, Claude CLI 또는 OpenCode CLI를 사용할 수 있습니다.</p>
+			<p class="hint">판정자는 Embedded 엔드포인트, Claude CLI, OpenCode CLI 또는 Grok CLI를 사용할 수 있습니다.</p>
 		</div>
 
 		<!-- Escalation -->

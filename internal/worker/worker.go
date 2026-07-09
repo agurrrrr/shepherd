@@ -68,8 +68,8 @@ func CreateWithOptions(opts CreateOptions) (*ent.Sheep, error) {
 	if provider == "" {
 		provider = "claude"
 	}
-	if provider != "claude" && provider != "opencode" && provider != "pi" && provider != "embedded" && provider != "magi" && provider != "auto" {
-		return nil, fmt.Errorf("'%s' is not a valid provider (claude, opencode, pi, embedded, magi, auto)", provider)
+	if provider != "claude" && provider != "opencode" && provider != "pi" && provider != "grok" && provider != "embedded" && provider != "magi" && provider != "auto" {
+		return nil, fmt.Errorf("'%s' is not a valid provider (claude, opencode, pi, grok, embedded, magi, auto)", provider)
 	}
 
 	// Create sheep
@@ -319,8 +319,8 @@ func UpdateProvider(name string, provider string) error {
 	client := db.Client()
 
 	// Validate provider
-	if provider != "claude" && provider != "opencode" && provider != "pi" && provider != "embedded" && provider != "magi" && provider != "auto" {
-		return fmt.Errorf("'%s' is not a valid provider (claude, opencode, pi, embedded, magi, auto)", provider)
+	if provider != "claude" && provider != "opencode" && provider != "pi" && provider != "grok" && provider != "embedded" && provider != "magi" && provider != "auto" {
+		return fmt.Errorf("'%s' is not a valid provider (claude, opencode, pi, grok, embedded, magi, auto)", provider)
 	}
 
 	// Clear session ID when changing provider (different providers use different session systems)
@@ -348,6 +348,8 @@ func ProviderDisplayName(provider sheep.Provider) string {
 		return GetOpenCodeDisplayName()
 	case sheep.ProviderPi:
 		return "Pi"
+	case sheep.ProviderGrok:
+		return "Grok"
 	case sheep.ProviderEmbedded:
 		return "임베디드"
 	case sheep.ProviderAuto:
@@ -371,6 +373,8 @@ func ProviderEmoji(provider sheep.Provider) string {
 		return "🟢" // OpenCode = green
 	case sheep.ProviderPi:
 		return "🟣" // Pi = purple
+	case sheep.ProviderGrok:
+		return "⚫" // Grok = black (xAI)
 	case sheep.ProviderEmbedded:
 		return "🔶" // Embedded = orange diamond
 	case sheep.ProviderMagi:

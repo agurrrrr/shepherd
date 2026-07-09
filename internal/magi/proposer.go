@@ -744,6 +744,8 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 				content, usage, err = callClaudeCLI(callCtx, sp, systemPrompt, userPrompt, opts.ProjectPath, perSlotSheepName, tokenCb)
 			case ProviderOpenCodeCLI:
 				content, usage, err = callOpenCodeCLI(callCtx, sp, systemPrompt, userPrompt, opts.ProjectPath, perSlotSheepName, tokenCb)
+			case ProviderGrokCLI:
+				content, usage, err = callGrokCLI(callCtx, sp, systemPrompt, userPrompt, opts.ProjectPath, perSlotSheepName, tokenCb)
 			default: // ProviderEmbedded
 				// Compute max tokens: ContextTokens / 4 (same rule as the
 				// embedded agent loop). Fall back to DefaultContextTokens.
@@ -986,6 +988,67 @@ func callOpenCodeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userP
 		finalText = output // fallback to raw output
 	}
 	return finalText, embedded.ChatUsage{}, nil
+}
+
+// callGrokCLI runs `grok -p <prompt> --output-format streaming-json` with an
+// optional model flag. grok emits per-token deltas — {"type":"text","data":".."}
+// for the answer, {"type":"thought",..} for reasoning — so the final answer is
+// the concatenation of every "text" delta. sheepName pins any browser tool calls
+// to a per-proposer session (see browserSessionDirective); pass "" to skip.
+func callGrokCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPrompt, workDir, sheepName string, onToken func(string)) (string, embedded.ChatUsage, error) {
+	args := []string{"--output-format", "streaming-json", "--always-approve"}
+	if spec.ModelID != "" {
+		args = append(args, "-m", spec.ModelID)
+	}
+	// The single-turn prompt goes last, via the -p flag.
+	args = append(args, "-p", systemPrompt+browserSessionDirective(sheepName)+"\n\n"+userPrompt)
+
+	cmd := exec.CommandContext(ctx, "grok", args...)
+	cmd.Dir = workDir
+	cmd.Stdin = strings.NewReader("")
+	envutil.SetCleanEnv(cmd)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", embedded.ChatUsage{}, fmt.Errorf("grok pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", embedded.ChatUsage{}, fmt.Errorf("grok start: %w", err)
+	}
+
+	var answer strings.Builder
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var ev struct {
+			Type string `json:"type"`
+			Data string `json:"data"`
+		}
+		if json.Unmarshal([]byte(line), &ev) != nil {
+			continue
+		}
+		if ev.Type == "text" && ev.Data != "" {
+			answer.WriteString(ev.Data)
+			if onToken != nil {
+				onToken(ev.Data)
+			}
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return "", embedded.ChatUsage{}, fmt.Errorf("grok wait: %w", err)
+	}
+
+	output := strings.TrimSpace(answer.String())
+	if output == "" {
+		return "", embedded.ChatUsage{}, fmt.Errorf("grok returned empty output")
+	}
+	return output, embedded.ChatUsage{}, nil
 }
 
 // parseOpenCodeEvent extracts displayable text from a single OpenCode JSON line.

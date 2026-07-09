@@ -28,14 +28,15 @@ type EndpointRef struct {
 type ProposerProvider string
 
 const (
-	ProviderEmbedded   ProposerProvider = "embedded"
-	ProviderClaudeCLI  ProposerProvider = "claude_cli"
+	ProviderEmbedded    ProposerProvider = "embedded"
+	ProviderClaudeCLI   ProposerProvider = "claude_cli"
 	ProviderOpenCodeCLI ProposerProvider = "opencode_cli"
+	ProviderGrokCLI     ProposerProvider = "grok_cli"
 )
 
 // ProposerSpec is one deliberation member: an endpoint plus its persona.
 type ProposerSpec struct {
-	Provider     ProposerProvider // embedded | claude_cli | opencode_cli
+	Provider     ProposerProvider // embedded | claude_cli | opencode_cli | grok_cli
 	Endpoint     EndpointRef     // used when Provider == "embedded"
 	ModelID      string           // model alias for claude_cli/opencode_cli (empty = default)
 	PersonaKey   string           // melchior | balthasar | casper | custom

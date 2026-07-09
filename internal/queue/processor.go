@@ -190,6 +190,8 @@ func groupKey(provider, model string) string {
 			model = strings.TrimSpace(config.GetString("model_opencode"))
 		case "pi":
 			model = strings.TrimSpace(config.GetString("model_pi"))
+		case "grok":
+			model = strings.TrimSpace(config.GetString("model_grok"))
 		}
 	}
 	if model == "" {

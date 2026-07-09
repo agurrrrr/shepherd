@@ -7,8 +7,9 @@ import "fmt"
 //   - "embedded" (default): uses an embedded endpoint (EndpointID refers to embedded.yaml endpoint)
 //   - "claude_cli": uses Claude CLI (ModelID selects a claude model alias like "opus", "sonnet")
 //   - "opencode_cli": uses OpenCode CLI (ModelID selects an opencode model)
+//   - "grok_cli": uses Grok CLI (ModelID selects a grok model like "grok-4.5")
 type MagiProposer struct {
-	Provider     string `mapstructure:"provider" json:"provider,omitempty" yaml:"provider,omitempty"` // embedded | claude_cli | opencode_cli (default: embedded)
+	Provider     string `mapstructure:"provider" json:"provider,omitempty" yaml:"provider,omitempty"` // embedded | claude_cli | opencode_cli | grok_cli (default: embedded)
 	EndpointID   string `mapstructure:"endpoint_id" json:"endpoint_id" yaml:"endpoint_id"`           // embedded endpoint ID (when provider == "embedded")
 	ModelID      string `mapstructure:"model_id" json:"model_id,omitempty" yaml:"model_id,omitempty"` // model alias for claude_cli/opencode_cli
 	Persona      string `mapstructure:"persona" json:"persona" yaml:"persona"`                        // melchior | balthasar | casper | custom
@@ -18,7 +19,7 @@ type MagiProposer struct {
 
 // MagiAggregator selects the synthesis/judging backend.
 type MagiAggregator struct {
-	Type       string `mapstructure:"type" json:"type" yaml:"type"`                       // claude_cli | opencode_cli | endpoint
+	Type       string `mapstructure:"type" json:"type" yaml:"type"`                       // claude_cli | opencode_cli | grok_cli | endpoint
 	EndpointID string `mapstructure:"endpoint_id" json:"endpoint_id,omitempty" yaml:"endpoint_id,omitempty"` // embedded endpoint ID (when type == "endpoint")
 	ModelID    string `mapstructure:"model_id" json:"model_id,omitempty" yaml:"model_id,omitempty"`        // model alias for claude_cli/opencode_cli
 }
@@ -149,6 +150,8 @@ func ValidateMagiConfig(cfg *EmbeddedConfig) (errs []string, warnings []string) 
 			// No hard validation needed; the CLI will resolve the model.
 		case "opencode_cli":
 			// ModelID is optional — empty means OpenCode config default.
+		case "grok_cli":
+			// ModelID is optional — empty means grok default (grok-4.5).
 		default:
 			errs = append(errs, fmt.Sprintf("proposer %d: unknown provider %q", i+1, provider))
 		}
@@ -170,6 +173,8 @@ func ValidateMagiConfig(cfg *EmbeddedConfig) (errs []string, warnings []string) 
 		// before defaults are applied. Treat "" as acceptable.
 	case "opencode_cli":
 		// valid — ModelID is optional (empty means CLI default).
+	case "grok_cli":
+		// valid — ModelID is optional (empty means grok default).
 	case "endpoint":
 		if m.Aggregator.EndpointID == "" {
 			warnings = append(warnings, "aggregator: no endpoint selected")

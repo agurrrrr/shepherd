@@ -53,6 +53,8 @@
 	let opencodeModelOptions = $state([]);
 	let piModelDefault = $state('');
 	let piModelOptions = $state([]);
+	let grokModelDefault = $state('');
+	let grokModelOptions = $state([]);
 	let embeddedModelOptions = $state([]);
 
 	// Providers that take an explicit model selector. Claude uses a fixed CLI
@@ -61,7 +63,7 @@
 	// is configured per endpoint in Settings.
 	let providerHasModel = $derived(
 		sheepProvider === 'opencode' ||
-		sheepProvider === 'pi' || sheepProvider === 'embedded'
+		sheepProvider === 'pi' || sheepProvider === 'grok' || sheepProvider === 'embedded'
 	);
 	// Thinking toggle applies only to the CLI-harness providers, not embedded.
 	let providerHasThinking = $derived(
@@ -69,22 +71,25 @@
 	);
 
 	// Provider 사용유무 (설정에서 끄면 선택지에서 숨김). 기본 모두 켜짐.
-	let providerEnabled = $state({ claude: true, opencode: true, pi: true, embedded: true, magi: true });
+	let providerEnabled = $state({ claude: true, opencode: true, pi: true, grok: true, embedded: true, magi: true });
 	const PROVIDER_OPTIONS = [
 		{ value: 'claude', label: 'Claude' },
 		{ value: 'opencode', label: 'OpenCode' },
 		{ value: 'pi', label: 'Pi' },
+		{ value: 'grok', label: 'Grok' },
 		{ value: 'embedded', label: 'Embedded' },
 		{ value: 'magi', label: 'MAGI 🧠' }
 	];
 	// Model option list and global default for the sheep's current provider.
 	let activeModelOptions = $derived(
 		sheepProvider === 'pi' ? piModelOptions :
+		sheepProvider === 'grok' ? grokModelOptions :
 		sheepProvider === 'embedded' ? embeddedModelOptions :
 		opencodeModelOptions
 	);
 	let activeModelDefault = $derived(
 		sheepProvider === 'pi' ? piModelDefault :
+		sheepProvider === 'grok' ? grokModelDefault :
 		sheepProvider === 'embedded' ? '' :
 		opencodeModelDefault
 	);
@@ -265,10 +270,12 @@
 			opencodeThinkingDefault = !!configRes.data.opencode_thinking_default;
 			opencodeModelDefault = configRes.data.model_opencode || '';
 			piModelDefault = configRes.data.model_pi || '';
+			grokModelDefault = configRes.data.model_grok || '';
 			providerEnabled = {
 				claude: configRes.data.provider_enabled_claude !== false,
 				opencode: configRes.data.provider_enabled_opencode !== false,
 				pi: configRes.data.provider_enabled_pi !== false,
+				grok: configRes.data.provider_enabled_grok !== false,
 				embedded: configRes.data.provider_enabled_embedded !== false,
 				magi: configRes.data.provider_enabled_magi !== false
 			};
@@ -276,6 +283,7 @@
 		if (modelRes?.data) {
 			opencodeModelOptions = modelRes.data.opencode || [];
 			piModelOptions = modelRes.data.pi || [];
+			grokModelOptions = modelRes.data.grok || [];
 			embeddedModelOptions = modelRes.data.embedded || [];
 		}
 		if (res?.data) {

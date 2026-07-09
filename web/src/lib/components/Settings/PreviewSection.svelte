@@ -1,7 +1,7 @@
 <script>
 	import { apiGet } from '$lib/api.js';
 
-	/** @type {'claude' | 'opencode' | 'pi'} */
+	/** @type {'claude' | 'opencode' | 'pi' | 'grok'} */
 	export let provider = 'claude';
 
 	// 프로바이더별로 노출할 프리뷰 모드 집합
@@ -14,7 +14,8 @@
 			{ key: 'opencode', label: 'OpenCode (Actual)' },
 			{ key: 'compact', label: 'Compact' }
 		],
-		pi: [{ key: 'pi', label: 'Pi' }]
+		pi: [{ key: 'pi', label: 'Pi' }],
+		grok: [{ key: 'grok', label: 'Grok' }]
 	};
 
 	$: modes = MODE_SETS[provider] || MODE_SETS.claude;

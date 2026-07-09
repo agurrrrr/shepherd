@@ -28,9 +28,9 @@ func (Sheep) Fields() []ent.Field {
 			Optional().
 			Comment("Claude Code 세션 ID"),
 		field.Enum("provider").
-			Values("claude", "opencode", "pi", "embedded", "magi", "auto").
+			Values("claude", "opencode", "pi", "grok", "embedded", "magi", "auto").
 			Default("claude").
-			Comment("AI provider (claude, opencode, pi, embedded, magi, auto)"),
+			Comment("AI provider (claude, opencode, pi, grok, embedded, magi, auto)"),
 		field.Int("consecutive_failures").
 			Default(0).
 			Comment("연속 실패 횟수 (서킷 브레이커)"),

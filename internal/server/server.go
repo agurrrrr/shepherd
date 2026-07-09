@@ -761,6 +761,9 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 			case "opencode_cli":
 				spec.Provider = magi.ProviderOpenCodeCLI
 				spec.ModelID = p.ModelID
+			case "grok_cli":
+				spec.Provider = magi.ProviderGrokCLI
+				spec.ModelID = p.ModelID
 			default: // "embedded"
 				spec.Provider = magi.ProviderEmbedded
 				ep, epErr := config.GetEmbeddedEndpointByID(p.EndpointID)
@@ -818,6 +821,16 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 		case "opencode_cli":
 			aggregator = magi.AggregatorSpec{
 				Type:    "opencode_cli",
+				WorkDir: projectPath,
+				ModelID: magiCfg.Aggregator.ModelID,
+			}
+			// Fallback to first proposer endpoint (design §7).
+			if firstProposerEP != nil {
+				aggregator.FallbackEndpoint = *firstProposerEP
+			}
+		case "grok_cli":
+			aggregator = magi.AggregatorSpec{
+				Type:    "grok_cli",
 				WorkDir: projectPath,
 				ModelID: magiCfg.Aggregator.ModelID,
 			}

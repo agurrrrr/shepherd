@@ -3,6 +3,7 @@ package magi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os/exec"
@@ -14,11 +15,11 @@ import (
 
 // AggregatorSpec selects the judging backend (resolved by the wiring layer).
 type AggregatorSpec struct {
-	Type             string      // "claude_cli" | "opencode_cli" | "endpoint"
+	Type             string      // "claude_cli" | "opencode_cli" | "grok_cli" | "endpoint"
 	Endpoint         EndpointRef // used when Type == "endpoint"
-	FallbackEndpoint EndpointRef // used when claude/opencode CLI fails (design §7)
+	FallbackEndpoint EndpointRef // used when a CLI backend fails (design §7)
 	WorkDir          string      // project path for the CLI subprocess
-	ModelID          string      // model alias for claude_cli/opencode_cli (optional)
+	ModelID          string      // model alias for claude_cli/opencode_cli/grok_cli (optional)
 }
 
 // aggregatorOnOutput is the live-output sink used by aggregatorComplete
@@ -37,6 +38,8 @@ var aggregatorComplete = func(ctx context.Context, spec AggregatorSpec, systemPr
 		return aggregatorClaudeCLI(ctx, spec, systemPrompt, userPrompt, aggregatorOnOutput)
 	case "opencode_cli":
 		return aggregatorOpenCodeCLI(ctx, spec, systemPrompt, userPrompt, aggregatorOnOutput)
+	case "grok_cli":
+		return aggregatorGrokCLI(ctx, spec, systemPrompt, userPrompt, aggregatorOnOutput)
 	default:
 		return "", embedded.ChatUsage{}, fmt.Errorf("unknown aggregator type %q", spec.Type)
 	}
@@ -144,6 +147,80 @@ func aggregatorOpenCodeCLI(ctx context.Context, spec AggregatorSpec, systemPromp
 
 	// OpenCode CLI does not report token usage — return zero value.
 	return output, embedded.ChatUsage{}, nil
+}
+
+// aggregatorGrokCLI invokes "grok -p ... --output-format streaming-json" as a
+// subprocess. On failure it emits a live-output warning and falls back to the
+// FallbackEndpoint via the endpoint path (design §7).
+//
+// The onOutput parameter is wired through aggregatorComplete's closure so the
+// fallback warning reaches the live stream.
+func aggregatorGrokCLI(ctx context.Context, spec AggregatorSpec, systemPrompt, userPrompt string, onOutput func(string)) (string, embedded.ChatUsage, error) {
+	args := []string{"--output-format", "streaming-json", "--always-approve"}
+	if spec.ModelID != "" {
+		args = append(args, "-m", spec.ModelID)
+	}
+	args = append(args, "-p", systemPrompt+"\n\n"+userPrompt)
+
+	cmd := exec.CommandContext(ctx, "grok", args...)
+	cmd.Dir = spec.WorkDir
+	cmd.Stdin = strings.NewReader("")
+	envutil.SetCleanEnv(cmd)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if onOutput != nil {
+			msg := "⚠️ Grok aggregator 실패 — 로컬 폴백 사용"
+			if stderr.Len() > 0 {
+				msg += ": " + strings.TrimSpace(stderr.String())
+			}
+			onOutput(msg + "\n")
+		}
+		return aggregatorEndpoint(ctx, spec.FallbackEndpoint, systemPrompt, userPrompt)
+	}
+
+	raw := strings.TrimSpace(stdout.String())
+	if raw == "" {
+		if onOutput != nil {
+			onOutput("⚠️ Grok aggregator 실패 — 로컬 폴백 사용\n")
+		}
+		return aggregatorEndpoint(ctx, spec.FallbackEndpoint, systemPrompt, userPrompt)
+	}
+
+	// grok streams token deltas — the answer is the concatenation of "text" data.
+	output := extractGrokFinalText(raw)
+	if output == "" {
+		output = raw // fallback to raw output
+	}
+
+	// grok CLI does not report token usage — return zero value.
+	return output, embedded.ChatUsage{}, nil
+}
+
+// extractGrokFinalText reconstructs grok's answer from its streaming-json output
+// by concatenating every {"type":"text","data":".."} delta.
+func extractGrokFinalText(raw string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var ev struct {
+			Type string `json:"type"`
+			Data string `json:"data"`
+		}
+		if json.Unmarshal([]byte(line), &ev) != nil {
+			continue
+		}
+		if ev.Type == "text" {
+			b.WriteString(ev.Data)
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // judgeSystemPrompt is the system prompt for the aggregator. The full

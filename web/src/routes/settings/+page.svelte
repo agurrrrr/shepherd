@@ -6,6 +6,7 @@
 	import ClaudeSettings from '$lib/components/Settings/ClaudeSettings.svelte';
 	import OpenCodeSettings from '$lib/components/Settings/OpenCodeSettings.svelte';
 	import PiSettings from '$lib/components/Settings/PiSettings.svelte';
+	import GrokSettings from '$lib/components/Settings/GrokSettings.svelte';
 	import EmbeddedSettings from '$lib/components/Settings/EmbeddedSettings.svelte';
 	import MagiSettings from '$lib/components/Settings/MagiSettings.svelte';
 	import PreviewSection from '$lib/components/Settings/PreviewSection.svelte';
@@ -27,10 +28,10 @@
 	let mcpLoaded = $state(false);
 
 	let projectsList = $state([]);
-	let modelOptions = $state({ claude: [], opencode: [], pi: [] });
+	let modelOptions = $state({ claude: [], opencode: [], pi: [], grok: [] });
 
 	// Provider enabled flags (shared mutable state)
-	let providerEnabled = $state({ claude: true, opencode: true, pi: true, embedded: true, magi: true });
+	let providerEnabled = $state({ claude: true, opencode: true, pi: true, grok: true, embedded: true, magi: true });
 
 	// Tab state
 	let activeTab = $state('common');
@@ -39,6 +40,7 @@
 		{ value: 'claude', label: 'Claude' },
 		{ value: 'opencode', label: 'OpenCode' },
 		{ value: 'pi', label: 'Pi' },
+		{ value: 'grok', label: 'Grok' },
 		{ value: 'embedded', label: 'Embedded' },
 		{ value: 'magi', label: 'MAGI 🧠' }
 	];
@@ -75,6 +77,7 @@
 					claude: configRes.data.provider_enabled_claude !== false,
 					opencode: configRes.data.provider_enabled_opencode !== false,
 					pi: configRes.data.provider_enabled_pi !== false,
+					grok: configRes.data.provider_enabled_grok !== false,
 					embedded: configRes.data.provider_enabled_embedded !== false,
 					magi: configRes.data.provider_enabled_magi !== false
 				};
@@ -117,6 +120,7 @@
 			provider_enabled_claude: providerEnabled.claude,
 			provider_enabled_opencode: providerEnabled.opencode,
 			provider_enabled_pi: providerEnabled.pi,
+			provider_enabled_grok: providerEnabled.grok,
 			provider_enabled_embedded: providerEnabled.embedded,
 			provider_enabled_magi: providerEnabled.magi,
 			max_sheep: parseInt(configData.max_sheep) || 12,
@@ -132,6 +136,7 @@
 			custom_prompt_claude: configData.custom_prompt_claude || '',
 			custom_prompt_opencode: configData.custom_prompt_opencode || '',
 			custom_prompt_pi: configData.custom_prompt_pi || '',
+			custom_prompt_grok: configData.custom_prompt_grok || '',
 			opencode_compact_prompt: configData.opencode_compact_prompt,
 			opencode_thinking_default: configData.opencode_thinking_default,
 			opencode_thinking_proxy_enabled: configData.opencode_thinking_proxy_enabled,
@@ -141,6 +146,7 @@
 			model_claude: configData.model_claude || '',
 			model_opencode: configData.model_opencode || '',
 			model_pi: configData.model_pi || '',
+			model_grok: configData.model_grok || '',
 			task_timeout: (configData.task_timeout || '').trim() || '4h',
 			wiki_enabled: configData.wiki_enabled,
 			wiki_auto_ingest: configData.wiki_auto_ingest,
@@ -219,6 +225,9 @@
 			{#if activeTab === 'pi'}
 				<PiSettings {configData} {providerEnabled} modelOptions={modelOptions.pi} />
 			{/if}
+			{#if activeTab === 'grok'}
+				<GrokSettings {configData} {providerEnabled} modelOptions={modelOptions.grok} />
+			{/if}
 			{#if activeTab === 'embedded'}
 				<EmbeddedSettings {configData} {providerEnabled} reloadEndpoints={reloadEmbeddedEndpoints} />
 			{/if}
@@ -254,6 +263,11 @@
 		{#if activeTab === 'pi'}
 			<div style="margin-top:24px">
 				<PreviewSection provider="pi" />
+			</div>
+		{/if}
+		{#if activeTab === 'grok'}
+			<div style="margin-top:24px">
+				<PreviewSection provider="grok" />
 			</div>
 		{/if}
 

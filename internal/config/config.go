@@ -55,6 +55,7 @@ func Init() error {
 	viper.SetDefault("provider_enabled_claude", true)
 	viper.SetDefault("provider_enabled_opencode", true)
 	viper.SetDefault("provider_enabled_pi", true)
+	viper.SetDefault("provider_enabled_grok", true)
 	viper.SetDefault("provider_enabled_embedded", true)
 	viper.SetDefault("provider_enabled_magi", true)
 
@@ -65,6 +66,7 @@ func Init() error {
 	viper.SetDefault("custom_prompt_claude", "")
 	viper.SetDefault("custom_prompt_opencode", "")
 	viper.SetDefault("custom_prompt_pi", "")
+	viper.SetDefault("custom_prompt_grok", "")
 
 	// 양 개인 기억 (sheep memory) — 프로젝트와 무관하게 양 이름 단위로 누적된다.
 	// 저장 위치는 ~/.shepherd/sheep/<sheep_name>/ (CLI 중립).
@@ -95,6 +97,7 @@ func Init() error {
 	viper.SetDefault("model_claude", "")
 	viper.SetDefault("model_opencode", "")
 	viper.SetDefault("model_pi", "")
+	viper.SetDefault("model_grok", "")
 
 	// 임베디드 (in-process 로컬 LLM) 프로바이더
 	viper.SetDefault("embedded_active_id", "")
@@ -438,6 +441,50 @@ func GetPiBinary() string {
 	}
 
 	return "pi" // fallback: hope it's in PATH
+}
+
+// GetGrokBinary returns the path to the grok (Grok Build TUI) binary.
+// It checks: 1) GROK_PATH env var, 2) config "grok_path", 3) PATH lookup, 4) common locations.
+func GetGrokBinary() string {
+	// 1. Environment variable
+	if p := os.Getenv("GROK_PATH"); p != "" {
+		return p
+	}
+
+	// 2. Config file
+	if p := viper.GetString("grok_path"); p != "" {
+		return p
+	}
+
+	// 3. PATH lookup
+	if p, err := exec.LookPath("grok"); err == nil {
+		return p
+	}
+
+	// 4. Common locations
+	home, _ := os.UserHomeDir()
+	var candidates []string
+	if runtime.GOOS == "windows" {
+		localAppdata := os.Getenv("LOCALAPPDATA")
+		candidates = []string{
+			filepath.Join(localAppdata, "Programs", "grok", "grok.exe"),
+			filepath.Join(home, ".grok", "bin", "grok.exe"),
+			filepath.Join(home, "scoop", "shims", "grok.exe"),
+		}
+	} else {
+		candidates = []string{
+			filepath.Join(home, ".grok/bin/grok"),
+			filepath.Join(home, ".local/bin/grok"),
+			"/usr/local/bin/grok",
+		}
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+
+	return "grok" // fallback: hope it's in PATH
 }
 
 // EmbeddedConfigFile returns the path to the embedded endpoints config file.

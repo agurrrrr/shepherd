@@ -75,6 +75,7 @@
 						<option value="claude">Claude</option>
 						<option value="opencode">OpenCode</option>
 						<option value="pi">Pi</option>
+						<option value="grok">Grok</option>
 						<option value="embedded">Embedded</option>
 						<option value="magi">MAGI 🧠</option>
 						<option value="auto">Auto</option>
@@ -111,6 +112,7 @@
 							<option value="claude">Claude</option>
 							<option value="opencode">OpenCode</option>
 							<option value="pi">Pi</option>
+							<option value="grok">Grok</option>
 							<option value="embedded">Embedded</option>
 							<option value="magi">MAGI 🧠</option>
 							<option value="auto">Auto</option>

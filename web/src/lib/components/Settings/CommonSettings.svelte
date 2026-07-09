@@ -19,6 +19,7 @@
 		<option value="claude">Claude</option>
 		<option value="opencode">OpenCode</option>
 		<option value="pi">Pi</option>
+		<option value="grok">Grok</option>
 		<option value="embedded">Embedded (로컬 LLM)</option>
 		<option value="auto">Auto</option>
 	</select>

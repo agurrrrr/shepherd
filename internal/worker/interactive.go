@@ -383,6 +383,10 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		// Pi is a Claude-class harness with a large context, so honor session reuse
 		// like Claude (subject to the session_reuse config above).
 		result, execErr = executeWithPi(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
+	case sheep.ProviderGrok:
+		// Grok (grok-4.5) is a Claude-class agent with a large context, so honor
+		// session reuse like Claude/Pi (subject to the session_reuse config above).
+		result, execErr = executeWithGrok(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
 	case sheep.ProviderEmbedded:
 		// Embedded: in-process agent loop, no subprocess
 		result, execErr = executeWithEmbedded(ctx, sheepName, proj.Path, prompt, opts, cancel)
@@ -1013,6 +1017,7 @@ func PreviewSystemPrompt(sheepName string) map[string]string {
 		"withGuide": buildPromptWithContext(sheepName, "<USER_PROMPT>"),
 		"opencode":  opencode,
 		"pi":        buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_pi"),
+		"grok":      buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_grok"),
 	}
 }
 
