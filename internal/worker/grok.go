@@ -102,6 +102,22 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 		scanner.Buffer(buf, 1024*1024)
 
 		section := "" // "" | "thought" | "text"
+
+		// Grok's streaming-json emits per-token deltas — often 1-3 characters
+		// per {"type":"text","data":".."} event. Passing each delta straight to
+		// OnOutput causes the live output to fragment into tiny pieces. We
+		// buffer text deltas and flush on newline or when a reasonable chunk
+		// size accumulates, matching the line-granularity that Claude CLI and
+		// OpenCode CLI already provide. (Same approach as callGrokCLI in
+		// internal/magi/proposer.go — task #7188/#7192.)
+		var liveBuf strings.Builder
+		flushLive := func() {
+			if liveBuf.Len() > 0 {
+				opts.OnOutput(liveBuf.String())
+				liveBuf.Reset()
+			}
+		}
+
 		for scanner.Scan() {
 			if ctx.Err() != nil {
 				return
@@ -136,13 +152,32 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 					}
 					section = "text"
 				}
-				opts.OnOutput(ev.Data)
+				liveBuf.WriteString(ev.Data)
+				nlIdx := strings.IndexByte(liveBuf.String(), '\n')
+				for nlIdx >= 0 {
+					s := liveBuf.String()
+					opts.OnOutput(s[:nlIdx+1])
+					s = s[nlIdx+1:]
+					liveBuf.Reset()
+					liveBuf.WriteString(s)
+					nlIdx = strings.IndexByte(liveBuf.String(), '\n')
+				}
+				// Safety flush: if no newline has arrived for a while, emit
+				// the accumulated chunk so the UI doesn't appear frozen during
+				// long paragraphs without line breaks.
+				if liveBuf.Len() >= 120 {
+					flushLive()
+				}
 			case "error":
 				if ev.Message != "" {
+					flushLive()
 					opts.OnOutput("\n❌ " + ev.Message + "\n")
 				}
 			}
 		}
+
+		// Flush any remaining buffered text after the stream ends.
+		flushLive()
 	}()
 
 	// Read stderr.
