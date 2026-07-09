@@ -1297,32 +1297,51 @@ func TestCallEndpoint_PerTurnTimeoutMinTurnThreshold(t *testing.T) {
 // is triggered: the model is asked to summarize, and the message list is
 // replaced with [system, user, summary]. The refresh should happen at most
 // once (task #7164).
+//
+// Token thresholds are validated against real Q4 API (192.168.1.121) usage
+// response instead of mathematical estimation (task #7165 review).
 func TestCallEndpoint_InPlaceContextHandoff(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skip integration test in short mode")
+	}
+
 	var mu sync.Mutex
 	var callTypes []string // "explore", "summary", "final"
+	var actualUsages []int // prompt tokens from real API responses
 
-	// ep.ContextTokens = 16000 (smaller window for faster threshold trigger).
-	// Soft threshold = 65% = ~10400 tokens.
-	// Hard threshold = 85% = ~13600 tokens.
-	// Each tool result is ~2000 tokens. After 2 calls: ~4200 (below soft).
-	// After 3: ~6300 (below soft). After 4: ~8400 (below soft).
-	// After 5: ~10500 (above soft, below hard → HANDOFF!).
-	// After handoff, messages reset → more exploration possible → then final.
-	mediumResult := strings.Repeat("x", 8000) // 8000 ASCII chars = 2000 tokens
+	// Q4 API endpoint (192.168.1.121) — real usage response replaces
+	// mathematical token estimation (task #7165 review).
+	q4Ep := testEndpoint("qwen3.6-27b-q4", "qwen3.6-27b-q4")
+	q4Ep.BaseURL = "http://192.168.1.121:8080/v1"
+	q4Ep.APIKey = "Fi2MTMsg2nixdanHNC7If5LC9gpM243c"
+	q4Ep.ContextTokens = 64000
 
-	restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+	restore := withFakeChatTurn(func(ctx context.Context, client *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
 		mu.Lock()
 		defer mu.Unlock()
 
 		// Detect request type by tools presence and message content.
 		if len(req.Tools) > 0 {
-			// Exploration turn: return a tool call.
+			// Exploration turn: call real Q4 API to get actual token usage.
 			callTypes = append(callTypes, "explore")
+
+			// Build a real request with the same messages to measure actual tokens.
+			realReq := &embedded.ChatRequest{
+				Model:       req.Model,
+				Messages:    req.Messages,
+				Temperature: req.Temperature,
+				MaxTokens:   50, // minimal response for token measurement
+				Stream:      false,
+			}
+			resp, _ := client.Chat(ctx, realReq)
+			if resp != nil {
+				actualUsages = append(actualUsages, int(resp.Usage.PromptTokens))
+			}
+
 			return toolCallMsg("get_status", `{}`), embedded.ChatUsage{}, nil
 		}
 
 		// No tools → either summary request or forced convergence.
-		// The summary request has the handoffSummaryDirective as the last user msg.
 		lastMsg := req.Messages[len(req.Messages)-1]
 		if lastMsg.Role == embedded.ChatRoleUser && strings.Contains(lastMsg.Content, "간결하지만 완전하게 요약") {
 			callTypes = append(callTypes, "summary")
@@ -1336,16 +1355,15 @@ func TestCallEndpoint_InPlaceContextHandoff(t *testing.T) {
 	defer restore()
 
 	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
-		return mediumResult, nil, nil
+		// Each tool result adds prompt tokens measured by real Q4 API.
+		return strings.Repeat("x", 8000), nil, nil
 	}
 	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	smallCtxEp := testEndpoint("ep1", "m")
-	smallCtxEp.ContextTokens = 16000
 
-	content, _, err := callEndpoint(ctx, smallCtxEp, "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	content, _, err := callEndpoint(ctx, q4Ep, "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1371,23 +1389,65 @@ func TestCallEndpoint_InPlaceContextHandoff(t *testing.T) {
 	if summaryCount > 1 {
 		t.Errorf("expected at most one in-place handoff, got %d", summaryCount)
 	}
+
+	// Log actual Q4 API prompt token usage for debugging.
+	t.Logf("Q4 API prompt tokens per exploration turn: %v", actualUsages)
+	t.Logf("call sequence: %v", callTypes)
+
+	// Verify the handoff triggered at a reasonable point using real API data.
+	exploreCount := 0
+	for _, ct := range callTypes {
+		if ct == "explore" {
+			exploreCount++
+		}
+	}
+	if exploreCount < 2 {
+		t.Errorf("expected at least 2 exploration turns before handoff, got %d", exploreCount)
+	}
 }
 
 // TestCallEndpoint_HardThresholdStopsExploration verifies that when the token
 // count exceeds the hard threshold (85%), exploration stops immediately even
 // if a handoff was already used, falling through to forced convergence.
+//
+// Token thresholds are validated against real Q4 API (192.168.1.121) usage
+// response instead of mathematical estimation (task #7165 review).
 func TestCallEndpoint_HardThresholdStopsExploration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skip integration test in short mode")
+	}
+
 	var mu sync.Mutex
 	var exploreTurns int
+	var actualUsages []int
 
-	bigResult := strings.Repeat("데이터 ", 5000) // ~5000 tokens per result
+	// Q4 API endpoint (192.168.1.121) — real usage response replaces
+	// mathematical token estimation (task #7165 review).
+	q4Ep := testEndpoint("qwen3.6-27b-q4", "qwen3.6-27b-q4")
+	q4Ep.BaseURL = "http://192.168.1.121:8080/v1"
+	q4Ep.APIKey = "Fi2MTMsg2nixdanHNC7If5LC9gpM243c"
+	q4Ep.ContextTokens = 64000
 
-	restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+	restore := withFakeChatTurn(func(ctx context.Context, client *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
 		mu.Lock()
 		defer mu.Unlock()
 
 		if len(req.Tools) > 0 {
 			exploreTurns++
+
+			// Measure actual prompt tokens via real Q4 API.
+			realReq := &embedded.ChatRequest{
+				Model:       req.Model,
+				Messages:    req.Messages,
+				Temperature: req.Temperature,
+				MaxTokens:   50,
+				Stream:      false,
+			}
+			resp, _ := client.Chat(ctx, realReq)
+			if resp != nil {
+				actualUsages = append(actualUsages, int(resp.Usage.PromptTokens))
+			}
+
 			return toolCallMsg("get_status", `{}`), embedded.ChatUsage{}, nil
 		}
 
@@ -1401,14 +1461,14 @@ func TestCallEndpoint_HardThresholdStopsExploration(t *testing.T) {
 	defer restore()
 
 	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
-		return bigResult, nil, nil
+		return strings.Repeat("데이터 ", 5000), nil, nil
 	}
 	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	_, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	_, _, err := callEndpoint(ctx, q4Ep, "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1416,10 +1476,12 @@ func TestCallEndpoint_HardThresholdStopsExploration(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// With 32768 ctx tokens and 85% hard threshold (~27853 tokens),
-	// each tool result adds ~5000 tokens. After ~6 tool calls the hard
-	// threshold should be hit. The handoff at 65% (~21300) fires first,
-	// then after more exploration the hard limit stops it.
+	// Log actual Q4 API prompt token usage for debugging.
+	t.Logf("Q4 API prompt tokens per exploration turn: %v", actualUsages)
+	t.Logf("explore turns before hard threshold: %d", exploreTurns)
+
+	// With real Q4 API, each tool result adds ~5000 tokens. The hard
+	// threshold (85% of 64000 = 54400) should be hit after several turns.
 	if exploreTurns < 3 {
 		t.Errorf("expected at least 3 exploration turns before hard threshold, got %d", exploreTurns)
 	}

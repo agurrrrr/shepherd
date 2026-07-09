@@ -266,7 +266,7 @@ var callEndpoint = func(
 			if tc.ID == "" {
 				tc.ID = fmt.Sprintf("call_%d_%d", turn, idx)
 			}
-			messages = append(messages, executeProposerToolCall(ctx, tc, toolRegistry, dispatch, sheepName))
+			messages = append(messages, executeProposerToolCall(ctx, tc, toolRegistry, dispatch, sheepName, ctxTokens))
 		}
 
 		// ── In-place context handoff (task #7164) ──
@@ -365,10 +365,15 @@ func inPlaceContextRefresh(
 	hasCutoff bool,
 ) ([]embedded.ChatMessage, error) {
 	// Build a summary request: original messages + a directive to summarize.
-	// No tools — this must be a text-only response.
+	// We copy the messages slice explicitly to avoid aliasing the underlying
+	// array that the caller (callEndpoint) still uses during exploration.
+	summaryMsgs := make([]embedded.ChatMessage, len(messages), len(messages)+1)
+	copy(summaryMsgs, messages)
+	summaryMsgs = append(summaryMsgs, embedded.ChatMessage{Role: embedded.ChatRoleUser, Content: handoffSummaryDirective})
+
 	summaryReq := &embedded.ChatRequest{
 		Model:       ep.Model,
-		Messages:    append(messages, embedded.ChatMessage{Role: embedded.ChatRoleUser, Content: handoffSummaryDirective}),
+		Messages:    summaryMsgs,
 		Temperature: 0.3, // low temperature for faithful summarization
 		MaxTokens:   maxTokens,
 		Stream:      true,
@@ -399,13 +404,8 @@ func inPlaceContextRefresh(
 		return nil, fmt.Errorf("context refresh produced empty summary")
 	}
 
-	// Add the summary's token usage to the caller's total via a side-effect-
-	// free return. The caller (callEndpoint) doesn't have access to totalUsage
-	// here, so we return the usage separately — but actually, we can't return
-	// usage because the signature returns messages. Instead, we accept the
-	// minor accounting loss (the summary tokens are counted by the LLM server
-	// but not by our tracker). This is acceptable: the summary is a one-time
-	// cost and accuracy of the total is not critical.
+	// Summary token usage is not tracked in totalUsage. This is acceptable:
+	// the summary is a one-time cost and total accuracy is not critical.
 	_ = usage
 
 	// Build the refreshed message list: system + user + summary.
@@ -438,9 +438,21 @@ func convergenceCutoff(ctx context.Context) (convergeAt time.Time, reserve time.
 	if remaining <= 0 {
 		return dl, minConvergenceReserve, true // already past — converge immediately
 	}
+
+	// Reserve is proportional to the remaining budget: 25% of remaining,
+	// but bounded by a reasonable floor and ceiling so that:
+	// - Short timeouts (e.g. 30s) still leave meaningful exploration time
+	// - Long timeouts don't waste too much on convergence
+	// The floor scales with remaining: for very short budgets (≤40s) the
+	// floor is lower (10s) so exploration isn't starved (task #7165 review).
 	reserve = remaining / 4
-	if reserve < minConvergenceReserve {
-		reserve = minConvergenceReserve
+
+	minReserve := minConvergenceReserve
+	if remaining <= 40*time.Second {
+		minReserve = 10 * time.Second
+	}
+	if reserve < minReserve {
+		reserve = minReserve
 	}
 	if reserve > remaining/2 {
 		reserve = remaining / 2 // never spend more than half on convergence
@@ -530,6 +542,7 @@ func executeProposerToolCall(
 	toolRegistry *embedded.ToolRegistry,
 	dispatch embedded.MCPDispatcher,
 	sheepName string,
+	ctxTokens int,
 ) embedded.ChatMessage {
 	toolName := tc.Func.Name
 
@@ -579,7 +592,7 @@ func executeProposerToolCall(
 
 	return embedded.ChatMessage{
 		Role:       embedded.ChatRoleTool,
-		Content:    truncateToolResult(resultStr),
+		Content:    truncateToolResult(resultStr, ctxTokens),
 		ToolCallID: tc.ID,
 	}
 }
@@ -591,34 +604,10 @@ func addUsage(dst *embedded.ChatUsage, u embedded.ChatUsage) {
 	dst.TotalTokens += u.TotalTokens
 }
 
-// estimateProposerTokens estimates the token count for a slice of messages,
-// including the overhead of the tools definition array sent with every
-// request. This mirrors the logic in embedded.estimateMessageTokens but is
-// duplicated here because that function is unexported (Go visibility).
-// ASCII averages ~4 bytes/token; CJK (한글 등) averages ~1 token/char.
-func estimateProposerTokens(messages []embedded.ChatMessage, tools []embedded.OpenAIToolDef) int {
-	total := 0
-	for _, msg := range messages {
-		total += estimateTextTokensMagi(msg.Content)
-		for _, p := range msg.ContentParts {
-			total += estimateTextTokensMagi(p.Text)
-		}
-		for _, tc := range msg.ToolCalls {
-			total += estimateTextTokensMagi(tc.Func.Name) + estimateTextTokensMagi(tc.Func.Args) + 16
-		}
-		total += 50 // per-message overhead
-	}
-	// Tools definition overhead: each tool has a name, description, and
-	// parameters schema — typically 200-500 tokens per tool.
-	for _, td := range tools {
-		total += estimateTextTokensMagi(td.Function.Name) + estimateTextTokensMagi(td.Function.Description) + 100
-	}
-	return total
-}
-
-// estimateTextTokensMagi is the magi-package-local token estimator.
-// ASCII averages ~4 bytes/token; CJK averages ~1 token/char.
-func estimateTextTokensMagi(s string) int {
+// estimateTextTokens estimates tokens for a text string. ASCII averages ~4
+// bytes per token, but CJK (한글 등) averages ~1 token per character. This is
+// a local copy of embedded.estimateTextTokens because that function is unexported.
+func estimateTextTokens(s string) int {
 	ascii := 0
 	tokens := 0
 	for _, r := range s {
@@ -631,11 +620,38 @@ func estimateTextTokensMagi(s string) int {
 	return tokens + ascii/4
 }
 
+// estimateProposerTokens estimates the token count for a slice of messages,
+// including the overhead of the tools definition array sent with every
+// request. ASCII averages ~4 bytes/token; CJK (한글 등) averages ~1 token/char.
+func estimateProposerTokens(messages []embedded.ChatMessage, tools []embedded.OpenAIToolDef) int {
+	total := 0
+	for _, msg := range messages {
+		total += estimateTextTokens(msg.Content)
+		for _, p := range msg.ContentParts {
+			total += estimateTextTokens(p.Text)
+		}
+		for _, tc := range msg.ToolCalls {
+			total += estimateTextTokens(tc.Func.Name) + estimateTextTokens(tc.Func.Args) + 16
+		}
+		total += 50 // per-message overhead
+	}
+	// Tools definition overhead: each tool has a name, description, and
+	// parameters schema — typically 200-500 tokens per tool.
+	for _, td := range tools {
+		total += estimateTextTokens(td.Function.Name) + estimateTextTokens(td.Function.Description) + 100
+	}
+	return total
+}
+
 // truncateToolResult caps a tool result to a reasonable size for the chat
 // context. Large outputs (e.g. reading a big file) would blow up the context
-// window and degrade the model's deliberation.
-func truncateToolResult(s string) string {
-	const maxRunes = 8000
+// window and degrade the model's deliberation. The cap is proportional to the
+// endpoint's context window: 10% of ctxTokens, with a floor of 2000 runes.
+func truncateToolResult(s string, ctxTokens int) string {
+	maxRunes := ctxTokens / 10
+	if maxRunes < 2000 {
+		maxRunes = 2000
+	}
 	runes := []rune(s)
 	if len(runes) <= maxRunes {
 		return s
