@@ -3,6 +3,7 @@ package magi
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -1298,8 +1299,8 @@ func TestCallEndpoint_PerTurnTimeoutMinTurnThreshold(t *testing.T) {
 // replaced with [system, user, summary]. The refresh should happen at most
 // once (task #7164).
 //
-// Token thresholds are validated against real Q4 API (192.168.1.121) usage
-// response instead of mathematical estimation (task #7165 review).
+// Token thresholds are validated against real Q4 API usage response
+// instead of mathematical estimation (task #7165 review).
 func TestCallEndpoint_InPlaceContextHandoff(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skip integration test in short mode")
@@ -1309,12 +1310,22 @@ func TestCallEndpoint_InPlaceContextHandoff(t *testing.T) {
 	var callTypes []string // "explore", "summary", "final"
 	var actualUsages []int // prompt tokens from real API responses
 
-	// Q4 API endpoint (192.168.1.121) — real usage response replaces
-	// mathematical token estimation (task #7165 review).
+	// Q4 API endpoint — real usage response replaces mathematical token
+	// estimation (task #7165 review). Credentials come from environment
+	// variables to avoid committing secrets (code review #7171).
+	q4URL := os.Getenv("SHEPHERD_TEST_Q4_URL")
+	q4Key := os.Getenv("SHEPHERD_TEST_Q4_KEY")
+	if q4URL == "" || q4Key == "" {
+		t.Skip("skip: SHEPHERD_TEST_Q4_URL or SHEPHERD_TEST_Q4_KEY not set")
+	}
 	q4Ep := testEndpoint("qwen3.6-27b-q4", "qwen3.6-27b-q4")
-	q4Ep.BaseURL = "http://192.168.1.121:8080/v1"
-	q4Ep.APIKey = "Fi2MTMsg2nixdanHNC7If5LC9gpM243c"
-	q4Ep.ContextTokens = 64000
+	q4Ep.BaseURL = q4URL
+	q4Ep.APIKey = q4Key
+	// Reduced from 64000 to 8000 so the soft threshold (65% = 5200 tokens)
+	// is reached within the 60s timeout. Each Korean dispatch result adds
+	// ~1600 estimated tokens after truncation (2000 rune floor), so the
+	// handoff triggers after 3-4 exploration turns.
+	q4Ep.ContextTokens = 8000
 
 	restore := withFakeChatTurn(func(ctx context.Context, client *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
 		mu.Lock()
@@ -1355,8 +1366,9 @@ func TestCallEndpoint_InPlaceContextHandoff(t *testing.T) {
 	defer restore()
 
 	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
-		// Each tool result adds prompt tokens measured by real Q4 API.
-		return strings.Repeat("x", 8000), nil, nil
+		// Korean text: each character counts as ~1 token (vs ASCII's 4:1),
+		// so the soft threshold is reached quickly.
+		return strings.Repeat("데이터 ", 5000), nil, nil
 	}
 	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
 
@@ -1410,8 +1422,8 @@ func TestCallEndpoint_InPlaceContextHandoff(t *testing.T) {
 // count exceeds the hard threshold (85%), exploration stops immediately even
 // if a handoff was already used, falling through to forced convergence.
 //
-// Token thresholds are validated against real Q4 API (192.168.1.121) usage
-// response instead of mathematical estimation (task #7165 review).
+// Token thresholds are validated against real Q4 API usage response
+// instead of mathematical estimation (task #7165 review).
 func TestCallEndpoint_HardThresholdStopsExploration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skip integration test in short mode")
@@ -1421,12 +1433,21 @@ func TestCallEndpoint_HardThresholdStopsExploration(t *testing.T) {
 	var exploreTurns int
 	var actualUsages []int
 
-	// Q4 API endpoint (192.168.1.121) — real usage response replaces
-	// mathematical token estimation (task #7165 review).
+	// Q4 API endpoint — real usage response replaces mathematical token
+	// estimation (task #7165 review). Credentials come from environment
+	// variables to avoid committing secrets (code review #7171).
+	q4URL := os.Getenv("SHEPHERD_TEST_Q4_URL")
+	q4Key := os.Getenv("SHEPHERD_TEST_Q4_KEY")
+	if q4URL == "" || q4Key == "" {
+		t.Skip("skip: SHEPHERD_TEST_Q4_URL or SHEPHERD_TEST_Q4_KEY not set")
+	}
 	q4Ep := testEndpoint("qwen3.6-27b-q4", "qwen3.6-27b-q4")
-	q4Ep.BaseURL = "http://192.168.1.121:8080/v1"
-	q4Ep.APIKey = "Fi2MTMsg2nixdanHNC7If5LC9gpM243c"
-	q4Ep.ContextTokens = 64000
+	q4Ep.BaseURL = q4URL
+	q4Ep.APIKey = q4Key
+	// Reduced from 64000 to 8000 so the hard threshold (85% = 6800 tokens)
+	// is reached within the 60s timeout. Consistent with the soft threshold
+	// test's ContextTokens for comparable token budget.
+	q4Ep.ContextTokens = 8000
 
 	restore := withFakeChatTurn(func(ctx context.Context, client *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
 		mu.Lock()
