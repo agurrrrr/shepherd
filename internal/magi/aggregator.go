@@ -62,7 +62,12 @@ func aggregatorEndpoint(ctx context.Context, ep EndpointRef, systemPrompt, userP
 // The onOutput parameter is wired through aggregatorComplete's closure so
 // the fallback warning reaches the live stream.
 func aggregatorClaudeCLI(ctx context.Context, spec AggregatorSpec, systemPrompt, userPrompt string, onOutput func(string)) (string, embedded.ChatUsage, error) {
-	cmd := exec.CommandContext(ctx, "claude", "--print")
+	args := []string{"--print"}
+	if spec.ModelID != "" {
+		args = append(args, "--model", spec.ModelID)
+	}
+
+	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = spec.WorkDir
 	cmd.Stdin = strings.NewReader(systemPrompt + "\n\n" + userPrompt)
 	envutil.SetCleanEnv(cmd)
@@ -108,13 +113,17 @@ func aggregatorOpenCodeCLI(ctx context.Context, spec AggregatorSpec, systemPromp
 	envutil.SetCleanEnv(cmd)
 	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
 
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Stderr = nil
+	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
 		if onOutput != nil {
-			onOutput("⚠️ OpenCode aggregator 실패 — 로컬 폴백 사용\n")
+			msg := "⚠️ OpenCode aggregator 실패 — 로컬 폴백 사용"
+			if stderr.Len() > 0 {
+				msg += ": " + strings.TrimSpace(stderr.String())
+			}
+			onOutput(msg + "\n")
 		}
 		return aggregatorEndpoint(ctx, spec.FallbackEndpoint, systemPrompt, userPrompt)
 	}

@@ -809,6 +809,7 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 			aggregator = magi.AggregatorSpec{
 				Type:    "claude_cli",
 				WorkDir: projectPath,
+				ModelID: magiCfg.Aggregator.ModelID,
 			}
 			// Fallback to first proposer endpoint (design §7).
 			if firstProposerEP != nil {
