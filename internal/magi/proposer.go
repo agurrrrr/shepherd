@@ -1020,6 +1020,22 @@ func callGrokCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPromp
 	var answer strings.Builder
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	// Grok's streaming-json emits per-token deltas — often a single character
+	// per {"type":"text","data":".."} event. Passing each delta straight to
+	// onToken causes the live output to fragment into hundreds of tiny
+	// [MAGI:n] x [MAGI:n] y [MAGI:n] z lines (task #7086 output log shows this
+	// clearly). Instead, we buffer text deltas and flush on newline or when a
+	// reasonable chunk size accumulates, matching the line-granularity that
+	// Claude CLI and OpenCode CLI already provide.
+	var liveBuf strings.Builder
+	flushLive := func() {
+		if onToken != nil && liveBuf.Len() > 0 {
+			onToken(liveBuf.String())
+			liveBuf.Reset()
+		}
+	}
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || !strings.HasPrefix(line, "{") {
@@ -1035,10 +1051,28 @@ func callGrokCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPromp
 		if ev.Type == "text" && ev.Data != "" {
 			answer.WriteString(ev.Data)
 			if onToken != nil {
-				onToken(ev.Data)
+				liveBuf.WriteString(ev.Data)
+				nlIdx := strings.IndexByte(liveBuf.String(), '\n')
+				for nlIdx >= 0 {
+					s := liveBuf.String()
+					onToken(s[:nlIdx+1])
+					s = s[nlIdx+1:]
+					liveBuf.Reset()
+					liveBuf.WriteString(s)
+					nlIdx = strings.IndexByte(liveBuf.String(), '\n')
+				}
+				// Safety flush: if no newline has arrived for a while, emit
+				// the accumulated chunk so the UI doesn't appear frozen during
+				// long paragraphs without line breaks.
+				if liveBuf.Len() >= 120 {
+					flushLive()
+				}
 			}
 		}
 	}
+
+	// Flush any remaining buffered text after the stream ends.
+	flushLive()
 
 	if err := cmd.Wait(); err != nil {
 		return "", embedded.ChatUsage{}, fmt.Errorf("grok wait: %w", err)
