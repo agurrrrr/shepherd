@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Shepherd! This guide will help yo
 
 ### Prerequisites
 
-- **Go 1.21+**
+- **Go 1.25+**
 - **Node.js 18+** (for the Web UI)
 - **Claude Code CLI** installed and in `PATH` (for testing task execution)
 

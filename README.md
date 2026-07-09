@@ -10,9 +10,11 @@ Shepherd runs multiple AI coding agents ("sheep") in parallel across different c
 
 ![Shepherd Web UI](assets/webui-screenshot.png)
 
+> **Screenshot note:** Prefer fresh captures under `assets/` (`webui-dashboard.png`, `webui-magi-stream.png`, settings panels, …). Until those are re-shot against the current UI, the hero image above is the best available capture.
+
 Three ways to drive it:
 
-- **Web UI** *(primary)* — Full dashboard with real-time streaming, task management, project git views, schedules, and skills
+- **Web UI** *(primary)* — Full dashboard with real-time streaming, task management, project git views, file browser, issues, wiki, schedules, and skills
 - **MCP Server** — Integrate with Claude Desktop / other MCP clients
 - **CLI** — Direct commands and a legacy interactive/TUI mode
 
@@ -22,6 +24,7 @@ Three ways to drive it:
 - **Sheep (Workers)** — Individual AI agent instances, each assigned to a project and a provider
 - **Projects** — Codebases the sheep work on
 - **Providers** — The AI backend a sheep uses (Claude, OpenCode, Pi, Grok, Embedded, MAGI)
+- **Sheep Personal Memory** — Per-sheep notes under `~/.shepherd/sheep/<name>/` that follow the sheep across projects (moments, bonds, voice)
 
 ## Providers
 
@@ -49,6 +52,7 @@ The embedded provider runs a full tool-using agent loop **inside the Shepherd pr
 - Per-endpoint flags: `thinking` (reasoning mode) and `vision` (surface image files to vision-capable models)
 - Native tools: `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`, plus all Shepherd MCP tools (browser automation, wiki, history, external MCP servers)
 - Endpoint config lives in `~/.shepherd/embedded.yaml`; API keys are masked in API responses
+- Context management: rune-aware token estimation, history trimming, and optional **context handoff** (summarize + enqueue a follow-up task when the window is full)
 
 ### MAGI — Multi-Model Consensus
 
@@ -56,7 +60,7 @@ MAGI is a deliberation engine inspired by the three-way MAGI system: it asks **t
 
 ```
 Task → Orchestrator
-        ├─ Proposer ×3 (parallel, persona-assigned, read-only tools)
+        ├─ Proposer ×3 (parallel, persona-assigned)
         │    └─ each self-rates confidence (0–10)
         ├─ Aggregator (judge/synthesis)
         │    ├─ agreement ≥ threshold → return synthesis
@@ -69,7 +73,10 @@ Task → Orchestrator
 - **Personas**: `MELCHIOR-1` (scientist — technical precision), `BALTHASAR-2` (mother — conservatism & safety), `CASPER-3` (woman — practicality & user perspective), or a `custom` persona
 - **Proposer backends**: each proposer can be `embedded`, `claude_cli`, `opencode_cli`, or `grok_cli` — mixing model *families* is strongly recommended (correlated errors destroy consensus value)
 - **Aggregator backend**: `claude_cli`, `opencode_cli`, `grok_cli`, or an embedded `endpoint`
-- **Read-only tools**: proposers can `read_file`, `grep`, `glob`, read history/wiki, and query read-only external MCP tools — but cannot write files, run bash, or mutate state
+- **Tool policy (proposers)**:
+  - **Allowed (read-only)**: `read_file`, `grep`, `glob`, history/wiki, read-only external MCP tools
+  - **Allowed (browser)**: full browser automation (`browser_open`, `browser_click`, `browser_type`, …) with **per-proposer isolated sessions**
+  - **Blocked**: file writes, bash, and other mutating cluster/FS tools
 - **Mode**: `advisory` (Phase 1) — best for high-stakes questions ("is this design sound?", "what's the root cause?"), not autonomous execution
 - Configure in the Web UI (**Settings → MAGI**); persisted under the `magi` section of `~/.shepherd/embedded.yaml`
 
@@ -77,7 +84,7 @@ Task → Orchestrator
 
 ## Requirements
 
-- **Go 1.21+** (to build)
+- **Go 1.25+** (to build)
 - **Node.js 18+** (to build the Web UI)
 - At least one provider backend:
   - **Claude Code CLI** (default), and/or **OpenCode**, **Pi**, **Grok** CLIs in `PATH`
@@ -90,10 +97,14 @@ Task → Orchestrator
 ```bash
 git clone https://github.com/agurrrrr/shepherd.git
 cd shepherd
+
+# First time only: install Web UI dependencies
+cd web && npm install && cd ..
+
 ./install.sh
 ```
 
-`install.sh` builds the Svelte frontend, compiles the Go binary, installs it to `~/.local/bin/`, and starts the daemon.
+`install.sh` builds the Svelte frontend (`npm run build` — assumes `node_modules` already present), embeds it into the Go binary, installs to `~/.local/bin/`, and restarts the daemon.
 
 ### Manual Build
 
@@ -138,13 +149,27 @@ The Web UI is a Svelte SPA embedded in the Go binary. After starting the daemon 
 | Dashboard | `/` | Sheep status cards, running tasks, command input, live output |
 | Sheep | `/sheep` | Create, delete, assign, and change a sheep's provider/model |
 | Projects | `/projects` | Project list and management |
-| Project Detail | `/projects/:name` | Git log/branches/diff, docs, schedules, skills, task history |
+| Project Detail | `/projects/:name` | Tabs: **Live Output**, **Task History**, **Files**, **Git**, **Schedules**, **Skills**, **Issues**, **Wiki**, **Settings** |
 | Tasks | `/tasks` | Task list with filtering and search |
 | Task Detail | `/tasks/:id` | Full output, modified files, cost, error details, retry |
 | Schedules | `/schedules` | Cron / interval schedule management |
 | Skills | `/skills` | Skill creation, import/export, sync to projects |
-| Settings | `/settings` | Language, providers, models, Embedded endpoints, MAGI, Discord, wiki |
+| Settings | `/settings` | Language, providers, models, Embedded endpoints, MAGI, Discord, wiki, OpenCode thinking proxy |
 | Login | `/login` | Authentication |
+
+### Project Detail Tabs
+
+| Tab | What it does |
+|-----|----------------|
+| Live Output | Streamed agent output for the running task (including MAGI multi-stream) |
+| Task History | Past tasks for this project |
+| Files | In-browser project file explorer (toggle with `enable_file_browser`) |
+| Git | Log, branches, diff; stage / unstage / commit / push from the UI |
+| Schedules | Project-scoped cron/interval jobs |
+| Skills | Project skills |
+| Issues | Lightweight issue tracker; **Execute** turns an issue into a queued task |
+| Wiki | Project knowledge base (pages, versions, auto-ingest from completed tasks) |
+| Settings | Per-project options (e.g. MCP server attachment) |
 
 ### Real-Time Updates (SSE)
 
@@ -159,6 +184,76 @@ Events include: `task_start`, `task_complete`, `task_fail`, `output`, `status_ch
 ### External Access
 
 For HTTPS access from outside your network, put a reverse proxy (Nginx, Caddy) or Kubernetes Ingress with cert-manager in front of the daemon.
+
+---
+
+## File Browser
+
+When `enable_file_browser` is true (default), each project exposes a read-oriented file explorer:
+
+- **Web UI**: Project → **Files** tab
+- **REST**:
+  - `GET /api/projects/:name/files?path=<dir>`
+  - `GET /api/projects/:name/files/content/*`
+  - `GET /api/projects/:name/files/download/*`
+
+Useful for inspecting agent-produced artifacts without leaving the dashboard. Disable with `enable_file_browser: false` if you do not want filesystem listing over the API.
+
+---
+
+## Issues
+
+Shepherd includes a lightweight per-project issue tracker:
+
+1. Create an issue on Project → **Issues** (or via REST)
+2. Attach details / acceptance criteria
+3. Click **Execute** (`POST /api/projects/:name/issues/:id/execute`) to enqueue a coding task linked to that issue
+
+Flow: **Issue → execute → task queue → sheep runs the work → result stays linked to the issue**. You can also import external trackers via CLI (`shepherd queue import-issues …`).
+
+---
+
+## Wiki
+
+Each project can keep a durable markdown wiki that agents read and update:
+
+- **Web UI**: Project → **Wiki** tab
+- **CLI**: `shepherd wiki list|create|edit|history …`
+- **MCP**: `wiki_read_page`, `wiki_search`, `wiki_list_pages`
+- **REST**: pages CRUD, version history, lint, and task ingest (see [REST API](#rest-api))
+- **Auto-ingest**: when `wiki_auto_ingest` is true, completed tasks can propose wiki updates (`wiki_max_context_pages`, `wiki_max_page_content_chars` cap injection size)
+
+Use the wiki for architecture decisions, gotchas, and runbooks so future tasks start with project knowledge already in context.
+
+---
+
+## Browser Automation
+
+Built-in browser tools (Rod) are available to agents via MCP and CLI:
+
+```bash
+shepherd browser open <url> [-s sheep] [--headless]
+shepherd browser get-text <selector> [-s sheep]
+shepherd browser screenshot [path] [--selector <sel>]
+shepherd browser fetch <url> [--selector <sel>]
+shepherd browser list [-s sheep]
+shepherd browser close [-s sheep]
+```
+
+Typical MCP flow: `browser_session_start` → `browser_open` → `browser_get_text` / `browser_click` / `browser_type` → `browser_session_stop`. Sessions are scoped per sheep (MAGI proposers each get isolated sessions).
+
+---
+
+## Sheep Personal Memory
+
+Each sheep can accumulate **personal memory** under `~/.shepherd/sheep/<sheep_name>/` — independent of any project:
+
+- `moment_*.md` — memorable moments with the user
+- `bond_*.md` — relational patterns (e.g. prefers short answers)
+- `voice_*.md` — tone continuity for the next session
+- `MEMORY.md` — index of those notes
+
+When `include_sheep_memory` is true, the memory section is injected into the agent prompt (`sheep_memory_prompt` customizes the template). This is for personality/continuity, not project facts (those belong in the wiki).
 
 ---
 
@@ -192,6 +287,7 @@ shepherd serve stop           # Stop the daemon
 - Database: `~/.shepherd/shepherd.db`
 - Config: `~/.shepherd/config.yaml`
 - Embedded / MAGI config: `~/.shepherd/embedded.yaml`
+- Sheep memory: `~/.shepherd/sheep/<name>/`
 
 ### systemd Service (optional)
 
@@ -230,6 +326,7 @@ shepherd flock                    # List all sheep
 shepherd recall <name>            # Terminate a sheep
 shepherd recall --all             # Terminate all sheep
 shepherd set-provider <name> auto # Change a sheep's provider
+shepherd rename <old> <new>       # Rename a sheep
 ```
 
 ### Project Management
@@ -247,20 +344,11 @@ shepherd project assign <project> <sheep>        # Assign a sheep to a project
 ```bash
 shepherd "<task>"                 # Submit a task (auto-routed by the manager)
 shepherd task "<task>"            # Explicit task command
+shepherd task detail <id>         # Task details
+shepherd task stop <id>           # Stop a running task
 shepherd queue add <project> "<prompt>"          # Add a task to the queue
 shepherd queue list                               # List pending tasks
 shepherd queue import-issues <project> <YouTrackProject> [query]  # Import from YouTrack
-```
-
-### Browser Automation
-
-```bash
-shepherd browser open <url> [-s sheep] [--headless]
-shepherd browser get-text <selector> [-s sheep]
-shepherd browser screenshot [path] [--selector <sel>]
-shepherd browser fetch <url> [--selector <sel>]
-shepherd browser list [-s sheep]
-shepherd browser close [-s sheep]
 ```
 
 ### Status, Logs & Wiki
@@ -271,6 +359,7 @@ shepherd log [sheep] -n 50        # Task logs
 shepherd history <project>        # Project task history
 shepherd wiki list -p <project>   # Project wiki pages
 shepherd wiki create <slug> -p <project> -t "Title" -c "content"
+shepherd wiki edit <slug> -p <project> --append "..."
 ```
 
 ### Configuration & Other
@@ -281,6 +370,7 @@ shepherd config set <key> <val>   # Set a config value
 shepherd config path              # Show the config file path
 shepherd recover                  # Recover stuck sheep / tasks
 shepherd mcp                      # Run as an MCP server
+shepherd skill list               # List skills
 shepherd tui                      # Legacy terminal UI dashboard
 shepherd --version                # Show version
 ```
@@ -289,7 +379,7 @@ shepherd --version                # Show version
 
 ## Scheduling
 
-Schedules are managed via the Web UI (`/schedules`) or REST API. Two types:
+Schedules are managed via the Web UI (`/schedules` or Project → Schedules) or REST API. Two types:
 
 - **Cron** — standard cron expressions (e.g. `0 9 * * MON-FRI`)
 - **Interval** — every N seconds
@@ -347,10 +437,15 @@ language: ko                 # en, ko
 default_provider: claude     # claude, opencode, pi, grok, embedded, magi, auto
 max_sheep: 12                # Maximum concurrent sheep
 max_concurrent_tasks: 0      # Global concurrency ceiling (0 = unlimited)
+# Per provider(+model) group limits under the global ceiling.
+# Example: local opencode sequential (GPU), cloud claude unlimited.
+concurrency_limits: {}       # e.g. { opencode: 1, claude: 0 }
 task_timeout: 4h             # Per-task execution timeout ("0"/"off" = unlimited)
 server_port: 8585
 server_host: 0.0.0.0
 auto_approve: true
+workspace_path: ""           # Optional default workspace root
+enable_file_browser: true    # Project Files tab + /files API
 
 # Per-provider toggles and default models
 provider_enabled_claude: true
@@ -369,17 +464,41 @@ session_reuse: true
 include_task_history: true
 include_mcp_guide: true
 include_sheep_memory: true
+sheep_memory_prompt: ""      # empty = built-in default template
 
-# Integrations
-discord_notifications_enabled: false
+# OpenCode thinking (reasoning) mode + reverse proxy for nonstandard body fields
+opencode_thinking_default: false
+opencode_thinking_proxy_enabled: false
+opencode_thinking_proxy_port: 8686
+opencode_thinking_proxy_target: ""   # e.g. http://127.0.0.1:8080
+opencode_thinking_model: ""          # provider/model routed via the proxy
+
+# Wiki
 wiki_enabled: true
 wiki_auto_ingest: true
+wiki_max_context_pages: 2
+wiki_max_page_content_chars: 2000
+
+# Discord notifications
+discord_notifications_enabled: false
+discord_webhook_url: ""
+discord_notify_on_complete: true
+discord_notify_on_fail: true
 
 # Authentication (set via 'shepherd auth setup')
 auth_username: admin
 auth_password_hash: "$2a$10$..."
 auth_jwt_secret: "auto-generated"
 ```
+
+### Concurrency gates
+
+A task must pass **both** gates to dispatch:
+
+1. **Global** — `max_concurrent_tasks` (0 = unlimited)
+2. **Per-group** — `concurrency_limits[<provider>]` or `concurrency_limits[<provider/model>]` (value ≤ 0 = no group limit)
+
+Example: `{ opencode: 1, claude: 0 }` runs local OpenCode jobs one at a time while Claude stays unbounded.
 
 ---
 
@@ -402,7 +521,7 @@ User → Web UI / MCP client / CLI
 ```
 shepherd/
 ├── cmd/shepherd/          # CLI entrypoint (all commands)
-├── ent/schema/            # Ent ORM entities (Sheep, Project, Task, Skill, Schedule, ...)
+├── ent/schema/            # Ent ORM entities (Sheep, Project, Task, Skill, Schedule, Issue, Wiki, ...)
 ├── internal/
 │   ├── browser/           # Browser automation (Rod)
 │   ├── config/            # YAML config (config.go, magi.go, embedded endpoints)
@@ -416,14 +535,14 @@ shepherd/
 │   ├── manager/           # Task analysis & routing
 │   ├── mcp/               # JSON-RPC 2.0 MCP server + external MCP client
 │   ├── project/           # Project CRUD
-│   ├── queue/             # Task lifecycle management
+│   ├── queue/             # Task lifecycle + concurrency gates
 │   ├── scheduler/         # Cron & interval scheduling
 │   ├── server/            # Fiber HTTP server, SSE, auth, handlers
 │   ├── skill/             # File-based skill system
 │   ├── spec/              # Spec/template generation
 │   ├── tui/               # Legacy Bubbletea terminal UI
-│   ├── wiki/              # Project wiki
-│   └── worker/            # Sheep execution & provider dispatch (claude/opencode/pi/grok/embedded/magi)
+│   ├── wiki/              # Project wiki + auto-ingest
+│   └── worker/            # Sheep execution & provider dispatch
 └── web/                   # Svelte SPA (JavaScript only, no TypeScript)
 ```
 
@@ -456,22 +575,51 @@ POST             /api/tasks/:id/retry          # Retry a failed/stopped task
 POST             /api/tasks/:id/retry-from     # Bulk retry from this task onward
 ```
 
-### Git (read-only)
+### Files
 ```
-GET /api/projects/:name/git/log
-GET /api/projects/:name/git/branches
-GET /api/projects/:name/git/commits/:hash
-GET /api/projects/:name/git/commits/:hash/diff
-GET /api/projects/:name/git/changes
+GET /api/projects/:name/files                  # List directory (?path=)
+GET /api/projects/:name/files/content/*        # Read file content
+GET /api/projects/:name/files/download/*       # Download file
 ```
 
-### Config: Embedded & MAGI
+### Git
+```
+GET  /api/projects/:name/git/log
+GET  /api/projects/:name/git/branches
+GET  /api/projects/:name/git/commits/:hash
+GET  /api/projects/:name/git/commits/:hash/diff
+GET  /api/projects/:name/git/changes
+POST /api/projects/:name/git/stage             # body: { "paths": [...] }
+POST /api/projects/:name/git/unstage
+POST /api/projects/:name/git/commit            # body: { "message": "..." }
+POST /api/projects/:name/git/push              # body: { "remote", "branch", ... }
+```
+
+### Issues
+```
+GET|POST         /api/projects/:name/issues
+GET|PATCH|DELETE /api/projects/:name/issues/:id
+POST             /api/projects/:name/issues/:id/execute   # Enqueue as a task
+```
+
+### Wiki
+```
+GET|POST         /api/wiki/pages
+GET|PUT|DELETE   /api/wiki/pages/:slug
+GET              /api/wiki/pages/:slug/versions
+POST             /api/wiki/lint
+POST             /api/wiki/ingest/:task_id
+```
+
+### Config: Embedded, MAGI & models
 ```
 GET|POST         /api/config/embedded          # List / Create endpoints
 PUT|DELETE       /api/config/embedded/:id       # Update / Delete
 POST             /api/config/embedded/:id/set-active
 POST             /api/config/embedded/test      # Connection test
 GET|PUT          /api/config/magi               # Read / Save MAGI config
+GET              /api/config/model-options      # Available model choices for UI
+GET|PATCH        /api/config                    # General config get / update
 ```
 
 ### Schedules & Skills
@@ -515,7 +663,7 @@ Run Shepherd as an MCP server for integration with Claude Desktop and other MCP 
 }
 ```
 
-**Available MCP tools:** `task_start`, `task_complete`, `task_error`, `get_history`, `get_status`, `get_task_detail`, `skill_load`, `wiki_read_page`, `wiki_search`, `wiki_list_pages`, and 30+ browser automation tools (`browser_open`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_get_text`, …).
+**Available MCP tools:** `task_start`, `task_complete`, `task_error`, `get_history`, `get_status`, `get_task_detail`, `skill_load`, `wiki_read_page`, `wiki_search`, `wiki_list_pages`, and 30+ browser automation tools (`browser_session_start`, `browser_open`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_get_text`, …).
 
 ---
 
@@ -554,6 +702,22 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Architecture notes live in [ARCHITECTURE
 ## License
 
 MIT License — see [LICENSE](LICENSE).
+
+---
+
+## Screenshots (recommended assets)
+
+Capture with non-sensitive dummy data and a consistent dark UI. Suggested files under `assets/`:
+
+| Priority | File | Screen |
+|----------|------|--------|
+| Must | `webui-dashboard.png` | Dashboard — sheep cards, running tasks, stats, command input |
+| Must | `webui-magi-stream.png` | MAGI Live Output — 3-way parallel stream + personas + verdict |
+| Must | `webui-project-output.png` | Project → Live Output with full modern tab bar |
+| Must | `webui-settings-providers.png` | Settings — provider enable toggles |
+| Must | `webui-settings-embedded.png` | Settings → Embedded endpoints |
+| Must | `webui-settings-magi.png` | Settings → MAGI proposers + aggregator |
+| Should | `webui-task-detail.png`, `webui-git.png`, `webui-wiki.png`, `webui-issues.png`, `webui-files.png`, `webui-skills.png`, `webui-schedules.png`, `webui-sheep.png` | Supporting pages |
 
 ---
 
