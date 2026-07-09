@@ -104,19 +104,13 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 		section := "" // "" | "thought" | "text"
 
 		// Grok's streaming-json emits per-token deltas — often 1-3 characters
-		// per {"type":"text","data":".."} event. Passing each delta straight to
-		// OnOutput causes the live output to fragment into tiny pieces. We
-		// buffer text deltas and flush on newline or when a reasonable chunk
-		// size accumulates, matching the line-granularity that Claude CLI and
-		// OpenCode CLI already provide. (Same approach as callGrokCLI in
-		// internal/magi/proposer.go — task #7188/#7192.)
-		var liveBuf strings.Builder
-		flushLive := func() {
-			if liveBuf.Len() > 0 {
-				opts.OnOutput(liveBuf.String())
-				liveBuf.Reset()
-			}
-		}
+		// per {"type":"text"|"thought","data":".."} event. Passing each delta
+		// straight to OnOutput causes the live output to fragment into tiny
+		// pieces (mid-word breaks, 💭 markers between tokens, markdown flicker).
+		// Buffer BOTH thought and text; flush on newline, section switch, or
+		// when a reasonable chunk accumulates (prefer word boundary).
+		// (text buffering: #7188/#7192; thought was still unbuffered until #7202.)
+		live := newGrokLiveBuf(opts.OnOutput)
 
 		for scanner.Scan() {
 			if ctx.Err() != nil {
@@ -138,46 +132,34 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 					continue
 				}
 				if section != "thought" {
+					// Flush any pending text before starting a thought section.
+					live.Flush()
 					section = "thought"
-					opts.OnOutput("💭 ")
+					live.Write("💭 ")
 				}
-				opts.OnOutput(strings.ReplaceAll(ev.Data, "\n", "\n   "))
+				live.Append(strings.ReplaceAll(ev.Data, "\n", "\n   "))
 			case "text":
 				if ev.Data == "" {
 					continue
 				}
 				if section != "text" {
+					live.Flush()
 					if section != "" {
 						opts.OnOutput("\n\n")
 					}
 					section = "text"
 				}
-				liveBuf.WriteString(ev.Data)
-				nlIdx := strings.IndexByte(liveBuf.String(), '\n')
-				for nlIdx >= 0 {
-					s := liveBuf.String()
-					opts.OnOutput(s[:nlIdx+1])
-					s = s[nlIdx+1:]
-					liveBuf.Reset()
-					liveBuf.WriteString(s)
-					nlIdx = strings.IndexByte(liveBuf.String(), '\n')
-				}
-				// Safety flush: if no newline has arrived for a while, emit
-				// the accumulated chunk so the UI doesn't appear frozen during
-				// long paragraphs without line breaks.
-				if liveBuf.Len() >= 120 {
-					flushLive()
-				}
+				live.Append(ev.Data)
 			case "error":
 				if ev.Message != "" {
-					flushLive()
+					live.Flush()
 					opts.OnOutput("\n❌ " + ev.Message + "\n")
 				}
 			}
 		}
 
-		// Flush any remaining buffered text after the stream ends.
-		flushLive()
+		// Flush any remaining buffered thought/text after the stream ends.
+		live.Flush()
 	}()
 
 	// Read stderr.
@@ -247,6 +229,71 @@ func grokModelArgs(modelOverride string) []string {
 		return nil
 	}
 	return []string{"-m", m}
+}
+
+// grokLiveBuf coalesces per-token thought/text deltas into line-sized chunks
+// before calling OnOutput. See executeWithGrok and task #7201/#7202.
+type grokLiveBuf struct {
+	buf strings.Builder
+	out func(string)
+}
+
+func newGrokLiveBuf(out func(string)) *grokLiveBuf {
+	return &grokLiveBuf{out: out}
+}
+
+// Write appends raw bytes without flushing (e.g. the one-time 💭 marker).
+func (b *grokLiveBuf) Write(s string) {
+	if s != "" {
+		b.buf.WriteString(s)
+	}
+}
+
+// Append adds a delta, flushing complete lines and safety-flushing long runs.
+func (b *grokLiveBuf) Append(data string) {
+	if data == "" || b.out == nil {
+		return
+	}
+	b.buf.WriteString(data)
+	for {
+		s := b.buf.String()
+		nlIdx := strings.IndexByte(s, '\n')
+		if nlIdx < 0 {
+			break
+		}
+		b.out(s[:nlIdx+1])
+		b.buf.Reset()
+		b.buf.WriteString(s[nlIdx+1:])
+	}
+	if b.buf.Len() >= 120 {
+		b.flushSafety()
+	}
+}
+
+// Flush emits any remaining buffered content (section switch / stream end).
+func (b *grokLiveBuf) Flush() {
+	if b.out == nil || b.buf.Len() == 0 {
+		return
+	}
+	b.out(b.buf.String())
+	b.buf.Reset()
+}
+
+// flushSafety emits without a newline, preferring a word boundary so BPE
+// token cuts (e.g. "screens"+"hots") don't become mid-word line breaks.
+func (b *grokLiveBuf) flushSafety() {
+	if b.out == nil || b.buf.Len() == 0 {
+		return
+	}
+	s := b.buf.String()
+	if sp := strings.LastIndexByte(s, ' '); sp >= len(s)/2 {
+		b.out(s[:sp+1])
+		b.buf.Reset()
+		b.buf.WriteString(s[sp+1:])
+		return
+	}
+	b.out(s)
+	b.buf.Reset()
 }
 
 // parseGrokLine decodes a single grok streaming-json line. Returns nil for

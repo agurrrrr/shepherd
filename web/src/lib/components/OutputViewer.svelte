@@ -76,7 +76,15 @@
 				if (currentQuestion) { blocks.push(currentQuestion); currentQuestion = null; }
 				if (currentResult) { blocks.push(currentResult); currentResult = null; }
 				if (currentText) {
-					currentText.text += '\n' + text;
+					// Complete lines (trailing \n) or safety-flushed partial phrases
+					// (trailing space from Grok liveBuf word-boundary) continue on
+					// the same visual block without an extra hard break. Otherwise
+					// insert \n between discrete line entries (Claude/OpenCode).
+					if (currentText.text.endsWith('\n') || /[ \t]$/.test(currentText.text)) {
+						currentText.text += text;
+					} else {
+						currentText.text += '\n' + text;
+					}
 				} else {
 					currentText = { type: 'text', text };
 				}
@@ -115,13 +123,21 @@
 
 	let blocks = $derived(groupLines(lines));
 
-	// Trigger markdown rendering for text blocks
+	// Debounce markdown rendering while streaming. Per-token text growth used to
+	// flip raw↔HTML on every chunk (visible flicker with Grok). Stable history
+	// still renders after a short quiet period; unfinished blocks show raw text.
 	$effect(() => {
-		for (const b of blocks) {
-			if (b.type === 'text' && b.text.trim()) {
-				ensureRendered(b.text);
-			}
+		const texts = blocks
+			.filter((b) => b.type === 'text' && b.text.trim())
+			.map((b) => b.text);
+		// Render all but the last block immediately (they rarely change).
+		for (let i = 0; i < texts.length - 1; i++) {
+			ensureRendered(texts[i]);
 		}
+		const last = texts[texts.length - 1];
+		if (!last) return;
+		const t = setTimeout(() => ensureRendered(last), 120);
+		return () => clearTimeout(t);
 	});
 
 	// Auto-scroll

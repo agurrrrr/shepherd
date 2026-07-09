@@ -3,6 +3,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { apiGet, apiPost, apiPatch, apiDelete } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
+	import { appendLiveOutput } from '$lib/liveOutput.js';
 	import { thinkingByProject, modelByProject } from '$lib/stores.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
@@ -23,6 +24,9 @@
 
 	// Live output
 	let liveOutput = $state([]);
+	// Tracks whether the last liveOutput entry is an incomplete stream chunk
+	// (no trailing newline) so the next SSE payload appends instead of splitting.
+	let liveOutputOpen = $state(false);
 	let sheepStatus = $state('idle');
 	let sheepName = $state('');
 	let sheepProvider = $state('claude');
@@ -165,6 +169,7 @@
 		project = null;
 		loading = true;
 		liveOutput = [];
+		liveOutputOpen = false;
 		sheepStatus = 'idle';
 		hasRunningTask = false;
 		runningTaskId = null;
@@ -190,11 +195,13 @@
 	}
 
 	onMount(() => {
-		// SSE: live output (5000줄 버퍼, 멀티라인 분리)
+		// SSE: live output (5000줄 버퍼). Incomplete chunks (no trailing \n)
+		// append to the previous line so Grok/token streams don't fragment.
 		unsubs.push(onSSE('output', (data) => {
 			if (data.project_name === projectName) {
-				const lines = data.text.split('\n');
-				liveOutput = [...liveOutput.slice(-(5000 - lines.length)), ...lines];
+				const state = { open: liveOutputOpen };
+				liveOutput = appendLiveOutput(liveOutput, data.text, state, 5000);
+				liveOutputOpen = state.open;
 			}
 		}));
 
@@ -251,6 +258,7 @@
 			if (data.project_name === projectName) {
 				// 새 작업 시작: 이전 출력 정리 후 프롬프트 표시
 				liveOutput = [`▶ ${data.prompt}`, ''];
+				liveOutputOpen = false;
 				hasRunningTask = true;
 				runningTaskId = data.task_id;
 				if (tasksLoaded) loadTasks();
@@ -336,6 +344,8 @@
 			const taskRes = await apiGet(`/api/tasks/${res.data[0].id}`);
 			if (taskRes?.data?.output) {
 				liveOutput = taskRes.data.output;
+				// Historical lines are complete entries; do not treat last as open.
+				liveOutputOpen = false;
 			}
 		}
 	}

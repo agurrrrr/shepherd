@@ -3,12 +3,14 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { apiGet } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
+	import { appendLiveOutput } from '$lib/liveOutput.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
 
 	let task = null;
 	let loading = true;
 	let liveOutput = [];
+	let liveOutputOpen = false;
 	let unsubs = [];
 
 	$: taskId = $page.params.id;
@@ -24,13 +26,17 @@
 		if (res?.data) {
 			task = res.data;
 			liveOutput = task.output || [];
+			liveOutputOpen = false;
 		}
 		loading = false;
 
-		// SSE for live output when task is running
+		// SSE for live output when task is running. Incomplete chunks (no
+		// trailing \n) append to the previous line to avoid token fragmentation.
 		unsubs.push(onSSE('output', (data) => {
 			if (task && task.status === 'running' && task.sheep === data.sheep_name) {
-				liveOutput = [...liveOutput, data.text];
+				const state = { open: liveOutputOpen };
+				liveOutput = appendLiveOutput(liveOutput, data.text, state, 5000);
+				liveOutputOpen = state.open;
 			}
 		}));
 
