@@ -1594,3 +1594,44 @@ func TestRunProposers_GateFailurePreservesUsage(t *testing.T) {
 		t.Errorf("expected gate-failed proposer to preserve usage (TotalTokens=2500), got %d", results[0].Usage.TotalTokens)
 	}
 }
+
+// TestCallEndpoint_ConvergenceStageTimeoutTagged verifies that when forced
+// convergence times out (context.DeadlineExceeded), the error is tagged with
+// the stage name and prompt size so the failure line is diagnostic without
+// log archaeology (task #7205, step-02).
+func TestCallEndpoint_ConvergenceStageTimeoutTagged(t *testing.T) {
+	// Fake chatTurn: exploration returns a tool call (so the loop proceeds),
+	// then forced convergence always returns context.DeadlineExceeded.
+	restore := withFakeChatTurn(func(ctx context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		if len(req.Tools) > 0 {
+			// Quick exploration turn — returns a tool call.
+			return toolCallMsg("get_status", `{}`), embedded.ChatUsage{}, nil
+		}
+		// Convergence request — simulate a timeout.
+		<-ctx.Done()
+		return nil, embedded.ChatUsage{}, ctx.Err()
+	})
+	defer restore()
+
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "ok", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	// Short parent timeout so the convergence reserve is small and the test
+	// completes quickly. The convergence ctx will expire with
+	// DeadlineExceeded.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	_, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err == nil {
+		t.Fatal("expected an error when convergence times out")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected errors.Is(err, context.DeadlineExceeded) to be true, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "convergence stage timed out") {
+		t.Errorf("expected error to contain 'convergence stage timed out', got %v", err)
+	}
+}

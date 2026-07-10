@@ -83,6 +83,7 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 		userPrompts[i] = opts.TaskPrompt
 	}
 
+	tRound1 := time.Now()
 	round1 := RunProposers(ctx, RunProposersOptions{
 		Proposers:       opts.Proposers,
 		BaseSystem:      opts.BaseSystem,
@@ -112,6 +113,9 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	successful := SuccessfulResults(round1)
 	successCount := len(successful)
 
+	emit(fmt.Sprintf("[MAGI:*] ⏱️ 1라운드 %d초 — 성공 %d/%d\n",
+		int(time.Since(tRound1).Seconds()), successCount, len(opts.Proposers)))
+
 	if successCount <= 1 {
 		emit(fmt.Sprintf("[MAGI:*] ⚠️ MAGI 심의 불가 (성공 응답 %d/%d) — 단일 임베디드 실행으로 폴백합니다\n",
 			successCount, len(opts.Proposers)))
@@ -127,6 +131,7 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	}
 
 	// ── 4. 판정 (1차) ─────────────────────────────────────────────
+	tJudge := time.Now()
 	verdict, judgeUsage, judgeCalls, err := Judge(ctx, opts.Aggregator, successful, opts.TaskPrompt, emit)
 	totalUsage.PromptTokens += judgeUsage.PromptTokens
 	totalUsage.CompletionTokens += judgeUsage.CompletionTokens
@@ -136,6 +141,8 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("magi judge failed: %w", err)
 	}
+
+	emit(fmt.Sprintf("[MAGI:*] ⏱️ 판정 %d초\n", int(time.Since(tJudge).Seconds())))
 
 	// Verdict == nil → 판정 불능 → SideBySideFallback으로 정상 완료.
 	if verdict == nil {
@@ -188,6 +195,7 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	// MaxDebateRounds > 1. Multi-round debate is Phase 2+ territory.
 	debateRound1 := successful // only successful proposers re-debate
 
+	tDebate := time.Now()
 	debated := RunDebateRound(ctx, RunProposersOptions{
 		BaseSystem:      opts.BaseSystem,
 		Timeout:         timeout,
@@ -207,11 +215,14 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 		totalUsage.TotalTokens += r.Usage.TotalTokens
 	}
 
+	emit(fmt.Sprintf("[MAGI:*] ⏱️ 토론 라운드 %d초\n", int(time.Since(tDebate).Seconds())))
+
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
 	// ── 7. 재판정 (무조건 종결) ────────────────────────────────────
+	tJudge2 := time.Now()
 	verdict2, judgeUsage2, judgeCalls2, err := Judge(ctx, opts.Aggregator, debated, opts.TaskPrompt, emit)
 	totalUsage.PromptTokens += judgeUsage2.PromptTokens
 	totalUsage.CompletionTokens += judgeUsage2.CompletionTokens
@@ -221,6 +232,8 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("magi re-judge failed: %w", err)
 	}
+
+	emit(fmt.Sprintf("[MAGI:*] ⏱️ 재판정 %d초\n", int(time.Since(tJudge2).Seconds())))
 
 	// 재판정 불능 → SideBySideFallback (토론 후 답변 기준).
 	if verdict2 == nil {

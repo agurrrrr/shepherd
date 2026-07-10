@@ -323,6 +323,14 @@ var callEndpoint = func(
 	// convergence runs. This is deliberate — MAGI's completeness requirement
 	// (always attempt a final answer from accumulated context) is favored over
 	// instant cancellation at the tail of the budget (task #7081 review).
+	// Estimate the prompt size once, just before convergence — reused by the
+	// convergence-entry telemetry line and the stage-tagged timeout error.
+	estAtConvergence := estimateProposerTokens(messages, nil)
+	if onToken != nil && hasCutoff {
+		onToken(fmt.Sprintf("\n[수렴 단계 진입 — 탐색 %d턴, 추정 컨텍스트 %d tokens, reserve %s]\n",
+			turn, estAtConvergence, reserve.Round(time.Second)))
+	}
+
 	fcCtx := ctx
 	if hasCutoff {
 		var fcCancel context.CancelFunc
@@ -332,11 +340,15 @@ var callEndpoint = func(
 
 	content, u, err := forceFinalAnswer(fcCtx, client, ep, messages, temperature, maxTokens, onToken, true)
 	addUsage(&totalUsage, u)
-	// Convergence could not rescue an answer after a mid-exploration transport
-	// failure → surface the original transport error; it is more diagnostic than
-	// "no substantive answer after nudge" for the failure line.
 	if err != nil && exploreErr != nil {
-		return "", totalUsage, exploreErr
+		return "", totalUsage, fmt.Errorf("exploration failed (convergence could not salvage): %w", exploreErr)
+	}
+	// A convergence deadline means the reserve was too small for this prompt
+	// size on this endpoint — tag the stage and the size so the failure line
+	// is diagnostic without log archaeology (task #7205).
+	if err != nil && hasCutoff && errors.Is(err, context.DeadlineExceeded) {
+		return "", totalUsage, fmt.Errorf("convergence stage timed out (reserve %s, est prompt %d tokens): %w",
+			reserve.Round(time.Second), estAtConvergence, err)
 	}
 	return content, totalUsage, err
 }
@@ -696,6 +708,7 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 		go func(slot int, sp ProposerSpec) {
 			defer wg.Done()
 
+			slotStart := time.Now()
 			result := ProposerResult{Spec: sp}
 
 			// Per-proposer timeout (design §5.1).
@@ -759,7 +772,7 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 			if err != nil {
 				result.Err = err
 				result.Usage = usage // failed proposers still consumed tokens (task #7205)
-				emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, false, 0, err))
+				emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, false, 0, time.Since(slotStart), err))
 				results[slot] = result
 				return
 			}
@@ -773,7 +786,7 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 			if gateErr := CheckAnswerContent(cleaned); gateErr != nil {
 				result.Err = gateErr
 				result.Usage = usage // failed proposers still consumed tokens (task #7205)
-				emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, false, 0, gateErr))
+				emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, false, 0, time.Since(slotStart), gateErr))
 				results[slot] = result
 				return
 			}
@@ -782,7 +795,7 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 			result.Confidence = conf
 			result.Usage = usage
 
-			emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, true, conf, nil))
+			emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, true, conf, time.Since(slotStart), nil))
 			results[slot] = result
 		}(i, spec)
 	}
@@ -815,27 +828,28 @@ func emitOutput(mu *sync.Mutex, onOutput func(string), line string) {
 // formatProposerLine builds the live-output line for one proposer's completion.
 // Format (design §5.2):
 //
-//	success: "[MAGI:0]   🔬 MELCHIOR-1 (qwen3-27b) 응답 완료 — 신뢰도 8/10\n"
-//	failure: "[MAGI:0]   🔬 MELCHIOR-1 (qwen3-27b) 응답 실패 — <err>\n"
+//	success: "[MAGI:0]   🔬 MELCHIOR-1 (qwen3-27b) 응답 완료 — 신뢰도 8/10 (74초)\n"
+//	failure: "[MAGI:0]   🔬 MELCHIOR-1 (qwen3-27b) 응답 실패 — <err> (312초)\n"
 //
 // When confidence is -1 (not reported), shows "신뢰도 미보고".
 // The [MAGI:N] prefix allows the frontend to route the line to the correct
 // proposer panel (slot N = 0, 1, or 2).
-func formatProposerLine(spec ProposerSpec, slot int, success bool, confidence int, err error) string {
+func formatProposerLine(spec ProposerSpec, slot int, success bool, confidence int, elapsed time.Duration, err error) string {
 	emoji := PersonaEmoji(spec)
 	displayName := PersonaDisplayName(spec, slot)
 	model := proposerModelLabel(spec)
 	prefix := fmt.Sprintf("[MAGI:%d] ", slot)
+	secs := int(elapsed.Seconds())
 
 	if success {
 		confStr := "신뢰도 미보고"
 		if confidence >= 0 {
 			confStr = fmt.Sprintf("신뢰도 %d/10", confidence)
 		}
-		return fmt.Sprintf("%s %s %s (%s) 응답 완료 — %s\n", prefix, emoji, displayName, model, confStr)
+		return fmt.Sprintf("%s %s %s (%s) 응답 완료 — %s (%d초)\n", prefix, emoji, displayName, model, confStr, secs)
 	}
 
-	return fmt.Sprintf("%s %s %s (%s) 응답 실패 — %v\n", prefix, emoji, displayName, model, err)
+	return fmt.Sprintf("%s %s %s (%s) 응답 실패 — %v (%d초)\n", prefix, emoji, displayName, model, err, secs)
 }
 
 // proposerModelLabel returns a display string for the model used by a proposer.
