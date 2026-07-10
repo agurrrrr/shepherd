@@ -38,9 +38,9 @@
 		return {
 			enabled: false,
 			proposers: [
-				{ provider: 'embedded', endpoint_id: '', persona: 'melchior', display_name: '', custom_prompt: '', model_id: '' },
-				{ provider: 'embedded', endpoint_id: '', persona: 'balthasar', display_name: '', custom_prompt: '', model_id: '' },
-				{ provider: 'embedded', endpoint_id: '', persona: 'casper', display_name: '', custom_prompt: '', model_id: '' }
+				{ provider: 'embedded', endpoint_id: '', persona: 'melchior', display_name: '', custom_prompt: '', model_id: '', timeout_seconds: 0 },
+				{ provider: 'embedded', endpoint_id: '', persona: 'balthasar', display_name: '', custom_prompt: '', model_id: '', timeout_seconds: 0 },
+				{ provider: 'embedded', endpoint_id: '', persona: 'casper', display_name: '', custom_prompt: '', model_id: '', timeout_seconds: 0 }
 			],
 			aggregator: { type: 'claude_cli', endpoint_id: '', model_id: '' },
 			escalation: { confidence_threshold: 7, max_debate_rounds: 1 },
@@ -65,6 +65,7 @@
 			for (const p of magiConfig.proposers) {
 				if (!p.provider) p.provider = 'embedded';
 				if (!p.model_id) p.model_id = '';
+				if (!p.timeout_seconds) p.timeout_seconds = 0;
 			}
 			if (!magiConfig.aggregator.model_id) magiConfig.aggregator.model_id = '';
 			magiErrors = res.data.errors || [];
@@ -79,6 +80,9 @@
 		magiSaving = true;
 		magiSaveMsg = '';
 		try {
+			for (const p of magiConfig.proposers) {
+				p.timeout_seconds = Number(p.timeout_seconds) || 0;
+			}
 			const res = await apiPut('/api/config/magi', magiConfig);
 			if (res?.success) {
 				magiSaveMsg = '✅ 저장됨';
@@ -189,6 +193,15 @@
 						placeholder="표시 이름 (선택)"
 					/>
 
+					<!-- Per-slot timeout override -->
+					<input
+						class="input magi-input magi-timeout-input"
+						type="number" min="0" max="3600" step="30"
+						placeholder="전역"
+						bind:value={proposer.timeout_seconds}
+						title="이 심의자 전용 타임아웃(초). 0 또는 빈 값이면 아래 전역 타임아웃을 사용 — 느린 로컬 모델 슬롯에만 긴 값을 줄 때 사용"
+					/>
+
 					{#if proposer.persona === 'custom'}
 						<textarea
 							class="input textarea magi-custom-prompt"
@@ -274,6 +287,7 @@
 			<div class="setting-row">
 				<label>제안자 타임아웃 (초)</label>
 				<input class="input magi-input" type="number" min="30" max="600" bind:value={magiConfig.proposer_timeout_seconds} />
+				<span class="hint" style="flex: 0 0 auto;">슬롯별 값이 0인 심의자에게 적용</span>
 			</div>
 		</div>
 
@@ -394,6 +408,7 @@ select.input { cursor: pointer; }
 	flex: 0 1 140px;
 	max-width: 160px;
 }
+.magi-timeout-input { max-width: 90px; }
 .magi-aggregator {
 	display: flex;
 	align-items: center;
