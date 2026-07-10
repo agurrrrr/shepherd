@@ -49,10 +49,22 @@ func (f *fakeCallEndpoint) call(ctx context.Context, ep EndpointRef, systemPromp
 }
 
 // withFakeCallEndpoint swaps callEndpoint and returns a restore function.
+// It also installs a default reaskProposer fake that returns an error, so
+// existing tests that produce CONFIDENCE-less answers don't accidentally
+// trigger a real reask (which would hit the fake endpoint over HTTP and
+// stall). Tests that need to exercise reask should install their own fake
+// via installFakeReask (step-09).
 func withFakeCallEndpoint(fake *fakeCallEndpoint) func() {
 	orig := callEndpoint
+	origReask := reaskProposer
 	callEndpoint = fake.call
-	return func() { callEndpoint = orig }
+	reaskProposer = func(context.Context, ProposerSpec, string, string, string, string, time.Duration, string, string, func(string)) (string, embedded.ChatUsage, error) {
+		return "", embedded.ChatUsage{}, errors.New("reask not faked")
+	}
+	return func() {
+		callEndpoint = orig
+		reaskProposer = origReask
+	}
 }
 
 // okFake returns a fakeFunc that always succeeds with the given answer and
@@ -707,6 +719,14 @@ func withFakeChatTurn(fn func(context.Context, *embedded.Client, *embedded.ChatR
 	orig := chatTurn
 	chatTurn = fn
 	return func() { chatTurn = orig }
+}
+
+// installFakeReask replaces reaskProposer for testing and returns a restore
+// function. Mirrors the withFakeChatTurn pattern.
+func installFakeReask(fn func(ctx context.Context, spec ProposerSpec, systemPrompt, taskPrompt, prevAnswer, directive string, budget time.Duration, projectPath, sheepName string, onToken func(string)) (string, embedded.ChatUsage, error)) func() {
+	orig := reaskProposer
+	reaskProposer = fn
+	return func() { reaskProposer = orig }
 }
 
 func toolCallMsg(name, args string) *embedded.ChatMessage {
@@ -2014,4 +2034,368 @@ func TestRunProposers_PerSlotTimeoutOverride(t *testing.T) {
 	if diff1 < 9*time.Minute || diff1 > 11*time.Minute {
 		t.Errorf("slot 1 deadline should be ~10min from now, got %v", diff1)
 	}
+}
+
+// ─── step-09: reask helper + confidence nudge tests ────────────────────
+
+// longKoreanProse returns a string of Korean prose longer than 60 runes,
+// without a CONFIDENCE line — suitable for testing the confidence nudge path.
+func longKoreanProse(prefix string) string {
+	var b strings.Builder
+	b.WriteString(prefix)
+	for i := 0; i < 20; i++ {
+		b.WriteString("이것은 한국어 산문 답변의 일부입니다. ")
+	}
+	return b.String()
+}
+
+// TestConfidenceReask_ReplacesAnswerOnSuccess verifies that when a gate-passing
+// answer lacks CONFIDENCE, reaskProposer is called once and a successful
+// restated answer with confidence replaces the original.
+func TestConfidenceReask_ReplacesAnswerOnSuccess(t *testing.T) {
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": okFake(longKoreanProse("원래 답변입니다. ")),
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	reaskCalls := 0
+	reaskRestore := installFakeReask(func(_ context.Context, _ ProposerSpec, _, _, _, _ string, _ time.Duration, _, _ string, _ func(string)) (string, embedded.ChatUsage, error) {
+		reaskCalls++
+		return "수정된 최종 답변입니다. " + longKoreanProse("") + "\nCONFIDENCE: 8", embedded.ChatUsage{PromptTokens: 50, CompletionTokens: 20}, nil
+	})
+	defer reaskRestore()
+
+	opts := RunProposersOptions{
+		Proposers:   []ProposerSpec{{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"}},
+		BaseSystem:  "test",
+		UserPrompts: []string{"prompt"},
+		Timeout:     5 * time.Second,
+	}
+
+	results := RunProposers(context.Background(), opts)
+
+	if reaskCalls != 1 {
+		t.Errorf("reask calls = %d, want 1", reaskCalls)
+	}
+	if results[0].Err != nil {
+		t.Fatalf("unexpected error: %v", results[0].Err)
+	}
+	if results[0].Confidence != 8 {
+		t.Errorf("confidence = %d, want 8", results[0].Confidence)
+	}
+	if !strings.Contains(results[0].Answer, "수정된") {
+		t.Errorf("answer should contain '수정된', got %q", results[0].Answer)
+	}
+}
+
+// TestConfidenceReask_KeepsAnswerOnError verifies that a reask failure leaves
+// the original answer intact with confidence -1 and no error.
+func TestConfidenceReask_KeepsAnswerOnError(t *testing.T) {
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": okFake(longKoreanProse("원래 답변입니다. ")),
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	reaskRestore := installFakeReask(func(_ context.Context, _ ProposerSpec, _, _, _, _ string, _ time.Duration, _, _ string, _ func(string)) (string, embedded.ChatUsage, error) {
+		return "", embedded.ChatUsage{PromptTokens: 10}, errors.New("reask transport error")
+	})
+	defer reaskRestore()
+
+	opts := RunProposersOptions{
+		Proposers:   []ProposerSpec{{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"}},
+		BaseSystem:  "test",
+		UserPrompts: []string{"prompt"},
+		Timeout:     5 * time.Second,
+	}
+
+	results := RunProposers(context.Background(), opts)
+
+	if results[0].Err != nil {
+		t.Fatalf("unexpected error: %v", results[0].Err)
+	}
+	if results[0].Confidence != -1 {
+		t.Errorf("confidence = %d, want -1 (original preserved)", results[0].Confidence)
+	}
+	if !strings.Contains(results[0].Answer, "원래 답변") {
+		t.Errorf("answer should contain original text, got %q", results[0].Answer)
+	}
+}
+
+// TestConfidenceReask_KeepsAnswerOnGateFail verifies that when the reask result
+// passes the content gate but lacks confidence, the original answer is kept.
+// Also covers the case where the reask result fails the gate entirely.
+func TestConfidenceReask_KeepsAnswerOnGateFail(t *testing.T) {
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": okFake(longKoreanProse("원래 답변입니다. ")),
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	reaskRestore := installFakeReask(func(_ context.Context, _ ProposerSpec, _, _, _, _ string, _ time.Duration, _, _ string, _ func(string)) (string, embedded.ChatUsage, error) {
+		// Return a gate-failing response (tool-call markup as text).
+		return `{"tool_calls":[{"function":{"name":"read_file"}}]}`, embedded.ChatUsage{}, nil
+	})
+	defer reaskRestore()
+
+	opts := RunProposersOptions{
+		Proposers:   []ProposerSpec{{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"}},
+		BaseSystem:  "test",
+		UserPrompts: []string{"prompt"},
+		Timeout:     5 * time.Second,
+	}
+
+	results := RunProposers(context.Background(), opts)
+
+	if results[0].Err != nil {
+		t.Fatalf("unexpected error: %v", results[0].Err)
+	}
+	if results[0].Confidence != -1 {
+		t.Errorf("confidence = %d, want -1 (gate-failed reask should not replace)", results[0].Confidence)
+	}
+	if !strings.Contains(results[0].Answer, "원래 답변") {
+		t.Errorf("answer should contain original text, got %q", results[0].Answer)
+	}
+}
+
+// TestConfidenceReask_SkipsSalvagedAnswer verifies that a salvaged partial
+// answer (containing salvageMarker) does not trigger a reask.
+func TestConfidenceReask_SkipsSalvagedAnswer(t *testing.T) {
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": okFake(longKoreanProse("부분 답변. ") + "\n\n" + salvageMarker),
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	reaskCalls := 0
+	reaskRestore := installFakeReask(func(_ context.Context, _ ProposerSpec, _, _, _, _ string, _ time.Duration, _, _ string, _ func(string)) (string, embedded.ChatUsage, error) {
+		reaskCalls++
+		return "should not be called", embedded.ChatUsage{}, nil
+	})
+	defer reaskRestore()
+
+	opts := RunProposersOptions{
+		Proposers:   []ProposerSpec{{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"}},
+		BaseSystem:  "test",
+		UserPrompts: []string{"prompt"},
+		Timeout:     5 * time.Second,
+	}
+
+	results := RunProposers(context.Background(), opts)
+
+	if reaskCalls != 0 {
+		t.Errorf("reask calls = %d, want 0 (salvaged answers are exempt)", reaskCalls)
+	}
+	if results[0].Err != nil {
+		t.Fatalf("unexpected error: %v", results[0].Err)
+	}
+	if results[0].Confidence != -1 {
+		t.Errorf("confidence = %d, want -1", results[0].Confidence)
+	}
+}
+
+// TestConfidenceReask_NotCalledWhenReported verifies that an answer with a
+// CONFIDENCE line does not trigger a reask.
+func TestConfidenceReask_NotCalledWhenReported(t *testing.T) {
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": okFake("proper answer\nCONFIDENCE: 7"),
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	reaskCalls := 0
+	reaskRestore := installFakeReask(func(_ context.Context, _ ProposerSpec, _, _, _, _ string, _ time.Duration, _, _ string, _ func(string)) (string, embedded.ChatUsage, error) {
+		reaskCalls++
+		return "should not be called", embedded.ChatUsage{}, nil
+	})
+	defer reaskRestore()
+
+	opts := RunProposersOptions{
+		Proposers:   []ProposerSpec{{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"}},
+		BaseSystem:  "test",
+		UserPrompts: []string{"prompt"},
+		Timeout:     5 * time.Second,
+	}
+
+	RunProposers(context.Background(), opts)
+
+	if reaskCalls != 0 {
+		t.Errorf("reask calls = %d, want 0 (confidence was reported)", reaskCalls)
+	}
+}
+
+// TestConfidenceReask_UsageAccumulated verifies that tokens consumed by a
+// failed reask are still accumulated into result.Usage (step-01 principle).
+func TestConfidenceReask_UsageAccumulated(t *testing.T) {
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int, _ func(string), _ []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, _ string) (string, embedded.ChatUsage, error) {
+				return longKoreanProse("답변. "), embedded.ChatUsage{PromptTokens: 100, CompletionTokens: 50}, nil
+			},
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	reaskUsage := embedded.ChatUsage{PromptTokens: 30, CompletionTokens: 10}
+	reaskRestore := installFakeReask(func(_ context.Context, _ ProposerSpec, _, _, _, _ string, _ time.Duration, _, _ string, _ func(string)) (string, embedded.ChatUsage, error) {
+		return "", reaskUsage, errors.New("reask failed")
+	})
+	defer reaskRestore()
+
+	opts := RunProposersOptions{
+		Proposers:   []ProposerSpec{{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"}},
+		BaseSystem:  "test",
+		UserPrompts: []string{"prompt"},
+		Timeout:     5 * time.Second,
+	}
+
+	results := RunProposers(context.Background(), opts)
+
+	expectedPrompt := int64(100 + 30)
+	expectedCompletion := int64(50 + 10)
+	if results[0].Usage.PromptTokens != expectedPrompt {
+		t.Errorf("PromptTokens = %d, want %d (original + reask)", results[0].Usage.PromptTokens, expectedPrompt)
+	}
+	if results[0].Usage.CompletionTokens != expectedCompletion {
+		t.Errorf("CompletionTokens = %d, want %d (original + reask)", results[0].Usage.CompletionTokens, expectedCompletion)
+	}
+}
+
+// TestReaskBudget verifies the reask budget calculation table.
+func TestReaskBudget(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     time.Duration
+		want      time.Duration
+	}{
+		{"60s → 30s (fraction floor clamp)", 60 * time.Second, 30 * time.Second},
+		{"300s → 100s", 300 * time.Second, 100 * time.Second},
+		{"600s → 120s (max clamp)", 600 * time.Second, 120 * time.Second},
+		{"0 → 30s (min clamp)", 0, 30 * time.Second},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := reaskBudget(tc.input)
+			if got != tc.want {
+				t.Errorf("reaskBudget(%v) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestReaskProposer_EmbeddedPromptAndBudget exercises the real reaskProposer
+// with a fake chatTurn to verify prompt construction, tools absence, budget
+// deadline, and parent-ctx cancellation.
+func TestReaskProposer_EmbeddedPromptAndBudget(t *testing.T) {
+	t.Run("prompt_contains_task_prevanswer_directive", func(t *testing.T) {
+		var capturedReq *embedded.ChatRequest
+		restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+			capturedReq = req
+			return &embedded.ChatMessage{Role: embedded.ChatRoleAssistant, Content: "replied\nCONFIDENCE: 7"}, embedded.ChatUsage{}, nil
+		})
+		defer restore()
+
+		spec := ProposerSpec{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"}
+		budget := 60 * time.Second
+		content, _, err := reaskProposer(context.Background(), spec, "sys-prompt", "task-prompt", "prev-answer", confidenceReaskDirective, budget, "/path", "sheep", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if content != "replied\nCONFIDENCE: 7" {
+			t.Errorf("content = %q, want replied", content)
+		}
+		if capturedReq == nil {
+			t.Fatal("no request captured")
+		}
+		userMsg := capturedReq.Messages[1].Content
+		if !strings.Contains(userMsg, "[원 태스크]") {
+			t.Error("user prompt should contain [원 태스크]")
+		}
+		if !strings.Contains(userMsg, "task-prompt") {
+			t.Error("user prompt should contain the task prompt")
+		}
+		if !strings.Contains(userMsg, "너의 이전 답변:") {
+			t.Error("user prompt should contain previous answer header")
+		}
+		if !strings.Contains(userMsg, "prev-answer") {
+			t.Error("user prompt should contain the previous answer")
+		}
+		if !strings.Contains(userMsg, confidenceReaskDirective) {
+			t.Error("user prompt should contain the directive")
+		}
+	})
+
+	t.Run("tools_nil", func(t *testing.T) {
+		var capturedReq *embedded.ChatRequest
+		restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+			capturedReq = req
+			return &embedded.ChatMessage{Role: embedded.ChatRoleAssistant, Content: "ok\nCONFIDENCE: 5"}, embedded.ChatUsage{}, nil
+		})
+		defer restore()
+
+		spec := ProposerSpec{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"}
+		reaskProposer(context.Background(), spec, "sys", "task", "prev", confidenceReaskDirective, 60*time.Second, "", "", nil)
+
+		if capturedReq == nil {
+			t.Fatal("no request captured")
+		}
+		if capturedReq.Tools != nil {
+			t.Errorf("Tools should be nil in reask request, got %d tools", len(capturedReq.Tools))
+		}
+	})
+
+	t.Run("ctx_deadline_matches_budget", func(t *testing.T) {
+		var capturedCtx context.Context
+		restore := withFakeChatTurn(func(ctx context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+			capturedCtx = ctx
+			return &embedded.ChatMessage{Role: embedded.ChatRoleAssistant, Content: "ok\nCONFIDENCE: 5"}, embedded.ChatUsage{}, nil
+		})
+		defer restore()
+
+		spec := ProposerSpec{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"}
+		budget := 90 * time.Second
+		reaskProposer(context.Background(), spec, "sys", "task", "prev", confidenceReaskDirective, budget, "", "", nil)
+
+		dl, has := capturedCtx.Deadline()
+		if !has {
+			t.Fatal("chatTurn ctx should have a deadline")
+		}
+		diff := time.Until(dl)
+		if diff < budget-time.Second || diff > budget+time.Second {
+			t.Errorf("ctx deadline ~%v from now, want ~%v (1s tolerance)", diff, budget)
+		}
+	})
+
+	t.Run("cancelled_parent_ctx_aborts_immediately", func(t *testing.T) {
+		called := false
+		restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, _ *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+			called = true
+			return &embedded.ChatMessage{Role: embedded.ChatRoleAssistant}, embedded.ChatUsage{}, nil
+		})
+		defer restore()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		spec := ProposerSpec{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"}
+		_, _, err := reaskProposer(ctx, spec, "sys", "task", "prev", confidenceReaskDirective, 60*time.Second, "", "", nil)
+		if err == nil {
+			t.Error("expected error on cancelled parent ctx")
+		}
+		if called {
+			t.Error("chatTurn should not be called when parent ctx is already cancelled")
+		}
+	})
 }

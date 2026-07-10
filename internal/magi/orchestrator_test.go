@@ -14,6 +14,9 @@ import (
 
 // ─── Test infrastructure ──────────────────────────────────────────────
 
+// fakeReaskFunc is the signature of a single fake reaskProposer function.
+type fakeReaskFunc func(ctx context.Context, spec ProposerSpec, systemPrompt, taskPrompt, prevAnswer, directive string, budget time.Duration, projectPath, sheepName string, onToken func(string)) (string, embedded.ChatUsage, error)
+
 // dualFake combines endpoint and aggregator fakes with full tracking.
 // Endpoint results are stored per-ID as sequential slices: index 0 = round 1,
 // index 1 = debate round. Aggregator results are purely sequential.
@@ -24,6 +27,12 @@ type dualFake struct {
 	aggTotal  int
 	epResults map[string][]fakeFunc
 	aggFuncs  []fakeAggregatorFunc
+
+	// reaskFuncs: sequential fake reaskProposer functions (step-09/10).
+	// When empty, reaskProposer returns an error (default — protects existing
+	// tests from accidental real reask calls).
+	reaskFuncs []fakeReaskFunc
+	reaskTotal int
 }
 
 func newDualFake() *dualFake {
@@ -41,14 +50,22 @@ func (d *dualFake) setAggregator(fns ...fakeAggregatorFunc) {
 	d.aggFuncs = fns
 }
 
+// setReask installs sequential fake reaskProposer functions (step-10).
+func (d *dualFake) setReask(fns ...fakeReaskFunc) {
+	d.reaskFuncs = fns
+}
+
 func (d *dualFake) install() func() {
 	origEp := callEndpoint
 	origAgg := aggregatorComplete
+	origReask := reaskProposer
 	callEndpoint = d.epCall
 	aggregatorComplete = d.aggCall
+	reaskProposer = d.reaskCall
 	return func() {
 		callEndpoint = origEp
 		aggregatorComplete = origAgg
+		reaskProposer = origReask
 	}
 }
 
@@ -76,6 +93,18 @@ func (d *dualFake) aggCall(ctx context.Context, spec AggregatorSpec, systemPromp
 		return "", embedded.ChatUsage{}, fmt.Errorf("no aggregator fake for call %d", idx+1)
 	}
 	return d.aggFuncs[idx](ctx, spec, systemPrompt, userPrompt)
+}
+
+func (d *dualFake) reaskCall(ctx context.Context, spec ProposerSpec, systemPrompt, taskPrompt, prevAnswer, directive string, budget time.Duration, projectPath, sheepName string, onToken func(string)) (string, embedded.ChatUsage, error) {
+	d.mu.Lock()
+	d.reaskTotal++
+	idx := d.reaskTotal - 1
+	d.mu.Unlock()
+
+	if idx >= len(d.reaskFuncs) || d.reaskFuncs[idx] == nil {
+		return "", embedded.ChatUsage{}, fmt.Errorf("no reask fake for call %d", idx+1)
+	}
+	return d.reaskFuncs[idx](ctx, spec, systemPrompt, taskPrompt, prevAnswer, directive, budget, projectPath, sheepName, onToken)
 }
 
 // ─── Fake helpers ─────────────────────────────────────────────────────

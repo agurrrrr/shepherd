@@ -76,6 +76,23 @@ const finalAnswerNudge = `직전 응답에는 실질적인 최종 답변이 없�
 // re-ask an endpoint that just proved too slow) that the answer was cut off.
 const salvageMarker = "[부분 응답 — 수렴 시간 초과로 중단됨]"
 
+// Reask budget (task #7205): one tools-off reask request gets a slice of the
+// slot's effective proposer timeout — effTimeout/reaskBudgetFraction clamped
+// to [reaskBudgetMin, reaskBudgetMax]. The reask prompt is small (capped task
+// + one previous answer), so it needs far less than a full exploration budget.
+const (
+	reaskBudgetFraction = 3
+	reaskBudgetMin      = 30 * time.Second
+	reaskBudgetMax      = 120 * time.Second
+)
+
+// confidenceReaskDirective asks a proposer whose gate-passing answer lacked
+// the "CONFIDENCE:" self-report to restate its final answer with one. An
+// unreported confidence weakens the judge's weighting (task #7182).
+const confidenceReaskDirective = `너의 답변에 "CONFIDENCE: <0-10 정수>" 신뢰도 보고가 빠져 있다.
+위의 이전 답변을 검토하고, 필요한 수정만 반영하여 완결된 최종 답변을 다시 작성하라.
+도구는 호출할 수 없다. 마지막 줄에 반드시 "CONFIDENCE: <0-10 정수>"를 추가하라.`
+
 // convergenceDietTokens is the absolute prompt-size threshold (estimated
 // tokens) above which a summarization handoff runs right before forced
 // convergence. The existing handoff thresholds are percentages of the context
@@ -493,6 +510,19 @@ func inPlaceContextRefresh(
 	return refreshed, usage, nil
 }
 
+// reaskBudget converts a slot's effective timeout into the wall-clock budget
+// for one tools-off reask request (see reaskBudgetFraction).
+func reaskBudget(effTimeout time.Duration) time.Duration {
+	b := effTimeout / reaskBudgetFraction
+	if b < reaskBudgetMin {
+		b = reaskBudgetMin
+	}
+	if b > reaskBudgetMax {
+		b = reaskBudgetMax
+	}
+	return b
+}
+
 // convergenceCutoff returns the instant at which a proposer must stop tool
 // exploration and force a final answer, plus the reserve — the tail of the
 // remaining budget set aside to fund that forced request (used as an
@@ -620,6 +650,87 @@ func forceFinalAnswer(
 	}
 
 	return "", usage, fmt.Errorf("%s: no substantive answer after convergence nudge: %w", ep.ID, lastGateErr)
+}
+
+// reaskProposer sends one tools-off follow-up request to a proposer: the
+// original task (capped), the proposer's own previous answer (capped), and a
+// directive (the confidence nudge here; step-10's abstain second chance). It
+// is a package variable so tests can fake it.
+//
+// The request runs on a budget detached from the caller's deadline
+// (WithoutCancel) — the slot budget is typically spent by the time a reask is
+// needed. Same completeness-over-cancellation trade-off as the convergence
+// reserve; the budget caps the delay. A ctx already canceled/expired aborts
+// immediately, so a user stop issued before the reask starts is honored.
+//
+// Callers must never discard the previous answer on reask failure (#7000
+// conservative-gate principle): adopt the result only when it passes
+// CheckAnswerContent and reports a confidence.
+var reaskProposer = func(
+	ctx context.Context,
+	spec ProposerSpec,
+	systemPrompt string,
+	taskPrompt string,
+	prevAnswer string,
+	directive string,
+	budget time.Duration,
+	projectPath, sheepName string,
+	onToken func(string),
+) (string, embedded.ChatUsage, error) {
+	if err := ctx.Err(); err != nil {
+		return "", embedded.ChatUsage{}, err
+	}
+
+	var b strings.Builder
+	b.WriteString("[원 태스크]\n")
+	b.WriteString(capText(taskPrompt, 4000))
+	b.WriteString("\n\n너의 이전 답변:\n")
+	b.WriteString(capText(prevAnswer, 12000))
+	b.WriteString("\n\n")
+	b.WriteString(directive)
+	userPrompt := b.String()
+
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
+	defer cancel()
+
+	provider := spec.Provider
+	if provider == "" {
+		provider = ProviderEmbedded
+	}
+	switch provider {
+	case ProviderClaudeCLI:
+		return callClaudeCLI(rctx, spec, systemPrompt, userPrompt, projectPath, sheepName, onToken)
+	case ProviderOpenCodeCLI:
+		return callOpenCodeCLI(rctx, spec, systemPrompt, userPrompt, projectPath, sheepName, onToken)
+	case ProviderGrokCLI:
+		return callGrokCLI(rctx, spec, systemPrompt, userPrompt, projectPath, sheepName, onToken)
+	}
+
+	// Embedded: one tools-off chat turn — no mini agent loop, no nudge.
+	client := embedded.NewClient(spec.Endpoint.BaseURL, spec.Endpoint.APIKey, spec.Endpoint.Model)
+	ctxTokens := spec.Endpoint.ContextTokens
+	if ctxTokens == 0 {
+		ctxTokens = embedded.DefaultContextTokens
+	}
+	req := &embedded.ChatRequest{
+		Model: spec.Endpoint.Model,
+		Messages: []embedded.ChatMessage{
+			{Role: embedded.ChatRoleSystem, Content: systemPrompt},
+			{Role: embedded.ChatRoleUser, Content: userPrompt},
+		},
+		Temperature: 0.3, // restatement, not fresh exploration
+		MaxTokens:   ctxTokens / 4,
+		Stream:      true,
+		// No tools — the reask must yield a text answer.
+	}
+	msg, u, err := chatTurn(rctx, client, req, onToken)
+	if err != nil {
+		return "", u, err
+	}
+	if msg == nil {
+		return "", u, fmt.Errorf("reask returned no message")
+	}
+	return msg.Content, u, nil
 }
 
 // executeProposerToolCall validates and runs a single tool call from a
@@ -883,7 +994,29 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 			result.Confidence = conf
 			result.Usage = usage
 
-			emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, true, conf, time.Since(slotStart), nil))
+			// Confidence nudge (task #7205): an answer without a CONFIDENCE
+			// self-report weakens the judge's weighting, so ask once for a
+			// restatement. Salvaged partial answers are exempt — that endpoint
+			// just proved too slow for this slot's budget, and the salvage
+			// marker already tells the judge the answer was cut off. The
+			// previous answer is never discarded: the reask result is adopted
+			// only when it passes the gate and reports a confidence.
+			if conf < 0 && !strings.Contains(cleaned, salvageMarker) && ctx.Err() == nil {
+				budget := reaskBudget(effTimeout)
+				tokenCb(fmt.Sprintf("\n[신뢰도 재질문 — CONFIDENCE 미보고, 예산 %d초]\n", int(budget.Seconds())))
+				reasked, ru, rerr := reaskProposer(ctx, sp, systemPrompt, userPrompt, cleaned,
+					confidenceReaskDirective, budget, opts.ProjectPath, perSlotSheepName, tokenCb)
+				addUsage(&result.Usage, ru)
+				if rerr == nil {
+					recleaned, reconf := ExtractConfidence(reasked)
+					if reconf >= 0 && CheckAnswerContent(recleaned) == nil {
+						result.Answer = recleaned
+						result.Confidence = reconf
+					}
+				}
+			}
+
+			emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, true, result.Confidence, time.Since(slotStart), nil))
 			results[slot] = result
 		}(i, spec)
 	}
