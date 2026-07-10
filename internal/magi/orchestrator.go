@@ -252,16 +252,21 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	return finalize(DeadlockResult(verdict2), totalUsage, totalCalls, emit), nil
 }
 
-// isAcceptable checks the DOWN gate condition: verdict is unanimous or
-// majority AND confidence meets the threshold (design §2.4, §5.3).
+// isAcceptable checks the DOWN gate condition (design §2.4, §5.3).
+// A unanimous verdict is accepted at threshold-1: unanimity is already the
+// strongest agreement signal, and sending an 8/10-unanimous round to debate
+// doubled the cost and worsened the outcome to deadlock (task #7182).
 func isAcceptable(v *Verdict, threshold int) bool {
 	if v == nil {
 		return false
 	}
-	if v.Verdict != "unanimous" && v.Verdict != "majority" {
-		return false
+	switch v.Verdict {
+	case "unanimous":
+		return v.Confidence >= threshold-1
+	case "majority":
+		return v.Confidence >= threshold
 	}
-	return v.Confidence >= threshold
+	return false
 }
 
 // buildAdoptedText constructs the final text from an accepted verdict.

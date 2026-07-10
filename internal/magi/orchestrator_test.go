@@ -627,3 +627,46 @@ func TestRun_InitOutputWithPersonaNames(t *testing.T) {
 		}
 	}
 }
+
+// ─── isAcceptable unit tests (step-03: unanimous threshold-1 exception) ──
+
+func TestIsAcceptable_UnanimousThresholdMinusOne(t *testing.T) {
+	v := &Verdict{Verdict: "unanimous", Confidence: 8}
+	if !isAcceptable(v, 9) {
+		t.Error("unanimous confidence=8 threshold=9 should be acceptable (threshold-1 exception)")
+	}
+}
+
+func TestIsAcceptable_UnanimousBelowThresholdMinusOne(t *testing.T) {
+	v := &Verdict{Verdict: "unanimous", Confidence: 7}
+	if isAcceptable(v, 9) {
+		t.Error("unanimous confidence=7 threshold=9 should NOT be acceptable")
+	}
+}
+
+func TestIsAcceptable_MajorityBelowThreshold(t *testing.T) {
+	v := &Verdict{Verdict: "majority", Confidence: 8}
+	if isAcceptable(v, 9) {
+		t.Error("majority confidence=8 threshold=9 should NOT be acceptable (no exception for majority)")
+	}
+}
+
+func TestIsAcceptable_MajorityAtThreshold(t *testing.T) {
+	v := &Verdict{Verdict: "majority", Confidence: 9}
+	if !isAcceptable(v, 9) {
+		t.Error("majority confidence=9 threshold=9 should be acceptable")
+	}
+}
+
+func TestIsAcceptable_SplitRejected(t *testing.T) {
+	v := &Verdict{Verdict: "split", Confidence: 10}
+	if isAcceptable(v, 9) {
+		t.Error("split should never be acceptable regardless of confidence")
+	}
+}
+
+func TestIsAcceptable_NilVerdict(t *testing.T) {
+	if isAcceptable(nil, 9) {
+		t.Error("nil verdict should not be acceptable")
+	}
+}
