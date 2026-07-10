@@ -1507,3 +1507,90 @@ func TestCallEndpoint_HardThresholdStopsExploration(t *testing.T) {
 		t.Errorf("expected at least 3 exploration turns before hard threshold, got %d", exploreTurns)
 	}
 }
+
+// TestRunProposers_FailurePreservesUsage verifies that when a proposer fails,
+// the tokens it consumed before failing are still reported in ProposerResult.Usage
+// (task #7205 — previously failed proposers reported zero usage).
+func TestRunProposers_FailurePreservesUsage(t *testing.T) {
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int, _ func(string), _ []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, _ string) (string, embedded.ChatUsage, error) {
+				return "", embedded.ChatUsage{
+					PromptTokens:     1500,
+					CompletionTokens: 300,
+					TotalTokens:      1800,
+				}, errors.New("endpoint exploded after consuming tokens")
+			},
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	opts := RunProposersOptions{
+		Proposers: []ProposerSpec{
+			{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"},
+		},
+		BaseSystem:  "test",
+		UserPrompts: []string{"prompt"},
+		Timeout:     5 * time.Second,
+	}
+
+	results := RunProposers(context.Background(), opts)
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Err == nil {
+		t.Fatal("expected an error for the failed proposer")
+	}
+	if results[0].Usage.TotalTokens != 1800 {
+		t.Errorf("expected failed proposer to preserve usage (TotalTokens=1800), got %d", results[0].Usage.TotalTokens)
+	}
+	if results[0].Usage.PromptTokens != 1500 {
+		t.Errorf("expected PromptTokens=1500, got %d", results[0].Usage.PromptTokens)
+	}
+	if results[0].Usage.CompletionTokens != 300 {
+		t.Errorf("expected CompletionTokens=300, got %d", results[0].Usage.CompletionTokens)
+	}
+}
+
+// TestRunProposers_GateFailurePreservesUsage verifies that a proposer whose
+// answer fails the content gate still reports its token usage (task #7205).
+func TestRunProposers_GateFailurePreservesUsage(t *testing.T) {
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int, _ func(string), _ []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, _ string) (string, embedded.ChatUsage, error) {
+				// Return tool-call markup as text — passes non-empty check
+				// but fails the content gate.
+				return `{"name": "read_file", "arguments": {"path": "x"}}`, embedded.ChatUsage{
+					PromptTokens:     2000,
+					CompletionTokens: 500,
+					TotalTokens:      2500,
+				}, nil
+			},
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	opts := RunProposersOptions{
+		Proposers: []ProposerSpec{
+			{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"},
+		},
+		BaseSystem:  "test",
+		UserPrompts: []string{"prompt"},
+		Timeout:     5 * time.Second,
+	}
+
+	results := RunProposers(context.Background(), opts)
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Err == nil {
+		t.Fatal("expected a gate error for tool-call markup answer")
+	}
+	if results[0].Usage.TotalTokens != 2500 {
+		t.Errorf("expected gate-failed proposer to preserve usage (TotalTokens=2500), got %d", results[0].Usage.TotalTokens)
+	}
+}

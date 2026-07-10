@@ -293,7 +293,8 @@ var callEndpoint = func(
 			break
 		}
 		if estTokens >= ctxTokens*ctxHandoffSoft/100 && handoffCount < maxInPlaceHandoffs {
-			refreshed, err := inPlaceContextRefresh(ctx, client, ep, messages, temperature, maxTokens, onToken, convergeAt, hasCutoff)
+			refreshed, refreshUsage, err := inPlaceContextRefresh(ctx, client, ep, messages, temperature, maxTokens, onToken, convergeAt, hasCutoff)
+			addUsage(&totalUsage, refreshUsage)
 			if err != nil {
 				// Refresh failed (timeout, transport error) — don't discard
 				// the existing context. Break to forced convergence instead.
@@ -363,7 +364,7 @@ func inPlaceContextRefresh(
 	onToken func(string),
 	convergeAt time.Time,
 	hasCutoff bool,
-) ([]embedded.ChatMessage, error) {
+) ([]embedded.ChatMessage, embedded.ChatUsage, error) {
 	// Build a summary request: original messages + a directive to summarize.
 	// We copy the messages slice explicitly to avoid aliasing the underlying
 	// array that the caller (callEndpoint) still uses during exploration.
@@ -390,7 +391,7 @@ func inPlaceContextRefresh(
 		}
 	}
 	if summaryTimeout < 5*time.Second {
-		return nil, fmt.Errorf("insufficient time for context refresh")
+		return nil, embedded.ChatUsage{}, fmt.Errorf("insufficient time for context refresh")
 	}
 
 	sumCtx, sumCancel := context.WithTimeout(ctx, summaryTimeout)
@@ -398,15 +399,11 @@ func inPlaceContextRefresh(
 
 	msg, usage, err := chatTurn(sumCtx, client, summaryReq, onToken)
 	if err != nil {
-		return nil, fmt.Errorf("context refresh summary: %w", err)
+		return nil, usage, fmt.Errorf("context refresh summary: %w", err)
 	}
 	if msg == nil || strings.TrimSpace(msg.Content) == "" {
-		return nil, fmt.Errorf("context refresh produced empty summary")
+		return nil, usage, fmt.Errorf("context refresh produced empty summary")
 	}
-
-	// Summary token usage is not tracked in totalUsage. This is acceptable:
-	// the summary is a one-time cost and total accuracy is not critical.
-	_ = usage
 
 	// Build the refreshed message list: system + user + summary.
 	// The system prompt (messages[0]) and original user prompt (messages[1])
@@ -420,7 +417,7 @@ func inPlaceContextRefresh(
 		},
 	}
 
-	return refreshed, nil
+	return refreshed, usage, nil
 }
 
 // convergenceCutoff returns the instant at which a proposer must stop tool
@@ -761,6 +758,7 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 
 			if err != nil {
 				result.Err = err
+				result.Usage = usage // failed proposers still consumed tokens (task #7205)
 				emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, false, 0, err))
 				results[slot] = result
 				return
@@ -774,6 +772,7 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 			// fallback can engage (lesson from task #7031).
 			if gateErr := CheckAnswerContent(cleaned); gateErr != nil {
 				result.Err = gateErr
+				result.Usage = usage // failed proposers still consumed tokens (task #7205)
 				emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, false, 0, gateErr))
 				results[slot] = result
 				return
