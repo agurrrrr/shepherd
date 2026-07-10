@@ -21,6 +21,12 @@ import (
 // if less than that remains before convergeAt, the loop breaks to forced convergence.
 const minPerTurnFraction = 3
 
+// maxIdenticalToolCalls is how many times the exact same (tool, args) call may
+// execute before further repeats are refused. Slow local models can loop on a
+// mis-parameterized read, ballooning the context until convergence starves
+// (task #7178: the same file was re-read 4+ times with the same bad offset).
+const maxIdenticalToolCalls = 2
+
 // Context handoff thresholds (fraction of ep.ContextTokens). When the
 // accumulated message history exceeds the soft threshold, an in-place
 // context refresh (summarize + reset) is attempted — once at most. When
@@ -164,6 +170,7 @@ var callEndpoint = func(
 	turn := 0
 	handoffCount := 0 // in-place context refreshes performed so far
 	var exploreErr error // a non-cancel error mid-exploration → salvage, don't discard
+	toolCallCount := make(map[string]int) // (tool, raw args) → executions so far
 	for {
 		// Approaching the deadline → stop exploring and force a final answer.
 		if hasCutoff && !time.Now().Before(convergeAt) {
@@ -265,6 +272,19 @@ var callEndpoint = func(
 		for idx, tc := range msg.ToolCalls {
 			if tc.ID == "" {
 				tc.ID = fmt.Sprintf("call_%d_%d", turn, idx)
+			}
+			// Refuse identical repeats: the same (tool, args) call re-executed
+			// keeps growing the context without new information (task #7178).
+			sig := tc.Func.Name + "\x00" + tc.Func.Args
+			toolCallCount[sig]++
+			if toolCallCount[sig] > maxIdenticalToolCalls {
+				messages = append(messages, embedded.ChatMessage{
+					Role: embedded.ChatRoleTool,
+					Content: fmt.Sprintf("Error: identical call to %s repeated %d times. Do not repeat this exact call — take a different approach (different arguments or a different tool) or produce your final answer now.",
+						tc.Func.Name, toolCallCount[sig]),
+					ToolCallID: tc.ID,
+				})
+				continue
 			}
 			messages = append(messages, executeProposerToolCall(ctx, tc, toolRegistry, dispatch, sheepName, ctxTokens))
 		}

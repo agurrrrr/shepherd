@@ -1635,3 +1635,68 @@ func TestCallEndpoint_ConvergenceStageTimeoutTagged(t *testing.T) {
 		t.Errorf("expected error to contain 'convergence stage timed out', got %v", err)
 	}
 }
+
+// TestCallEndpoint_IdenticalToolCallRefused verifies that when a proposer
+// repeatedly requests the exact same (tool, args) call, only the first
+// maxIdenticalToolCalls (2) are dispatched — subsequent identical repeats are
+// refused with an error message injected as the tool result, and the model
+// eventually returns a final answer (task #7178).
+func TestCallEndpoint_IdenticalToolCallRefused(t *testing.T) {
+	// Script: 4 turns of the same tool call, then a final answer.
+	fake := &fakeChatTurn{script: []scriptedTurn{
+		{msg: toolCallMsg("read_file", `{"path":"x"}`)},
+		{msg: toolCallMsg("read_file", `{"path":"x"}`)},
+		{msg: toolCallMsg("read_file", `{"path":"x"}`)},
+		{msg: toolCallMsg("read_file", `{"path":"x"}`)},
+		{msg: answerMsg("final answer after repeated calls\nCONFIDENCE: 7")},
+	}}
+	defer withFakeChatTurn(fake.turn)()
+
+	var dispatchCount int
+	var mu sync.Mutex
+	dispatch := func(name string, _ map[string]interface{}) (string, []embedded.MCPImage, error) {
+		mu.Lock()
+		dispatchCount++
+		mu.Unlock()
+		return "file content", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "read_file"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	content, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if content != "final answer after repeated calls\nCONFIDENCE: 7" {
+		t.Errorf("unexpected content: %q", content)
+	}
+
+	// 1. Only the first 2 identical calls should have been dispatched.
+	mu.Lock()
+	if dispatchCount != maxIdenticalToolCalls {
+		t.Errorf("expected %d dispatches, got %d", maxIdenticalToolCalls, dispatchCount)
+	}
+	mu.Unlock()
+
+	// 2. The 3rd and 4th turns should have "identical call" in the tool result
+	//    messages that were fed back to the model. Since messages accumulate
+	//    across requests, check only the last request — it contains all
+	//    prior refusal messages.
+	var identicalRefusals int
+	if len(fake.reqs) > 0 {
+		lastReq := fake.reqs[len(fake.reqs)-1]
+		for _, m := range lastReq.Messages {
+			if m.Role == embedded.ChatRoleTool && strings.Contains(m.Content, "identical call") {
+				identicalRefusals++
+			}
+		}
+	}
+	if identicalRefusals != 2 {
+		t.Errorf("expected 2 'identical call' refusals (turns 3 and 4), got %d", identicalRefusals)
+	}
+
+	// 3. The final answer should have been returned successfully (checked above
+	//    by the content assertion).
+}
