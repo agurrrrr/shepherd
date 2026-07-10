@@ -1700,3 +1700,94 @@ func TestCallEndpoint_IdenticalToolCallRefused(t *testing.T) {
 	// 3. The final answer should have been returned successfully (checked above
 	//    by the content assertion).
 }
+
+// ─── step-05: convergence timeout salvage tests ──────────────────────────────
+
+// TestForceFinalAnswer_SalvageOnDeadlineExceeded verifies that when chatTurn
+// returns context.DeadlineExceeded but has already streamed 60+ runes of
+// substantive prose via onToken, forceFinalAnswer adopts the partial answer
+// with a salvage marker instead of returning an error (task #7205 step-05).
+func TestForceFinalAnswer_SalvageOnDeadlineExceeded(t *testing.T) {
+	// Korean prose well above the 60-rune gate threshold.
+	streamedProse := "수렴 타임아웃이 발생했지만 지금까지 스트리밍된 부분 응답은 충분히 의미 있는 내용을 담고 있으므로 이를 살려서 최종 답변으로 채택해야 합니다."
+
+	restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, _ *embedded.ChatRequest, onToken func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		// Simulate streaming content deltas before the timeout.
+		if onToken != nil {
+			onToken(streamedProse)
+		}
+		return nil, embedded.ChatUsage{}, context.DeadlineExceeded
+	})
+	defer restore()
+
+	var captured []string
+	onToken := func(s string) { captured = append(captured, s) }
+
+	content, _, err := forceFinalAnswer(context.Background(), nil, testEndpoint("ep1", "m"), nil, 0.7, 100, onToken, true)
+	if err != nil {
+		t.Fatalf("expected salvage to succeed (err=nil), got: %v", err)
+	}
+	if !strings.Contains(content, streamedProse) {
+		t.Errorf("expected salvaged content to contain streamed prose, got %q", content)
+	}
+	if !strings.Contains(content, salvageMarker) {
+		t.Errorf("expected content to contain salvageMarker %q, got %q", salvageMarker, content)
+	}
+	// Verify the live notification was emitted.
+	foundNotify := false
+	for _, s := range captured {
+		if strings.Contains(s, "수렴 타임아웃") {
+			foundNotify = true
+			break
+		}
+	}
+	if !foundNotify {
+		t.Error("expected a '[수렴 타임아웃' notification via onToken")
+	}
+}
+
+// TestForceFinalAnswer_SalvageRejectedShortProse verifies that when the
+// streamed partial fails the content gate (e.g. bare tool-call markup),
+// forceFinalAnswer returns the DeadlineExceeded error instead of salvaging
+// (task #7205 step-05).
+func TestForceFinalAnswer_SalvageRejectedShortProse(t *testing.T) {
+	restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, _ *embedded.ChatRequest, onToken func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		if onToken != nil {
+			// Bare tool-call JSON — fails CheckAnswerContent.
+			onToken(`{"name": "read_file", "arguments": {"path": "x"}}`)
+		}
+		return nil, embedded.ChatUsage{}, context.DeadlineExceeded
+	})
+	defer restore()
+
+	_, _, err := forceFinalAnswer(context.Background(), nil, testEndpoint("ep1", "m"), nil, 0.7, 100, nil, true)
+	if err == nil {
+		t.Fatal("expected an error when partial prose fails the content gate")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected context.DeadlineExceeded, got %v", err)
+	}
+}
+
+// TestForceFinalAnswer_NonDeadlineErrorNotSalvaged verifies that a non-deadline
+// error (e.g. a transient API error) does NOT trigger the salvage path, even if
+// substantial prose was streamed before the error (task #7205 step-05).
+func TestForceFinalAnswer_NonDeadlineErrorNotSalvaged(t *testing.T) {
+	longProse := "이것은 충분히 긴 프로즈이지만 에러가 deadline이 아니라면 살려지지 않아야 합니다. 일반 API 오류는 salvage 경로를 타지 않습니다."
+
+	restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, _ *embedded.ChatRequest, onToken func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		if onToken != nil {
+			onToken(longProse)
+		}
+		return nil, embedded.ChatUsage{}, errors.New("boom: API error 500")
+	})
+	defer restore()
+
+	_, _, err := forceFinalAnswer(context.Background(), nil, testEndpoint("ep1", "m"), nil, 0.7, 100, nil, true)
+	if err == nil {
+		t.Fatal("expected a non-nil error for a non-deadline failure")
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Errorf("expected the original error 'boom', got %v", err)
+	}
+}
