@@ -50,11 +50,20 @@ type ProposerSpec struct {
 
 // ProposerResult is one proposer's round answer.
 type ProposerResult struct {
-	Spec       ProposerSpec
+	Spec ProposerSpec
+	// Slot is the original pipeline proposer index (0-based). It survives
+	// SuccessfulResults reindexing so live output ([MAGI:N]), OnProposerToken,
+	// CUSTOM-N display names, and browser session keys stay aligned with the
+	// frontend panels after a partial-failure filter (task #7234 review).
+	Slot       int
 	Answer     string // confidence line stripped
 	Confidence int    // 0-10, -1 when the model did not report one
 	Err        error  // non-nil when this proposer failed (timeout/HTTP)
 	Usage      embedded.ChatUsage
+	// ExtraCalls counts backend calls beyond the primary one for this slot
+	// (e.g. confidence-nudge reask). The orchestrator folds these into the
+	// reported totalCalls so reasks are not silently omitted from cost lines.
+	ExtraCalls int
 }
 
 // Verdict is the aggregator's structured judgment (design §5.3).

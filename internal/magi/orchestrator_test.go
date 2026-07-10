@@ -969,7 +969,7 @@ func TestMatchAbstainedSlots(t *testing.T) {
 	specs := stdProposers()
 	results := make([]ProposerResult, len(specs))
 	for i, s := range specs {
-		results[i] = ProposerResult{Spec: s}
+		results[i] = ProposerResult{Spec: s, Slot: i}
 	}
 
 	t.Run("exact match", func(t *testing.T) {

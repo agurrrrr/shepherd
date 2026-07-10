@@ -356,12 +356,12 @@ func TestRunProposers_LiveOutputConfidenceNotReported(t *testing.T) {
 }
 
 // TestSuccessfulResults verifies that failed slots are filtered out while
-// preserving order.
+// preserving order and original pipeline Slot indices.
 func TestSuccessfulResults(t *testing.T) {
 	results := []ProposerResult{
-		{Spec: ProposerSpec{}, Answer: "A", Confidence: 8, Err: nil},
-		{Spec: ProposerSpec{}, Answer: "", Confidence: -1, Err: errors.New("timeout")},
-		{Spec: ProposerSpec{}, Answer: "C", Confidence: 6, Err: nil},
+		{Spec: ProposerSpec{}, Slot: 0, Answer: "A", Confidence: 8, Err: nil},
+		{Spec: ProposerSpec{}, Slot: 1, Answer: "", Confidence: -1, Err: errors.New("timeout")},
+		{Spec: ProposerSpec{}, Slot: 2, Answer: "C", Confidence: 6, Err: nil},
 	}
 
 	successful := SuccessfulResults(results)
@@ -371,6 +371,11 @@ func TestSuccessfulResults(t *testing.T) {
 	}
 	if successful[0].Answer != "A" || successful[1].Answer != "C" {
 		t.Errorf("order not preserved")
+	}
+	// Compact indices are 0,1 but pipeline slots must stay 0,2 so [MAGI:N]
+	// and OnProposerToken still target the original panels (task #7234).
+	if successful[0].Slot != 0 || successful[1].Slot != 2 {
+		t.Errorf("Slot not preserved: got [%d, %d], want [0, 2]", successful[0].Slot, successful[1].Slot)
 	}
 }
 
@@ -391,6 +396,83 @@ func TestSuccessfulResults_Empty(t *testing.T) {
 	successful := SuccessfulResults(nil)
 	if len(successful) != 0 {
 		t.Fatalf("expected 0 results for nil input, got %d", len(successful))
+	}
+}
+
+// TestRunProposers_OriginalSlotsPreservesPipelineIndex verifies that when
+// OriginalSlots remaps a compact Proposers list (post-SuccessfulResults),
+// OnProposerToken and result.Slot use the pipeline index, not 0..n-1.
+func TestRunProposers_OriginalSlotsPreservesPipelineIndex(t *testing.T) {
+	var tokenSlots []int
+	var mu sync.Mutex
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"epA": func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int, onToken func(string), _ []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, _ string) (string, embedded.ChatUsage, error) {
+				if onToken != nil {
+					onToken("hello-from-slot-2")
+				}
+				return longKoreanProse("slot2 answer ") + "\nCONFIDENCE: 7", embedded.ChatUsage{}, nil
+			},
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	opts := RunProposersOptions{
+		// Compact list: only the surviving proposer (original pipeline slot 2).
+		Proposers:     []ProposerSpec{{Endpoint: testEndpoint("epA", "model-c"), PersonaKey: "casper"}},
+		OriginalSlots: []int{2},
+		BaseSystem:    "test",
+		UserPrompts:   []string{"prompt"},
+		Timeout:       5 * time.Second,
+		OnProposerToken: func(slot int, text string) {
+			mu.Lock()
+			tokenSlots = append(tokenSlots, slot)
+			mu.Unlock()
+		},
+	}
+
+	results := RunProposers(context.Background(), opts)
+	if len(results) != 1 {
+		t.Fatalf("len(results)=%d, want 1", len(results))
+	}
+	if results[0].Slot != 2 {
+		t.Errorf("result.Slot=%d, want 2 (pipeline index)", results[0].Slot)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(tokenSlots) == 0 {
+		t.Fatal("expected OnProposerToken to fire")
+	}
+	for _, s := range tokenSlots {
+		if s != 2 {
+			t.Errorf("OnProposerToken slot=%d, want 2", s)
+		}
+	}
+}
+
+// TestOriginalSlotsFor_FallbackAndPreserve covers the debate helper that
+// maps compacted results back to pipeline slots.
+func TestOriginalSlotsFor_FallbackAndPreserve(t *testing.T) {
+	// Hand-built fixtures with Slot all zero → fall back to compact indices.
+	unset := []ProposerResult{{}, {}, {}}
+	got := originalSlotsFor(unset)
+	if len(got) != 3 || got[0] != 0 || got[1] != 1 || got[2] != 2 {
+		t.Errorf("unset fixtures: got %v, want [0 1 2]", got)
+	}
+
+	// After SuccessfulResults filter: slots 0 and 2 survive.
+	filtered := []ProposerResult{{Slot: 0}, {Slot: 2}}
+	got = originalSlotsFor(filtered)
+	if len(got) != 2 || got[0] != 0 || got[1] != 2 {
+		t.Errorf("filtered: got %v, want [0 2]", got)
+	}
+
+	// Single survivor at original slot 0 (zero is a valid slot).
+	only0 := []ProposerResult{{Slot: 0}}
+	got = originalSlotsFor(only0)
+	if len(got) != 1 || got[0] != 0 {
+		t.Errorf("only slot 0: got %v, want [0]", got)
 	}
 }
 
@@ -2088,6 +2170,14 @@ func TestConfidenceReask_ReplacesAnswerOnSuccess(t *testing.T) {
 	}
 	if !strings.Contains(results[0].Answer, "수정된") {
 		t.Errorf("answer should contain '수정된', got %q", results[0].Answer)
+	}
+	// Confidence reask must count as ExtraCalls so orchestrator totalCalls
+	// matches the abstain-reask policy (task #7234).
+	if results[0].ExtraCalls != 1 {
+		t.Errorf("ExtraCalls = %d, want 1 (confidence reask)", results[0].ExtraCalls)
+	}
+	if results[0].Slot != 0 {
+		t.Errorf("Slot = %d, want 0", results[0].Slot)
 	}
 }
 

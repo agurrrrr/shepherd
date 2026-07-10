@@ -289,7 +289,9 @@ func BuildJudgePrompt(results []ProposerResult, taskPrompt string) string {
 
 	for _, idx := range indices {
 		r := results[idx]
-		displayName := PersonaDisplayName(r.Spec, idx)
+		// Use pipeline Slot (not shuffle/compact idx) so CUSTOM-N and
+		// abstained-name matching stay aligned after SuccessfulResults.
+		displayName := PersonaDisplayName(r.Spec, r.Slot)
 		confStr := "신뢰도 미보고"
 		if r.Confidence >= 0 {
 			confStr = fmt.Sprintf("신뢰도 %d/10", r.Confidence)
@@ -371,11 +373,11 @@ func SideBySideFallback(results []ProposerResult) string {
 
 	b.WriteString("⚠️ MAGI 판정 실패 — 세 심의자의 답변을 원문 병기합니다.\n\n")
 
-	for i, r := range results {
+	for _, r := range results {
 		if r.Err != nil {
 			continue
 		}
-		displayName := PersonaDisplayName(r.Spec, i)
+		displayName := PersonaDisplayName(r.Spec, r.Slot)
 		fmt.Fprintf(&b, "--- %s ---\n%s\n\n", displayName, r.Answer)
 	}
 

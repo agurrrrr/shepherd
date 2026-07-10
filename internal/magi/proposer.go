@@ -652,6 +652,11 @@ func forceFinalAnswer(
 	return "", usage, fmt.Errorf("%s: no substantive answer after convergence nudge: %w", ep.ID, lastGateErr)
 }
 
+// reaskTemperature is the chat temperature for tools-off restatement turns
+// (confidence nudge, abstain second chance). Lower than the diversity default
+// (0.7) so the model restates rather than re-explores.
+const reaskTemperature float32 = 0.3
+
 // reaskProposer sends one tools-off follow-up request to a proposer: the
 // original task (capped), the proposer's own previous answer (capped), and a
 // directive (the confidence nudge here; step-10's abstain second chance). It
@@ -662,6 +667,9 @@ func forceFinalAnswer(
 // needed. Same completeness-over-cancellation trade-off as the convergence
 // reserve; the budget caps the delay. A ctx already canceled/expired aborts
 // immediately, so a user stop issued before the reask starts is honored.
+// Note: the pipeline parent ctx is passed (not the per-slot callCtx that may
+// already be expired); WithoutCancel then detaches the reask budget from that
+// parent so a mid-pipeline cancel does not cut the restatement short.
 //
 // Callers must never discard the previous answer on reask failure (#7000
 // conservative-gate principle): adopt the result only when it passes
@@ -718,7 +726,7 @@ var reaskProposer = func(
 			{Role: embedded.ChatRoleSystem, Content: systemPrompt},
 			{Role: embedded.ChatRoleUser, Content: userPrompt},
 		},
-		Temperature: 0.3, // restatement, not fresh exploration
+		Temperature: reaskTemperature,
 		MaxTokens:   ctxTokens / 4,
 		Stream:      true,
 		// No tools — the reask must yield a text answer.
@@ -877,6 +885,12 @@ type RunProposersOptions struct {
 	OnOutput        func(string)                // live output sink, may be nil
 	OnProposerToken func(slot int, text string) // live token stream, may be nil
 
+	// OriginalSlots maps compact Proposers index → pipeline slot for live
+	// routing ([MAGI:N], OnProposerToken). Used by the debate round when
+	// SuccessfulResults has compacted a partial-failure set. Nil = use the
+	// compact index as the pipeline slot (round 1).
+	OriginalSlots []int
+
 	// Skip marks slots to exclude from this round without disturbing slot
 	// alignment: the slot's result carries errSlotSkipped and no backend call
 	// is made. Used by the debate round to leave out proposers that stayed
@@ -888,6 +902,15 @@ type RunProposersOptions struct {
 	ToolDispatch embedded.MCPDispatcher
 	ProjectPath  string
 	SheepName    string
+}
+
+// pipelineSlot resolves the original pipeline index for a compact Proposers
+// entry. When OriginalSlots is unset or short, the compact index is used.
+func pipelineSlot(opts RunProposersOptions, compactIdx int) int {
+	if compactIdx < len(opts.OriginalSlots) {
+		return opts.OriginalSlots[compactIdx]
+	}
+	return compactIdx
 }
 
 // RunProposers calls every proposer in parallel and returns one result per
@@ -910,19 +933,23 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 
 	for i, spec := range opts.Proposers {
 		wg.Add(1)
-		go func(slot int, sp ProposerSpec) {
+		go func(compactIdx int, sp ProposerSpec) {
 			defer wg.Done()
 
+			// Pipeline slot for live routing — may differ from compactIdx after
+			// SuccessfulResults compaction (debate / second-chance paths).
+			slot := pipelineSlot(opts, compactIdx)
+
 			slotStart := time.Now()
-			result := ProposerResult{Spec: sp}
+			result := ProposerResult{Spec: sp, Slot: slot}
 
 			// Excluded from this round (abstained even after its second
 			// chance, task #7182) — record the sentinel without calling the
 			// backend. No live-output line here: RunDebateRound emits the
 			// user-facing "기권 유지" notice when it restores the round-1 answer.
-			if slot < len(opts.Skip) && opts.Skip[slot] {
+			if compactIdx < len(opts.Skip) && opts.Skip[compactIdx] {
 				result.Err = errSlotSkipped
-				results[slot] = result
+				results[compactIdx] = result
 				return
 			}
 
@@ -939,10 +966,11 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 			// Build the persona-augmented system prompt.
 			systemPrompt := BuildProposerSystemPrompt(opts.BaseSystem, sp, slot)
 
-			// Select the user prompt for this slot.
+			// Select the user prompt for this slot (keyed by compact index —
+			// UserPrompts is parallel to Proposers, not the original pipeline).
 			userPrompt := ""
-			if slot < len(opts.UserPrompts) {
-				userPrompt = opts.UserPrompts[slot]
+			if compactIdx < len(opts.UserPrompts) {
+				userPrompt = opts.UserPrompts[compactIdx]
 			}
 
 			// Dispatch to the appropriate backend based on Provider.
@@ -994,7 +1022,7 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 				result.Err = err
 				result.Usage = usage // failed proposers still consumed tokens (task #7205)
 				emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, false, 0, time.Since(slotStart), err))
-				results[slot] = result
+				results[compactIdx] = result
 				return
 			}
 
@@ -1008,7 +1036,7 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 				result.Err = gateErr
 				result.Usage = usage // failed proposers still consumed tokens (task #7205)
 				emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, false, 0, time.Since(slotStart), gateErr))
-				results[slot] = result
+				results[compactIdx] = result
 				return
 			}
 
@@ -1023,11 +1051,16 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 			// marker already tells the judge the answer was cut off. The
 			// previous answer is never discarded: the reask result is adopted
 			// only when it passes the gate and reports a confidence.
+			//
+			// ExtraCalls is incremented whenever a reask is attempted so the
+			// orchestrator's cost line counts the call the same way abstain
+			// reasks are counted (task #7234 review: unify totalCalls policy).
 			if conf < 0 && !strings.Contains(cleaned, salvageMarker) && ctx.Err() == nil {
 				budget := reaskBudget(effTimeout)
 				tokenCb(fmt.Sprintf("\n[신뢰도 재질문 — CONFIDENCE 미보고, 예산 %d초]\n", int(budget.Seconds())))
 				reasked, ru, rerr := reaskProposer(ctx, sp, systemPrompt, userPrompt, cleaned,
 					confidenceReaskDirective, budget, opts.ProjectPath, perSlotSheepName, tokenCb)
+				result.ExtraCalls++
 				addUsage(&result.Usage, ru)
 				if rerr == nil {
 					recleaned, reconf := ExtractConfidence(reasked)
@@ -1039,7 +1072,7 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 			}
 
 			emitOutput(&mu, opts.OnOutput, formatProposerLine(sp, slot, true, result.Confidence, time.Since(slotStart), nil))
-			results[slot] = result
+			results[compactIdx] = result
 		}(i, spec)
 	}
 
@@ -1047,7 +1080,9 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 	return results
 }
 
-// SuccessfulResults filters out failed slots, preserving order.
+// SuccessfulResults filters out failed slots, preserving order and each
+// result's original Slot (pipeline index). Callers that emit [MAGI:N] or call
+// OnProposerToken after filtering must use r.Slot, not the compact index.
 func SuccessfulResults(results []ProposerResult) []ProposerResult {
 	out := make([]ProposerResult, 0, len(results))
 	for _, r := range results {
@@ -1056,6 +1091,15 @@ func SuccessfulResults(results []ProposerResult) []ProposerResult {
 		}
 	}
 	return out
+}
+
+// sumExtraCalls totals ProposerResult.ExtraCalls (confidence-nudge reasks etc.).
+func sumExtraCalls(results []ProposerResult) int {
+	n := 0
+	for _, r := range results {
+		n += r.ExtraCalls
+	}
+	return n
 }
 
 // emitOutput safely calls OnOutput under mutex. No-op when OnOutput is nil.

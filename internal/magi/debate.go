@@ -78,11 +78,15 @@ func BuildDebatePrompt(taskPrompt string, results []ProposerResult, slot int, ag
 func RunDebateRound(ctx context.Context, opts RunProposersOptions, round1 []ProposerResult, agreementAxis string, taskPrompt string) []ProposerResult {
 	// Derive proposers from round1 so only successful members re-debate.
 	opts.Proposers = make([]ProposerSpec, len(round1))
+	// OriginalSlots keeps [MAGI:N] / OnProposerToken on the pipeline panels
+	// when round1 was compacted by SuccessfulResults (task #7234).
+	opts.OriginalSlots = originalSlotsFor(round1)
 	for i := range round1 {
 		opts.Proposers[i] = round1[i].Spec
 	}
 
-	// Build per-slot debate prompts.
+	// Build per-slot debate prompts. Skipped compact indices leave prompts[i]
+	// as "" — RunProposers checks Skip before reading UserPrompts.
 	prompts := make([]string, len(round1))
 	for i := range round1 {
 		if i < len(opts.Skip) && opts.Skip[i] {
@@ -93,12 +97,15 @@ func RunDebateRound(ctx context.Context, opts RunProposersOptions, round1 []Prop
 	opts.UserPrompts = prompts
 
 	// Reuse RunProposers for parallel execution (design §5.4).
+	// Intentionally no ToolDefs/ToolDispatch — debate is tools-off (step-11).
+	// CLI providers only get a soft "재조사 금지" instruction (known limit).
 	debated := RunProposers(ctx, opts)
 
 	// Replace failed slots with round-1 answers.
 	for i, r := range debated {
 		if r.Err != nil {
-			displayName := PersonaDisplayName(round1[i].Spec, i)
+			slot := opts.OriginalSlots[i]
+			displayName := PersonaDisplayName(round1[i].Spec, slot)
 			if opts.OnOutput != nil {
 				if errors.Is(r.Err, errSlotSkipped) {
 					opts.OnOutput(fmt.Sprintf("  ⚠️ %s 기권 유지 — 토론 제외\n", displayName))
@@ -106,11 +113,33 @@ func RunDebateRound(ctx context.Context, opts RunProposersOptions, round1 []Prop
 					opts.OnOutput(fmt.Sprintf("  ⚠️ %s 토론 라운드 실패 — 1라운드 답변 유지\n", displayName))
 				}
 			}
+			// Preserve Slot from round1 (restored answer already has it).
 			debated[i] = round1[i]
 		}
 	}
 
 	return debated
+}
+
+// originalSlotsFor returns pipeline slot indices for a (possibly compacted)
+// result slice. When every Slot field is still zero (hand-built fixtures that
+// never set Slot) and there is more than one entry, falls back to compact
+// indices 0..n-1 so multi-slot tests stay self-consistent.
+func originalSlotsFor(results []ProposerResult) []int {
+	slots := make([]int, len(results))
+	anySet := false
+	for i, r := range results {
+		slots[i] = r.Slot
+		if r.Slot != 0 {
+			anySet = true
+		}
+	}
+	if !anySet && len(results) > 1 {
+		for i := range slots {
+			slots[i] = i
+		}
+	}
+	return slots
 }
 
 // DeadlockResult renders the final output when the debate round still ends
