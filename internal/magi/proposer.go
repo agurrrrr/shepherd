@@ -76,6 +76,14 @@ const finalAnswerNudge = `직전 응답에는 실질적인 최종 답변이 없�
 // re-ask an endpoint that just proved too slow) that the answer was cut off.
 const salvageMarker = "[부분 응답 — 수렴 시간 초과로 중단됨]"
 
+// convergenceDietTokens is the absolute prompt-size threshold (estimated
+// tokens) above which a summarization handoff runs right before forced
+// convergence. The existing handoff thresholds are percentages of the context
+// window, but prompt-evaluation throughput on a slow local model is a function
+// of absolute size: ~40K tokens cannot be re-evaluated plus answered within a
+// 150s reserve regardless of how large the window is (task #7205).
+const convergenceDietTokens = 20000
+
 // chatTurn performs one streaming chat request and returns the assistant
 // message plus token usage. It is a package variable so tests can drive the
 // proposer mini agent loop (callEndpoint) — including the tool-exploration,
@@ -318,7 +326,13 @@ var callEndpoint = func(
 			break
 		}
 		if estTokens >= ctxTokens*ctxHandoffSoft/100 && handoffCount < maxInPlaceHandoffs {
-			refreshed, refreshUsage, err := inPlaceContextRefresh(ctx, client, ep, messages, temperature, maxTokens, onToken, convergeAt, hasCutoff)
+			refreshTimeout := 30 * time.Second
+			if hasCutoff {
+				if remaining := time.Until(convergeAt); remaining < refreshTimeout {
+					refreshTimeout = remaining
+				}
+			}
+			refreshed, refreshUsage, err := inPlaceContextRefresh(ctx, client, ep, messages, temperature, maxTokens, onToken, refreshTimeout)
 			addUsage(&totalUsage, refreshUsage)
 			if err != nil {
 				// Refresh failed (timeout, transport error) — don't discard
@@ -348,6 +362,37 @@ var callEndpoint = func(
 	// convergence runs. This is deliberate — MAGI's completeness requirement
 	// (always attempt a final answer from accumulated context) is favored over
 	// instant cancellation at the tail of the budget (task #7081 review).
+	// ── Convergence diet (task #7205) ──
+	//
+	// Percentage-based handoff thresholds miss the throughput problem: on a
+	// large-window endpoint an oversized-but-under-65% history still cannot be
+	// re-evaluated within the convergence reserve by a slow local model. When
+	// the accumulated prompt exceeds an absolute size, summarize first and
+	// converge on the compact history. Budget: a detached slice of the reserve
+	// (same completeness-over-cancellation trade-off as the reserve itself);
+	// on any failure fall through to convergence with the original messages.
+	if hasCutoff {
+		if est := estimateProposerTokens(messages, nil); est >= convergenceDietTokens {
+			dietTimeout := reserve / 3
+			if dietTimeout < 10*time.Second {
+				dietTimeout = 10 * time.Second
+			}
+			if dietTimeout > 45*time.Second {
+				dietTimeout = 45 * time.Second
+			}
+			refreshed, dietUsage, dietErr := inPlaceContextRefresh(
+				context.WithoutCancel(ctx), client, ep, messages, temperature, maxTokens, onToken, dietTimeout)
+			addUsage(&totalUsage, dietUsage)
+			if dietErr == nil {
+				messages = refreshed
+				if onToken != nil {
+					onToken(fmt.Sprintf("\n[수렴 전 컨텍스트 다이어트 — %d → %d tokens 추정]\n",
+						est, estimateProposerTokens(messages, nil)))
+				}
+			}
+		}
+	}
+
 	// Estimate the prompt size once, just before convergence — reused by the
 	// convergence-entry telemetry line and the stage-tagged timeout error.
 	estAtConvergence := estimateProposerTokens(messages, nil)
@@ -384,10 +429,10 @@ var callEndpoint = func(
 // prompt — which manifests as "scan SSE: context deadline exceeded" when prompt
 // evaluation takes longer than the per-turn timeout (task #7164).
 //
-// The summary request uses a short, independent timeout (capped at 30s or the
-// remaining time before convergeAt, whichever is smaller) so it does not eat
-// into the convergence reserve. Tools are dropped from the request so the model
-// cannot start a new investigation instead of summarizing.
+// The caller supplies the timeout budget so both exploration-phase handoffs
+// and convergence-diet summarizations can set their own limits without the
+// function needing to know about convergeAt. Tools are dropped from the
+// request so the model cannot start a new investigation instead of summarizing.
 //
 // On any error, the caller should fall through to forced convergence with the
 // original (un-refreshed) messages.
@@ -399,8 +444,7 @@ func inPlaceContextRefresh(
 	temperature float32,
 	maxTokens int,
 	onToken func(string),
-	convergeAt time.Time,
-	hasCutoff bool,
+	timeout time.Duration,
 ) ([]embedded.ChatMessage, embedded.ChatUsage, error) {
 	// Build a summary request: original messages + a directive to summarize.
 	// We copy the messages slice explicitly to avoid aliasing the underlying
@@ -419,19 +463,11 @@ func inPlaceContextRefresh(
 	}
 
 	// Use a short timeout so the summary doesn't eat the convergence reserve.
-	// Cap at 30s; if less time remains before convergeAt, use that.
-	summaryTimeout := 30 * time.Second
-	if hasCutoff {
-		remaining := time.Until(convergeAt)
-		if remaining < summaryTimeout {
-			summaryTimeout = remaining
-		}
-	}
-	if summaryTimeout < 5*time.Second {
+	if timeout < 5*time.Second {
 		return nil, embedded.ChatUsage{}, fmt.Errorf("insufficient time for context refresh")
 	}
 
-	sumCtx, sumCancel := context.WithTimeout(ctx, summaryTimeout)
+	sumCtx, sumCancel := context.WithTimeout(ctx, timeout)
 	defer sumCancel()
 
 	msg, usage, err := chatTurn(sumCtx, client, summaryReq, onToken)

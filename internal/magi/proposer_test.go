@@ -1791,3 +1791,155 @@ func TestForceFinalAnswer_NonDeadlineErrorNotSalvaged(t *testing.T) {
 		t.Errorf("expected the original error 'boom', got %v", err)
 	}
 }
+
+// ─── step-06: convergence diet tests ─────────────────────────────────────────
+
+// TestCallEndpoint_ConvergenceDietCompactMessages verifies the diet path
+// end-to-end: when accumulated prompt exceeds 20K tokens, a summary handoff
+// fires before forced convergence, and the convergence request operates on
+// the compact history [system, user, summary, directive] (task #7205 step-06).
+func TestCallEndpoint_ConvergenceDietCompactMessages(t *testing.T) {
+	var mu sync.Mutex
+	var allReqs []*embedded.ChatRequest
+
+	restore := withFakeChatTurn(func(_ context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		mu.Lock()
+		allReqs = append(allReqs, req)
+		mu.Unlock()
+
+		if len(req.Tools) > 0 {
+			// Exploration turn: return a tool call.
+			return toolCallMsg("get_status", `{}`), embedded.ChatUsage{}, nil
+		}
+
+		lastMsg := req.Messages[len(req.Messages)-1]
+		if lastMsg.Role == embedded.ChatRoleUser && strings.Contains(lastMsg.Content, "간결하지만 완전하게 요약") {
+			// Summary request — return a compact summary.
+			return answerMsg("요약: 조사 내용을 압축했습니다."), embedded.ChatUsage{}, nil
+		}
+
+		// Convergence request — return the final answer.
+		return answerMsg("다이어트 후 최종 답변입니다.\nCONFIDENCE: 8"), embedded.ChatUsage{}, nil
+	})
+	defer restore()
+
+	// Long dispatch result to push prompt past 20K tokens.
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return strings.Repeat("x", 100000), nil, nil // ~25K estimated tokens
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	content, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(content, "다이어트 후 최종 답변") {
+		t.Errorf("expected the converged answer after diet, got %q", content)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Find the convergence (final) request — the last request with no tools.
+	var finalReq *embedded.ChatRequest
+	for i := len(allReqs) - 1; i >= 0; i-- {
+		if len(allReqs[i].Tools) == 0 {
+			finalReq = allReqs[i]
+			break
+		}
+	}
+	if finalReq == nil {
+		t.Fatal("expected a tools-off convergence request")
+	}
+
+	// After the diet, messages should be [system, user, summary] + directive = 4.
+	msgs := finalReq.Messages
+	if len(msgs) != 4 {
+		t.Fatalf("expected 4 messages in convergence request [system, user, summary, directive], got %d", len(msgs))
+	}
+	if msgs[0].Role != embedded.ChatRoleSystem {
+		t.Errorf("msg[0] should be system, got %v", msgs[0].Role)
+	}
+	if msgs[1].Role != embedded.ChatRoleUser {
+		t.Errorf("msg[1] should be user (original prompt), got %v", msgs[1].Role)
+	}
+	if msgs[2].Role != embedded.ChatRoleAssistant || !strings.Contains(msgs[2].Content, "요약") {
+		t.Errorf("msg[2] should be assistant summary, got role=%v content=%q", msgs[2].Role, msgs[2].Content)
+	}
+	if msgs[3].Role != embedded.ChatRoleUser || !strings.Contains(msgs[3].Content, "추가 조사") {
+		t.Errorf("msg[3] should be convergence directive, got role=%v content=%q", msgs[3].Role, msgs[3].Content)
+	}
+
+	// Verify that the convergence request is NOT carrying the bloated tool
+	// result — the estimated token count should be well under 20K.
+	finalEst := estimateProposerTokens(msgs, nil)
+	if finalEst >= convergenceDietTokens {
+		t.Errorf("convergence request should be compact (< %d tokens), got est %d", convergenceDietTokens, finalEst)
+	}
+}
+
+// TestCallEndpoint_ConvergenceDietNotTriggeredBelowThreshold verifies that
+// when the accumulated prompt is below convergenceDietTokens (20K), no diet
+// summary request is made — the proposer converges directly on the original
+// message history (task #7205 step-06).
+func TestCallEndpoint_ConvergenceDietNotTriggeredBelowThreshold(t *testing.T) {
+	var mu sync.Mutex
+	var allReqs []*embedded.ChatRequest
+
+	restore := withFakeChatTurn(func(ctx context.Context, _ *embedded.Client, req *embedded.ChatRequest, _ func(string)) (*embedded.ChatMessage, embedded.ChatUsage, error) {
+		mu.Lock()
+		allReqs = append(allReqs, req)
+		mu.Unlock()
+
+		if len(req.Tools) > 0 {
+			// Block until per-turn timeout fires — clean break to forced
+			// convergence after a single exploration turn. This keeps the
+			// accumulated prompt well below convergenceDietTokens.
+			<-ctx.Done()
+			return nil, embedded.ChatUsage{}, ctx.Err()
+		}
+
+		lastMsg := req.Messages[len(req.Messages)-1]
+		if lastMsg.Role == embedded.ChatRoleUser && strings.Contains(lastMsg.Content, "간결하지만 완전하게 요약") {
+			t.Error("diet summary request should not be made when prompt is below threshold")
+			return answerMsg("should not happen"), embedded.ChatUsage{}, nil
+		}
+
+		return answerMsg("직접 수렴한 답변입니다.\nCONFIDENCE: 6"), embedded.ChatUsage{}, nil
+	})
+	defer restore()
+
+	// Short dispatch result — keeps total prompt well under 20K tokens.
+	dispatch := func(string, map[string]interface{}) (string, []embedded.MCPImage, error) {
+		return "short result", nil, nil
+	}
+	tools := []embedded.OpenAIToolDef{{Type: "function", Function: embedded.OpenAIFunction{Name: "get_status"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	content, _, err := callEndpoint(ctx, testEndpoint("ep1", "m"), "sys", "user", 0.7, 100, nil, tools, dispatch, "", "sheep")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(content, "직접 수렴한 답변") {
+		t.Errorf("expected the converged answer without diet, got %q", content)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Verify no summary request was made. Every non-tool request should be
+	// the convergence request (containing the convergence directive).
+	for _, req := range allReqs {
+		if len(req.Tools) == 0 {
+			lastMsg := req.Messages[len(req.Messages)-1]
+			if strings.Contains(lastMsg.Content, "간결하지만 완전하게 요약") {
+				t.Error("found an unexpected diet summary request")
+			}
+		}
+	}
+}
