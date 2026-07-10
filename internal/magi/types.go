@@ -10,6 +10,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/agurrrrr/shepherd/internal/embedded"
 )
@@ -42,6 +43,9 @@ type ProposerSpec struct {
 	PersonaKey   string           // melchior | balthasar | casper | custom
 	DisplayName  string           // custom display name; overrides MELCHIOR-N when non-empty
 	CustomPrompt string           // used when PersonaKey == "custom"
+	// Timeout overrides the round-level per-proposer timeout for this slot.
+	// Zero means inherit RunProposersOptions.Timeout (task #7205).
+	Timeout time.Duration
 }
 
 // ProposerResult is one proposer's round answer.

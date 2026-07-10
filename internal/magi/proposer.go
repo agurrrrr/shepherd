@@ -793,8 +793,14 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 			slotStart := time.Now()
 			result := ProposerResult{Spec: sp}
 
-			// Per-proposer timeout (design §5.1).
-			callCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
+			// Per-proposer timeout (design §5.1) with per-slot override: a slow
+			// local model can get a longer budget than the global default
+			// without extending every slot (task #7205).
+			effTimeout := opts.Timeout
+			if sp.Timeout > 0 {
+				effTimeout = sp.Timeout
+			}
+			callCtx, cancel := context.WithTimeout(ctx, effTimeout)
 			defer cancel()
 
 			// Build the persona-augmented system prompt.

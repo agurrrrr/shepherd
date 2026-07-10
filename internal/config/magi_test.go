@@ -409,6 +409,7 @@ magi:
     - endpoint_id: mi50-mistral
       persona: casper
       custom_prompt: "You are a meticulous reviewer."
+      timeout_seconds: 900
   aggregator:
     type: claude_cli
   escalation:
@@ -437,6 +438,14 @@ magi:
 
 	if cfg.Magi.Proposers[2].CustomPrompt != "You are a meticulous reviewer." {
 		t.Errorf("proposer 2 custom_prompt: got %q", cfg.Magi.Proposers[2].CustomPrompt)
+	}
+
+	if cfg.Magi.Proposers[2].TimeoutSeconds != 900 {
+		t.Errorf("proposer 2 timeout_seconds: got %d, want 900", cfg.Magi.Proposers[2].TimeoutSeconds)
+	}
+
+	if cfg.Magi.Proposers[0].TimeoutSeconds != 0 {
+		t.Errorf("proposer 0 timeout_seconds: got %d, want 0 (inherit global)", cfg.Magi.Proposers[0].TimeoutSeconds)
 	}
 
 	if cfg.Magi.Aggregator.Type != "claude_cli" {
@@ -472,6 +481,10 @@ magi:
 
 	if cfg2.Magi.Proposers[0].EndpointID != cfg.Magi.Proposers[0].EndpointID {
 		t.Errorf("round-trip proposer 0 endpoint_id mismatch")
+	}
+
+	if cfg2.Magi.Proposers[2].TimeoutSeconds != cfg.Magi.Proposers[2].TimeoutSeconds {
+		t.Errorf("round-trip proposer 2 timeout_seconds mismatch: got %d, want %d", cfg2.Magi.Proposers[2].TimeoutSeconds, cfg.Magi.Proposers[2].TimeoutSeconds)
 	}
 
 	if cfg2.Magi.Aggregator.Type != cfg.Magi.Aggregator.Type {
@@ -579,5 +592,58 @@ magi:
 
 	if cfg2.Magi.Aggregator.ModelID != "claude-sonnet-4-20250514" {
 		t.Errorf("round-trip aggregator model_id mismatch: got %q, want claude-sonnet-4-20250514", cfg2.Magi.Aggregator.ModelID)
+	}
+}
+
+func TestValidateMagiConfig_TimeoutSeconds(t *testing.T) {
+	// Negative timeout → error.
+	cfg := validMagiConfig()
+	cfg.Magi.Proposers[0].TimeoutSeconds = -1
+	errs, _ := ValidateMagiConfig(cfg)
+	foundErr := false
+	for _, e := range errs {
+		if strings.Contains(e, "timeout_seconds must be >= 0") {
+			foundErr = true
+			break
+		}
+	}
+	if !foundErr {
+		t.Fatalf("expected timeout_seconds negative error, got errs=%v", errs)
+	}
+
+	// Very short timeout (15s) → warning only.
+	cfg2 := validMagiConfig()
+	cfg2.Magi.Proposers[1].TimeoutSeconds = 15
+	errs2, warnings2 := ValidateMagiConfig(cfg2)
+	for _, e := range errs2 {
+		if strings.Contains(e, "timeout_seconds") {
+			t.Fatalf("15s timeout should not be an error, got: %s", e)
+		}
+	}
+	foundWarn := false
+	for _, w := range warnings2 {
+		if strings.Contains(w, "timeout_seconds 15 is very short") {
+			foundWarn = true
+			break
+		}
+	}
+	if !foundWarn {
+		t.Fatalf("expected very-short timeout warning, got warnings=%v", warnings2)
+	}
+
+	// Valid timeouts (0 and 300) → no errors or warnings about timeout.
+	cfg3 := validMagiConfig()
+	cfg3.Magi.Proposers[0].TimeoutSeconds = 0
+	cfg3.Magi.Proposers[1].TimeoutSeconds = 300
+	errs3, warnings3 := ValidateMagiConfig(cfg3)
+	for _, e := range errs3 {
+		if strings.Contains(e, "timeout_seconds") {
+			t.Fatalf("0/300 timeout should not error, got: %s", e)
+		}
+	}
+	for _, w := range warnings3 {
+		if strings.Contains(w, "timeout_seconds") {
+			t.Fatalf("0/300 timeout should not warn, got: %s", w)
+		}
 	}
 }

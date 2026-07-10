@@ -1943,3 +1943,75 @@ func TestCallEndpoint_ConvergenceDietNotTriggeredBelowThreshold(t *testing.T) {
 		}
 	}
 }
+
+// TestRunProposers_PerSlotTimeoutOverride verifies that a proposer with a
+// non-zero Spec.Timeout gets a tighter deadline than the global opts.Timeout,
+// while a proposer with zero Spec.Timeout inherits the global value.
+func TestRunProposers_PerSlotTimeoutOverride(t *testing.T) {
+	var mu sync.Mutex
+	deadlines := make(map[string]time.Time)
+
+	// deadlineFake records the deadline from the context it receives.
+	deadlineFake := func(ctx context.Context, ep EndpointRef, _, _ string, _ float32, _ int, _ func(string), _ []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, _ string) (string, embedded.ChatUsage, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		dl, ok := ctx.Deadline()
+		if ok {
+			deadlines[ep.ID] = dl
+		}
+		return "", embedded.ChatUsage{}, ctx.Err() // let it timeout
+	}
+
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": deadlineFake,
+			"ep2": deadlineFake,
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	opts := RunProposersOptions{
+		Proposers: []ProposerSpec{
+			{Endpoint: testEndpoint("ep1", "qwen3-27b"), PersonaKey: "melchior", Timeout: 1 * time.Minute},
+			{Endpoint: testEndpoint("ep2", "llama-3.3-70b"), PersonaKey: "balthasar"}, // no per-slot timeout
+		},
+		BaseSystem:  "You are a code reviewer.",
+		UserPrompts: []string{"review this", "review this"},
+		Timeout:     10 * time.Minute,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled so RunProposers returns immediately
+
+	RunProposers(ctx, opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(deadlines) < 2 {
+		t.Fatalf("expected at least 2 deadlines recorded, got %d: %v", len(deadlines), deadlines)
+	}
+
+	now := time.Now()
+
+	// Slot 0 should have ~1 minute deadline.
+	dl0, ok := deadlines["ep1"]
+	if !ok {
+		t.Fatal("ep1 deadline not recorded")
+	}
+	diff0 := dl0.Sub(now)
+	if diff0 < 30*time.Second || diff0 > 90*time.Second {
+		t.Errorf("slot 0 deadline should be ~1min from now, got %v", diff0)
+	}
+
+	// Slot 1 should have ~10 minute deadline.
+	dl1, ok := deadlines["ep2"]
+	if !ok {
+		t.Fatal("ep2 deadline not recorded")
+	}
+	diff1 := dl1.Sub(now)
+	if diff1 < 9*time.Minute || diff1 > 11*time.Minute {
+		t.Errorf("slot 1 deadline should be ~10min from now, got %v", diff1)
+	}
+}

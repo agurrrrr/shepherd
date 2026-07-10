@@ -753,6 +753,7 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 				PersonaKey:   p.Persona,
 				DisplayName:  p.DisplayName,
 				CustomPrompt: p.CustomPrompt,
+				Timeout:      time.Duration(p.TimeoutSeconds) * time.Second,
 			}
 
 			switch provider {

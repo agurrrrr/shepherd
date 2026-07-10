@@ -15,6 +15,10 @@ type MagiProposer struct {
 	Persona      string `mapstructure:"persona" json:"persona" yaml:"persona"`                        // melchior | balthasar | casper | custom
 	DisplayName  string `mapstructure:"display_name" json:"display_name,omitempty" yaml:"display_name,omitempty"` // custom display name; overrides MELCHIOR-N when non-empty
 	CustomPrompt string `mapstructure:"custom_prompt" json:"custom_prompt,omitempty" yaml:"custom_prompt,omitempty"`
+	// TimeoutSeconds overrides the global proposer_timeout_seconds for this
+	// slot only. 0 = inherit the global value. Lets a slow local model get a
+	// longer budget without holding fast remote slots hostage (task #7205).
+	TimeoutSeconds int `mapstructure:"timeout_seconds" json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
 }
 
 // MagiAggregator selects the synthesis/judging backend.
@@ -162,6 +166,12 @@ func ValidateMagiConfig(cfg *EmbeddedConfig) (errs []string, warnings []string) 
 
 		if p.Persona == "custom" && p.CustomPrompt == "" {
 			errs = append(errs, fmt.Sprintf("proposer %d: custom persona requires custom_prompt", i+1))
+		}
+
+		if p.TimeoutSeconds < 0 {
+			errs = append(errs, fmt.Sprintf("proposer %d: timeout_seconds must be >= 0", i+1))
+		} else if p.TimeoutSeconds > 0 && p.TimeoutSeconds < 30 {
+			warnings = append(warnings, fmt.Sprintf("proposer %d: timeout_seconds %d is very short (<30s)", i+1, p.TimeoutSeconds))
 		}
 	}
 
