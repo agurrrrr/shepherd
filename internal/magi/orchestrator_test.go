@@ -794,9 +794,9 @@ func TestRun_AbstainReaskFailsDebateProceeds(t *testing.T) {
 	if fake.aggTotal != 2 {
 		t.Errorf("aggregator calls = %d, want 2", fake.aggTotal)
 	}
-	// 3 round1 + 3 debate = 6 endpoint calls.
-	if fake.epTotal != 6 {
-		t.Errorf("endpoint calls = %d, want 6", fake.epTotal)
+	// 3 round1 + 2 debate (ep3/CASPER-3 skipped — abstained) = 5 endpoint calls.
+	if fake.epTotal != 5 {
+		t.Errorf("endpoint calls = %d, want 5", fake.epTotal)
 	}
 }
 
@@ -1011,4 +1011,173 @@ func TestMatchAbstainedSlots(t *testing.T) {
 			t.Errorf("two names should match two slots: skip=%v count=%d", skip, count)
 		}
 	})
+}
+
+// ─── step-11: debate lightening tests ─────────────────────────────────
+
+// TestRun_DebateExcludesAbstainedSlot: 1차 판정 split + abstained CASPER-3,
+// reask 에러(기권 유지) → 토론 진행되나 ep3는 스킵되어 1회만 호출.
+func TestRun_DebateExcludesAbstainedSlot(t *testing.T) {
+	fake := newDualFake()
+	fake.setEndpoint("ep1",
+		okUsage(longAnswer("Round1 A")+"\nCONFIDENCE: 7", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised A")+"\nCONFIDENCE: 9", embedded.ChatUsage{}),
+	)
+	fake.setEndpoint("ep2",
+		okUsage(longAnswer("Round1 B")+"\nCONFIDENCE: 6", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised B")+"\nCONFIDENCE: 8", embedded.ChatUsage{}),
+	)
+	fake.setEndpoint("ep3",
+		okUsage(longAnswer("Round1 C")+"\nCONFIDENCE: 5", embedded.ChatUsage{}),
+		// ep3 should NOT get a second call (skipped in debate).
+	)
+	fake.setAggregator(
+		aggJSON(jsonSplitAbstained, embedded.ChatUsage{}),
+		aggJSON(jsonUnanimousPostDebate, embedded.ChatUsage{}),
+	)
+	fake.setReask(reaskErr("backend down")) // reask fails → abstain stays
+	restore := fake.install()
+	defer restore()
+
+	opts := stdOptions()
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Incomplete {
+		t.Error("Incomplete should be false")
+	}
+	if result.Result != "토론 후 종합 답변입니다." {
+		t.Errorf("result = %q, want post-debate synthesis", result.Result)
+	}
+
+	// ep3 should only be called once (round 1) — skipped in debate.
+	if fake.epCount["ep3"] != 1 {
+		t.Errorf("ep3 calls = %d, want 1 (skipped in debate)", fake.epCount["ep3"])
+	}
+	// ep1 and ep2 should be called twice (round 1 + debate).
+	if fake.epCount["ep1"] != 2 {
+		t.Errorf("ep1 calls = %d, want 2", fake.epCount["ep1"])
+	}
+	if fake.epCount["ep2"] != 2 {
+		t.Errorf("ep2 calls = %d, want 2", fake.epCount["ep2"])
+	}
+}
+
+// TestRun_DebateSkippedWhenActiveBelowTwo: 2 successful proposers, one
+// abstained → only 1 active deliberator → debate skipped, deadlock result.
+func TestRun_DebateSkippedWhenActiveBelowTwo(t *testing.T) {
+	fake := newDualFake()
+	fake.setEndpoint("ep1",
+		okUsage(longAnswer("Round1 A")+"\nCONFIDENCE: 7", embedded.ChatUsage{}),
+	)
+	fake.setEndpoint("ep2",
+		okUsage(longAnswer("Round1 B")+"\nCONFIDENCE: 6", embedded.ChatUsage{}),
+	)
+	// ep3 fails in round 1 → successful has only 2 slots (ep1, ep2).
+	fake.setEndpoint("ep3",
+		errFake("timeout"),
+	)
+	fake.setAggregator(
+		// 1st judge: split with CASPER-3 abstained. But CASPER-3 is not in
+		// successful (it failed in round 1), so matchAbstainedSlots finds
+		// no match → skipCount=0. We need to abstain one of the remaining two.
+		aggJSON(`{"verdict":"split","agreement_axis":"유효표 부족","synthesis":"임시 종합.","dissent":"기권","confidence":5,"abstained":["BALTHASAR-2"]}`, embedded.ChatUsage{}),
+	)
+	fake.setReask(reaskErr("backend down")) // reask fails → abstain stays
+	restore := fake.install()
+	defer restore()
+
+	var out []string
+	opts := stdOptions()
+	opts.OnOutput = func(s string) { out = append(out, s) }
+
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Incomplete {
+		t.Error("Incomplete should be false")
+	}
+
+	// Result should be a deadlock.
+	if !strings.Contains(result.Result, "MAGI 교착") {
+		t.Errorf("result should contain 'MAGI 교착', got %q", result.Result)
+	}
+
+	// Only round-1 endpoint calls (3), no debate.
+	if fake.epTotal != 3 {
+		t.Errorf("endpoint calls = %d, want 3 (no debate)", fake.epTotal)
+	}
+	// Only 1 aggregator call (1st judge, no re-judge since reask failed
+	// and no re-judge happens when no answers were updated).
+	if fake.aggTotal != 1 {
+		t.Errorf("aggregator calls = %d, want 1", fake.aggTotal)
+	}
+
+	// Output should mention debate skip.
+	foundSkip := false
+	for _, line := range out {
+		if strings.Contains(line, "토론을 생략하고 교착 처리로 종결") {
+			foundSkip = true
+			break
+		}
+	}
+	if !foundSkip {
+		t.Error("output should mention debate skip due to < 2 active deliberators")
+	}
+}
+
+// TestRun_DebateHasNoTools verifies that the debate round does not receive
+// ToolDefs/ToolDispatch even when the orchestrator's Options has them set.
+func TestRun_DebateHasNoTools(t *testing.T) {
+	fake := newDualFake()
+	fake.setEndpoint("ep1",
+		okUsage(longAnswer("Round1 A")+"\nCONFIDENCE: 7", embedded.ChatUsage{}),
+		// Debate round fake: capture tools to verify they are empty.
+		func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int, _ func(string), tools []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, _ string) (string, embedded.ChatUsage, error) {
+			if len(tools) > 0 {
+				t.Errorf("debate round should have no tools, got %d", len(tools))
+			}
+			return longAnswer("Revised A") + "\nCONFIDENCE: 9", embedded.ChatUsage{}, nil
+		},
+	)
+	fake.setEndpoint("ep2",
+		okUsage(longAnswer("Round1 B")+"\nCONFIDENCE: 6", embedded.ChatUsage{}),
+		func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int, _ func(string), tools []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, _ string) (string, embedded.ChatUsage, error) {
+			if len(tools) > 0 {
+				t.Errorf("debate round should have no tools, got %d", len(tools))
+			}
+			return longAnswer("Revised B") + "\nCONFIDENCE: 8", embedded.ChatUsage{}, nil
+		},
+	)
+	fake.setEndpoint("ep3",
+		okUsage(longAnswer("Round1 C")+"\nCONFIDENCE: 5", embedded.ChatUsage{}),
+		func(_ context.Context, _ EndpointRef, _, _ string, _ float32, _ int, _ func(string), tools []embedded.OpenAIToolDef, _ embedded.MCPDispatcher, _, _ string) (string, embedded.ChatUsage, error) {
+			if len(tools) > 0 {
+				t.Errorf("debate round should have no tools, got %d", len(tools))
+			}
+			return longAnswer("Revised C") + "\nCONFIDENCE: 9", embedded.ChatUsage{}, nil
+		},
+	)
+	fake.setAggregator(
+		aggJSON(jsonSplitLow, embedded.ChatUsage{}),
+		aggJSON(jsonUnanimousPostDebate, embedded.ChatUsage{}),
+	)
+	restore := fake.install()
+	defer restore()
+
+	opts := stdOptions()
+	opts.ToolDefs = []embedded.OpenAIToolDef{
+		{Type: "function", Function: embedded.OpenAIFunction{Name: "read_file"}},
+	}
+	opts.ToolDispatch = nil // no real dispatch needed — just verifying absence
+
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Incomplete {
+		t.Error("Incomplete should be false")
+	}
 }

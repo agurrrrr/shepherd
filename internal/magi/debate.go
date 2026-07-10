@@ -2,9 +2,16 @@ package magi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// debatePeerCap bounds each peer answer inside a debate prompt — half the
+// own-answer cap. Peers are context to argue against, not the answer under
+// revision, and three 12K peer sections made the debate round heavier than
+// round 1 (task #7182: 232K-token debate).
+const debatePeerCap = 6000
 
 // BuildDebatePrompt renders the debate-round user prompt for slot i:
 // the proposer's own previous answer plus the other answers anonymized as
@@ -12,7 +19,7 @@ import (
 //
 // Persona names and model identifiers are omitted from peer-answer sections
 // so no authority hierarchy can form around a known persona or model family.
-func BuildDebatePrompt(taskPrompt string, results []ProposerResult, slot int, agreementAxis string) string {
+func BuildDebatePrompt(taskPrompt string, results []ProposerResult, slot int, agreementAxis string, skip []bool) string {
 	var b strings.Builder
 
 	// 1. Original task prompt.
@@ -32,8 +39,13 @@ func BuildDebatePrompt(taskPrompt string, results []ProposerResult, slot int, ag
 		if i == slot {
 			continue
 		}
+		// Abstained slots contribute no position to argue against — leaving
+		// their content-free answers out keeps the prompt lean (task #7182).
+		if i < len(skip) && skip[i] {
+			continue
+		}
 		fmt.Fprintf(&b, "\n### 심의자 %c\n", letter)
-		b.WriteString(capText(results[i].Answer, 12000))
+		b.WriteString(capText(results[i].Answer, debatePeerCap))
 		b.WriteString("\n")
 		letter++
 	}
@@ -47,6 +59,7 @@ func BuildDebatePrompt(taskPrompt string, results []ProposerResult, slot int, ag
 	// 5. Instructions (design §5.4 verbatim).
 	b.WriteString(`다른 답변에서 너의 답의 실제 오류를 발견하면 수정하라.
 근거가 유지되면 답을 바꾸지 마라. 동의 자체는 목표가 아니다.
+재조사는 금지한다 — 도구를 호출하지 말고, 위에 제시된 답변들과 이미 확보한 근거만으로 판단하라.
 수정 여부와 무관하게 완결된 최종 답변을 다시 작성하고,
 마지막 줄에 "CONFIDENCE: <0-10 정수>"를 추가하라.`)
 
@@ -72,7 +85,10 @@ func RunDebateRound(ctx context.Context, opts RunProposersOptions, round1 []Prop
 	// Build per-slot debate prompts.
 	prompts := make([]string, len(round1))
 	for i := range round1 {
-		prompts[i] = BuildDebatePrompt(taskPrompt, round1, i, agreementAxis)
+		if i < len(opts.Skip) && opts.Skip[i] {
+			continue
+		}
+		prompts[i] = BuildDebatePrompt(taskPrompt, round1, i, agreementAxis, opts.Skip)
 	}
 	opts.UserPrompts = prompts
 
@@ -84,7 +100,11 @@ func RunDebateRound(ctx context.Context, opts RunProposersOptions, round1 []Prop
 		if r.Err != nil {
 			displayName := PersonaDisplayName(round1[i].Spec, i)
 			if opts.OnOutput != nil {
-				opts.OnOutput(fmt.Sprintf("  ⚠️ %s 토론 라운드 실패 — 1라운드 답변 유지\n", displayName))
+				if errors.Is(r.Err, errSlotSkipped) {
+					opts.OnOutput(fmt.Sprintf("  ⚠️ %s 기권 유지 — 토론 제외\n", displayName))
+				} else {
+					opts.OnOutput(fmt.Sprintf("  ⚠️ %s 토론 라운드 실패 — 1라운드 답변 유지\n", displayName))
+				}
 			}
 			debated[i] = round1[i]
 		}

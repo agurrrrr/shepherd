@@ -233,18 +233,28 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 	// MaxDebateRounds > 1. Multi-round debate is Phase 2+ territory.
 	debateRound1 := successful // only successful proposers re-debate
 
+	// Slots still abstained after their second chance are excluded from the
+	// debate (task #7182): they hold no position to argue, and their answers
+	// must not weigh down peer prompts. When exclusion leaves fewer than two
+	// active deliberators, the debate is pointless — a two-way exchange is the
+	// minimum for it to change anything — so end as a deadlock immediately.
+	skip, skipCount := matchAbstainedSlots(verdict.Abstained, successful)
+	if len(successful)-skipCount < 2 {
+		emit("[MAGI:*] ⚖️ 기권 제외 후 유효 심의자 2명 미만 — 토론을 생략하고 교착 처리로 종결합니다\n")
+		return finalize(DeadlockResult(verdict), totalUsage, totalCalls, emit), nil
+	}
+
 	tDebate := time.Now()
 	debated := RunDebateRound(ctx, RunProposersOptions{
 		BaseSystem:      opts.BaseSystem,
 		Timeout:         timeout,
+		Skip:            skip,
 		OnOutput:        emit,
 		OnProposerToken: opts.OnProposerToken,
-		ToolDefs:        opts.ToolDefs,
-		ToolDispatch:    opts.ToolDispatch,
 		ProjectPath:     opts.ProjectPath,
 		SheepName:       opts.SheepName,
 	}, debateRound1, verdict.AgreementAxis, opts.TaskPrompt)
-	totalCalls += len(debateRound1)
+	totalCalls += len(debateRound1) - skipCount
 
 	// Collect usage from debate round.
 	for _, r := range debated {

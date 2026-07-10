@@ -861,6 +861,12 @@ func truncateToolResult(s string, ctxTokens int) string {
 	return string(runes[:maxRunes]) + "\n... [truncated]"
 }
 
+// errSlotSkipped marks a slot excluded from a round via
+// RunProposersOptions.Skip. It keeps slot alignment in the results so
+// RunDebateRound can restore the round-1 answer; it must never surface to the
+// user as a real failure line.
+var errSlotSkipped = errors.New("slot skipped (abstained)")
+
 // RunProposersOptions bundles inputs for one blind parallel round.
 type RunProposersOptions struct {
 	Proposers       []ProposerSpec
@@ -870,6 +876,12 @@ type RunProposersOptions struct {
 	Temperature     float32                     // 0 → default 0.7 (diversity)
 	OnOutput        func(string)                // live output sink, may be nil
 	OnProposerToken func(slot int, text string) // live token stream, may be nil
+
+	// Skip marks slots to exclude from this round without disturbing slot
+	// alignment: the slot's result carries errSlotSkipped and no backend call
+	// is made. Used by the debate round to leave out proposers that stayed
+	// abstained after their second chance (task #7182). Nil = run every slot.
+	Skip []bool
 
 	// Phase 1.5: read-only tools shared by all proposers.
 	ToolDefs     []embedded.OpenAIToolDef
@@ -903,6 +915,16 @@ func RunProposers(ctx context.Context, opts RunProposersOptions) []ProposerResul
 
 			slotStart := time.Now()
 			result := ProposerResult{Spec: sp}
+
+			// Excluded from this round (abstained even after its second
+			// chance, task #7182) — record the sentinel without calling the
+			// backend. No live-output line here: RunDebateRound emits the
+			// user-facing "기권 유지" notice when it restores the round-1 answer.
+			if slot < len(opts.Skip) && opts.Skip[slot] {
+				result.Err = errSlotSkipped
+				results[slot] = result
+				return
+			}
 
 			// Per-proposer timeout (design §5.1) with per-slot override: a slow
 			// local model can get a longer budget than the global default

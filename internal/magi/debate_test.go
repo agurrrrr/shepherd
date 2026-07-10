@@ -31,7 +31,7 @@ func TestBuildDebatePrompt(t *testing.T) {
 		},
 	}
 
-	prompt := BuildDebatePrompt("원본 태스크 프롬프트", results, 0, "마이그레이션 순서 쟁점")
+	prompt := BuildDebatePrompt("원본 태스크 프롬프트", results, 0, "마이그레이션 순서 쟁점", nil)
 
 	// 1. Own answer included.
 	if !strings.Contains(prompt, "첫 번째 심의자의 답변입니다.") {
@@ -104,7 +104,7 @@ func TestBuildDebatePrompt_NoAxis(t *testing.T) {
 		},
 	}
 
-	prompt := BuildDebatePrompt("task prompt", results, 0, "")
+	prompt := BuildDebatePrompt("task prompt", results, 0, "", nil)
 
 	if strings.Contains(prompt, "쟁점:") {
 		t.Error("prompt should not contain agreement axis when empty")
@@ -129,7 +129,7 @@ func TestBuildDebatePrompt_TwoPeers(t *testing.T) {
 		},
 	}
 
-	prompt := BuildDebatePrompt("task", results, 1, "")
+	prompt := BuildDebatePrompt("task", results, 1, "", nil)
 
 	if !strings.Contains(prompt, "심의자 A") {
 		t.Error("first peer should be labeled '심의자 A'")
@@ -348,5 +348,195 @@ func TestDeadlockResult_NoDissent(t *testing.T) {
 	}
 	if strings.Contains(result, "---") {
 		t.Error("should not contain separator when dissent is empty")
+	}
+}
+
+// TestBuildDebatePrompt_SkipExcludesPeer verifies that a skipped slot's
+// answer is absent from the prompt while a non-skipped peer's answer is
+// present, and that the peer letter sequence skips the excluded slot.
+func TestBuildDebatePrompt_SkipExcludesPeer(t *testing.T) {
+	results := []ProposerResult{
+		{
+			Spec:   ProposerSpec{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"},
+			Answer: "answer from slot 0 (self)",
+		},
+		{
+			Spec:   ProposerSpec{Endpoint: testEndpoint("ep2", "model-b"), PersonaKey: "balthasar"},
+			Answer: "answer from slot 1 (peer, included)",
+		},
+		{
+			Spec:   ProposerSpec{Endpoint: testEndpoint("ep3", "model-c"), PersonaKey: "casper"},
+			Answer: "answer from slot 2 (peer, skipped)",
+		},
+	}
+
+	skip := []bool{false, false, true}
+	prompt := BuildDebatePrompt("task", results, 0, "", skip)
+
+	// Slot 1 answer should be present.
+	if !strings.Contains(prompt, "answer from slot 1 (peer, included)") {
+		t.Error("prompt should contain non-skipped peer answer (slot 1)")
+	}
+	// Slot 2 answer should be absent.
+	if strings.Contains(prompt, "answer from slot 2 (peer, skipped)") {
+		t.Error("prompt should NOT contain skipped peer answer (slot 2)")
+	}
+	// Only one peer letter (A) should appear — slot 2 is excluded so no "심의자 B".
+	if !strings.Contains(prompt, "심의자 A") {
+		t.Error("prompt should contain '심의자 A' for the single included peer")
+	}
+	if strings.Contains(prompt, "심의자 B") {
+		t.Error("prompt should NOT contain '심의자 B' — slot 2 is skipped")
+	}
+}
+
+// TestBuildDebatePrompt_PeerCapHalved verifies that peer answers are capped
+// at debatePeerCap (6000 runes) while own answers use the full 12000 cap.
+func TestBuildDebatePrompt_PeerCapHalved(t *testing.T) {
+	// Case 1: own answer = 7000 runes (under 12000 cap → no truncation),
+	//         peer answer = "short" (well under either cap).
+	longOwnAnswer := strings.Repeat("가", 7000)
+	results := []ProposerResult{
+		{
+			Spec:   ProposerSpec{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"},
+			Answer: longOwnAnswer,
+		},
+		{
+			Spec:   ProposerSpec{Endpoint: testEndpoint("ep2", "model-b"), PersonaKey: "balthasar"},
+			Answer: "short peer answer",
+		},
+	}
+
+	prompt := BuildDebatePrompt("task", results, 0, "", nil)
+	if strings.Contains(prompt, "[truncated]") {
+		t.Error("own answer (7000 runes, cap 12000) should NOT be truncated")
+	}
+
+	// Case 2: slot 0 is self with a short answer, slot 1 is the peer with
+	// a 7000-rune answer that exceeds the 6000 peer cap.
+	results[0].Answer = "short own answer"
+	results[1].Answer = longOwnAnswer
+
+	promptPeer := BuildDebatePrompt("task", results, 0, "", nil)
+	if !strings.Contains(promptPeer, "[truncated]") {
+		t.Error("peer answer (7000 runes, cap 6000) should be truncated")
+	}
+}
+
+// TestBuildDebatePrompt_NoReinvestigation verifies that the debate directive
+// includes the "재조사는 금지한다" instruction.
+func TestBuildDebatePrompt_NoReinvestigation(t *testing.T) {
+	results := []ProposerResult{
+		{
+			Spec:   ProposerSpec{Endpoint: testEndpoint("ep1", "model-a"), PersonaKey: "melchior"},
+			Answer: "answer 1",
+		},
+		{
+			Spec:   ProposerSpec{Endpoint: testEndpoint("ep2", "model-b"), PersonaKey: "balthasar"},
+			Answer: "answer 2",
+		},
+	}
+
+	prompt := BuildDebatePrompt("task", results, 0, "", nil)
+
+	if !strings.Contains(prompt, "재조사는 금지한다") {
+		t.Error("prompt should contain '재조사는 금지한다' instruction")
+	}
+	if !strings.Contains(prompt, "도구를 호출하지 말고") {
+		t.Error("prompt should contain '도구를 호출하지 말고' instruction")
+	}
+}
+
+// TestRunDebateRound_SkippedSlotKeepsRound1 verifies that a slot marked
+// Skip does not get a backend call and retains its round-1 answer with
+// the errSlotSkipped sentinel replaced by the round-1 result.
+func TestRunDebateRound_SkippedSlotKeepsRound1(t *testing.T) {
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": okFake("Revised A\nCONFIDENCE: 9"),
+			"ep2": okFake("Revised B\nCONFIDENCE: 8"),
+			"ep3": okFake("Revised C\nCONFIDENCE: 9"),
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	var outputLines []string
+	onOutput := func(s string) { outputLines = append(outputLines, s) }
+
+	round1 := []ProposerResult{
+		{
+			Spec:       ProposerSpec{Endpoint: testEndpoint("ep1", "qwen3-27b"), PersonaKey: "melchior"},
+			Answer:     "Original A",
+			Confidence: 7,
+		},
+		{
+			Spec:       ProposerSpec{Endpoint: testEndpoint("ep2", "llama-3.3-70b"), PersonaKey: "balthasar"},
+			Answer:     "Original B",
+			Confidence: 6,
+		},
+		{
+			Spec:       ProposerSpec{Endpoint: testEndpoint("ep3", "mistral-small"), PersonaKey: "casper"},
+			Answer:     "Original C",
+			Confidence: 5,
+		},
+	}
+
+	opts := RunProposersOptions{
+		BaseSystem:  "base system prompt",
+		Temperature: 0.7,
+		Timeout:     5 * time.Second,
+		Skip:        []bool{false, true, false},
+		OnOutput:    onOutput,
+	}
+
+	results := RunDebateRound(context.Background(), opts, round1, "", "original task")
+
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// Slot 1 should retain round-1 answer.
+	if results[1].Err != nil {
+		t.Errorf("slot 1 should have Err cleared (round-1 fallback), got err: %v", results[1].Err)
+	}
+	if results[1].Answer != "Original B" {
+		t.Errorf("slot 1 answer: expected 'Original B', got %q", results[1].Answer)
+	}
+	if results[1].Confidence != 6 {
+		t.Errorf("slot 1 confidence: expected round-1 value 6, got %d", results[1].Confidence)
+	}
+
+	// Slots 0 and 2 should have revised answers.
+	if results[0].Answer != "Revised A" {
+		t.Errorf("slot 0 answer: expected 'Revised A', got %q", results[0].Answer)
+	}
+	if results[2].Answer != "Revised C" {
+		t.Errorf("slot 2 answer: expected 'Revised C', got %q", results[2].Answer)
+	}
+
+	// Only 2 backend calls (slot 1 skipped).
+	if fake.calls != 2 {
+		t.Errorf("backend calls = %d, want 2 (slot 1 skipped)", fake.calls)
+	}
+
+	// Output should mention "기권 유지 — 토론 제외" for slot 1.
+	foundSkipNotice := false
+	for _, line := range outputLines {
+		if strings.Contains(line, "기권 유지") && strings.Contains(line, "토론 제외") {
+			foundSkipNotice = true
+			break
+		}
+	}
+	if !foundSkipNotice {
+		t.Error("output should contain '기권 유지 — 토론 제외' for skipped slot")
+	}
+
+	// Output should NOT contain the generic failure message for slot 1.
+	for _, line := range outputLines {
+		if strings.Contains(line, "토론 라운드 실패") {
+			t.Error("output should NOT contain '토론 라운드 실패' for skipped slot")
+			break
+		}
 	}
 }

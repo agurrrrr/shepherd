@@ -2399,3 +2399,59 @@ func TestReaskProposer_EmbeddedPromptAndBudget(t *testing.T) {
 		}
 	})
 }
+
+// TestRunProposers_SkipSlot verifies that a slot marked Skip does not get a
+// backend call and carries the errSlotSkipped sentinel.
+func TestRunProposers_SkipSlot(t *testing.T) {
+	fake := &fakeCallEndpoint{
+		funcs: map[string]fakeFunc{
+			"ep1": okFake("Answer A\nCONFIDENCE: 8"),
+			"ep2": okFake("Answer B\nCONFIDENCE: 7"),
+			"ep3": okFake("Answer C\nCONFIDENCE: 9"),
+		},
+	}
+	restore := withFakeCallEndpoint(fake)
+	defer restore()
+
+	opts := RunProposersOptions{
+		Proposers: []ProposerSpec{
+			{Endpoint: testEndpoint("ep1", "qwen3-27b"), PersonaKey: "melchior"},
+			{Endpoint: testEndpoint("ep2", "llama-3.3-70b"), PersonaKey: "balthasar"},
+			{Endpoint: testEndpoint("ep3", "mistral-small"), PersonaKey: "casper"},
+		},
+		BaseSystem:  "base system",
+		UserPrompts: []string{"task"},
+		Timeout:     5 * time.Second,
+		Skip:        []bool{false, true, false},
+	}
+
+	results := RunProposers(context.Background(), opts)
+
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// Slot 1 should carry the sentinel error.
+	if !errors.Is(results[1].Err, errSlotSkipped) {
+		t.Errorf("slot 1 err: expected errSlotSkipped, got %v", results[1].Err)
+	}
+
+	// Slots 0 and 2 should succeed normally.
+	if results[0].Err != nil {
+		t.Errorf("slot 0 unexpected error: %v", results[0].Err)
+	}
+	if results[0].Answer != "Answer A" {
+		t.Errorf("slot 0 answer: expected 'Answer A', got %q", results[0].Answer)
+	}
+	if results[2].Err != nil {
+		t.Errorf("slot 2 unexpected error: %v", results[2].Err)
+	}
+	if results[2].Answer != "Answer C" {
+		t.Errorf("slot 2 answer: expected 'Answer C', got %q", results[2].Answer)
+	}
+
+	// Only 2 backend calls (slot 1 skipped).
+	if fake.calls != 2 {
+		t.Errorf("backend calls = %d, want 2 (slot 1 skipped)", fake.calls)
+	}
+}
