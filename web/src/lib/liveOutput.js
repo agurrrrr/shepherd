@@ -1,15 +1,17 @@
 /**
  * Append a streaming output chunk into the live-output line array.
  *
- * Providers like Grok emit per-token deltas. Each OnOutput call used to become
- * its own "line", so BPE fragments ("screens" + "hots") rendered as mid-word
- * breaks and markdown re-rendered on every token (task #7201/#7202).
+ * Line contract (task #7209): the server-side LineCoalescer (in
+ * internal/worker/interactive.go) is the single source of truth for line
+ * boundaries. It buffers incomplete chunks and emits only complete lines
+ * (ending with '\n'). The frontend no longer merges chunks across SSE
+ * events — each event is already a coalesced line.
  *
- * Convention: a chunk that does NOT end with `\n` leaves the last line "open".
- * The next chunk is concatenated onto that line instead of starting a new one.
+ * The state.open flag is kept for backward compatibility with UI components
+ * that check it, but it no longer causes cross-event line merging.
  *
  * @param {string[]} lines - current live output lines
- * @param {string} text - raw SSE/output chunk (may contain embedded newlines)
+ * @param {string} text - SSE/output chunk (already coalesced by server)
  * @param {{ open: boolean }} state - mutable flag; true when last line is incomplete
  * @param {number} [maxLines=5000]
  * @returns {string[]}
@@ -19,18 +21,11 @@ export function appendLiveOutput(lines, text, state, maxLines = 5000) {
 		return lines;
 	}
 
-	let combined;
-	let base;
-	if (state.open && lines.length > 0) {
-		combined = lines[lines.length - 1] + text;
-		base = lines.slice(0, -1);
-	} else {
-		combined = text;
-		base = lines.slice();
-	}
-
-	const endsWithNL = combined.endsWith('\n');
-	const parts = combined.split('\n');
+	// The server coalescer emits complete lines (ending with '\n') and
+	// at most one trailing open line (from Flush, without '\n').
+	// Split on '\n' to handle multi-line events.
+	const endsWithNL = text.endsWith('\n');
+	const parts = text.split('\n');
 	if (endsWithNL) {
 		parts.pop(); // drop trailing empty from split
 		state.open = false;
@@ -38,14 +33,7 @@ export function appendLiveOutput(lines, text, state, maxLines = 5000) {
 		state.open = true;
 	}
 
-	let next;
-	if (state.open) {
-		// Last part is the incomplete line still being written.
-		const incomplete = parts.pop() ?? '';
-		next = base.concat(parts, incomplete);
-	} else {
-		next = base.concat(parts);
-	}
+	const next = lines.concat(parts);
 
 	if (next.length > maxLines) {
 		return next.slice(-maxLines);

@@ -195,8 +195,9 @@
 	}
 
 	onMount(() => {
-		// SSE: live output (5000줄 버퍼). Incomplete chunks (no trailing \n)
-		// append to the previous line so Grok/token streams don't fragment.
+		// SSE: live output (5000줄 버퍼). The server-side LineCoalescer
+		// already emits complete lines (task #7209), so appendLiveOutput
+		// is now a thin wrapper that pushes lines.
 		unsubs.push(onSSE('output', (data) => {
 			if (data.project_name === projectName) {
 				const state = { open: liveOutputOpen };

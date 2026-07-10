@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -1000,6 +1001,35 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 		}
 
 		// 6. Assemble magi.Options and run the pipeline.
+		// MAGI proposer token streaming (task #7209):
+		//
+		// Previously, every per-token delta was wrapped with [MAGI:N] prefix
+		// and sent to OnOutput. This caused two problems:
+		//   1. Tokens without trailing '\n' got open-line-merged by the
+		//      frontend's appendLiveOutput, cross-contaminating slots:
+		//      "[MAGI:0] 안녕[MAGI:1] Hello" on a single line.
+		//   2. The prefix appeared on every tiny fragment, creating hundreds
+		//      of [MAGI:N] x, [MAGI:N] y lines in the output.
+		//
+		// Now each slot has its own LineCoalescer. The prefix is attached
+		// exactly once per complete line, and incomplete lines stay buffered
+		// per-slot so they can never merge with another slot's content.
+		magiMu := &sync.Mutex{}
+		magiCoalescers := make(map[int]*worker.LineCoalescer)
+		magiFlushed := false
+
+		flushMagiCoalescers := func() {
+			if magiFlushed {
+				return
+			}
+			magiFlushed = true
+			magiMu.Lock()
+			for _, c := range magiCoalescers {
+				c.Flush()
+			}
+			magiMu.Unlock()
+		}
+
 		magiOpts := magi.Options{
 			SheepName:           sheepName,
 			ProjectPath:         projectPath,
@@ -1012,15 +1042,28 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 			ProposerTimeout:     time.Duration(magiCfg.ProposerTimeoutSeconds) * time.Second,
 			OnOutput:            opts.OnOutput,
 			OnProposerToken: func(slot int, text string) {
-				if opts.OnOutput != nil {
-					opts.OnOutput(fmt.Sprintf("[MAGI:%d] %s", slot, text))
+				if opts.OnOutput == nil {
+					return
 				}
+				magiMu.Lock()
+				c, ok := magiCoalescers[slot]
+				if !ok {
+					c = worker.NewLineCoalescer(func(line string) {
+						opts.OnOutput(fmt.Sprintf("[MAGI:%d] %s", slot, line))
+					})
+					magiCoalescers[slot] = c
+				}
+				magiMu.Unlock()
+				c.Append(text)
 			},
 			ToolDefs:     toolDefs,
 			ToolDispatch: mcpDispatch,
 		}
 
 		result, err := magi.Run(ctx, magiOpts)
+		// Flush remaining buffered content from all MAGI coalescers so the
+		// final partial lines are not lost.
+		flushMagiCoalescers()
 		if err != nil {
 			// ErrInsufficientProposers is returned as-is so the worker fallback
 			// branch can identify it via errors.Is (design §5.1).

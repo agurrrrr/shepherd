@@ -364,23 +364,39 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 	var outputLines []string
 	var outputLinesBytes int
 
-	// Set output callback
+	// Set output callback.
+	//
+	// Line coalescing (task #7209): raw streaming chunks (especially from
+	// Grok per-token deltas and MAGI proposer tokens) may not end with '\n'.
+	// Previously, each chunk became its own array element, causing:
+	//   - BPE fragment lines ("screens" + "hots" on separate lines)
+	//   - MAGI slot cross-contamination when the frontend tried to merge
+	//     open lines from different slots
+	//
+	// The LineCoalescer buffers incomplete chunks and emits only complete
+	// lines (ending with '\n'). This makes the line array identical whether
+	// viewed live (SSE) or after reload (DB), and prevents MAGI prefix
+	// collision. The frontend appendLiveOutput is now a thin wrapper that
+	// simply pushes lines.
+	coalescer := worker.NewLineCoalescer(func(line string) {
+		outputLines = append(outputLines, line)
+		outputLinesBytes += len(line)
+
+		// Enforce byte budget with head+tail preservation.
+		if outputLinesBytes > maxOutputLinesBytes {
+			outputLines, outputLinesBytes = capOutputLinesHeadTail(outputLines)
+		}
+
+		// Also save output to RunningTask (used on interruption)
+		worker.AppendOutput(sheepName, line)
+		if p.OnOutput != nil {
+			p.OnOutput(sheepName, projectName, line)
+		}
+	})
+
 	opts := worker.DefaultInteractiveOptions(
 		func(text string) {
-			// Collect output
-			outputLines = append(outputLines, text)
-			outputLinesBytes += len(text)
-
-			// Enforce byte budget with head+tail preservation.
-			if outputLinesBytes > maxOutputLinesBytes {
-				outputLines, outputLinesBytes = capOutputLinesHeadTail(outputLines)
-			}
-
-			// Also save output to RunningTask (used on interruption)
-			worker.AppendOutput(sheepName, text)
-			if p.OnOutput != nil {
-				p.OnOutput(sheepName, projectName, text)
-			}
+			coalescer.Append(text)
 		},
 		nil, // Input handler (not used in queue processing)
 	)
@@ -438,6 +454,10 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 
 		break // Non-retryable error
 	}
+
+	// Flush any remaining buffered content from the line coalescer so the
+	// final partial line is not lost (task #7209).
+	coalescer.Flush()
 
 	// Handle error
 	if execErr != nil {

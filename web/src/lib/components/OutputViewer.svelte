@@ -76,15 +76,11 @@
 				if (currentQuestion) { blocks.push(currentQuestion); currentQuestion = null; }
 				if (currentResult) { blocks.push(currentResult); currentResult = null; }
 				if (currentText) {
-					// Complete lines (trailing \n) or safety-flushed partial phrases
-					// (trailing space from Grok liveBuf word-boundary) continue on
-					// the same visual block without an extra hard break. Otherwise
-					// insert \n between discrete line entries (Claude/OpenCode).
-					if (currentText.text.endsWith('\n') || /[ \t]$/.test(currentText.text)) {
-						currentText.text += text;
-					} else {
-						currentText.text += '\n' + text;
-					}
+					// Each line is already coalesced by the server-side
+					// LineCoalescer (task #7209), so we simply join with '\n'.
+					// The old trailing-space heuristic (from Grok liveBuf
+					// word-boundary flush) is no longer needed.
+					currentText.text += '\n' + text;
 				} else {
 					currentText = { type: 'text', text };
 				}
@@ -104,11 +100,22 @@
 		return 'md_' + h + '_' + t.length;
 	}
 
-	// Render markdown and cache result
+	// Render markdown and cache result. The cache is capped at 100 entries
+	// (LRU-like: oldest keys are evicted first) to prevent unbounded memory
+	// growth during long streaming sessions (task #7209).
+	const MD_CACHE_LIMIT = 100;
+	let mdCacheKeys = []; // track insertion order for eviction
+
 	async function ensureRendered(text) {
 		const key = hashText(text);
 		if (mdCache[key] !== undefined) return;
 		mdCache[key] = null; // mark as pending
+		mdCacheKeys.push(key);
+		// Evict oldest entries if over limit.
+		while (mdCacheKeys.length > MD_CACHE_LIMIT) {
+			const oldKey = mdCacheKeys.shift();
+			delete mdCache[oldKey];
+		}
 		try {
 			const html = await carta.render(text);
 			mdCache[key] = html;
@@ -136,7 +143,7 @@
 		}
 		const last = texts[texts.length - 1];
 		if (!last) return;
-		const t = setTimeout(() => ensureRendered(last), 120);
+		const t = setTimeout(() => ensureRendered(last), 200);
 		return () => clearTimeout(t);
 	});
 
@@ -173,7 +180,7 @@
 </script>
 
 <div class="output-viewer" style="max-height: {maxHeight}" bind:this={container}>
-	{#each blocks as block, i (i)}
+	{#each blocks as block, i (block.type + ':' + i + ':' + (block.text || block.question || '').slice(0, 20))}
 		{#if block.type === 'sheep'}
 			<div class="block-sheep">{block.text.trim()}</div>
 

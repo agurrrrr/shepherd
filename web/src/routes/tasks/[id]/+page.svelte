@@ -30,8 +30,9 @@
 		}
 		loading = false;
 
-		// SSE for live output when task is running. Incomplete chunks (no
-		// trailing \n) append to the previous line to avoid token fragmentation.
+		// SSE for live output when task is running. The server-side
+		// LineCoalescer already emits complete lines (task #7209), so
+		// appendLiveOutput is now a thin wrapper that pushes lines.
 		unsubs.push(onSSE('output', (data) => {
 			if (task && task.status === 'running' && task.sheep === data.sheep_name) {
 				const state = { open: liveOutputOpen };

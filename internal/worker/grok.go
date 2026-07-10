@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/envutil"
@@ -281,17 +282,41 @@ func (b *grokLiveBuf) Flush() {
 
 // flushSafety emits without a newline, preferring a word boundary so BPE
 // token cuts (e.g. "screens"+"hots") don't become mid-word line breaks.
+// For CJK text (which rarely contains spaces), we also accept sentence-ending
+// punctuation and CJK character boundaries as split points (task #7209).
 func (b *grokLiveBuf) flushSafety() {
 	if b.out == nil || b.buf.Len() == 0 {
 		return
 	}
 	s := b.buf.String()
+
+	// Try ASCII space first (original heuristic).
 	if sp := strings.LastIndexByte(s, ' '); sp >= len(s)/2 {
 		b.out(s[:sp+1])
 		b.buf.Reset()
 		b.buf.WriteString(s[sp+1:])
 		return
 	}
+
+	// Try CJK sentence-ending punctuation: 。！？，、；：
+	// These are natural break points in Korean/Chinese/Japanese text.
+	for i := len(s) - 1; i >= len(s)/2; i-- {
+		c := s[i]
+		if c == 0xE3 || c == 0xEF { // UTF-8 lead byte for U+3000-U+3FFF (CJK punctuation) or U+FF00-U+FFEF (halfwidth/fullwidth)
+			// Check if this is a CJK punctuation character (3-byte UTF-8).
+			if i+2 < len(s) {
+				r, _ := utf8.DecodeRuneInString(s[i:])
+				if r == '。' || r == '！' || r == '？' || r == '，' || r == '、' || r == '；' || r == '：' {
+					b.out(s[:i+3])
+					b.buf.Reset()
+					b.buf.WriteString(s[i+3:])
+					return
+				}
+			}
+		}
+	}
+
+	// No good split point found — emit the whole buffer.
 	b.out(s)
 	b.buf.Reset()
 }

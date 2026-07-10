@@ -136,7 +136,10 @@
 		}
 	});
 
-	// ── Markdown rendering cache ──
+	// ── Markdown rendering cache (LRU-capped, task #7209) ──
+	const MD_CACHE_LIMIT = 100;
+	let mdCacheKeys = [];
+
 	function hashText(t) {
 		let h = 0;
 		for (let i = 0; i < t.length; i++) h = ((h << 5) - h + t.charCodeAt(i)) | 0;
@@ -148,6 +151,11 @@
 		const key = hashText(text);
 		if (mdCache[key] !== undefined) return;
 		mdCache[key] = null;
+		mdCacheKeys.push(key);
+		while (mdCacheKeys.length > MD_CACHE_LIMIT) {
+			const oldKey = mdCacheKeys.shift();
+			delete mdCache[oldKey];
+		}
 		try {
 			const html = await carta.render(text);
 			mdCache[key] = html;

@@ -201,6 +201,62 @@ const maxOutputBuilderBytes = 10 * 1024 * 1024 // 10 MB
 // to reconstruct what happened before a crash or manual stop.
 const maxRunningTaskOutputBytes = 5 * 1024 * 1024 // 5 MB
 
+// LineCoalescer buffers raw streaming chunks and emits complete lines only.
+//
+// The line contract (task #7209):
+//   - A "complete line" ends with '\n'. It is emitted as-is (including the
+//     trailing '\n') and becomes one element in the output lines array.
+//   - A chunk without a trailing '\n' leaves the line "open": subsequent
+//     chunks are appended to the same buffer until a '\n' arrives.
+//   - Flush() emits any remaining buffered content as a final (open) line
+//     without a trailing '\n'. Callers that receive an open line know the
+//     next chunk continues it.
+//
+// This coalescer is the single source of truth for line boundaries across
+// live SSE, persistent DB storage, and MAGI multi-slot streaming. Both
+// processor.go (DB + SSE) and server.go (MAGI proposer tokens) use it so
+// that "the same raw event sequence produces the same line array" whether
+// viewed live or after reload.
+type LineCoalescer struct {
+	buf strings.Builder
+	out func(string) // receives complete lines (with '\n') and flushed open lines
+}
+
+// NewLineCoalescer creates a coalescer that calls out for each complete line.
+func NewLineCoalescer(out func(string)) *LineCoalescer {
+	return &LineCoalescer{out: out}
+}
+
+// Append feeds a raw chunk through the coalescer. Complete lines (those
+// ending with '\n') are emitted immediately via the out callback. Any
+// remaining text after the last '\n' stays buffered for the next call.
+func (c *LineCoalescer) Append(text string) {
+	if text == "" || c.out == nil {
+		return
+	}
+	c.buf.WriteString(text)
+	for {
+		s := c.buf.String()
+		nlIdx := strings.IndexByte(s, '\n')
+		if nlIdx < 0 {
+			break
+		}
+		c.out(s[:nlIdx+1])
+		c.buf.Reset()
+		c.buf.WriteString(s[nlIdx+1:])
+	}
+}
+
+// Flush emits any remaining buffered content as a final open line (without
+// a trailing '\n'). After Flush, the coalescer is empty.
+func (c *LineCoalescer) Flush() {
+	if c.out == nil || c.buf.Len() == 0 {
+		return
+	}
+	c.out(c.buf.String())
+	c.buf.Reset()
+}
+
 // AppendOutput appends output text to the running task's output buffer.
 // The buffer is capped at maxRunningTaskOutputBytes: when the limit is
 // exceeded, the oldest entries are dropped and a truncation marker is
