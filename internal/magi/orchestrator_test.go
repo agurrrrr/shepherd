@@ -136,6 +136,7 @@ const (
 	jsonMajorityLowConf     = `{"verdict":"majority","agreement_axis":"두 명 동의","synthesis":"저신뢰 다수안입니다.","dissent":"소수 의견","confidence":4}`
 	jsonUnanimousPostDebate = `{"verdict":"unanimous","agreement_axis":"토론 후 합의","synthesis":"토론 후 종합 답변입니다.","dissent":"","confidence":9}`
 	jsonSplitPostDebate     = `{"verdict":"split","agreement_axis":"여전히 분열","synthesis":"토론 후 임시 종합입니다.","dissent":"여전히 의견 상이","confidence":5}`
+	jsonSplitAbstained      = `{"verdict":"split","agreement_axis":"유효표 부족","synthesis":"임시 종합.","dissent":"CASPER-3 기권 처리","confidence":5,"abstained":["CASPER-3"]}`
 )
 
 // ─── Standard options builder ─────────────────────────────────────────
@@ -698,4 +699,316 @@ func TestIsAcceptable_NilVerdict(t *testing.T) {
 	if isAcceptable(nil, 9) {
 		t.Error("nil verdict should not be acceptable")
 	}
+}
+
+// ─── step-10: abstain second chance tests ─────────────────────────────
+
+// reaskOK returns a fake reask function that produces a gate-passing answer
+// with a confidence line.
+func reaskOK(answer string, conf int) fakeReaskFunc {
+	return func(_ context.Context, _ ProposerSpec, _, _, _, _ string, _ time.Duration, _, _ string, _ func(string)) (string, embedded.ChatUsage, error) {
+		return answer + fmt.Sprintf("\nCONFIDENCE: %d", conf), embedded.ChatUsage{}, nil
+	}
+}
+
+func reaskErr(msg string) fakeReaskFunc {
+	return func(_ context.Context, _ ProposerSpec, _, _, _, _ string, _ time.Duration, _, _ string, _ func(string)) (string, embedded.ChatUsage, error) {
+		return "", embedded.ChatUsage{}, errors.New(msg)
+	}
+}
+
+// longAnswer builds a Korean prose block comfortably above minSubstantiveRunes.
+func longAnswer(text string) string {
+	return text + strings.Repeat("내용입니다. ", 10)
+}
+
+// TestRun_AbstainSecondChanceToConsensus: 1차 판정 split + abstained CASPER-3,
+// reask 성공 → 재판정 unanimous → 토론 없이 종결.
+func TestRun_AbstainSecondChanceToConsensus(t *testing.T) {
+	fake := newDualFake()
+	fake.setEndpoint("ep1", okUsage(longAnswer("Answer A")+"\nCONFIDENCE: 8", embedded.ChatUsage{}))
+	fake.setEndpoint("ep2", okUsage(longAnswer("Answer B")+"\nCONFIDENCE: 7", embedded.ChatUsage{}))
+	fake.setEndpoint("ep3", okUsage(longAnswer("Answer C")+"\nCONFIDENCE: 5", embedded.ChatUsage{}))
+	fake.setAggregator(
+		aggJSON(jsonSplitAbstained, embedded.ChatUsage{}),
+		aggJSON(jsonUnanimousHigh, embedded.ChatUsage{}),
+	)
+	fake.setReask(reaskOK(longAnswer("Revised C"), 8))
+	restore := fake.install()
+	defer restore()
+
+	opts := stdOptions()
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Incomplete {
+		t.Error("Incomplete should be false")
+	}
+	if result.Result != "종합 답변입니다." {
+		t.Errorf("result = %q, want synthesis from re-judge", result.Result)
+	}
+	if fake.epTotal != 3 {
+		t.Errorf("endpoint calls = %d, want 3 (no debate)", fake.epTotal)
+	}
+	if fake.aggTotal != 2 {
+		t.Errorf("aggregator calls = %d, want 2 (1st + re-judge)", fake.aggTotal)
+	}
+	if fake.reaskTotal != 1 {
+		t.Errorf("reask calls = %d, want 1", fake.reaskTotal)
+	}
+}
+
+// TestRun_AbstainReaskFailsDebateProceeds: reask 에러 → 재판정 없이 토론 진행.
+func TestRun_AbstainReaskFailsDebateProceeds(t *testing.T) {
+	fake := newDualFake()
+	fake.setEndpoint("ep1",
+		okUsage(longAnswer("Round1 A")+"\nCONFIDENCE: 7", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised A")+"\nCONFIDENCE: 9", embedded.ChatUsage{}),
+	)
+	fake.setEndpoint("ep2",
+		okUsage(longAnswer("Round1 B")+"\nCONFIDENCE: 6", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised B")+"\nCONFIDENCE: 8", embedded.ChatUsage{}),
+	)
+	fake.setEndpoint("ep3",
+		okUsage(longAnswer("Round1 C")+"\nCONFIDENCE: 5", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised C")+"\nCONFIDENCE: 9", embedded.ChatUsage{}),
+	)
+	fake.setAggregator(
+		aggJSON(jsonSplitAbstained, embedded.ChatUsage{}),
+		aggJSON(jsonUnanimousPostDebate, embedded.ChatUsage{}),
+	)
+	fake.setReask(reaskErr("backend down"))
+	restore := fake.install()
+	defer restore()
+
+	opts := stdOptions()
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Incomplete {
+		t.Error("Incomplete should be false")
+	}
+	// 1st judge + post-debate re-judge = 2 aggregator calls (no re-judge from second chance).
+	if fake.aggTotal != 2 {
+		t.Errorf("aggregator calls = %d, want 2", fake.aggTotal)
+	}
+	// 3 round1 + 3 debate = 6 endpoint calls.
+	if fake.epTotal != 6 {
+		t.Errorf("endpoint calls = %d, want 6", fake.epTotal)
+	}
+}
+
+// TestRun_AbstainRejudgeStillSplitGoesToDebate: reask 성공 → 재판정도 split → 토론 진행.
+func TestRun_AbstainRejudgeStillSplitGoesToDebate(t *testing.T) {
+	fake := newDualFake()
+	fake.setEndpoint("ep1",
+		okUsage(longAnswer("Round1 A")+"\nCONFIDENCE: 7", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised A")+"\nCONFIDENCE: 9", embedded.ChatUsage{}),
+	)
+	fake.setEndpoint("ep2",
+		okUsage(longAnswer("Round1 B")+"\nCONFIDENCE: 6", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised B")+"\nCONFIDENCE: 8", embedded.ChatUsage{}),
+	)
+	fake.setEndpoint("ep3",
+		okUsage(longAnswer("Round1 C")+"\nCONFIDENCE: 5", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised C")+"\nCONFIDENCE: 9", embedded.ChatUsage{}),
+	)
+	fake.setAggregator(
+		aggJSON(jsonSplitAbstained, embedded.ChatUsage{}),
+		aggJSON(jsonSplitLow, embedded.ChatUsage{}),
+		aggJSON(jsonUnanimousPostDebate, embedded.ChatUsage{}),
+	)
+	fake.setReask(reaskOK(longAnswer("Revised C"), 8))
+	restore := fake.install()
+	defer restore()
+
+	opts := stdOptions()
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Incomplete {
+		t.Error("Incomplete should be false")
+	}
+	if result.Result != "토론 후 종합 답변입니다." {
+		t.Errorf("result = %q, want post-debate synthesis", result.Result)
+	}
+	// 1st judge + re-judge + post-debate re-judge = 3 aggregator calls.
+	if fake.aggTotal != 3 {
+		t.Errorf("aggregator calls = %d, want 3", fake.aggTotal)
+	}
+}
+
+// TestRun_AbstainUnknownNameIgnored: abstained에 미지 이름 → reask 호출 0회.
+func TestRun_AbstainUnknownNameIgnored(t *testing.T) {
+	fake := newDualFake()
+	fake.setEndpoint("ep1",
+		okUsage(longAnswer("Round1 A")+"\nCONFIDENCE: 7", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised A")+"\nCONFIDENCE: 9", embedded.ChatUsage{}),
+	)
+	fake.setEndpoint("ep2",
+		okUsage(longAnswer("Round1 B")+"\nCONFIDENCE: 6", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised B")+"\nCONFIDENCE: 8", embedded.ChatUsage{}),
+	)
+	fake.setEndpoint("ep3",
+		okUsage(longAnswer("Round1 C")+"\nCONFIDENCE: 5", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised C")+"\nCONFIDENCE: 9", embedded.ChatUsage{}),
+	)
+	fake.setAggregator(
+		aggJSON(`{"verdict":"split","agreement_axis":"유효표 부족","synthesis":"임시 종합.","dissent":"기권","confidence":5,"abstained":["누군지모름"]}`, embedded.ChatUsage{}),
+		aggJSON(jsonUnanimousPostDebate, embedded.ChatUsage{}),
+	)
+	fake.setReask(reaskOK(longAnswer("Should not be called"), 8))
+	restore := fake.install()
+	defer restore()
+
+	opts := stdOptions()
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Incomplete {
+		t.Error("Incomplete should be false")
+	}
+	if fake.reaskTotal != 0 {
+		t.Errorf("reask calls = %d, want 0 (unknown name should not trigger reask)", fake.reaskTotal)
+	}
+}
+
+// TestRun_AbstainNotTriggeredWhenAcceptable: acceptable verdict에 abstained가 있어도 재기회 미발동.
+func TestRun_AbstainNotTriggeredWhenAcceptable(t *testing.T) {
+	fake := newDualFake()
+	fake.setEndpoint("ep1", okUsage(longAnswer("Answer A")+"\nCONFIDENCE: 8", embedded.ChatUsage{}))
+	fake.setEndpoint("ep2", okUsage(longAnswer("Answer B")+"\nCONFIDENCE: 7", embedded.ChatUsage{}))
+	fake.setEndpoint("ep3", okUsage(longAnswer("Answer C")+"\nCONFIDENCE: 9", embedded.ChatUsage{}))
+	// unanimous confidence 9 ≥ threshold-1=6 → acceptable, but has abstained field.
+	fake.setAggregator(aggJSON(`{"verdict":"unanimous","agreement_axis":"모두 동일","synthesis":"종합 답변입니다.","dissent":"","confidence":9,"abstained":["CASPER-3"]}`, embedded.ChatUsage{}))
+	fake.setReask(reaskOK(longAnswer("Should not be called"), 8))
+	restore := fake.install()
+	defer restore()
+
+	opts := stdOptions()
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Incomplete {
+		t.Error("Incomplete should be false")
+	}
+	if fake.reaskTotal != 0 {
+		t.Errorf("reask calls = %d, want 0 (acceptable verdict should not trigger second chance)", fake.reaskTotal)
+	}
+	if fake.aggTotal != 1 {
+		t.Errorf("aggregator calls = %d, want 1 (no re-judge)", fake.aggTotal)
+	}
+}
+
+// TestRun_RejudgeBackendErrorKeepsFirstVerdict: reask 성공 + 재판정 백엔드 에러 → 1차 verdict 유지.
+func TestRun_RejudgeBackendErrorKeepsFirstVerdict(t *testing.T) {
+	fake := newDualFake()
+	fake.setEndpoint("ep1",
+		okUsage(longAnswer("Round1 A")+"\nCONFIDENCE: 7", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised A")+"\nCONFIDENCE: 9", embedded.ChatUsage{}),
+	)
+	fake.setEndpoint("ep2",
+		okUsage(longAnswer("Round1 B")+"\nCONFIDENCE: 6", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised B")+"\nCONFIDENCE: 8", embedded.ChatUsage{}),
+	)
+	fake.setEndpoint("ep3",
+		okUsage(longAnswer("Round1 C")+"\nCONFIDENCE: 5", embedded.ChatUsage{}),
+		okUsage(longAnswer("Revised C")+"\nCONFIDENCE: 9", embedded.ChatUsage{}),
+	)
+	fake.setAggregator(
+		aggJSON(jsonSplitAbstained, embedded.ChatUsage{}),
+		func(_ context.Context, _ AggregatorSpec, _, _ string) (string, embedded.ChatUsage, error) {
+			return "", embedded.ChatUsage{}, errors.New("backend error")
+		},
+		aggJSON(jsonUnanimousPostDebate, embedded.ChatUsage{}),
+	)
+	fake.setReask(reaskOK(longAnswer("Revised C"), 8))
+	restore := fake.install()
+	defer restore()
+
+	var out []string
+	opts := stdOptions()
+	opts.OnOutput = func(s string) { out = append(out, s) }
+
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v (should not hard-fail on rejudge backend error)", err)
+	}
+	if result.Incomplete {
+		t.Error("Incomplete should be false")
+	}
+
+	// The pipeline should proceed to debate with the original verdict.
+	foundWarning := false
+	for _, line := range out {
+		if strings.Contains(line, "재기회 재판정 실패") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Error("output should contain '재기회 재판정 실패' warning")
+	}
+
+	// The updated slot name should be pruned from Abstained — but since the
+	// pipeline continues to debate and re-judge, we just verify it didn't
+	// hard-fail. The final result should come from the post-debate re-judge.
+	if result.Result != "토론 후 종합 답변입니다." {
+		t.Errorf("result = %q, want post-debate synthesis", result.Result)
+	}
+}
+
+// TestMatchAbstainedSlots verifies exact matching, whitespace trimming,
+// unknown name ignoring, and duplicate name single-counting.
+func TestMatchAbstainedSlots(t *testing.T) {
+	specs := stdProposers()
+	results := make([]ProposerResult, len(specs))
+	for i, s := range specs {
+		results[i] = ProposerResult{Spec: s}
+	}
+
+	t.Run("exact match", func(t *testing.T) {
+		skip, count := matchAbstainedSlots([]string{"CASPER-3"}, results)
+		if count != 1 || !skip[2] || skip[0] || skip[1] {
+			t.Errorf("skip=%v count=%d, want skip[2]=true count=1", skip, count)
+		}
+	})
+
+	t.Run("whitespace trimmed", func(t *testing.T) {
+		skip, count := matchAbstainedSlots([]string{"  CASPER-3  "}, results)
+		if count != 1 || !skip[2] {
+			t.Errorf("whitespace-padded name should still match: skip=%v count=%d", skip, count)
+		}
+	})
+
+	t.Run("unknown name ignored", func(t *testing.T) {
+		skip, count := matchAbstainedSlots([]string{"누군지모름"}, results)
+		if count != 0 {
+			t.Errorf("unknown name should not match: count=%d", count)
+		}
+		for i := range skip {
+			if skip[i] {
+				t.Errorf("skip[%d] should be false for unknown name", i)
+			}
+		}
+	})
+
+	t.Run("duplicate name counted once", func(t *testing.T) {
+		skip, count := matchAbstainedSlots([]string{"CASPER-3", "CASPER-3"}, results)
+		if count != 1 || !skip[2] {
+			t.Errorf("duplicate name should count once: skip=%v count=%d", skip, count)
+		}
+	})
+
+	t.Run("multiple names", func(t *testing.T) {
+		skip, count := matchAbstainedSlots([]string{"MELCHIOR-1", "BALTHASAR-2"}, results)
+		if count != 2 || !skip[0] || !skip[1] || skip[2] {
+			t.Errorf("two names should match two slots: skip=%v count=%d", skip, count)
+		}
+	})
 }

@@ -39,6 +39,35 @@ type Options struct {
 // The wiring layer falls back to a single embedded run (design §5.1).
 var ErrInsufficientProposers = errors.New("magi: fewer than 2 proposers succeeded")
 
+// abstainReaskDirective is the second-chance prompt for a slot the judge
+// abstained: demand a committed conclusion from what the proposer already
+// knows. Low certainty must surface as a low confidence score, not as a
+// content-free answer (task #7182).
+const abstainReaskDirective = `판정자가 너의 답변을 '기권'으로 분류했다 — 명확한 결론이 없거나 절차 안내만 있었기 때문이다.
+지금 가진 정보만으로 입장을 정하고, 근거와 함께 완결된 최종 답변을 작성하라.
+도구는 호출할 수 없다. 확신이 낮으면 낮은 신뢰도 점수로 표현하라.
+마지막 줄에 반드시 "CONFIDENCE: <0-10 정수>"를 추가하라.`
+
+// matchAbstainedSlots maps judge-reported abstained display names onto slots
+// of results. Names echo the "### <name>" headers of BuildJudgePrompt, which
+// uses PersonaDisplayName with the same index base, so the same function
+// matches them back. Unknown names are ignored — a judge may misquote one,
+// and a no-match must degrade to the pre-existing behavior (task #7182).
+func matchAbstainedSlots(names []string, results []ProposerResult) (skip []bool, count int) {
+	skip = make([]bool, len(results))
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		for i, r := range results {
+			if !skip[i] && n == PersonaDisplayName(r.Spec, i) {
+				skip[i] = true
+				count++
+				break
+			}
+		}
+	}
+	return skip, count
+}
+
 // Run executes the advisory consensus pipeline (design §5) and returns an
 // embedded.ExecuteResult so the worker wiring can reuse the existing
 // conversion path.
@@ -154,6 +183,15 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 		return nil, err
 	}
 
+	// ── 4.5 기권 슬롯 재기회 (task #7182) ──
+	//
+	// A failed first verdict with judge-declared abstentions gets one recovery
+	// attempt before the debate decision. When the re-judge turns acceptable,
+	// the normal adoption path below ends the pipeline without a debate.
+	if !isAcceptable(verdict, opts.ConfidenceThreshold) && len(verdict.Abstained) > 0 {
+		verdict = secondChanceForAbstained(ctx, opts, successful, verdict, timeout, &totalUsage, &totalCalls, emit)
+	}
+
 	// ── 5. DOWN 게이트 (설계서 §2.4, §5.3) ────────────────────────
 	adopted := false
 	finalText := ""
@@ -250,6 +288,105 @@ func Run(ctx context.Context, opts Options) (*embedded.ExecuteResult, error) {
 
 	// 여전히 split → DeadlockResult (casting vote — design §5.4).
 	return finalize(DeadlockResult(verdict2), totalUsage, totalCalls, emit), nil
+}
+
+// secondChanceForAbstained gives each judge-abstained slot one tools-off
+// reask, then re-judges once when any answer actually improved (task #7182:
+// an abstention shrinks the tally to a 2:1 deadlock — one recovery attempt
+// can restore a 3-vote verdict). Runs at most once per pipeline (straight-line
+// call site). Mutates successful in place and returns the operative verdict:
+// the re-judged one when it parsed, otherwise the original (conservative).
+func secondChanceForAbstained(
+	ctx context.Context,
+	opts Options,
+	successful []ProposerResult,
+	verdict *Verdict,
+	globalTimeout time.Duration,
+	totalUsage *embedded.ChatUsage,
+	totalCalls *int,
+	emit func(string),
+) *Verdict {
+	skip, count := matchAbstainedSlots(verdict.Abstained, successful)
+	if count == 0 || ctx.Err() != nil {
+		return verdict
+	}
+	emit(fmt.Sprintf("[MAGI:*] 🔁 기권 재기회 — %d개 슬롯에 재질문합니다\n", count))
+
+	updatedNames := make(map[string]bool)
+	for i := range successful {
+		if !skip[i] || ctx.Err() != nil {
+			continue
+		}
+		spec := successful[i].Spec
+		displayName := PersonaDisplayName(spec, i)
+
+		effTimeout := globalTimeout
+		if spec.Timeout > 0 {
+			effTimeout = spec.Timeout
+		}
+		budget := reaskBudget(effTimeout)
+
+		slot := i
+		tokenCb := func(text string) {
+			if opts.OnProposerToken != nil {
+				opts.OnProposerToken(slot, text)
+			}
+		}
+
+		systemPrompt := BuildProposerSystemPrompt(opts.BaseSystem, spec, i)
+		answer, usage, err := reaskProposer(ctx, spec, systemPrompt, opts.TaskPrompt,
+			successful[i].Answer, abstainReaskDirective, budget,
+			opts.ProjectPath, PersonaSheepName(opts.SheepName, spec, i), tokenCb)
+		totalUsage.PromptTokens += usage.PromptTokens
+		totalUsage.CompletionTokens += usage.CompletionTokens
+		totalUsage.TotalTokens += usage.TotalTokens
+		*totalCalls++
+
+		if err != nil {
+			emit(fmt.Sprintf("[MAGI:%d] ⚠️ %s 재질문 실패 — 기권 유지 (%v)\n", i, displayName, err))
+			continue
+		}
+		cleaned, conf := ExtractConfidence(answer)
+		// Adopt only a gate-passing answer with a reported confidence — a
+		// failed reask must never destroy the existing answer (#7000 principle).
+		if conf < 0 || CheckAnswerContent(cleaned) != nil {
+			emit(fmt.Sprintf("[MAGI:%d] ⚠️ %s 재질문 답변이 요건 미달 — 기권 유지\n", i, displayName))
+			continue
+		}
+		successful[i].Answer = cleaned
+		successful[i].Confidence = conf
+		updatedNames[displayName] = true
+		emit(fmt.Sprintf("[MAGI:%d] ✅ %s 재질문 성공 — 신뢰도 %d/10\n", i, displayName, conf))
+	}
+
+	if len(updatedNames) == 0 || ctx.Err() != nil {
+		return verdict
+	}
+
+	// Re-judge once with the updated answers.
+	tRejudge := time.Now()
+	verdict2, judgeUsage, judgeCalls, err := Judge(ctx, opts.Aggregator, successful, opts.TaskPrompt, emit)
+	totalUsage.PromptTokens += judgeUsage.PromptTokens
+	totalUsage.CompletionTokens += judgeUsage.CompletionTokens
+	totalUsage.TotalTokens += judgeUsage.TotalTokens
+	*totalCalls += judgeCalls
+
+	if err != nil || verdict2 == nil {
+		emit("[MAGI:*] ⚠️ 재기회 재판정 실패 — 1차 판정을 유지합니다\n")
+		// The first verdict's abstained list is now stale for the slots whose
+		// answers were just updated — prune them so the debate exclusion
+		// (step-11) doesn't drop a slot that holds a substantive answer.
+		kept := verdict.Abstained[:0:0]
+		for _, n := range verdict.Abstained {
+			if !updatedNames[strings.TrimSpace(n)] {
+				kept = append(kept, n)
+			}
+		}
+		verdict.Abstained = kept
+		return verdict
+	}
+	emit(fmt.Sprintf("[MAGI:*] ⏱️ 재기회 재판정 %d초\n", int(time.Since(tRejudge).Seconds())))
+	return verdict2
 }
 
 // isAcceptable checks the DOWN gate condition (design §2.4, §5.3).

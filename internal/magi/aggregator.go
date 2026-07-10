@@ -239,6 +239,7 @@ const judgeJSONSchema = `[출력 형식]
   "agreement_axis": "핵심 결론에서 무엇이 일치/불일치했는지 한 줄",
   "synthesis": "종합 답변 — 이것이 사용자에게 전달되는 최종 산출물이므로 완결된 답으로 작성하라",
   "dissent": "소수의견 요약 (없으면 빈 문자열)",
+  "abstained": ["기권 처리한 심의자 이름", ...],
   "confidence": 0-10
 }
 
@@ -246,6 +247,7 @@ const judgeJSONSchema = `[출력 형식]
 - verdict: 기권을 제외한 유효 답변 기준 — 핵심 결론이 모두 일치하면 "unanimous", 다수가 일치하면 "majority", 모두 다르거나 유효 답변이 1개 이하면 "split"
 - synthesis: 종합 답변 (최종 산출물)
 - dissent: 소수의견 요약 (없으면 빈 문자열)
+- abstained: 기권 처리 규칙으로 집계에서 제외한 심의자의 이름 배열 — 답변 섹션 제목(### 뒤)의 이름을 그대로 사용하라. 기권이 없으면 빈 배열
 - confidence: 종합 답변에 대한 확신 (0-10 정수)`
 
 // BuildJudgePrompt renders the three answers in random order with persona
@@ -267,7 +269,8 @@ func BuildJudgePrompt(results []ProposerResult, taskPrompt string) string {
 	// as consensus with high confidence.
 	b.WriteString("[기권 처리 규칙]\n")
 	b.WriteString("- 결론이 없는 답변(도구 호출 시도만 있음, 실질 내용 없음, 절차 안내만 있고 결론 없음)은 '기권'으로 취급하고 다수결 집계에서 제외하라.\n")
-	b.WriteString("- 기권을 제외한 유효 답변이 1개 이하면 합의가 성립하지 않는다: verdict를 \"split\"으로 하고, dissent에 어떤 답변을 왜 기권 처리했는지 명시하라.\n\n")
+	b.WriteString("- 기권을 제외한 유효 답변이 1개 이하면 합의가 성립하지 않는다: verdict를 \"split\"으로 하고, dissent에 어떤 답변을 왜 기권 처리했는지 명시하라.\n")
+	b.WriteString("- 기권 처리한 심의자의 이름을 출력 JSON의 \"abstained\" 배열에 기재하라 (섹션 제목의 이름 그대로).\n\n")
 
 	b.WriteString("[원 태스크]\n")
 	b.WriteString(capText(taskPrompt, 4000))

@@ -238,3 +238,27 @@ func TestCapText_RuneAware(t *testing.T) {
 		t.Errorf("capText should contain [truncated] marker, got: %q", got)
 	}
 }
+
+// --- ParseVerdict abstained field tests (step-10) ---
+
+func TestParseVerdict_AbstainedField(t *testing.T) {
+	// JSON with abstained field populated.
+	raw := `{"verdict":"split","agreement_axis":"유효표 부족","synthesis":"임시 종합.","dissent":"CASPER-3 기권 처리","confidence":5,"abstained":["CASPER-3"]}`
+	v, err := ParseVerdict(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(v.Abstained) != 1 || v.Abstained[0] != "CASPER-3" {
+		t.Errorf("Abstained = %v, want [\"CASPER-3\"]", v.Abstained)
+	}
+
+	// Existing JSON without abstained field — backward compatible.
+	rawNoAbstain := `{"verdict":"unanimous","agreement_axis":"all agree","synthesis":"ok","confidence":9}`
+	v2, err := ParseVerdict(rawNoAbstain)
+	if err != nil {
+		t.Fatalf("unexpected error for JSON without abstained: %v", err)
+	}
+	if len(v2.Abstained) != 0 {
+		t.Errorf("Abstained should be empty, got %v", v2.Abstained)
+	}
+}

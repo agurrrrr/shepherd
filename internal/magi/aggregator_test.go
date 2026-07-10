@@ -391,3 +391,22 @@ func TestBuildJudgePrompt_AnswerTruncation(t *testing.T) {
 		t.Error("long answer should be truncated")
 	}
 }
+
+// TestBuildJudgePrompt_AbstainedInstruction verifies that the judge prompt
+// instructs the model to populate the "abstained" array (step-10).
+func TestBuildJudgePrompt_AbstainedInstruction(t *testing.T) {
+	prompt := BuildJudgePrompt(testResults(), "test task")
+
+	// The JSON schema should mention the abstained field.
+	if !strings.Contains(prompt, `"abstained"`) {
+		t.Error("prompt should contain \"abstained\" in the JSON schema")
+	}
+
+	// The abstention rule section should instruct the model to record names.
+	if !strings.Contains(prompt, "abstained") {
+		t.Error("prompt should contain abstained instruction")
+	}
+	if !strings.Contains(prompt, "기권 처리한 심의자의 이름") {
+		t.Error("prompt should instruct recording abstained names")
+	}
+}

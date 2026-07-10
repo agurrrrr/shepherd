@@ -64,6 +64,13 @@ type Verdict struct {
 	Synthesis     string `json:"synthesis"`
 	Dissent       string `json:"dissent"`
 	Confidence    int    `json:"confidence"`
+
+	// Abstained lists the display names of deliberators the judge excluded
+	// from the tally under the abstention rule (echoing the "### <name>"
+	// headers of BuildJudgePrompt). Optional: an empty list simply means no
+	// second chance fires (task #7182). Populated names drive the abstain
+	// second chance and the debate exclusion (step-11).
+	Abstained []string `json:"abstained"`
 }
 
 // ParseVerdict extracts and validates the verdict JSON from raw model output.
