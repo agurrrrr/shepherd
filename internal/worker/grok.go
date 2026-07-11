@@ -111,7 +111,19 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 		// Buffer BOTH thought and text; flush on newline, section switch, or
 		// when a reasonable chunk accumulates (prefer word boundary).
 		// (text buffering: #7188/#7192; thought was still unbuffered until #7202.)
-		live := newGrokLiveBuf(opts.OnOutput)
+		//
+		// Thought flushes must stay tagged for the WebUI thinking block
+		// classifier (task #7275): safety-flush mid-thought used to emit plain
+		// text without 💭, so reasoning melted into the answer stream.
+		live := newGrokLiveBuf(func(s string) {
+			if opts.OnOutput == nil || s == "" {
+				return
+			}
+			if section == "thought" {
+				s = tagThoughtChunk(s)
+			}
+			opts.OnOutput(s)
+		})
 
 		for scanner.Scan() {
 			if ctx.Err() != nil {
@@ -136,7 +148,10 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 					// Flush any pending text before starting a thought section.
 					live.Flush()
 					section = "thought"
-					live.Write("💭 ")
+					// Leading newline so text→thought does not glue mid-line
+					// ("answer.💭 …"); expandGluedLines can split, but a clean
+					// line boundary is cheaper for storage + reload.
+					live.Write("\n💭 ")
 				}
 				live.Append(strings.ReplaceAll(ev.Data, "\n", "\n   "))
 			case "text":
@@ -230,6 +245,37 @@ func grokModelArgs(modelOverride string) []string {
 		return nil
 	}
 	return []string{"-m", m}
+}
+
+// tagThoughtChunk ensures a flushed thought chunk is classifiable as thinking
+// by the WebUI (starts with "💭 "). The first flush of a thought section is
+// already prefixed via live.Write("\n💭 "); safety-flush / multi-line
+// continuations re-tag so they are not swallowed into answer text blocks.
+func tagThoughtChunk(s string) string {
+	if s == "" {
+		return s
+	}
+	// Preserve leading newlines (section separators) then ensure a 💭 marker.
+	i := 0
+	for i < len(s) && (s[i] == '\n' || s[i] == '\r') {
+		i++
+	}
+	prefix, rest := s[:i], s[i:]
+	if rest == "" {
+		return s
+	}
+	trimmed := strings.TrimLeft(rest, " \t")
+	if strings.HasPrefix(trimmed, "💭") {
+		return s
+	}
+	// Multi-line worker convention: indent continuations with 3 spaces so
+	// groupLines keeps them inside the thinking block. Prefer 💭 re-tag for
+	// plain mid-section flushes so each chunk is independently classifiable
+	// even when reloaded out of order.
+	if strings.HasPrefix(rest, "   ") {
+		return s
+	}
+	return prefix + "💭 " + rest
 }
 
 // grokLiveBuf coalesces per-token thought/text deltas into line-sized chunks

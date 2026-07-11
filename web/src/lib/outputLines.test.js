@@ -3,7 +3,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { expandGluedLines, classifyLine, groupLines } from './outputLines.js';
+import { expandGluedLines, classifyLine, groupLines, thinkingBody } from './outputLines.js';
 
 describe('expandGluedLines', () => {
 	it('does not split checklist items with ✅', () => {
@@ -70,6 +70,21 @@ describe('classifyLine', () => {
 		assert.equal(classifyLine('  indented markdown\n', 'text'), 'text');
 		assert.equal(classifyLine('  still result\n', 'result'), 'result');
 	});
+
+	it('classifies 💭 lines as thinking, with 3-space continuations', () => {
+		assert.equal(classifyLine('💭 reasoning about the bug\n', null), 'thinking');
+		assert.equal(classifyLine('   more thought on next line\n', 'thinking'), 'thinking');
+		// 3-space indent after text is ordinary markdown, not thinking.
+		assert.equal(classifyLine('   indented list item\n', 'text'), 'text');
+	});
+});
+
+describe('thinkingBody', () => {
+	it('strips 💭 marker and continuation indent', () => {
+		assert.equal(thinkingBody('💭 hello'), 'hello');
+		assert.equal(thinkingBody('   cont'), 'cont');
+		assert.equal(thinkingBody('plain'), 'plain');
+	});
 });
 
 describe('groupLines', () => {
@@ -127,5 +142,43 @@ describe('groupLines', () => {
 			blocks[0].text,
 			'1. ✅ 인플레 자동 축소\n2. ✅ 스트릭+용서\n3. ✅ 시드 60'
 		);
+	});
+
+	it('groups 💭 reasoning into a thinking block separate from answer text', () => {
+		const lines = [
+			'💭 The flicker is raw↔HTML mode flip\n',
+			'   sticky HTML + tail is the fix\n',
+			'Grok 스트리밍 깜박임 원인을 잡고 수정했습니다.\n',
+			'**원인**은 프론트 표시 모드 전환입니다.\n'
+		];
+		const blocks = groupLines(lines);
+		assert.equal(blocks.length, 2);
+		assert.equal(blocks[0].type, 'thinking');
+		assert.ok(blocks[0].text.includes('flicker'));
+		assert.ok(blocks[0].text.includes('sticky HTML'));
+		assert.ok(!blocks[0].text.startsWith('💭'));
+		assert.equal(blocks[1].type, 'text');
+		assert.ok(blocks[1].text.includes('**원인**'));
+		assert.ok(blocks[1].text.includes('Grok 스트리밍'));
+	});
+
+	it('splits mid-line 💭 glue and merges adjacent re-tagged thought chunks', () => {
+		// Grok text→thought without newline + safety-flush re-tags each chunk.
+		const lines = [
+			'수정하겠습니다.💭 Now update OutputViewer\n',
+			'💭 and MagiStreamPanel next\n',
+			'\n',
+			'테스트 42개 통과.\n'
+		];
+		const blocks = groupLines(lines);
+		const types = blocks.map((b) => b.type);
+		assert.ok(types.includes('thinking'));
+		assert.ok(types.includes('text'));
+		const think = blocks.find((b) => b.type === 'thinking');
+		assert.ok(think.text.includes('Now update OutputViewer'));
+		assert.ok(think.text.includes('MagiStreamPanel'));
+		const texts = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+		assert.ok(texts.includes('수정하겠습니다.'));
+		assert.ok(texts.includes('테스트 42개'));
 	});
 });

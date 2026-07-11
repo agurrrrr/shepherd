@@ -32,20 +32,22 @@
 
 	let blocks = $derived(groupLines(lines));
 
-	// Sealed text blocks render immediately; the growing tail is debounced.
-	// While waiting, resolve() shows sticky HTML + plain tail (no mode flip).
+	// Sealed text/thinking blocks render immediately; the growing tail is
+	// debounced. While waiting, resolve() shows sticky HTML + plain tail
+	// (no mode flip). Thinking shares the same sticky path so 💭 streams
+	// do not flicker raw↔HTML either.
 	$effect(() => {
-		const textBlocks = [];
+		const mdBlocks = [];
 		for (let i = 0; i < blocks.length; i++) {
 			const b = blocks[i];
-			if (b.type === 'text' && b.text.trim()) {
-				textBlocks.push({ id: 'text:' + i, text: b.text });
+			if ((b.type === 'text' || b.type === 'thinking') && b.text.trim()) {
+				mdBlocks.push({ id: b.type + ':' + i, text: b.text });
 			}
 		}
-		for (let i = 0; i < textBlocks.length - 1; i++) {
-			ensureRendered(textBlocks[i].text, textBlocks[i].id);
+		for (let i = 0; i < mdBlocks.length - 1; i++) {
+			ensureRendered(mdBlocks[i].text, mdBlocks[i].id);
 		}
-		const last = textBlocks[textBlocks.length - 1];
+		const last = mdBlocks[mdBlocks.length - 1];
 		if (!last) return;
 		const t = setTimeout(() => ensureRendered(last.text, last.id), 280);
 		return () => clearTimeout(t);
@@ -126,6 +128,24 @@
 
 		{:else if block.type === 'result'}
 			<pre class="block-result"><code>{block.lines.map(l => l.replace(/^\s{2,3}/, '')).join('\n')}</code></pre>
+
+		{:else if block.type === 'thinking'}
+			{@const view = viewFor('thinking:' + i, block.text)}
+			<details class="block-thinking" open>
+				<summary class="thinking-summary">
+					<span class="thinking-icon">💭</span>
+					<span class="thinking-label">Thinking</span>
+				</summary>
+				{#if view.kind === 'exact'}
+					<div class="thinking-body markdown-body">{@html view.html}</div>
+				{:else if view.kind === 'sticky'}
+					<div class="thinking-body markdown-body">
+						{@html view.html}<span class="md-stream-tail">{view.tail}</span>
+					</div>
+				{:else}
+					<div class="thinking-body-raw">{block.text}</div>
+				{/if}
+			</details>
 
 		{:else if block.type === 'text'}
 			{@const view = viewFor('text:' + i, block.text)}
@@ -309,6 +329,101 @@
 		white-space: inherit;
 		word-break: inherit;
 		overflow-wrap: inherit;
+	}
+
+	/* Reasoning / thinking (💭) — collapsible, dimmed, markdown body */
+	.block-thinking {
+		margin-top: 4px;
+		padding: 0;
+		background: var(--bg-secondary);
+		border-left: 3px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+		border-radius: 0 var(--radius) var(--radius) 0;
+		min-width: 0;
+		overflow: hidden;
+		flex-shrink: 0;
+	}
+
+	.thinking-summary {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 10px;
+		cursor: pointer;
+		user-select: none;
+		list-style: none;
+		color: var(--text-secondary);
+		font-size: 12px;
+		font-weight: 600;
+	}
+
+	.thinking-summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.thinking-summary::before {
+		content: '▸';
+		font-size: 10px;
+		color: var(--text-secondary);
+		transition: transform 0.12s ease;
+	}
+
+	.block-thinking[open] > .thinking-summary::before {
+		transform: rotate(90deg);
+	}
+
+	.thinking-icon {
+		font-size: 13px;
+		flex-shrink: 0;
+	}
+
+	.thinking-label {
+		letter-spacing: 0.02em;
+	}
+
+	.thinking-body {
+		padding: 0 12px 10px;
+		font-size: 12.5px;
+		line-height: 1.55;
+		color: var(--text-secondary);
+		overflow-x: hidden;
+		word-break: break-word;
+		min-width: 0;
+	}
+
+	.thinking-body :global(p) { margin: 3px 0; }
+	.thinking-body :global(strong) { color: var(--text-primary); font-weight: 600; }
+	.thinking-body :global(code) {
+		background: var(--bg-tertiary);
+		padding: 1px 4px;
+		border-radius: 3px;
+		font-size: 11.5px;
+	}
+	.thinking-body :global(pre) {
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 6px 10px;
+		margin: 4px 0;
+		font-size: 11.5px;
+		overflow-x: auto;
+	}
+	.thinking-body :global(pre code) {
+		background: none;
+		padding: 0;
+	}
+	.thinking-body :global(ul),
+	.thinking-body :global(ol) {
+		margin: 3px 0;
+		padding-left: 18px;
+	}
+
+	.thinking-body-raw {
+		padding: 0 12px 10px;
+		font-size: 12.5px;
+		line-height: 1.55;
+		color: var(--text-secondary);
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 
 	/* AI text: markdown rendered */

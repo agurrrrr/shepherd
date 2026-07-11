@@ -103,3 +103,22 @@ func TestGrokLiveBuf_SectionSwitchFlush(t *testing.T) {
 		t.Errorf("text: %q", out[1])
 	}
 }
+
+func TestTagThoughtChunk(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"💭 already tagged", "💭 already tagged"},
+		{"plain continuation", "💭 plain continuation"},
+		{"\n\nplain after blank", "\n\n💭 plain after blank"},
+		{"   indented cont", "   indented cont"},
+		{"\n💭 has marker", "\n💭 has marker"},
+	}
+	for _, tc := range cases {
+		got := tagThoughtChunk(tc.in)
+		if got != tc.want {
+			t.Errorf("tagThoughtChunk(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

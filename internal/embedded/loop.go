@@ -483,8 +483,10 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 		// Surface the model's "thinking" (reasoning_content) for this turn so the
 		// live output shows what the model is reasoning about, like Claude does.
+		// Multi-line bodies use the shared "\n   " continuation indent so the
+		// WebUI keeps the whole trace inside one thinking block (task #7275).
 		if think := strings.TrimSpace(msg.ReasoningContent); think != "" {
-			emitOutput(opts.OnOutput, "💭 "+think)
+			emitOutput(opts.OnOutput, "💭 "+strings.ReplaceAll(think, "\n", "\n   "))
 		}
 
 		// The stream was aborted because the model degenerated into repeating the

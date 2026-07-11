@@ -85,11 +85,31 @@ export function classifyLine(raw, prevType) {
 	if (line.startsWith('🔧 ')) return 'tool';
 	if (line.startsWith('❓')) return 'question';
 	if (line.startsWith('  ▸ ')) return 'question-option';
+	// Reasoning / thinking stream (Grok thought, OpenCode reasoning, pi,
+	// embedded reasoning_content). Marker is always "💭 " at the start of a
+	// chunk; multi-line bodies use a 3-space indent on continuations
+	// (worker convention: ReplaceAll("\n", "\n   ")).
+	if (line.startsWith('💭 ') || line === '💭') return 'thinking';
+	if (prevType === 'thinking' && /^\s{3}\S/.test(line)) return 'thinking';
 	// Only classify as 'result' when preceded by a tool call or another
 	// result line. Without this context check, indented markdown lines
 	// (sub-lists, blockquotes, etc.) are misclassified as tool output.
 	if (/^\s{2}/.test(line) && (prevType === 'tool' || prevType === 'result')) return 'result';
 	return 'text';
+}
+
+/**
+ * Body text of a thinking line: strip the 💭 marker and the 3-space
+ * continuation indent used by workers for multi-line reasoning.
+ * @param {string} text
+ * @returns {string}
+ */
+export function thinkingBody(text) {
+	let t = text;
+	if (t.startsWith('💭 ')) t = t.slice(2).replace(/^\s/, '');
+	else if (t === '💭') t = '';
+	else if (/^\s{3}/.test(t)) t = t.slice(3);
+	return t;
 }
 
 /**
@@ -101,10 +121,15 @@ export function groupLines(lines) {
 	const blocks = [];
 	let currentResult = null;
 	let currentText = null;
+	let currentThinking = null;
 	let currentQuestion = null;
 	let inFence = false;
 
 	function flushAll() {
+		if (currentThinking) {
+			blocks.push(currentThinking);
+			currentThinking = null;
+		}
 		if (currentText) {
 			blocks.push(currentText);
 			currentText = null;
@@ -143,6 +168,10 @@ export function groupLines(lines) {
 		}
 
 		if (type === 'question') {
+			if (currentThinking) {
+				blocks.push(currentThinking);
+				currentThinking = null;
+			}
 			if (currentText) {
 				blocks.push(currentText);
 				currentText = null;
@@ -172,6 +201,10 @@ export function groupLines(lines) {
 				});
 			}
 		} else if (type === 'result') {
+			if (currentThinking) {
+				blocks.push(currentThinking);
+				currentThinking = null;
+			}
 			if (currentQuestion) {
 				blocks.push(currentQuestion);
 				currentQuestion = null;
@@ -185,7 +218,34 @@ export function groupLines(lines) {
 			} else {
 				currentResult = { type: 'result', lines: [text] };
 			}
+		} else if (type === 'thinking') {
+			if (currentQuestion) {
+				blocks.push(currentQuestion);
+				currentQuestion = null;
+			}
+			if (currentResult) {
+				blocks.push(currentResult);
+				currentResult = null;
+			}
+			if (currentText) {
+				blocks.push(currentText);
+				currentText = null;
+			}
+			const body = thinkingBody(text);
+			if (currentThinking) {
+				// Adjacent 💭 chunks (Grok safety-flush re-tags) merge into one
+				// collapsible block so the UI is not a stack of tiny cards.
+				if (body !== '') {
+					currentThinking.text += (currentThinking.text ? '\n' : '') + body;
+				}
+			} else {
+				currentThinking = { type: 'thinking', text: body };
+			}
 		} else if (type === 'text') {
+			if (currentThinking) {
+				blocks.push(currentThinking);
+				currentThinking = null;
+			}
 			if (currentQuestion) {
 				blocks.push(currentQuestion);
 				currentQuestion = null;
