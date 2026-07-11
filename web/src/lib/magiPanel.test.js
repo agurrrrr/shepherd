@@ -6,17 +6,41 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	parseMagiLine,
+	normalizeMagiLine,
 	isPersonaAnnouncement,
 	appendSlotLine,
 	softRepairMarkdownNewlines,
 	assembleMagiPanel,
 } from './magiPanel.js';
 
+describe('normalizeMagiLine', () => {
+	it('strips a single trailing newline (DB path)', () => {
+		assert.equal(normalizeMagiLine('hello\n'), 'hello');
+		assert.equal(normalizeMagiLine('[MAGI:*] 📋 최종 종합:\n'), '[MAGI:*] 📋 최종 종합:');
+		assert.equal(normalizeMagiLine('\n'), '');
+	});
+
+	it('is a no-op when no trailing newline (SSE path)', () => {
+		assert.equal(normalizeMagiLine('hello'), 'hello');
+	});
+});
+
 describe('parseMagiLine', () => {
 	it('parses slot-prefixed lines', () => {
 		assert.deepEqual(parseMagiLine('[MAGI:0] hello'), { slot: 0, text: 'hello' });
 		assert.deepEqual(parseMagiLine('[MAGI:2] world'), { slot: 2, text: 'world' });
 		assert.deepEqual(parseMagiLine('[MAGI:*] 🧠 start'), { slot: '*', text: '🧠 start' });
+	});
+
+	it('strips trailing newline before parse (DB-persisted shape)', () => {
+		assert.deepEqual(parseMagiLine('[MAGI:*] 📋 최종 종합:\n'), {
+			slot: '*',
+			text: '📋 최종 종합:',
+		});
+		assert.deepEqual(parseMagiLine('| 항목 | 값 |\n'), {
+			slot: null,
+			text: '| 항목 | 값 |',
+		});
 	});
 
 	it('treats unprefixed lines as continuations', () => {
@@ -155,6 +179,61 @@ describe('assembleMagiPanel', () => {
 		const { proposerTexts, unifiedLines } = assembleMagiPanel(lines);
 		assert.equal(proposerTexts[0], 'proposer body');
 		assert.deepEqual(unifiedLines, ['🧠 MAGI 심의 개시', '✅ 합의 도달']);
+	});
+
+	it('joins MAGI:* synthesis continuations without blank lines between table rows (DB trailing \\n)', () => {
+		// Real shape from task #7269: finalize emits
+		//   [MAGI:*] 📋 최종 종합:\n${markdown}\n
+		// LineCoalescer/DB store each physical line with trailing '\n'.
+		// appendLiveOutput (SSE) strips it; historical load does not.
+		// Double-joining used to turn tables into:
+		//   | 항목 | 값 |\n\n|------|-----|\n\n| ...
+		// which GFM cannot parse as a table (task #7273 screenshot).
+		const lines = [
+			'[MAGI:*] ✅ 합의 도달 (unanimous, 신뢰도 9/10) — 종합 응답 채택\n',
+			'[MAGI:*] 📋 최종 종합:\n',
+			'## 최종 결론\n',
+			'| 항목 | 값 |\n',
+			'|------|-----|\n',
+			'| 작업 성공 여부 | **성공** (합의 적용 목적 달성) |\n',
+			'| 품질 | 양호, 잔여 문서 결함 소수 |\n',
+			'| 「전부 반영·무잔여」 | **기각** |\n',
+			'| 재작업 필수 | **아니오** |\n',
+			'| M0 착수 | **찬성** (B1 DoD 보강 동시 권고) |\n',
+			'\n',
+			'**문장 삽입 = 반영 시작, DoD 체크 = 하드 게이트.**\n',
+			'[MAGI:*] 📊 MAGI 심의 비용: 0 토큰 (호출 8회)\n',
+		];
+		const { unifiedLines } = assembleMagiPanel(lines);
+		assert.equal(unifiedLines.length, 3, `got ${unifiedLines.length}: ${JSON.stringify(unifiedLines.map((t) => t.slice(0, 40)))}`);
+		assert.equal(unifiedLines[0], '✅ 합의 도달 (unanimous, 신뢰도 9/10) — 종합 응답 채택');
+		assert.equal(unifiedLines[2], '📊 MAGI 심의 비용: 0 토큰 (호출 8회)');
+
+		const synth = unifiedLines[1];
+		assert.ok(synth.startsWith('📋 최종 종합:\n## 최종 결론\n'), synth.slice(0, 80));
+		// Tight table — single newlines only between rows
+		assert.ok(
+			synth.includes(
+				'| 항목 | 값 |\n|------|-----|\n| 작업 성공 여부 | **성공** (합의 적용 목적 달성) |\n| 품질 | 양호, 잔여 문서 결함 소수 |'
+			),
+			'synthesis table must be tight GFM:\n' + synth
+		);
+		// Regression: no blank line between table rows
+		assert.equal(synth.includes('| 값 |\n\n|'), false, 'blank line after header row');
+		assert.equal(synth.includes('|-----|\n\n|'), false, 'blank line after separator');
+		// Intentional blank line before closing prose still preserved
+		assert.ok(synth.includes('권고) |\n\n**문장 삽입'), 'blank before closing prose:\n' + synth);
+	});
+
+	it('re-joins proposer table rows tightly when DB lines keep trailing \\n', () => {
+		const lines = [
+			'[MAGI:0] | 축 | 판정 |\n',
+			'[MAGI:0] |----|------|\n',
+			'[MAGI:0] | 가설 | 강함 |\n',
+		];
+		const { proposerTexts } = assembleMagiPanel(lines);
+		assert.equal(proposerTexts[0], '| 축 | 판정 |\n|----|------|\n| 가설 | 강함 |');
+		assert.equal(proposerTexts[0].includes('\n\n'), false);
 	});
 
 	it('resets slot state on debate round entry', () => {

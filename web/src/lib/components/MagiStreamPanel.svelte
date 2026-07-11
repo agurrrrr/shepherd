@@ -22,13 +22,14 @@
 	let mdCache = $state({});
 
 	/**
-	 * Core fix (task #7270+): accumulate streaming lines per-slot into ONE
-	 * continuous string WITH newlines between successive complete lines.
+	 * Core assembly (task #7270 / #7273): accumulate streaming lines per-slot
+	 * into ONE continuous string WITH newlines between successive complete lines.
 	 *
-	 * appendLiveOutput strips trailing '\n' from each server line, so joining
-	 * without a separator used to produce a wall of text in the model cards
-	 * (headings/tables/blank lines glued together). assembleMagiPanel re-joins
-	 * with '\n'. See web/src/lib/magiPanel.js.
+	 * - #7270: joining WITHOUT a separator glued headings/tables in model cards.
+	 * - #7273: DB-persisted lines keep trailing '\n'; re-joining without stripping
+	 *   invented blank lines between every row and broke GFM tables in the
+	 *   MAGI 심의 box. assembleMagiPanel normalizes trailing NL then re-joins.
+	 * See web/src/lib/magiPanel.js.
 	 */
 	let panelData = $derived.by(() => assembleMagiPanel(lines));
 

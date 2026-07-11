@@ -6,6 +6,10 @@
  *     a "[MAGI:N]" / "[MAGI:*]" prefix.
  *   - appendLiveOutput strips the trailing '\n' that LineCoalescer emits,
  *     so consecutive [MAGI:N] lines must be re-joined with '\n' here.
+ *   - DB-persisted output KEPT the trailing '\n' on each entry (same as
+ *     OutputViewer / outputLines.js). Re-joining without stripping that
+ *     trailing NL produces blank lines between every row and breaks GFM
+ *     tables/lists in the MAGI 심의 box (task screenshot 2026-07-11 #7273).
  *   - Lines without a prefix are continuations of a multi-line OnOutput
  *     chunk (only the first line carried the prefix).
  *
@@ -19,12 +23,21 @@ export function stripAnsi(text) {
 }
 
 /**
+ * Normalize a stored/streamed line for assembly.
+ * Strips ANSI and a single trailing newline (DB path keeps it; SSE path
+ * already strips it via appendLiveOutput).
+ */
+export function normalizeMagiLine(raw) {
+	return stripAnsi(raw ?? '').replace(/\r?\n$/, '');
+}
+
+/**
  * Parse a raw line into { slot, text }.
  * slot: 0|1|2|'*'|null
  *   - null means "no [MAGI:] prefix" → continuation of previous slot
  */
 export function parseMagiLine(raw) {
-	const line = stripAnsi(raw ?? '');
+	const line = normalizeMagiLine(raw);
 	const m = line.match(/^\[MAGI:(\d|\*)\]\s?(.*)$/s);
 	if (m) {
 		if (m[1] === '*') return { slot: '*', text: m[2] };
@@ -40,14 +53,18 @@ export function isPersonaAnnouncement(text) {
 
 /**
  * Append a complete line to a slot accumulator.
- * Always inserts '\n' between successive lines so blank lines and
+ * Always inserts a single '\n' between successive lines so blank lines and
  * markdown block structure survive (see module header).
+ * `text` is expected to already be trailing-NL-normalized (parseMagiLine /
+ * normalizeMagiLine); we still strip once here as a safety net so callers
+ * that pass raw DB entries cannot reintroduce double blank lines.
  */
 export function appendSlotLine(existing, text) {
+	const t = (text ?? '').replace(/\r?\n$/, '');
 	if (existing == null || existing === '') {
-		return text ?? '';
+		return t;
 	}
-	return existing + '\n' + (text ?? '');
+	return existing + '\n' + t;
 }
 
 /**
