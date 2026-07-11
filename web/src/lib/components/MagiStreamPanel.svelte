@@ -2,6 +2,7 @@
 	import { Carta } from 'carta-md';
 	import DOMPurify from 'isomorphic-dompurify';
 	import { assembleMagiPanel } from '$lib/magiPanel.js';
+	import { createMdStreamCache } from '$lib/mdStream.js';
 
 	let { lines = [], maxHeight = 'none' } = $props();
 
@@ -19,8 +20,6 @@
 
 	let personaInfo = $derived(dynamicPersonaInfo || defaultPersonaInfo);
 
-	let mdCache = $state({});
-
 	/**
 	 * Core assembly (task #7270 / #7273): accumulate streaming lines per-slot
 	 * into ONE continuous string WITH newlines between successive complete lines.
@@ -32,6 +31,23 @@
 	 * See web/src/lib/magiPanel.js.
 	 */
 	let panelData = $derived.by(() => assembleMagiPanel(lines));
+
+	// Sticky MD stream cache — same anti-flicker path as OutputViewer (#7274).
+	let mdTick = $state(0);
+	const mdStream = createMdStreamCache({
+		limit: 100,
+		render: (text) => carta.render(text),
+	});
+
+	async function ensureRendered(text, id) {
+		await mdStream.ensure(text, id);
+		mdTick++;
+	}
+
+	function viewFor(id, text) {
+		void mdTick;
+		return mdStream.resolve(id, text);
+	}
 
 	// ── Dynamic persona name detection ──
 	// The orchestrator emits "[MAGI:N] 🧩 <emoji> <name>" lines at startup
@@ -64,52 +80,28 @@
 		}
 	});
 
-	// ── Markdown rendering cache (LRU-capped, task #7209) ──
-	const MD_CACHE_LIMIT = 100;
-	let mdCacheKeys = [];
-
-	function hashText(t) {
-		let h = 0;
-		for (let i = 0; i < t.length; i++) h = ((h << 5) - h + t.charCodeAt(i)) | 0;
-		return 'md_' + h + '_' + t.length;
-	}
-
-	async function ensureRendered(text) {
-		if (!text || !text.trim()) return;
-		const key = hashText(text);
-		if (mdCache[key] !== undefined) return;
-		mdCache[key] = null;
-		mdCacheKeys.push(key);
-		while (mdCacheKeys.length > MD_CACHE_LIMIT) {
-			const oldKey = mdCacheKeys.shift();
-			delete mdCache[oldKey];
-		}
-		try {
-			const html = await carta.render(text);
-			mdCache[key] = html;
-		} catch {
-			mdCache[key] = text;
-		}
-	}
-
-	function getRendered(text) {
-		return mdCache[hashText(text)] ?? null;
-	}
-
-	// Render markdown for unified panel entries and all proposer texts
-	// (including in-progress). Completed cards always want MD; streaming
-	// cards upgrade from pre-wrap once the async render finishes.
-	// Throttle: only re-render when the text changes (keyed by hash).
+	// Completed proposers + sealed unified segments: render ASAP.
+	// Still-streaming proposers: debounce so we don't thrash carta on every
+	// token; sticky HTML + plain tail covers the gap (no raw↔HTML flicker).
 	$effect(() => {
-		for (const t of panelData.unifiedLines) {
-			ensureRendered(t);
+		for (let i = 0; i < panelData.unifiedLines.length; i++) {
+			const t = panelData.unifiedLines[i];
+			if (t && t.trim()) ensureRendered(t, 'unified:' + i);
 		}
+		const timers = [];
 		for (let i = 0; i < 3; i++) {
 			const t = panelData.proposerTexts[i];
-			if (t && t.trim()) {
-				ensureRendered(t);
+			if (!t || !t.trim()) continue;
+			const id = 'prop:' + i;
+			if (panelData.completed[i]) {
+				ensureRendered(t, id);
+			} else {
+				timers.push(setTimeout(() => ensureRendered(t, id), 280));
 			}
 		}
+		return () => {
+			for (const t of timers) clearTimeout(t);
+		};
 	});
 
 	// ── Auto-scroll ──
@@ -165,9 +157,13 @@
 						{#if panelData.proposerTexts[i].length === 0}
 							<span class="proposer-idle">대기 중...</span>
 						{:else}
-							{@const html = getRendered(panelData.proposerTexts[i])}
-							{#if html}
-								<div class="proposer-md markdown-body">{@html html}</div>
+							{@const view = viewFor('prop:' + i, panelData.proposerTexts[i])}
+							{#if view.kind === 'exact'}
+								<div class="proposer-md markdown-body">{@html view.html}</div>
+							{:else if view.kind === 'sticky'}
+								<div class="proposer-md markdown-body">
+									{@html view.html}<span class="md-stream-tail">{view.tail}</span>
+								</div>
 							{:else}
 								<div class="proposer-text">{panelData.proposerTexts[i]}</div>
 							{/if}
@@ -197,9 +193,13 @@
 				<span class="empty-output">No output yet</span>
 			{:else}
 				{#each panelData.unifiedLines as text, i (i)}
-					{@const html = getRendered(text)}
-					{#if html}
-						<div class="block-text markdown-body">{@html html}</div>
+					{@const view = viewFor('unified:' + i, text)}
+					{#if view.kind === 'exact'}
+						<div class="block-text markdown-body">{@html view.html}</div>
+					{:else if view.kind === 'sticky'}
+						<div class="block-text markdown-body">
+							{@html view.html}<span class="md-stream-tail">{view.tail}</span>
+						</div>
 					{:else if text.trim()}
 						<div class="block-text-raw">{text}</div>
 					{/if}
@@ -495,6 +495,11 @@
 		line-height: 1.6;
 		color: var(--text-primary);
 		font-size: 13px;
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+
+	.md-stream-tail {
 		white-space: pre-wrap;
 		word-break: break-word;
 	}

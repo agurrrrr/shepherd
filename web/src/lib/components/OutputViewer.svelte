@@ -2,66 +2,52 @@
 	import { Carta } from 'carta-md';
 	import DOMPurify from 'isomorphic-dompurify';
 	import { groupLines } from '$lib/outputLines.js';
+	import { createMdStreamCache } from '$lib/mdStream.js';
 
 	let { lines = [], maxHeight = '500px' } = $props();
 	let container;
 
 	const carta = new Carta({ sanitizer: DOMPurify.sanitize });
 
-	// Cache: text content hash → rendered HTML
-	let mdCache = $state({});
+	// Sticky stream cache: avoids raw↔HTML flicker while Grok (or any
+	// high-frequency provider) grows the last text block token-by-token.
+	// See web/src/lib/mdStream.js and wiki grok-live-output-fragmentation.
+	// `tick` forces Svelte to re-read resolve() after async renders land.
+	let mdTick = $state(0);
+	const mdStream = createMdStreamCache({
+		limit: 100,
+		render: (text) => carta.render(text),
+	});
 
-	// Simple hash for cache key
-	function hashText(t) {
-		let h = 0;
-		for (let i = 0; i < t.length; i++) h = ((h << 5) - h + t.charCodeAt(i)) | 0;
-		return 'md_' + h + '_' + t.length;
+	async function ensureRendered(text, id) {
+		await mdStream.ensure(text, id);
+		mdTick++;
 	}
 
-	// Render markdown and cache result. The cache is capped at 100 entries
-	// (LRU-like: oldest keys are evicted first) to prevent unbounded memory
-	// growth during long streaming sessions (task #7209).
-	const MD_CACHE_LIMIT = 100;
-	let mdCacheKeys = []; // track insertion order for eviction
-
-	async function ensureRendered(text) {
-		const key = hashText(text);
-		if (mdCache[key] !== undefined) return;
-		mdCache[key] = null; // mark as pending
-		mdCacheKeys.push(key);
-		// Evict oldest entries if over limit.
-		while (mdCacheKeys.length > MD_CACHE_LIMIT) {
-			const oldKey = mdCacheKeys.shift();
-			delete mdCache[oldKey];
-		}
-		try {
-			const html = await carta.render(text);
-			mdCache[key] = html;
-		} catch {
-			mdCache[key] = text;
-		}
-	}
-
-	function getRendered(text) {
-		return mdCache[hashText(text)] || null;
+	function viewFor(id, text) {
+		// Depend on mdTick so sticky/exact updates re-render the block.
+		void mdTick;
+		return mdStream.resolve(id, text);
 	}
 
 	let blocks = $derived(groupLines(lines));
 
-	// Debounce markdown rendering while streaming. Per-token text growth used to
-	// flip raw↔HTML on every chunk (visible flicker with Grok). Stable history
-	// still renders after a short quiet period; unfinished blocks show raw text.
+	// Sealed text blocks render immediately; the growing tail is debounced.
+	// While waiting, resolve() shows sticky HTML + plain tail (no mode flip).
 	$effect(() => {
-		const texts = blocks
-			.filter((b) => b.type === 'text' && b.text.trim())
-			.map((b) => b.text);
-		// Render all but the last block immediately (they rarely change).
-		for (let i = 0; i < texts.length - 1; i++) {
-			ensureRendered(texts[i]);
+		const textBlocks = [];
+		for (let i = 0; i < blocks.length; i++) {
+			const b = blocks[i];
+			if (b.type === 'text' && b.text.trim()) {
+				textBlocks.push({ id: 'text:' + i, text: b.text });
+			}
 		}
-		const last = texts[texts.length - 1];
+		for (let i = 0; i < textBlocks.length - 1; i++) {
+			ensureRendered(textBlocks[i].text, textBlocks[i].id);
+		}
+		const last = textBlocks[textBlocks.length - 1];
 		if (!last) return;
-		const t = setTimeout(() => ensureRendered(last), 200);
+		const t = setTimeout(() => ensureRendered(last.text, last.id), 280);
 		return () => clearTimeout(t);
 	});
 
@@ -98,7 +84,7 @@
 </script>
 
 <div class="output-viewer" style="max-height: {maxHeight}" bind:this={container}>
-	{#each blocks as block, i (block.type + ':' + i + ':' + (block.text || block.question || '').slice(0, 20))}
+	{#each blocks as block, i (block.type + ':' + i)}
 		{#if block.type === 'sheep'}
 			<div class="block-sheep">{block.text.trim()}</div>
 
@@ -142,9 +128,13 @@
 			<pre class="block-result"><code>{block.lines.map(l => l.replace(/^\s{2,3}/, '')).join('\n')}</code></pre>
 
 		{:else if block.type === 'text'}
-			{@const html = getRendered(block.text)}
-			{#if html}
-				<div class="block-text markdown-body">{@html html}</div>
+			{@const view = viewFor('text:' + i, block.text)}
+			{#if view.kind === 'exact'}
+				<div class="block-text markdown-body">{@html view.html}</div>
+			{:else if view.kind === 'sticky'}
+				<div class="block-text markdown-body">
+					{@html view.html}<span class="md-stream-tail">{view.tail}</span>
+				</div>
 			{:else}
 				<div class="block-text-raw">{block.text}</div>
 			{/if}
@@ -412,6 +402,13 @@
 		white-space: pre-wrap;
 		word-break: break-word;
 		flex-shrink: 0;
+	}
+
+	/* Unrendered streaming suffix after sticky HTML — same type metrics so
+	   the tail does not jump when the next full markdown render lands. */
+	.md-stream-tail {
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 
 	.empty-output {
