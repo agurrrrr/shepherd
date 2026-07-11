@@ -1,6 +1,7 @@
 <script>
 	import { Carta } from 'carta-md';
 	import DOMPurify from 'isomorphic-dompurify';
+	import { assembleMagiPanel } from '$lib/magiPanel.js';
 
 	let { lines = [], maxHeight = 'none' } = $props();
 
@@ -20,97 +21,16 @@
 
 	let mdCache = $state({});
 
-	function stripAnsi(text) {
-		return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
-	}
-
 	/**
-	 * Parse a raw line into { slot, text }.
-	 * slot: 0|1|2|'*'|null
-	 *   - null means "no [MAGI:] prefix" → continuation of previous slot
-	 *     (happens when a streaming token contained \n and the SSE handler
-	 *     split it into multiple lines).
-	 */
-	function parseLine(raw) {
-		const line = stripAnsi(raw);
-		const m = line.match(/^\[MAGI:(\d|\*)\]\s?(.*)$/s);
-		if (m) {
-			if (m[1] === '*') return { slot: '*', text: m[2] };
-			return { slot: parseInt(m[1], 10), text: m[2] };
-		}
-		return { slot: null, text: line };
-	}
-
-	/**
-	 * Core fix: accumulate streaming tokens per-slot into ONE continuous
-	 * string instead of rendering each token as a separate <div>.
+	 * Core fix (task #7270+): accumulate streaming lines per-slot into ONE
+	 * continuous string WITH newlines between successive complete lines.
 	 *
-	 * Each SSE event delivers a small token fragment prefixed with [MAGI:N].
-	 * Previously every fragment became its own DOM element, producing output
-	 * like:
-	 *   # 번
-	 *   역 단
-	 *   위 변경
-	 *
-	 * Now we concatenate all fragments for a given slot so they read as:
-	 *   # 번역 단위 변경
+	 * appendLiveOutput strips trailing '\n' from each server line, so joining
+	 * without a separator used to produce a wall of text in the model cards
+	 * (headings/tables/blank lines glued together). assembleMagiPanel re-joins
+	 * with '\n'. See web/src/lib/magiPanel.js.
 	 */
-	let panelData = $derived.by(() => {
-		const proposerTexts = ['', '', ''];
-		const proposerSummaries = ['', '', ''];
-		const unifiedLines = [];
-		const completed = [false, false, false];
-		let lastSlot = '*';
-
-		for (const raw of lines) {
-			const { slot, text } = parseLine(raw);
-
-			// Detect debate round entry → reset per-slot state so streaming
-			// tokens are captured again instead of being dropped by the
-			// completed[] guard set during round 1.
-			if (slot === '*' && text.includes('토론 라운드 진입')) {
-				for (let i = 0; i < 3; i++) {
-					proposerTexts[i] = '';
-					proposerSummaries[i] = '';
-					completed[i] = false;
-				}
-				unifiedLines.push(text);
-				lastSlot = '*';
-				continue;
-			}
-
-			if (slot === null) {
-				// Continuation — append to whichever slot was last active.
-				if (lastSlot === '*') {
-					if (unifiedLines.length > 0) {
-						unifiedLines[unifiedLines.length - 1] += '\n' + text;
-					} else {
-						unifiedLines.push(text);
-					}
-				} else if (lastSlot >= 0 && lastSlot <= 2 && !completed[lastSlot]) {
-					proposerTexts[lastSlot] += '\n' + text;
-				}
-				continue;
-			}
-
-			if (slot === '*') {
-				lastSlot = '*';
-				unifiedLines.push(text);
-			} else if (slot >= 0 && slot <= 2) {
-				lastSlot = slot;
-
-				if (text.includes('응답 완료') || text.includes('응답 실패')) {
-					completed[slot] = true;
-					proposerSummaries[slot] += (proposerSummaries[slot] ? '\n' : '') + text.trim();
-				} else if (!completed[slot]) {
-					// Raw token fragment — concatenate directly (no separator).
-					proposerTexts[slot] += text;
-				}
-			}
-		}
-
-		return { proposerTexts, proposerSummaries, unifiedLines, completed };
-	});
+	let panelData = $derived.by(() => assembleMagiPanel(lines));
 
 	// ── Dynamic persona name detection ──
 	// The orchestrator emits "[MAGI:N] 🧩 <emoji> <name>" lines at startup
@@ -118,7 +38,7 @@
 	// default personaInfo so custom names appear in panel headers.
 	$effect(() => {
 		for (const raw of lines) {
-			const line = stripAnsi(raw);
+			const line = String(raw ?? '').replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
 			const m = line.match(/^\[MAGI:(\d)\]\s*🧩\s+(\S+)\s+(.+)$/);
 			if (m) {
 				const slot = parseInt(m[1], 10);
@@ -126,10 +46,17 @@
 				const name = m[3].trim();
 				if (slot >= 0 && slot <= 2) {
 					if (!dynamicPersonaInfo) {
-						dynamicPersonaInfo = defaultPersonaInfo.map(p => ({ ...p }));
+						dynamicPersonaInfo = defaultPersonaInfo.map((p) => ({ ...p }));
 					}
-					if (dynamicPersonaInfo[slot].name !== name || dynamicPersonaInfo[slot].emoji !== emoji) {
-						dynamicPersonaInfo[slot] = { ...dynamicPersonaInfo[slot], emoji, name };
+					if (
+						dynamicPersonaInfo[slot].name !== name ||
+						dynamicPersonaInfo[slot].emoji !== emoji
+					) {
+						dynamicPersonaInfo[slot] = {
+							...dynamicPersonaInfo[slot],
+							emoji,
+							name,
+						};
 					}
 				}
 			}
@@ -168,14 +95,18 @@
 		return mdCache[hashText(text)] ?? null;
 	}
 
-	// Render markdown for unified panel entries and completed proposer texts.
+	// Render markdown for unified panel entries and all proposer texts
+	// (including in-progress). Completed cards always want MD; streaming
+	// cards upgrade from pre-wrap once the async render finishes.
+	// Throttle: only re-render when the text changes (keyed by hash).
 	$effect(() => {
 		for (const t of panelData.unifiedLines) {
 			ensureRendered(t);
 		}
 		for (let i = 0; i < 3; i++) {
-			if (panelData.completed[i]) {
-				ensureRendered(panelData.proposerTexts[i]);
+			const t = panelData.proposerTexts[i];
+			if (t && t.trim()) {
+				ensureRendered(t);
 			}
 		}
 	});
@@ -233,20 +164,19 @@
 						{#if panelData.proposerTexts[i].length === 0}
 							<span class="proposer-idle">대기 중...</span>
 						{:else}
-							{#if panelData.completed[i]}
-								{@const html = getRendered(panelData.proposerTexts[i])}
-								{#if html}
-									<div class="proposer-md markdown-body">{@html html}</div>
-								{:else}
-									<div class="proposer-text">{panelData.proposerTexts[i]}</div>
-								{/if}
-								{#if panelData.proposerSummaries[i]}
-									<div class="proposer-summary" class:fail="{panelData.proposerSummaries[i].includes('응답 실패')}">
-										{panelData.proposerSummaries[i]}
-									</div>
-								{/if}
+							{@const html = getRendered(panelData.proposerTexts[i])}
+							{#if html}
+								<div class="proposer-md markdown-body">{@html html}</div>
 							{:else}
 								<div class="proposer-text">{panelData.proposerTexts[i]}</div>
+							{/if}
+							{#if panelData.proposerSummaries[i]}
+								<div
+									class="proposer-summary"
+									class:fail={panelData.proposerSummaries[i].includes('응답 실패')}
+								>
+									{panelData.proposerSummaries[i]}
+								</div>
 							{/if}
 						{/if}
 					</div>
@@ -353,7 +283,7 @@
 		flex: 1;
 		overflow-y: auto;
 		padding: 8px 10px;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans, system-ui, sans-serif);
 		font-size: 12px;
 		line-height: 1.5;
 		color: var(--text-secondary);
@@ -367,66 +297,83 @@
 		font-size: 11px;
 	}
 
-/* Streaming text — monospace pre-wrap so newlines & spaces are preserved */
-.proposer-text {
-white-space: pre-wrap;
-word-break: break-word;
-color: var(--text-primary);
-}
+	/* Streaming fallback — monospace pre-wrap so newlines & spaces are preserved */
+	.proposer-text {
+		white-space: pre-wrap;
+		word-break: break-word;
+		color: var(--text-primary);
+		font-family: var(--font-mono);
+	}
 
-/* Completed text rendered as markdown */
-.proposer-md {
-font-size: 12px;
-line-height: 1.5;
-color: var(--text-primary);
-word-break: break-word;
-}
-.proposer-md :global(p) { margin: 4px 0; }
-.proposer-md :global(pre) {
-background: var(--bg-secondary);
-border: 1px solid var(--border);
-border-radius: var(--radius);
-padding: 6px 8px;
-margin: 4px 0;
-font-size: 11px;
-overflow-x: auto;
-}
-.proposer-md :global(code) {
-background: var(--bg-tertiary);
-padding: 1px 4px;
-border-radius: 3px;
-font-size: 11px;
-}
-.proposer-md :global(pre code) { background: none; padding: 0; }
-.proposer-md :global(ul),
-.proposer-md :global(ol) { margin: 4px 0; padding-left: 18px; }
-.proposer-md :global(li) { margin: 2px 0; }
-.proposer-md :global(h1),
-.proposer-md :global(h2),
-.proposer-md :global(h3),
-.proposer-md :global(h4) { margin: 6px 0 4px; font-size: 13px; }
-.proposer-md :global(strong) { color: var(--text-primary); }
-.proposer-md :global(blockquote) {
-border-left: 3px solid var(--border);
-padding-left: 10px;
-color: var(--text-secondary);
-margin: 4px 0;
-}
+	/* Completed / rendered markdown */
+	.proposer-md {
+		font-size: 12px;
+		line-height: 1.55;
+		color: var(--text-primary);
+		word-break: break-word;
+	}
+	.proposer-md :global(p) { margin: 4px 0; }
+	.proposer-md :global(pre) {
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 6px 8px;
+		margin: 4px 0;
+		font-size: 11px;
+		overflow-x: auto;
+	}
+	.proposer-md :global(code) {
+		background: var(--bg-tertiary);
+		padding: 1px 4px;
+		border-radius: 3px;
+		font-size: 11px;
+	}
+	.proposer-md :global(pre code) { background: none; padding: 0; }
+	.proposer-md :global(ul),
+	.proposer-md :global(ol) { margin: 4px 0; padding-left: 18px; }
+	.proposer-md :global(li) { margin: 2px 0; }
+	.proposer-md :global(h1),
+	.proposer-md :global(h2),
+	.proposer-md :global(h3),
+	.proposer-md :global(h4) { margin: 6px 0 4px; font-size: 13px; }
+	.proposer-md :global(strong) { color: var(--text-primary); }
+	.proposer-md :global(blockquote) {
+		border-left: 3px solid var(--border);
+		padding-left: 10px;
+		color: var(--text-secondary);
+		margin: 4px 0;
+	}
+	.proposer-md :global(table) {
+		border-collapse: collapse;
+		margin: 6px 0;
+		font-size: 11px;
+		display: block;
+		overflow-x: auto;
+		width: 100%;
+	}
+	.proposer-md :global(th),
+	.proposer-md :global(td) {
+		border: 1px solid var(--border);
+		padding: 3px 6px;
+	}
+	.proposer-md :global(th) {
+		background: var(--bg-tertiary);
+	}
 
-.proposer-summary {
-margin-top: 6px;
-padding: 4px 6px;
-border-radius: var(--radius);
-background: var(--bg-tertiary);
-font-size: 11px;
-font-weight: 600;
-color: var(--text-primary);
-white-space: pre-wrap;
-}
+	.proposer-summary {
+		margin-top: 6px;
+		padding: 4px 6px;
+		border-radius: var(--radius);
+		background: var(--bg-tertiary);
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--text-primary);
+		white-space: pre-wrap;
+	}
 
-.proposer-summary.fail {
-color: var(--danger, #f85149);
-}
+	.proposer-summary.fail {
+		color: var(--danger, #f85149);
+	}
 
 	/* ── Unified panel ── */
 	/* Takes ~50% of the panel height so MAGI review output is always
@@ -441,34 +388,33 @@ color: var(--danger, #f85149);
 		min-height: 120px;
 	}
 
-.unified-header {
-display: flex;
-align-items: center;
-gap: 6px;
-padding: 6px 12px;
-background: var(--bg-tertiary);
-border-bottom: 1px solid var(--border);
-font-size: 13px;
-font-weight: 600;
-color: var(--text-primary);
-flex-shrink: 0;
-}
+	.unified-header {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 12px;
+		background: var(--bg-tertiary);
+		border-bottom: 1px solid var(--border);
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--text-primary);
+		flex-shrink: 0;
+	}
 
-.unified-icon { font-size: 15px; }
+	.unified-icon { font-size: 15px; }
 
-.unified-content {
-flex: 1;
-overflow-y: auto;
-padding: 12px;
-display: flex;
-flex-direction: column;
-gap: 4px;
-min-width: 0;
-}
+	.unified-content {
+		flex: 1;
+		overflow-y: auto;
+		padding: 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		min-width: 0;
+	}
 
-.block-text {
-padding: 4px
-;
+	.block-text {
+		padding: 4px 0;
 		line-height: 1.6;
 		color: var(--text-primary);
 		word-break: break-word;
