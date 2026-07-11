@@ -1,6 +1,7 @@
 <script>
 	import { Carta } from 'carta-md';
 	import DOMPurify from 'isomorphic-dompurify';
+	import { groupLines } from '$lib/outputLines.js';
 
 	let { lines = [], maxHeight = '500px' } = $props();
 	let container;
@@ -9,125 +10,6 @@
 
 	// Cache: text content hash → rendered HTML
 	let mdCache = $state({});
-
-	function stripAnsi(text) {
-		return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
-	}
-
-	// Split lines where discrete stream events were glued mid-line because the
-	// producer omitted a trailing '\n' (pre-#7267 embedded path). Historical
-	// DB rows still have this shape; without expansion the final summary text
-	// stays stuck inside a tool-result <pre> box.
-	//
-	// Patterns repaired:
-	//   1. Mid-line "🔧 " tool headers: "...하겠습니다.🔧 bash → cmd"
-	//   2. Status/thinking markers glued after result: "...out⚠️ ..." / "...out💭 "
-	function expandGluedLines(lines) {
-		const out = [];
-		for (const raw of lines) {
-			if (raw == null || raw === '') {
-				out.push(raw);
-				continue;
-			}
-			// Split before mid-line tool/status markers that are not at column 0.
-			const pieces = raw.split(/(?=🔧 |⚠️ |💭 |✅ |🚀 |📋 )/);
-			if (pieces.length === 1) {
-				out.push(raw);
-				continue;
-			}
-			for (const piece of pieces) {
-				if (piece === '') continue;
-				// Preserve trailing newline on the last piece only when original had one.
-				out.push(piece);
-			}
-		}
-		return out;
-	}
-
-	function classifyLine(raw, prevType) {
-		const line = stripAnsi(raw);
-		if (/^[🟠🟢🔵⚪]\s/.test(line)) return 'sheep';
-		if (line.startsWith('🚀 ')) return 'status';
-		if (line.startsWith('✅ ')) return 'status';
-		if (line.startsWith('⏸')) return 'status';
-		if (line.startsWith('🔧 ')) return 'tool';
-		if (line.startsWith('❓')) return 'question';
-		if (line.startsWith('  ▸ ')) return 'question-option';
-		// Only classify as 'result' when preceded by a tool call or another
-		// result line. Without this context check, indented markdown lines
-		// (sub-lists, blockquotes, etc.) are misclassified as tool output,
-		// splitting text blocks and inserting spurious <pre> boxes.
-		if (/^\s{2}/.test(line) && (prevType === 'tool' || prevType === 'result')) return 'result';
-		return 'text';
-	}
-
-	function groupLines(lines) {
-		const blocks = [];
-		let currentResult = null;
-		let currentText = null;
-		let currentQuestion = null;
-
-		function flushAll() {
-			if (currentText) { blocks.push(currentText); currentText = null; }
-			if (currentResult) { blocks.push(currentResult); currentResult = null; }
-			if (currentQuestion) { blocks.push(currentQuestion); currentQuestion = null; }
-		}
-
-		let prevType = null;
-		for (const raw of expandGluedLines(lines)) {
-			const type = classifyLine(raw, prevType);
-			const text = stripAnsi(raw);
-
-			if (type === 'question') {
-				// Flush others, start new question block
-				if (currentText) { blocks.push(currentText); currentText = null; }
-				if (currentResult) { blocks.push(currentResult); currentResult = null; }
-				if (currentQuestion) { blocks.push(currentQuestion); }
-				// Parse: "❓ [Header] Question?" or "❓ Question?"
-				const hm = text.match(/^❓\s+\[(.+?)\]\s+(.+)/);
-				currentQuestion = {
-					type: 'question',
-					header: hm ? hm[1] : '',
-					question: hm ? hm[2] : text.replace(/^❓\s*/, ''),
-					options: []
-				};
-			} else if (type === 'question-option' && currentQuestion) {
-				// Parse: "  ▸ Label — Description" or "  ▸ Label"
-				const om = text.match(/^\s+▸\s+(.+?)\s+—\s+(.+)/);
-				if (om) {
-					currentQuestion.options.push({ label: om[1], description: om[2] });
-				} else {
-					currentQuestion.options.push({ label: text.replace(/^\s+▸\s+/, ''), description: '' });
-				}
-			} else if (type === 'result') {
-				if (currentQuestion) { blocks.push(currentQuestion); currentQuestion = null; }
-				if (currentText) { blocks.push(currentText); currentText = null; }
-				if (currentResult) {
-					currentResult.lines.push(text);
-				} else {
-					currentResult = { type: 'result', lines: [text] };
-				}
-			} else if (type === 'text') {
-				if (currentQuestion) { blocks.push(currentQuestion); currentQuestion = null; }
-				if (currentResult) { blocks.push(currentResult); currentResult = null; }
-				if (currentText) {
-					// Each line is already coalesced by the server-side
-					// LineCoalescer (task #7209), so we simply join with '\n'.
-					// The old trailing-space heuristic (from Grok liveBuf
-					// word-boundary flush) is no longer needed.
-					currentText.text += '\n' + text;
-				} else {
-					currentText = { type: 'text', text };
-				}
-			} else {
-				flushAll();
-				blocks.push({ type, text });
-			}
-			prevType = type;
-		}
-		flushAll();
-		return blocks;
-	}
 
 	// Simple hash for cache key
 	function hashText(t) {
