@@ -14,7 +14,7 @@
 		return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
 	}
 
-	function classifyLine(raw) {
+	function classifyLine(raw, prevType) {
 		const line = stripAnsi(raw);
 		if (/^[🟠🟢🔵⚪]\s/.test(line)) return 'sheep';
 		if (line.startsWith('🚀 ')) return 'status';
@@ -23,7 +23,11 @@
 		if (line.startsWith('🔧 ')) return 'tool';
 		if (line.startsWith('❓')) return 'question';
 		if (line.startsWith('  ▸ ')) return 'question-option';
-		if (/^\s{2,}/.test(line)) return 'result';
+		// Only classify as 'result' when preceded by a tool call or another
+		// result line. Without this context check, indented markdown lines
+		// (sub-lists, blockquotes, etc.) are misclassified as tool output,
+		// splitting text blocks and inserting spurious <pre> boxes.
+		if (/^\s{2}/.test(line) && (prevType === 'tool' || prevType === 'result')) return 'result';
 		return 'text';
 	}
 
@@ -39,8 +43,9 @@
 			if (currentQuestion) { blocks.push(currentQuestion); currentQuestion = null; }
 		}
 
+		let prevType = null;
 		for (const raw of lines) {
-			const type = classifyLine(raw);
+			const type = classifyLine(raw, prevType);
 			const text = stripAnsi(raw);
 
 			if (type === 'question') {
@@ -88,6 +93,7 @@
 				flushAll();
 				blocks.push({ type, text });
 			}
+			prevType = type;
 		}
 		flushAll();
 		return blocks;
