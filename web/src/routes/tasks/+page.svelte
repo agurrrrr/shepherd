@@ -6,6 +6,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tabs from '$lib/components/Tabs.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
+	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
 
 	let tasks = [];
 	let total = 0;
@@ -231,7 +232,9 @@
 				{#if selectedTask.summary}
 					<div class="detail-section">
 						<div class="detail-label">Summary</div>
-						<pre class="detail-value mono">{selectedTask.summary}</pre>
+						<div class="detail-value">
+							<MarkdownBody text={selectedTask.summary} />
+						</div>
 					</div>
 				{/if}
 

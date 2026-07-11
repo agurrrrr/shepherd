@@ -387,9 +387,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 						Role:    ChatRoleUser,
 						Content: injected,
 					})
-					if opts.OnOutput != nil {
-						opts.OnOutput("💬 [주입된 메시지]: " + injected)
-					}
+					emitOutput(opts.OnOutput, "💬 [주입된 메시지]: "+injected)
 				default:
 					break pollLoop
 				}
@@ -450,7 +448,13 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// (restart, overload, network blip), this retries with exponential
 		// backoff + health-check recovery instead of immediately failing the
 		// task and losing all conversation context.
-		msg, finishReason, usage, err := client.AccumulateStreamWithRetry(ctx, req, opts.OnOutput, nil)
+		// Wrap OnOutput so progress messages from the stream also get a trailing
+		// newline (same LineCoalescer contract as discrete emitOutput calls).
+		var onProgress func(string)
+		if opts.OnOutput != nil {
+			onProgress = func(s string) { emitOutput(opts.OnOutput, s) }
+		}
+		msg, finishReason, usage, err := client.AccumulateStreamWithRetry(ctx, req, onProgress, nil)
 		if err != nil {
 			fmt.Printf("[embedded] iter=%d req error=%v\n", iteration, err)
 			return &ExecuteResult{
@@ -479,10 +483,8 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 		// Surface the model's "thinking" (reasoning_content) for this turn so the
 		// live output shows what the model is reasoning about, like Claude does.
-		if opts.OnOutput != nil {
-			if think := strings.TrimSpace(msg.ReasoningContent); think != "" {
-				opts.OnOutput("💭 " + think)
-			}
+		if think := strings.TrimSpace(msg.ReasoningContent); think != "" {
+			emitOutput(opts.OnOutput, "💭 "+think)
 		}
 
 		// The stream was aborted because the model degenerated into repeating the
@@ -560,10 +562,8 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 			// Surface any narration the model wrote alongside its tool calls (the
 			// "말하는 거" — e.g. "Let me check the docs first.").
-			if opts.OnOutput != nil {
-				if narration := strings.TrimSpace(msg.Content); narration != "" {
-					opts.OnOutput(narration)
-				}
+			if narration := strings.TrimSpace(msg.Content); narration != "" {
+				emitOutput(opts.OnOutput, narration)
 			}
 
 			// Execute each tool call
@@ -577,10 +577,8 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 				// Show the tool call (name + command/args) BEFORE running it, in the
 				// "🔧 name → detail" format the web UI parses (OutputViewer.svelte).
-				if opts.OnOutput != nil {
-					parsedArgs, _ := normalizeJSON(tc.Func.Args)
-					opts.OnOutput(toolCallHeader(tc.Func.Name, parsedArgs))
-				}
+				parsedArgs, _ := normalizeJSON(tc.Func.Args)
+				emitOutput(opts.OnOutput, toolCallHeader(tc.Func.Name, parsedArgs))
 
 				result, err := dispatchTool(ctx, toolRegistry, tc, opts)
 				markToolUsed(tc.Func.Name)
@@ -593,10 +591,8 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 				// Stream the result preview as an indented block (rendered as a
 				// monospace result box by the web UI).
-				if opts.OnOutput != nil {
-					if out := indentResult(resultStr); out != "" {
-						opts.OnOutput(out)
-					}
+				if out := indentResult(resultStr); out != "" {
+					emitOutput(opts.OnOutput, out)
 				}
 
 				messages = append(messages, ChatMessage{
@@ -641,10 +637,8 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				messages = append(messages, assistantMsg)
 
 				// Surface any narration the model wrote alongside its leaked tool calls.
-				if opts.OnOutput != nil {
-					if narration := strings.TrimSpace(cleanContent); narration != "" {
-						opts.OnOutput(narration)
-					}
+				if narration := strings.TrimSpace(cleanContent); narration != "" {
+					emitOutput(opts.OnOutput, narration)
 				}
 
 				for _, tc := range leaked {
@@ -660,9 +654,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					}
 
 					// Show the recovered tool call before running it.
-					if opts.OnOutput != nil {
-						opts.OnOutput(toolCallHeader(tc.Func.Name, args))
-					}
+					emitOutput(opts.OnOutput, toolCallHeader(tc.Func.Name, args))
 
 					// Route leaked tool calls through dispatchTool so they get the same
 					// protections as native tool calls: 5-minute timeout, ctx cancel
@@ -677,10 +669,8 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 						resultStr = result
 					}
 
-					if opts.OnOutput != nil {
-						if out := indentResult(resultStr); out != "" {
-							opts.OnOutput(out)
-						}
+					if out := indentResult(resultStr); out != "" {
+						emitOutput(opts.OnOutput, out)
 					}
 
 					messages = append(messages, ChatMessage{
@@ -771,9 +761,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		if isFutureIntention(msg.Content) {
 			futureIntentionNudges++
 			if futureIntentionNudges > maxFutureIntentionNudges {
-				if opts.OnOutput != nil {
-					opts.OnOutput("⚠️ [미래형 선언 반복]: 선언만 반복하고 실제 실행이 없어 작업을 미완료로 종료합니다.")
-				}
+				emitOutput(opts.OnOutput, "⚠️ [미래형 선언 반복]: 선언만 반복하고 실제 실행이 없어 작업을 미완료로 종료합니다.")
 				return &ExecuteResult{
 					Result:           msg.Content,
 					Incomplete:       true,
@@ -782,9 +770,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					CompletionTokens: totalCompletionTokens,
 				}, nil
 			}
-			if opts.OnOutput != nil {
-				opts.OnOutput("⚠️ [미래형 선언 감지]: 선언한 작업을 실제 도구 호출로 완료해주세요.")
-			}
+			emitOutput(opts.OnOutput, "⚠️ [미래형 선언 감지]: 선언한 작업을 실제 도구 호출로 완료해주세요.")
 			messages = append(messages, ChatMessage{
 				Role:    ChatRoleAssistant,
 				Content: msg.Content,
@@ -812,9 +798,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		if (buildRequired || buildClaimed) && !bashCalled {
 			if !buildRequired && buildGateNudges < maxBuildGateNudges {
 				buildGateNudges++
-				if opts.OnOutput != nil {
-					opts.OnOutput("⚠️ [빌드 검증 게이트]: 빌드 완료를 보고했지만 bash 빌드 검증이 실행되지 않았습니다. 검증 또는 해명을 요청합니다.")
-				}
+				emitOutput(opts.OnOutput, "⚠️ [빌드 검증 게이트]: 빌드 완료를 보고했지만 bash 빌드 검증이 실행되지 않았습니다. 검증 또는 해명을 요청합니다.")
 				messages = append(messages, ChatMessage{Role: ChatRoleAssistant, Content: msg.Content})
 				messages = append(messages, ChatMessage{
 					Role: ChatRoleUser,
@@ -824,9 +808,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				})
 				continue
 			}
-			if opts.OnOutput != nil {
-				opts.OnOutput("⚠️ [빌드 검증 게이트]: 빌드가 필요한 작업인데 bash 빌드 검증이 한 번도 실행되지 않았습니다.")
-			}
+			emitOutput(opts.OnOutput, "⚠️ [빌드 검증 게이트]: 빌드가 필요한 작업인데 bash 빌드 검증이 한 번도 실행되지 않았습니다.")
 			return &ExecuteResult{
 				Result:           msg.Content,
 				Incomplete:       true,
@@ -847,9 +829,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		if isPauseSummary(msg.Content) {
 			pauseSummaryNudges++
 			if pauseSummaryNudges <= maxPauseSummaryNudges {
-				if opts.OnOutput != nil {
-					opts.OnOutput("⚠️ [중단 요약 감지]: 작업이 끝나지 않았습니다. 중단 요약 대신 실제 도구 호출로 계속 진행해주세요.")
-				}
+				emitOutput(opts.OnOutput, "⚠️ [중단 요약 감지]: 작업이 끝나지 않았습니다. 중단 요약 대신 실제 도구 호출로 계속 진행해주세요.")
 				messages = append(messages, ChatMessage{Role: ChatRoleAssistant, Content: msg.Content})
 				messages = append(messages, ChatMessage{
 					Role: ChatRoleUser,
@@ -866,9 +846,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					return res, nil
 				}
 			}
-			if opts.OnOutput != nil {
-				opts.OnOutput("⚠️ [중단 요약 반복]: 작업을 끝내지 않고 중단 요약만 반복하여 미완료로 종료합니다.")
-			}
+			emitOutput(opts.OnOutput, "⚠️ [중단 요약 반복]: 작업을 끝내지 않고 중단 요약만 반복하여 미완료로 종료합니다.")
 			return &ExecuteResult{
 				Result:           msg.Content,
 				Incomplete:       true,
@@ -879,9 +857,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		}
 
 		// Successful completion
-		if opts.OnOutput != nil {
-			opts.OnOutput(msg.Content)
-		}
+		emitOutput(opts.OnOutput, msg.Content)
 
 		return &ExecuteResult{
 			Result:           msg.Content,
@@ -1062,19 +1038,15 @@ func attemptHandoff(ctx context.Context, client *Client, opts ExecuteOptions, tr
 		return nil, false
 	}
 
-	if opts.OnOutput != nil {
-		opts.OnOutput("⚠️ 컨텍스트 한계 도달 — 작업을 요약하고 마무리합니다.")
-		opts.OnOutput(summary)
-	}
+	emitOutput(opts.OnOutput, "⚠️ 컨텍스트 한계 도달 — 작업을 요약하고 마무리합니다.")
+	emitOutput(opts.OnOutput, summary)
 	if followUp != "" {
 		if err := opts.EnqueueFollowUp(followUp); err != nil {
-			if opts.OnOutput != nil {
-				opts.OnOutput("⚠️ 후속 작업 큐 추가 실패: " + err.Error())
-			}
+			emitOutput(opts.OnOutput, "⚠️ 후속 작업 큐 추가 실패: "+err.Error())
 			// Surface the follow-up in the result so the work isn't lost.
 			summary += "\n\n[후속 작업 (큐 추가 실패, 수동 등록 필요)]\n" + followUp
-		} else if opts.OnOutput != nil {
-			opts.OnOutput("📋 남은 작업을 후속 작업으로 큐에 추가했습니다.")
+		} else {
+			emitOutput(opts.OnOutput, "📋 남은 작업을 후속 작업으로 큐에 추가했습니다.")
 		}
 	}
 
@@ -1198,19 +1170,41 @@ func toolArgSummary(args map[string]interface{}) string {
 	return ""
 }
 
+// ensureOutputNL appends a trailing newline if missing. The processor's
+// LineCoalescer treats incomplete lines as open and concatenates subsequent
+// chunks onto them; discrete logical units (tool headers, result blocks,
+// narration, warnings) must therefore end with '\n' or they glue together
+// mid-line in the live/persisted output (tasks #7256, #7267).
+func ensureOutputNL(s string) string {
+	if s == "" || strings.HasSuffix(s, "\n") {
+		return s
+	}
+	return s + "\n"
+}
+
+// emitOutput sends s via onOutput with a guaranteed trailing newline.
+func emitOutput(onOutput func(string), s string) {
+	if onOutput == nil || s == "" {
+		return
+	}
+	onOutput(ensureOutputNL(s))
+}
+
 // toolCallHeader builds the "🔧 name → detail" header line that the web UI
 // (OutputViewer.svelte) parses to display a tool call. The arrow separator and
-// detail are omitted when there is no summarizable argument.
+// detail are omitted when there is no summarizable argument. Always ends with
+// '\n' so LineCoalescer does not glue the next event onto this line.
 func toolCallHeader(name string, args map[string]interface{}) string {
 	if summary := toolArgSummary(args); summary != "" {
-		return fmt.Sprintf("🔧 %s → %s", name, summary)
+		return fmt.Sprintf("🔧 %s → %s\n", name, summary)
 	}
-	return fmt.Sprintf("🔧 %s", name)
+	return fmt.Sprintf("🔧 %s\n", name)
 }
 
 // indentResult formats a tool result preview as an indented block so the web UI
 // renders it as a monospace result box (it classifies lines starting with 2+
-// spaces as "result"). Returns "" when there is no visible output.
+// spaces as "result"). Returns "" when there is no visible output. Always ends
+// with '\n' so the following narration/tool header is not glued mid-line.
 func indentResult(s string) string {
 	s = strings.TrimRight(s, "\n")
 	if strings.TrimSpace(s) == "" {
@@ -1221,7 +1215,7 @@ func indentResult(s string) string {
 	for i, line := range lines {
 		lines[i] = "  " + line
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n") + "\n"
 }
 
 // extractAttachedImages scans the user prompt for image file paths in the

@@ -14,6 +14,36 @@
 		return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
 	}
 
+	// Split lines where discrete stream events were glued mid-line because the
+	// producer omitted a trailing '\n' (pre-#7267 embedded path). Historical
+	// DB rows still have this shape; without expansion the final summary text
+	// stays stuck inside a tool-result <pre> box.
+	//
+	// Patterns repaired:
+	//   1. Mid-line "🔧 " tool headers: "...하겠습니다.🔧 bash → cmd"
+	//   2. Status/thinking markers glued after result: "...out⚠️ ..." / "...out💭 "
+	function expandGluedLines(lines) {
+		const out = [];
+		for (const raw of lines) {
+			if (raw == null || raw === '') {
+				out.push(raw);
+				continue;
+			}
+			// Split before mid-line tool/status markers that are not at column 0.
+			const pieces = raw.split(/(?=🔧 |⚠️ |💭 |✅ |🚀 |📋 )/);
+			if (pieces.length === 1) {
+				out.push(raw);
+				continue;
+			}
+			for (const piece of pieces) {
+				if (piece === '') continue;
+				// Preserve trailing newline on the last piece only when original had one.
+				out.push(piece);
+			}
+		}
+		return out;
+	}
+
 	function classifyLine(raw, prevType) {
 		const line = stripAnsi(raw);
 		if (/^[🟠🟢🔵⚪]\s/.test(line)) return 'sheep';
@@ -44,7 +74,7 @@
 		}
 
 		let prevType = null;
-		for (const raw of lines) {
+		for (const raw of expandGluedLines(lines)) {
 			const type = classifyLine(raw, prevType);
 			const text = stripAnsi(raw);
 

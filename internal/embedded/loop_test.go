@@ -641,3 +641,109 @@ func TestBuildGateRequiredPathStrict(t *testing.T) {
 		}
 	}
 }
+
+// TestEnsureOutputNL verifies trailing newlines for LineCoalescer safety.
+func TestEnsureOutputNL(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"hello", "hello\n"},
+		{"hello\n", "hello\n"},
+		{"a\nb", "a\nb\n"},
+		{"a\nb\n", "a\nb\n"},
+	}
+	for _, tc := range cases {
+		got := ensureOutputNL(tc.in)
+		if got != tc.want {
+			t.Errorf("ensureOutputNL(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestToolCallHeaderTrailingNL ensures tool headers always close the line so
+// the next result/narration chunk is not glued mid-line by LineCoalescer.
+func TestToolCallHeaderTrailingNL(t *testing.T) {
+	h := toolCallHeader("bash", map[string]interface{}{"command": "ls"})
+	if !strings.HasSuffix(h, "\n") {
+		t.Fatalf("toolCallHeader missing trailing NL: %q", h)
+	}
+	if strings.Count(h, "\n") != 1 {
+		t.Fatalf("toolCallHeader should be a single line, got %q", h)
+	}
+	h2 := toolCallHeader("read_file", nil)
+	if !strings.HasSuffix(h2, "\n") {
+		t.Fatalf("toolCallHeader(no args) missing trailing NL: %q", h2)
+	}
+}
+
+// TestIndentResultTrailingNL ensures result blocks close so final summary text
+// is not glued onto the last indented result line (task #7267).
+func TestIndentResultTrailingNL(t *testing.T) {
+	out := indentResult("line one\nline two")
+	if out == "" {
+		t.Fatal("indentResult returned empty")
+	}
+	if !strings.HasSuffix(out, "\n") {
+		t.Fatalf("indentResult missing trailing NL: %q", out)
+	}
+	// Last non-empty line must still be indented.
+	trimmed := strings.TrimRight(out, "\n")
+	lines := strings.Split(trimmed, "\n")
+	for _, ln := range lines {
+		if !strings.HasPrefix(ln, "  ") {
+			t.Fatalf("result line not indented: %q", ln)
+		}
+	}
+	if indentResult("   \n  ") != "" {
+		t.Fatal("blank result should return empty")
+	}
+}
+
+// TestEmitOutputDoesNotGlueUnits simulates the LineCoalescer contract: when
+// discrete units each end with '\n', they stay separate array elements.
+func TestEmitOutputDoesNotGlueUnits(t *testing.T) {
+	var chunks []string
+	// Mimic LineCoalescer: open buffer, flush complete lines.
+	var buf strings.Builder
+	coalesce := func(s string) {
+		buf.WriteString(s)
+		for {
+			str := buf.String()
+			i := strings.IndexByte(str, '\n')
+			if i < 0 {
+				break
+			}
+			chunks = append(chunks, str[:i+1])
+			buf.Reset()
+			buf.WriteString(str[i+1:])
+		}
+	}
+
+	emitOutput(coalesce, toolCallHeader("bash", map[string]interface{}{"command": "echo hi"}))
+	emitOutput(coalesce, indentResult("ok\n1 file changed"))
+	emitOutput(coalesce, "수정이 완료되었습니다.\n\n## 수정 요약")
+
+	if buf.Len() != 0 {
+		// Flush open remainder (should be empty if all units had NL)
+		chunks = append(chunks, buf.String())
+	}
+
+	joined := strings.Join(chunks, "")
+	if strings.Contains(joined, "changed수정") || strings.Contains(joined, "ok🔧") {
+		t.Fatalf("units glued mid-line: %q", chunks)
+	}
+	// Summary start must be its own non-indented line.
+	foundSummary := false
+	for _, c := range chunks {
+		if strings.HasPrefix(c, "수정이 완료") {
+			foundSummary = true
+			if strings.HasPrefix(c, " ") {
+				t.Fatalf("summary line still indented/glued: %q", c)
+			}
+		}
+	}
+	if !foundSummary {
+		t.Fatalf("summary line missing from coalesced output: %q", chunks)
+	}
+}

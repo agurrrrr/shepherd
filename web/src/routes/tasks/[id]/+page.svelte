@@ -6,6 +6,7 @@
 	import { appendLiveOutput } from '$lib/liveOutput.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
+	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
 
 	let task = null;
 	let loading = true;
@@ -146,7 +147,7 @@
 			{#if task.summary}
 				<div class="section card">
 					<h3>Summary</h3>
-					<pre class="mono">{task.summary}</pre>
+					<MarkdownBody text={task.summary} />
 				</div>
 			{/if}
 
