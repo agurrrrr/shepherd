@@ -384,7 +384,10 @@
 		padding: 0 12px 10px;
 		font-size: 12.5px;
 		line-height: 1.55;
+		/* color + transparent bg: do not let github-markdown light scheme
+		   paint a white strip under --text-secondary (OS light mode). */
 		color: var(--text-secondary);
+		background: transparent;
 		overflow-x: hidden;
 		word-break: break-word;
 		min-width: 0;
@@ -432,6 +435,7 @@
 		font-size: 13px;
 		line-height: 1.6;
 		color: var(--text-primary);
+		background: transparent;
 		overflow-x: hidden;
 		word-break: break-word;
 		min-width: 0;

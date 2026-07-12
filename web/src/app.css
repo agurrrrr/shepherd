@@ -296,6 +296,31 @@ input, textarea, select {
 	letter-spacing: 0.08em;
 }
 
+/*
+ * github-markdown-css is loaded by FileBrowser and styles every
+ * .markdown-body (Live Output, Thinking, MAGI, Summary). Map its tokens
+ * onto Shepherd design tokens so OS light preference cannot force a white
+ * canvas under dark-theme text (see web/src/lib/style/github-markdown.css).
+ */
+.markdown-body {
+	color-scheme: dark;
+	--fgColor-default: var(--text-primary);
+	--fgColor-muted: var(--text-secondary);
+	--fgColor-accent: var(--accent);
+	--fgColor-success: var(--success);
+	--fgColor-attention: var(--warning);
+	--fgColor-danger: var(--danger);
+	--bgColor-default: transparent;
+	--bgColor-muted: var(--bg-secondary);
+	--bgColor-neutral-muted: var(--bg-tertiary);
+	--borderColor-default: var(--border);
+	--borderColor-muted: var(--border);
+	--borderColor-neutral-muted: var(--border);
+	--borderColor-accent-emphasis: var(--accent);
+	background-color: transparent;
+	color: var(--text-primary);
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
 	width: 8px;

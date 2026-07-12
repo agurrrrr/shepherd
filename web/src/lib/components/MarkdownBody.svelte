@@ -45,6 +45,7 @@
 		font-size: 13px;
 		line-height: 1.6;
 		color: var(--text-primary);
+		background: transparent;
 		overflow-x: hidden;
 		word-break: break-word;
 		min-width: 0;

@@ -311,6 +311,7 @@
 		font-size: 12px;
 		line-height: 1.55;
 		color: var(--text-primary);
+		background: transparent;
 		word-break: break-word;
 	}
 	.proposer-md :global(p) { margin: 4px 0; }
@@ -418,6 +419,7 @@
 		padding: 4px 0;
 		line-height: 1.6;
 		color: var(--text-primary);
+		background: transparent;
 		word-break: break-word;
 		min-width: 0;
 	}
