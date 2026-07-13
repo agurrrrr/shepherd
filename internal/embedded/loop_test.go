@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -214,6 +216,69 @@ func TestLoopSimpleToolCall(t *testing.T) {
 	}
 	if !strings.Contains(result.Result, "files") {
 		t.Errorf("result = %q, want something about files", result.Result)
+	}
+}
+
+// TestLoopTruncatedWriteFileRefused is the regression test for #7412.
+//
+// When max_tokens cuts a write_file call mid-content, repairTruncatedJSON used
+// to close the string and write_file would succeed with a silent prefix
+// ("Wrote N bytes"), leaving a truncated file on disk. The loop must REFUSE
+// the mutation, leave the file untouched, and let the model retry with a
+// complete payload.
+func TestLoopTruncatedWriteFileRefused(t *testing.T) {
+	dir := t.TempDir()
+	target := "out.go"
+	// Truncated mid-content (unclosed string + object) — classic length cut.
+	truncatedArgs := `{"path":"` + target + `","content":"package main\n\nfunc main() {\n  // still writing`
+
+	r1Lines := buildSSELines([]toolCallSpec{
+		{id: "call_w1", name: "write_file", args: truncatedArgs},
+	}, "", "")
+	for i, l := range r1Lines {
+		if strings.Contains(l, `"finish_reason":"tool_calls"`) {
+			r1Lines[i] = strings.ReplaceAll(l, `"finish_reason":"tool_calls"`, `"finish_reason":"length"`)
+		}
+	}
+
+	fullContent := "package main\n\nfunc main() {\n  println(\"ok\")\n}\n"
+	fullArgs, _ := json.Marshal(map[string]string{"path": target, "content": fullContent})
+	r2 := buildSSELines([]toolCallSpec{
+		{id: "call_w2", name: "write_file", args: string(fullArgs)},
+	}, "", "")
+	r3 := buildSSELines(nil, "File written completely.", "stop")
+
+	srv := multiRoundServer(t, [][]string{r1Lines, r2, r3})
+	defer srv.Close()
+
+	opts := ExecuteOptions{
+		BaseURL:       srv.URL,
+		Model:         "qwen3-27b-test",
+		SystemPrompt:  "You are an agent.",
+		UserPrompt:    "Write out.go",
+		ProjectPath:   dir,
+		MaxIterations: 10,
+	}
+
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Run returned Go error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("expected complete run, got incomplete: %s", result.IncompleteReason)
+	}
+
+	// Final file must be the full retry content, never the truncated prefix alone.
+	data, err := os.ReadFile(filepath.Join(dir, target))
+	if err != nil {
+		t.Fatalf("expected file after successful retry: %v", err)
+	}
+	if string(data) != fullContent {
+		t.Fatalf("file content mismatch:\n got: %q\nwant: %q", string(data), fullContent)
+	}
+	// Truncated prefix must not have been accepted as the final content.
+	if strings.Contains(string(data), "still writing") {
+		t.Fatalf("truncated prefix was persisted: %q", string(data))
 	}
 }
 

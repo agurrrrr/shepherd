@@ -163,13 +163,15 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 		{
 			Type: "function",
 			Function: OpenAIFunction{
-				Name:        "write_file",
-				Description: "Create or overwrite a file with the given content.",
+				Name: "write_file",
+				Description: "Create or overwrite a file with the given content. " +
+					"For large files, prefer a short skeleton via write_file then fill with multiple edit_file calls — " +
+					"a single very large content payload can hit max_tokens and be refused mid-stream.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"path":    map[string]interface{}{"type": "string", "description": "Path to the file"},
-						"content": map[string]interface{}{"type": "string", "description": "Content to write"},
+						"content": map[string]interface{}{"type": "string", "description": "Full file content to write (keep moderately sized; split large files)"},
 					},
 					"required": []string{"path", "content"},
 				},

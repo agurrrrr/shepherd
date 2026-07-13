@@ -412,8 +412,9 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// MaxTokens is capped at 12288 (task #6955, §4.3) to limit the damage
 		// when the repetition guard is slow to catch a loop. With 92K context,
 		// the old ContextTokens/4 = 23K let a looping model burn 17 minutes
-		// (task #6944). 12288 tokens (~20K chars) is enough for large write_file
-		// calls while keeping loop burn time under ~9 minutes at 23 t/s.
+		// (task #6944). 12288 tokens (~20K chars of payload) can still cut a
+		// large write_file mid-content (task #7412); dispatchTool refuses
+		// repaired file-mutating args so a silent prefix is never persisted.
 		maxTok := opts.ContextTokens / 4
 		const maxTokensCap = 12288
 		if maxTok > maxTokensCap {
@@ -903,9 +904,24 @@ func appendPendingImages(messages []ChatMessage, tr *ToolRegistry) []ChatMessage
 
 // dispatchTool executes a tool call and returns the result.
 func dispatchTool(ctx context.Context, tr *ToolRegistry, tc ToolCall, opts ExecuteOptions) (string, error) {
-	args, err := normalizeJSON(tc.Func.Args)
+	args, repaired, err := normalizeJSONWithRepairFlag(tc.Func.Args)
 	if err != nil {
 		return "", fmt.Errorf("JSON parse error for %s: %w", tc.Func.Name, err)
+	}
+
+	// Task #7412: when max_tokens cuts a write_file/edit_file call mid-argument,
+	// repairTruncatedJSON closes the string and the tool would succeed with a
+	// silent prefix ("Wrote N bytes") — leaving a truncated file on disk. Refuse
+	// the mutation and tell the model to retry in smaller chunks. bash keeps the
+	// #5826 repair path (incomplete command usually fails harmlessly and retries).
+	if repaired && isFileMutatingTool(tc.Func.Name) {
+		return "", fmt.Errorf(
+			"REFUSED: %s arguments were truncated mid-stream (incomplete JSON, often finish_reason=length / max_tokens). "+
+				"The file was NOT written. Retry with a smaller payload: write a shorter file, "+
+				"split into multiple write_file/edit_file calls, or write a skeleton then edit_file section by section. "+
+				"Do not re-emit the same full content in one tool call.",
+			tc.Func.Name,
+		)
 	}
 
 	// Inject sheep_name only for MCP tools whose schema declares it (shepherd's

@@ -123,6 +123,67 @@ func TestNormalizeJSONEscapedQuotes(t *testing.T) {
 // normalizeJSON: truncated JSON (the #5826 bug)
 // ─────────────────────────────────────────────
 
+// TestNormalizeJSONWithRepairFlag distinguishes intact JSON from structurally
+// repaired (truncated) payloads — write_file/edit_file use the flag to refuse
+// silent prefix writes (task #7412).
+func TestNormalizeJSONWithRepairFlag(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantRepaired bool
+		wantErr     bool
+		wantKey     string
+		wantVal     string
+	}{
+		{
+			name:         "intact JSON",
+			input:        `{"path":"a.go","content":"package main"}`,
+			wantRepaired: false,
+			wantKey:      "content",
+			wantVal:      "package main",
+		},
+		{
+			name:         "truncated mid-content (write_file #7412)",
+			input:        `{"path":"a.go","content":"package main\n\nfunc main() {\n  fmt.Println("`,
+			wantRepaired: true,
+			wantKey:      "path",
+			wantVal:      "a.go",
+		},
+		{
+			name:         "truncated mid-key drops content pair",
+			input:        `{"path":"a.go","conte`,
+			wantRepaired: true,
+			wantKey:      "path",
+			wantVal:      "a.go",
+		},
+		{
+			name:    "unrepairable",
+			input:   `not json at all`,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, repaired, err := normalizeJSONWithRepairFlag(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("want error, got nil (result=%v repaired=%v)", got, repaired)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if repaired != tt.wantRepaired {
+				t.Errorf("repaired=%v, want %v", repaired, tt.wantRepaired)
+			}
+			if tt.wantKey != "" && got[tt.wantKey] != tt.wantVal {
+				t.Errorf("got[%q]=%v, want %q", tt.wantKey, got[tt.wantKey], tt.wantVal)
+			}
+		})
+	}
+}
+
 // TestNormalizeJSONTruncated verifies that common truncation patterns emitted by
 // Qwen3 are repaired, not rejected with a hard parse error.
 //

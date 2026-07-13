@@ -260,6 +260,16 @@ outer:
 // normalizeJSON attempts to fix common JSON issues from model output.
 // If standard parsing fails, it attempts to repair truncated JSON before giving up.
 func normalizeJSON(raw string) (map[string]interface{}, error) {
+	result, _, err := normalizeJSONWithRepairFlag(raw)
+	return result, err
+}
+
+// normalizeJSONWithRepairFlag is like normalizeJSON but also reports whether
+// the result was produced by structural repair (truncated/malformed input that
+// became valid only after closing strings/braces or dropping a partial pair).
+// Callers that write files must refuse repaired args: a "repaired" content
+// string is a silent prefix of what the model intended (task #7412).
+func normalizeJSONWithRepairFlag(raw string) (map[string]interface{}, bool, error) {
 	s := raw
 	s = stripCodeFence(s)
 	s = stripTrailingCommas(s)
@@ -268,14 +278,14 @@ func normalizeJSON(raw string) (map[string]interface{}, error) {
 
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(s), &result); err == nil {
-		return result, nil
+		return result, false, nil
 	}
 
 	// Standard parse failed — attempt structural repair (truncated strings/objects).
 	repaired := repairTruncatedJSON(s)
 	if repaired != s {
 		if err := json.Unmarshal([]byte(repaired), &result); err == nil {
-			return result, nil
+			return result, true, nil
 		}
 	}
 
@@ -283,11 +293,23 @@ func normalizeJSON(raw string) (map[string]interface{}, error) {
 	// (handles mid-key truncation like `{"command":"ls", "desc`).
 	if trimmed := trimToLastCompletePair(repaired); trimmed != repaired {
 		if err := json.Unmarshal([]byte(trimmed), &result); err == nil {
-			return result, nil
+			return result, true, nil
 		}
 	}
 
-	return nil, fmt.Errorf("JSON parse failed: %w (input: %q)", fmt.Errorf("unable to parse or repair"), s)
+	return nil, false, fmt.Errorf("JSON parse failed: %w (input: %q)", fmt.Errorf("unable to parse or repair"), s)
+}
+
+// isFileMutatingTool reports tools whose args carry payload content that must
+// not be applied when the model stream was cut mid-JSON (write/edit would
+// otherwise persist a silent prefix and report success).
+func isFileMutatingTool(name string) bool {
+	switch name {
+	case "write_file", "edit_file":
+		return true
+	default:
+		return false
+	}
 }
 
 // repairTruncatedJSON closes any open JSON string and brace/bracket pairs that
