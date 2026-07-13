@@ -267,6 +267,7 @@ func (s *Server) handleGetTask(c *fiber.Ctx) error {
 	}
 	if t.Edges.Sheep != nil {
 		result["sheep"] = t.Edges.Sheep.Name
+		result["provider"] = string(t.Edges.Sheep.Provider)
 	}
 	if t.Edges.Project != nil {
 		result["project"] = t.Edges.Project.Name

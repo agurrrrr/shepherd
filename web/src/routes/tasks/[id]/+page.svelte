@@ -6,21 +6,22 @@
 	import { appendLiveOutput } from '$lib/liveOutput.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
+	import MagiStreamPanel from '$lib/components/MagiStreamPanel.svelte';
 	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
 
-	let task = null;
-	let loading = true;
-	let liveOutput = [];
-	let liveOutputOpen = false;
+	let task = $state(null);
+	let loading = $state(true);
+	let liveOutput = $state([]);
+	let liveOutputOpen = $state(false);
 	let unsubs = [];
 
-	$: taskId = $page.params.id;
-	$: from = $page.url.searchParams.get('from');
-	$: backFromProject = from === 'project' && task?.project;
-	$: backLink = backFromProject
+	let taskId = $derived.by(() => $page.params.id);
+	let from = $derived.by(() => $page.url.searchParams.get('from'));
+	let backFromProject = $derived(from === 'project' && task?.project);
+	let backLink = $derived(backFromProject
 		? `/projects/${encodeURIComponent(task.project)}?tab=history`
-		: '/tasks';
-	$: backLabel = backFromProject ? `← Back to ${task.project}` : '← Back to Tasks';
+		: '/tasks');
+	let backLabel = $derived(backFromProject ? `← Back to ${task.project}` : '← Back to Tasks');
 
 	onMount(async () => {
 		const res = await apiGet(`/api/tasks/${taskId}`);
@@ -71,6 +72,8 @@
 		if (min > 0) return `${min}m ${sec % 60}s`;
 		return `${sec}s`;
 	}
+
+	let providerIsMagi = $derived(task?.provider === 'magi');
 </script>
 
 <div class="page">
@@ -97,6 +100,10 @@
 				<div class="meta-item">
 					<span class="meta-label">Sheep</span>
 					<span>{task.sheep || '-'}</span>
+				</div>
+				<div class="meta-item">
+					<span class="meta-label">Provider</span>
+					<span>{task.provider || '-'}</span>
 				</div>
 				<div class="meta-item">
 					<span class="meta-label">Created</span>
@@ -162,10 +169,17 @@
 				</div>
 			{/if}
 
-			<div class="section">
-				<h3>Output ({liveOutput.length} lines)</h3>
-				<OutputViewer lines={liveOutput} />
-			</div>
+			{#if providerIsMagi}
+				<div class="section">
+					<h3>MAGI 심의 Output</h3>
+					<MagiStreamPanel lines={liveOutput} maxHeight="600px" />
+				</div>
+			{:else}
+				<div class="section">
+					<h3>Output ({liveOutput.length} lines)</h3>
+					<OutputViewer lines={liveOutput} />
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>
