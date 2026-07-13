@@ -181,4 +181,52 @@ describe('groupLines', () => {
 		assert.ok(texts.includes('수정하겠습니다.'));
 		assert.ok(texts.includes('테스트 42개'));
 	});
+
+	it('does not let fence markers inside tool results toggle inFence', () => {
+		// Regression: get_task_detail output echoes a previous task's prompt
+		// that contains ``` code blocks. Those fence markers are result
+		// content, not markdown fences — they must not toggle inFence or
+		// all subsequent lines get swallowed into one giant text block.
+		const lines = [
+			'🔧 get_task_detail\n',
+			'  --- 요청 ---\n',
+			'  1. **API (이계약 고정):**\n',
+			'     ```\n',           // fence inside result — must NOT toggle
+			'     POST /verify\n',
+			'     ```\n',            // closing fence inside result
+			'  --- 결과 ---\n',
+			'  작업 완료되었습니다.\n',
+			'💭 Now I need to implement the feature.\n',   // thinking after result
+			'   Let me check the files.\n',
+			'코드를 작성하겠습니다.\n',                    // text after thinking
+			'🔧 bash → cat main.go\n',                    // tool call
+			'  func main() {}\n',                        // result
+			'완료했습니다.\n'                             // text after result
+		];
+		const blocks = groupLines(lines);
+
+		// The thinking block must exist (not swallowed into text)
+		const thinkings = blocks.filter(b => b.type === 'thinking');
+		assert.equal(thinkings.length, 1);
+		assert.ok(thinkings[0].text.includes('implement the feature'));
+
+		// The tool call after thinking must exist (not swallowed into text)
+		const tools = blocks.filter(b => b.type === 'tool');
+		assert.ok(tools.length >= 2, 'should have multiple tool blocks');
+
+		// The result after the tool call must exist
+		const results = blocks.filter(b => b.type === 'result');
+		assert.ok(results.length >= 2, 'should have multiple result blocks');
+
+		// No text block should have unbalanced fences
+		const texts = blocks.filter(b => b.type === 'text');
+		for (const t of texts) {
+			const count = (t.text.match(/```/g) || []).length;
+			assert.equal(count % 2, 0, `text block has unbalanced fences: ${count}`);
+		}
+
+		// The last text block should contain "완료했습니다" (not swallowed)
+		const lastText = texts[texts.length - 1];
+		assert.ok(lastText.text.includes('완료했습니다'));
+	});
 });

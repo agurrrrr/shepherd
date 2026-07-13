@@ -161,13 +161,20 @@ export function groupLines(lines) {
 			type = classifyLine(raw, prevType);
 		}
 
-		if (isFence) {
+		// Fence markers inside tool results are result content, not markdown
+		// fences. A get_task_detail output may echo a previous task's prompt
+		// that contains ``` code blocks — those must not toggle inFence or
+		// they'll swallow all subsequent lines into one giant text block.
+		if (isFence && type !== 'result') {
 			// Fence markers themselves are always text.
 			type = 'text';
 			inFence = !inFence;
 		}
 
 		if (type === 'question') {
+			// Non-text blocks break any open code fence — a code block
+			// can't span across a question, tool call, or thinking block.
+			inFence = false;
 			if (currentThinking) {
 				blocks.push(currentThinking);
 				currentThinking = null;
@@ -201,6 +208,7 @@ export function groupLines(lines) {
 				});
 			}
 		} else if (type === 'result') {
+			inFence = false;
 			if (currentThinking) {
 				blocks.push(currentThinking);
 				currentThinking = null;
@@ -219,6 +227,7 @@ export function groupLines(lines) {
 				currentResult = { type: 'result', lines: [text] };
 			}
 		} else if (type === 'thinking') {
+			inFence = false;
 			if (currentQuestion) {
 				blocks.push(currentQuestion);
 				currentQuestion = null;
@@ -260,6 +269,8 @@ export function groupLines(lines) {
 				currentText = { type: 'text', text };
 			}
 		} else {
+			// sheep, status, tool — non-text blocks break any open fence.
+			inFence = false;
 			flushAll();
 			blocks.push({ type, text });
 		}
