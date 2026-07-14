@@ -116,3 +116,17 @@ func (s *Semaphore) Available() int {
 	}
 	return cap(s.ch) - len(s.ch)
 }
+
+// Lookup returns the existing semaphore for the given endpoint ID, or nil
+// if none has been created yet. Unlike Get, it never creates a new
+// semaphore — callers that only need to check for an existing limiter
+// (e.g. the MAGI proposer path) can use this without knowing the
+// configured maxConcurrent value.
+func (r *Registry) Lookup(endpointID string) *Semaphore {
+	if endpointID == "" {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sems[endpointID]
+}

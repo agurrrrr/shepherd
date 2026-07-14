@@ -297,6 +297,12 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	}
 
 	client := NewClient(baseURL, opts.APIKey, opts.Model)
+	// Set endpoint concurrency limiter (#7461: LLM call-level gating).
+	// nil = unlimited (max_concurrent=0). The semaphore is acquired in
+	// AccumulateStreamWithProgress before each streaming LLM call and released
+	// after, so a parent waiting for spawn_subagents results automatically
+	// frees its slot.
+	client.SetSemaphore(opts.Semaphore)
 	toolRegistry := NewToolRegistry(opts.ProjectPath, opts.SheepName, opts.MCPDefs, opts.MCPDispatch)
 
 	// Vision is enabled either by the endpoint's model capability (opts.Vision)

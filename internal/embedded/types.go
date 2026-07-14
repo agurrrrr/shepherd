@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/agurrrrr/shepherd/internal/llmslots"
 )
 
 // Endpoint represents a configured LLM endpoint (OpenAI-compatible).
@@ -247,6 +249,14 @@ type ExecuteOptions struct {
 
 	// EnqueueFollowUp queues a continuation task with the given prompt.
 	EnqueueFollowUp func(prompt string) error
+
+	// Semaphore limits concurrent LLM calls to the same endpoint. When nil,
+	// concurrency is unlimited. Set by the wiring layer (server.go) from
+	// EmbeddedEndpoint.max_concurrent via llmslots.Global().Get().
+	// The semaphore is acquired in the Client before each streaming call
+	// and released after, so a parent waiting for spawn_subagents results
+	// automatically releases its slot (no explicit release needed).
+	Semaphore *llmslots.Semaphore
 }
 
 // DefaultMaxIterations is the default maximum number of agent loop iterations.

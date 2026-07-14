@@ -130,3 +130,37 @@ func TestSemaphore_ConcurrentAccess(t *testing.T) {
 		t.Fatalf("expected 3 available after all done, got %d", sem.Available())
 	}
 }
+
+func TestSemaphore_LookupExisting(t *testing.T) {
+	Reset()
+	r := Global()
+	// Create a semaphore via Get
+	created := r.Get("lookup-ep", 2)
+	if created == nil {
+		t.Fatal("expected non-nil semaphore from Get")
+	}
+	// Lookup should return the same instance
+	found := r.Lookup("lookup-ep")
+	if found != created {
+		t.Fatal("Lookup should return the same semaphore instance as Get")
+	}
+}
+
+func TestSemaphore_LookupNonExistent(t *testing.T) {
+	Reset()
+	r := Global()
+	// Lookup for an endpoint that has no semaphore yet
+	found := r.Lookup("nonexistent-ep")
+	if found != nil {
+		t.Fatal("expected nil for non-existent endpoint")
+	}
+}
+
+func TestSemaphore_LookupEmptyID(t *testing.T) {
+	Reset()
+	r := Global()
+	found := r.Lookup("")
+	if found != nil {
+		t.Fatal("expected nil for empty endpoint ID")
+	}
+}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/agurrrrr/shepherd/internal/embedded"
 	"github.com/agurrrrr/shepherd/internal/envutil"
+	"github.com/agurrrrr/shepherd/internal/llmslots"
 )
 
 // minPerTurnFraction limits how much of the convergence reserve can be spent on
@@ -146,6 +147,12 @@ var callEndpoint = func(
 	projectPath, sheepName string,
 ) (string, embedded.ChatUsage, error) {
 	client := embedded.NewClient(ep.BaseURL, ep.APIKey, ep.Model)
+	// Set endpoint concurrency limiter if one exists for this endpoint.
+	// Lookup (not Get) so we never create a semaphore here — only reuse one
+	// already created by syncEndpointSemaphores at server startup.
+	if sem := llmslots.Global().Lookup(ep.ID); sem != nil {
+		client.SetSemaphore(sem)
+	}
 
 	messages := []embedded.ChatMessage{
 		{Role: embedded.ChatRoleSystem, Content: systemPrompt},
@@ -716,6 +723,11 @@ var reaskProposer = func(
 
 	// Embedded: one tools-off chat turn — no mini agent loop, no nudge.
 	client := embedded.NewClient(spec.Endpoint.BaseURL, spec.Endpoint.APIKey, spec.Endpoint.Model)
+	// Reuse the endpoint semaphore if one exists (same Lookup pattern as
+	// callEndpoint — never create, only reuse).
+	if sem := llmslots.Global().Lookup(spec.Endpoint.ID); sem != nil {
+		client.SetSemaphore(sem)
+	}
 	ctxTokens := spec.Endpoint.ContextTokens
 	if ctxTokens == 0 {
 		ctxTokens = embedded.DefaultContextTokens
@@ -902,6 +914,12 @@ type RunProposersOptions struct {
 	ToolDispatch embedded.MCPDispatcher
 	ProjectPath  string
 	SheepName    string
+
+	// Semaphore limits concurrent LLM calls per endpoint. When nil,
+	// concurrency is unlimited. Set by the wiring layer from
+	// EmbeddedEndpoint.max_concurrent. The semaphore is acquired in the
+	// embedded Client before each streaming call and released after.
+	Semaphore *llmslots.Semaphore
 }
 
 // pipelineSlot resolves the original pipeline index for a compact Proposers

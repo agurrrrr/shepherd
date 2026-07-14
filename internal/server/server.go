@@ -643,6 +643,16 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		toolRegistry := embedded.NewToolRegistry(projectPath, sheepName, mcpDefs, mcpDispatch)
 		toolDefs := toolRegistry.OpenAIToolDefs()
 
+		// Resolve endpoint concurrency limiter from max_concurrent. When
+		// max_concurrent > 0, a shared semaphore is created (or reused) via
+		// llmslots.Global().Get(). The semaphore is acquired per LLM call in
+		// the embedded Client, so the parent loop, MAGI proposers, and
+		// sub-agents all share the same per-endpoint capacity.
+		var sem *llmslots.Semaphore
+		if ep.MaxConcurrent > 0 {
+			sem = llmslots.Global().Get(ep.ID, ep.MaxConcurrent)
+		}
+
 		// Run the embedded agent loop
 		result, err := embedded.Run(ctx, embedded.ExecuteOptions{
 			SheepName:     sheepName,
@@ -695,6 +705,7 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 				}
 				return nil
 			},
+			Semaphore: sem,
 		})
 		if err != nil {
 			return nil, err
@@ -1079,6 +1090,11 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 			ToolDefs:     toolDefs,
 			ToolDispatch: mcpDispatch,
 		}
+		// Note: MAGI proposer LLM calls are gated via llmslots.Global().Lookup()
+		// inside callEndpoint/reaskProposer (proposer.go), not via this Options
+		// struct. The semaphores are created by syncEndpointSemaphores at server
+		// startup and looked up per endpoint ID. RunProposersOptions.Semaphore
+		// is reserved for future use (e.g. sub-agent spawning from MAGI).
 
 		result, err := magi.Run(ctx, magiOpts)
 		// Flush remaining buffered content from all MAGI coalescers so the

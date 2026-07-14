@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"github.com/agurrrrr/shepherd/internal/llmslots"
 )
 
 // errRepetitionDetected is a sentinel returned from the stream callback to abort
@@ -28,6 +30,10 @@ type Client struct {
 	baseURL    string
 	apiKey     string
 	model      string
+	// semaphore limits concurrent LLM calls to the same endpoint. nil means
+	// unlimited. Acquired in AccumulateStreamWithProgress (the single gate
+	// for all streaming LLM calls) and released on completion.
+	semaphore *llmslots.Semaphore
 }
 
 // NewClient creates a new client for the given endpoint.
@@ -38,6 +44,12 @@ func NewClient(baseURL, apiKey, model string) *Client {
 		apiKey:     apiKey,
 		model:      model,
 	}
+}
+
+// SetSemaphore sets the endpoint concurrency limiter. Called by the loop
+// before the first LLM call. nil means unlimited.
+func (c *Client) SetSemaphore(sem *llmslots.Semaphore) {
+	c.semaphore = sem
 }
 
 // StreamEvent is a single SSE chunk from streaming response.
@@ -306,7 +318,20 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 // AccumulateStreamWithProgress is like AccumulateStream but forwards progress
 // messages (for long prompt processing visibility, task #6955 §4.6) and live
 // token deltas via onToken (may be nil).
+//
+// This is the single gate for all streaming LLM calls: AccumulateStream,
+// AccumulateStreamWithRetry, and AccumulateStreamProposer all funnel through
+// here. The endpoint semaphore is acquired before the call and released after,
+// so a parent agent waiting for spawn_subagents results (which makes no LLM
+// calls during the wait) automatically frees its slot for sub-agents.
 func (c *Client) AccumulateStreamWithProgress(ctx context.Context, req *ChatRequest, onProgress func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
+	// Acquire endpoint slot before making the LLM call. This blocks if the
+	// endpoint is at capacity. When nil (max_concurrent=0), it is a no-op.
+	if c.semaphore != nil {
+		c.semaphore.Acquire()
+		defer c.semaphore.Release()
+	}
+
 	var (
 		contentBuilder   strings.Builder
 		reasoningBuilder strings.Builder
