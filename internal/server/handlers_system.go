@@ -378,6 +378,7 @@ func (s *Server) handleGetEmbeddedEndpoints(c *fiber.Ctx) error {
 			"vision":         ep.Vision,
 			"max_iterations": ep.MaxIterations,
 			"context_tokens": ep.ContextTokens,
+			"max_concurrent": ep.MaxConcurrent,
 			"is_active":      ep.ID == activeID,
 		})
 	}
