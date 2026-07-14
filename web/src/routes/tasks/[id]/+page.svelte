@@ -7,6 +7,7 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
 	import MagiStreamPanel from '$lib/components/MagiStreamPanel.svelte';
+	import SubagentStreamPanel from '$lib/components/SubagentStreamPanel.svelte';
 	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
 
 	let task = $state(null);
@@ -74,6 +75,12 @@
 	}
 
 	let providerIsMagi = $derived(task?.provider === 'magi');
+
+	// Detect subagent output: any line starting with [SUB: triggers the panel.
+	// Same routing pattern as MAGI ([MAGI: prefix → MagiStreamPanel).
+	let hasSubagentOutput = $derived(
+		liveOutput.some((line) => /^\[SUB:/.test(line ?? ''))
+	);
 </script>
 
 <div class="page">
@@ -173,6 +180,11 @@
 				<div class="section">
 					<h3>MAGI 심의 Output</h3>
 					<MagiStreamPanel lines={liveOutput} maxHeight="600px" />
+				</div>
+			{:else if hasSubagentOutput}
+				<div class="section">
+					<h3>서브에이전트 Output</h3>
+					<SubagentStreamPanel lines={liveOutput} maxHeight="600px" />
 				</div>
 			{:else}
 				<div class="section">
