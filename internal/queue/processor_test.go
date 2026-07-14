@@ -48,6 +48,31 @@ func TestGroupKey(t *testing.T) {
 	})
 }
 
+func TestGroupKey_EmbeddedWithEndpointID(t *testing.T) {
+	// embedded provider uses the model field as endpoint ID
+	got := groupKey("embedded", "qwen-coder")
+	want := "embedded/qwen-coder"
+	if got != want {
+		t.Fatalf("groupKey(embedded, qwen-coder) = %q, want %q", got, want)
+	}
+}
+
+func TestGroupKey_EmbeddedWithoutModel(t *testing.T) {
+	got := groupKey("embedded", "")
+	want := "embedded"
+	if got != want {
+		t.Fatalf("groupKey(embedded, \"\") = %q, want %q", got, want)
+	}
+}
+
+func TestGroupKey_EmbeddedDifferentEndpointsSeparateGroups(t *testing.T) {
+	got1 := groupKey("embedded", "endpoint-a")
+	got2 := groupKey("embedded", "endpoint-b")
+	if got1 == got2 {
+		t.Fatalf("different endpoints should have different group keys: %q == %q", got1, got2)
+	}
+}
+
 func TestGroupConcurrencyLimit(t *testing.T) {
 	tests := []struct {
 		name     string

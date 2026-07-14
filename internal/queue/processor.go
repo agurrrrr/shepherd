@@ -194,6 +194,17 @@ func groupKey(provider, model string) string {
 			model = strings.TrimSpace(config.GetString("model_grok"))
 		}
 	}
+	// embedded: model field holds the endpoint ID (see server.go initEmbeddedExecutor).
+	// Each endpoint gets its own concurrency group for per-endpoint concurrency control.
+	// Note: this groupKey operates at the queue dispatcher level only.
+	// In-task goroutines (MAGI, spawn_subagents) bypass this limit and are
+	// controlled by LLM call-level gating (step-03).
+	if p == "embedded" {
+		if model != "" {
+			return "embedded/" + model
+		}
+		return "embedded"
+	}
 	if model == "" {
 		return p
 	}
