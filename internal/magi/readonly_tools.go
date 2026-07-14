@@ -98,9 +98,10 @@ var allowedBrowserTools = map[string]bool{
 // heuristic might suggest they are reads. These mutate task state or spawn
 // browser sessions.
 var blockedShepherdMCPTools = map[string]bool{
-	"task_start":    true,
-	"task_complete": true,
-	"task_error":    true,
+	"task_start":       true,
+	"task_complete":    true,
+	"task_error":       true,
+	"spawn_subagents":  true, // sub-agents cannot spawn children (depth 1)
 }
 
 // blockedBrowserTools is intentionally empty — all browser tools are allowed

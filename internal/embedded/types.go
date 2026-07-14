@@ -206,6 +206,37 @@ type ExecuteResult struct {
 	IncompleteReason string
 }
 
+// SubagentResult is the return value of a single sub-agent execution.
+// It carries the final text result and token/cost usage for parent task
+// aggregation.
+type SubagentResult struct {
+	Content          string
+	PromptTokens     int64
+	CompletionTokens int64
+	CostUSD          float64
+}
+
+// SubagentSpawnResult is the combined return value of executeSpawnSubagents.
+// It carries the assembled tool-result string and aggregated token/cost usage
+// for parent task accumulation. Using a struct from the start avoids a
+// return-type mismatch between step-04 and step-05 (#7463 review: Critical #2).
+type SubagentSpawnResult struct {
+	Content          string
+	PromptTokens     int64
+	CompletionTokens int64
+	CostUSD          float64
+}
+
+// SubagentSpawner is the callback that executes a single read-only sub-agent.
+// The wiring layer (server.go) provides the implementation. When nil on a
+// ToolRegistry, spawn_subagents is unavailable (e.g. for MAGI proposers
+// and sub-agents themselves — depth 1 enforcement).
+//
+// onOutput is the parent's live output sink for [SUB:name] progress lines.
+// The spawner should emit complete lines (ending with \n) with [SUB:name]
+// prefix for each progress update.
+type SubagentSpawner func(ctx context.Context, name, prompt, endpointID string, maxIterations int, onOutput func(string)) (*SubagentResult, error)
+
 // ExecuteOptions contains options for embedded execution.
 type ExecuteOptions struct {
 	SheepName     string

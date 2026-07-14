@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -64,7 +65,21 @@ type ToolRegistry struct {
 	// guard kills the task (task #6505).
 	lastReadPath    string
 	lastReadEndLine int
+
+	// subagentSpawner enables the spawn_subagents tool. When nil, the tool
+	// is not registered (depth 1 enforcement for MAGI proposers and
+	// sub-agents themselves).
+	subagentSpawner SubagentSpawner
+
+	// spawnCount tracks how many times spawn_subagents has been called
+	// in the current task. Capped at maxSpawnsPerTask (3) to prevent
+	// runaway cost (#7463 review: Important #4).
+	spawnCount int
 }
+
+// maxSpawnsPerTask is the per-task limit on spawn_subagents calls to prevent
+// runaway cost (#7463 review: README guard).
+const maxSpawnsPerTask = 3
 
 // pendingImage is an image loaded by read_file, awaiting injection into the
 // chat history as a multimodal message part.
@@ -108,6 +123,22 @@ func (tr *ToolRegistry) DrainPendingImages() []pendingImage {
 	imgs := tr.pendingImages
 	tr.pendingImages = nil
 	return imgs
+}
+
+// SetSubagentSpawner registers the sub-agent spawning callback. When set,
+// the spawn_subagents tool becomes available in OpenAIToolDefs and Dispatch.
+func (tr *ToolRegistry) SetSubagentSpawner(fn SubagentSpawner) {
+	tr.subagentSpawner = fn
+}
+
+// HasSubagentSpawner returns whether this registry can spawn sub-agents.
+func (tr *ToolRegistry) HasSubagentSpawner() bool {
+	return tr.subagentSpawner != nil
+}
+
+// CanSpawn returns false if the per-task spawn limit has been reached.
+func (tr *ToolRegistry) CanSpawn() bool {
+	return tr.spawnCount < maxSpawnsPerTask
 }
 
 // toolFunc receives the loop's context so task stop (ctx cancel) propagates
@@ -248,6 +279,56 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 				Name:        t.Name,
 				Description: t.Description,
 				Parameters:  t.Parameters,
+			},
+		})
+	}
+
+	// spawn_subagents tool — only available when a SubagentSpawner is registered
+	// (parent task with sub-agent support). Sub-agents themselves and MAGI
+	// proposers do not set the spawner, so the tool is invisible to them
+	// (depth 1 enforcement).
+	if tr.subagentSpawner != nil {
+		defs = append(defs, OpenAIToolDef{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name: "spawn_subagents",
+				Description: "Spawn read-only sub-agents that run in parallel. Each sub-agent gets its own " +
+					"context window and can use read-only tools (read_file, grep, glob, browser, etc.). " +
+					"Write tools are NOT available to sub-agents. Results are returned as a combined summary. " +
+					"Use this for parallel research, multi-model code review, or exploring multiple approaches.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"subagents": map[string]interface{}{
+							"type":        "array",
+							"description": "List of sub-agents to spawn (max 4)",
+							"maxItems":     4,
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"name": map[string]interface{}{
+										"type":        "string",
+										"description": "A short name for this sub-agent (used in output prefix)",
+									},
+									"prompt": map[string]interface{}{
+										"type":        "string",
+										"description": "The task/prompt for this sub-agent",
+									},
+									"endpoint_id": map[string]interface{}{
+										"type":        "string",
+										"description": "Endpoint ID to use (empty = parent's endpoint)",
+									},
+									"max_iterations": map[string]interface{}{
+										"type":        "integer",
+										"description": "Max agent loop iterations for this sub-agent (default 15)",
+									},
+								},
+								"required": []string{"name", "prompt"},
+							},
+						},
+					},
+					"required": []string{"subagents"},
+				},
 			},
 		})
 	}
@@ -1041,4 +1122,154 @@ func (tr *ToolRegistry) capOutput(s string) string {
 	return s[:cut] + fmt.Sprintf(
 		"\n\n... [output truncated at %d of %d bytes — narrow the command's output "+
 			"(head/tail/grep) or redirect it to a file and read it with read_file]", cut, len(s))
+}
+
+// executeSpawnSubagents runs multiple read-only sub-agents in parallel.
+// Each sub-agent runs via the SubagentSpawner callback with its own context.
+// Results are combined and truncated to fit within truncateToolResult limits.
+//
+// This function is called directly from the loop's tool dispatch section,
+// bypassing dispatchTool to avoid the 5-minute hard timeout (#7461 I1).
+//
+// Returns SubagentSpawnResult with combined content and aggregated token/cost
+// usage for parent task accumulation (#7463 review: Critical #2 — struct from
+// the start, no return-type mismatch with step-05).
+func executeSpawnSubagents(ctx context.Context, tr *ToolRegistry, args map[string]interface{}, onOutput func(string)) (*SubagentSpawnResult, error) {
+	if !tr.HasSubagentSpawner() {
+		return nil, fmt.Errorf("spawn_subagents is not available in this context")
+	}
+
+	// Per-task spawn limit (#7463 review: Important #4 — README guard)
+	if !tr.CanSpawn() {
+		return nil, fmt.Errorf("spawn_subagents call limit reached (%d/%d per task); "+
+			"consolidate remaining work into existing results", tr.spawnCount, maxSpawnsPerTask)
+	}
+	tr.spawnCount++
+
+	rawList, ok := args["subagents"]
+	if !ok {
+		return nil, fmt.Errorf("missing 'subagents' parameter")
+	}
+	list, ok := rawList.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("'subagents' must be an array")
+	}
+	if len(list) == 0 {
+		return nil, fmt.Errorf("'subagents' array is empty")
+	}
+
+	const maxSubagents = 4 // #7461 C2: README 기준 4개
+	if len(list) > maxSubagents {
+		return nil, fmt.Errorf("too many sub-agents (%d); maximum is %d", len(list), maxSubagents)
+	}
+
+	type subResult struct {
+		name   string
+		result *SubagentResult
+		err    error
+	}
+
+	results := make([]subResult, len(list))
+	var wg sync.WaitGroup
+
+	emitOutput(onOutput, fmt.Sprintf("[SUB:*] %d개 서브에이전트 시작\n", len(list)))
+
+	for i, raw := range list {
+		spec, ok := raw.(map[string]interface{})
+		if !ok {
+			results[i] = subResult{name: fmt.Sprintf("agent-%d", i), err: fmt.Errorf("invalid spec")}
+			continue
+		}
+
+		name, _ := spec["name"].(string)
+		if name == "" {
+			name = fmt.Sprintf("agent-%d", i)
+		}
+		prompt, _ := spec["prompt"].(string)
+		if prompt == "" {
+			results[i] = subResult{name: name, err: fmt.Errorf("empty prompt")}
+			continue
+		}
+		endpointID, _ := spec["endpoint_id"].(string)
+
+		maxIter := 15 // default
+		if mi, ok := spec["max_iterations"].(float64); ok && mi > 0 {
+			maxIter = int(mi)
+		}
+
+		wg.Add(1)
+		go func(idx int, name, prompt, endpointID string, maxIter int) {
+			defer wg.Done()
+
+			emitOutput(onOutput, fmt.Sprintf("[SUB:%s] 시작 — %s\n", name, truncatePrompt(prompt)))
+
+			result, err := tr.subagentSpawner(ctx, name, prompt, endpointID, maxIter, onOutput)
+			results[idx] = subResult{name: name, result: result, err: err}
+
+			if err != nil {
+				emitOutput(onOutput, fmt.Sprintf("[SUB:%s] ❌ 실패 — %v\n", name, err))
+			} else {
+				emitOutput(onOutput, fmt.Sprintf("[SUB:%s] ✅ 완료 — %d chars\n", name, len([]rune(result.Content))))
+			}
+		}(i, name, prompt, endpointID, maxIter)
+	}
+
+	wg.Wait()
+
+	emitOutput(onOutput, fmt.Sprintf("[SUB:*] %d개 서브에이전트 완료\n", len(list)))
+
+	// Build combined result — truncate each result to fit within the 8000-char
+	// truncateToolResult limit. Divide budget equally among successful agents.
+	successCount := 0
+	for _, r := range results {
+		if r.err == nil {
+			successCount++
+		}
+	}
+
+	var perAgentBudget int
+	if successCount > 0 {
+		perAgentBudget = 7500 / successCount // leave room for headers/formatting
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("## %d개 서브에이전트 실행 완료\n\n", len(results)))
+
+	var totalPrompt, totalCompletion int64
+	var totalCost float64
+
+	for _, r := range results {
+		sb.WriteString(fmt.Sprintf("### %s\n", r.name))
+		if r.err != nil {
+			sb.WriteString(fmt.Sprintf("❌ 오류: %v\n\n", r.err))
+		} else {
+			content := r.result.Content
+			if len([]rune(content)) > perAgentBudget {
+				content = string([]rune(content)[:perAgentBudget]) + "\n... (truncated)"
+			}
+			sb.WriteString(content)
+			sb.WriteString("\n\n")
+
+			// Aggregate token/cost usage (#7461 I3)
+			totalPrompt += r.result.PromptTokens
+			totalCompletion += r.result.CompletionTokens
+			totalCost += r.result.CostUSD
+		}
+	}
+
+	return &SubagentSpawnResult{
+		Content:          sb.String(),
+		PromptTokens:     totalPrompt,
+		CompletionTokens: totalCompletion,
+		CostUSD:          totalCost,
+	}, nil
+}
+
+// truncatePrompt returns a short prefix of the prompt for log output.
+func truncatePrompt(s string) string {
+	r := []rune(s)
+	if len(r) > 80 {
+		return string(r[:80]) + "..."
+	}
+	return s
 }

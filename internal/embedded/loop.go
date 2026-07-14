@@ -589,6 +589,50 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				parsedArgs, _ := normalizeJSON(tc.Func.Args)
 				emitOutput(opts.OnOutput, toolCallHeader(tc.Func.Name, parsedArgs))
 
+				// spawn_subagents bypasses dispatchTool to avoid the 5-minute hard
+				// timeout (#7461 I1). Sub-agents may run for tens of minutes, so
+				// the call is handled directly here and the result is injected into
+				// messages in the same format as a normal tool result. Token/cost
+				// usage from SubagentSpawnResult is accumulated into the parent task.
+				if tc.Func.Name == "spawn_subagents" && toolRegistry.HasSubagentSpawner() {
+					var saArgs map[string]interface{}
+					if err := json.Unmarshal([]byte(tc.Func.Args), &saArgs); err != nil {
+						resultStr := fmt.Sprintf("Error: JSON parse error for spawn_subagents: %v", err)
+						if out := indentResult(resultStr); out != "" {
+							emitOutput(opts.OnOutput, out)
+						}
+						messages = append(messages, ChatMessage{
+							Role:       ChatRoleTool,
+							Content:    truncateToolResult(resultStr, tc.Func.Name),
+							ToolCallID: tc.ID,
+						})
+						continue
+					}
+
+					spawnResult, saErr := executeSpawnSubagents(ctx, toolRegistry, saArgs, opts.OnOutput)
+					markToolUsed(tc.Func.Name)
+
+					var resultStr string
+					if saErr != nil {
+						resultStr = fmt.Sprintf("Error: %v", saErr)
+					} else {
+						resultStr = spawnResult.Content
+						// Accumulate sub-agent token/cost usage into parent task
+						totalPromptTokens += spawnResult.PromptTokens
+						totalCompletionTokens += spawnResult.CompletionTokens
+					}
+
+					if out := indentResult(resultStr); out != "" {
+						emitOutput(opts.OnOutput, out)
+					}
+					messages = append(messages, ChatMessage{
+						Role:       ChatRoleTool,
+						Content:    truncateToolResult(resultStr, tc.Func.Name),
+						ToolCallID: tc.ID,
+					})
+					continue
+				}
+
 				result, err := dispatchTool(ctx, toolRegistry, tc, opts)
 				markToolUsed(tc.Func.Name)
 				var resultStr string

@@ -134,6 +134,7 @@ func TestIsAllowedProposerTool_BlockedShepherdMCPTools(t *testing.T) {
 		"task_start",
 		"task_complete",
 		"task_error",
+		"spawn_subagents", // sub-agents cannot spawn children (depth 1)
 	}
 	for _, name := range tools {
 		if IsAllowedProposerTool(name) {
