@@ -19,6 +19,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/discord"
 	"github.com/agurrrrr/shepherd/internal/embedded"
+	"github.com/agurrrrr/shepherd/internal/llmslots"
 	"github.com/agurrrrr/shepherd/internal/magi"
 	"github.com/agurrrrr/shepherd/internal/mcp"
 	"github.com/agurrrrr/shepherd/internal/project"
@@ -62,6 +63,9 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 
 	// Initialize embedded provider executor (avoids import cycle: worker → mcp → queue → worker)
 	initEmbeddedExecutor(mcpServer)
+
+	// Sync llmslots registry with configured endpoints at startup.
+	syncEndpointSemaphores()
 
 	// Initialize magi provider executor (avoids import cycle: worker → magi → embedded)
 	initMagiExecutor(mcpServer)
@@ -707,6 +711,21 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			IncompleteReason: result.IncompleteReason,
 		}, nil
 	})
+}
+
+// syncEndpointSemaphores ensures the llmslots registry has semaphores for
+// all configured embedded endpoints. Called at server startup and when
+// endpoint configs are updated via API.
+func syncEndpointSemaphores() {
+	cfg, err := config.LoadEmbeddedConfig()
+	if err != nil {
+		return
+	}
+	for _, ep := range cfg.Endpoints {
+		if ep.Enabled && ep.MaxConcurrent > 0 {
+			llmslots.Global().Get(ep.ID, ep.MaxConcurrent)
+		}
+	}
 }
 
 // initMagiExecutor registers the magi consensus executor with the worker

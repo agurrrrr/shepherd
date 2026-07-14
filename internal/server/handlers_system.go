@@ -417,6 +417,9 @@ func (s *Server) handleCreateEmbeddedEndpoint(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusInternalServerError, "failed to save embedded config: "+err.Error())
 	}
 
+	// Sync llmslots registry with the new endpoint configuration.
+	syncEndpointSemaphores()
+
 	return success(c, map[string]interface{}{"message": "endpoint created"})
 }
 
@@ -455,6 +458,10 @@ func (s *Server) handleUpdateEmbeddedEndpoint(c *fiber.Ctx) error {
 			if err := config.SaveEmbeddedConfig(cfg); err != nil {
 				return fail(c, fiber.StatusInternalServerError, "failed to save embedded config: "+err.Error())
 			}
+
+			// Sync llmslots registry with the updated endpoint configuration.
+			syncEndpointSemaphores()
+
 			return success(c, map[string]interface{}{"message": "endpoint updated"})
 		}
 	}
