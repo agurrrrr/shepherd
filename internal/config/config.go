@@ -538,6 +538,9 @@ type EmbeddedEndpoint struct {
 	Vision        bool `mapstructure:"vision"`
 	MaxIterations int  `mapstructure:"max_iterations"`
 	ContextTokens int  `mapstructure:"context_tokens"`
+	// MaxConcurrent limits simultaneous LLM calls per endpoint (0 = unlimited).
+	// Corresponds to llama.cpp --parallel slot count.
+	MaxConcurrent int `mapstructure:"max_concurrent"`
 }
 
 // EmbeddedConfig is the top-level config for embedded endpoints.
@@ -573,6 +576,7 @@ type EmbeddedEndpointJSON struct {
 	Vision        bool   `json:"vision"`
 	MaxIterations int    `json:"max_iterations"`
 	ContextTokens int    `json:"context_tokens"`
+	MaxConcurrent int    `json:"max_concurrent"`
 }
 
 // EndpointsToJSON converts embedded endpoints to JSON-friendly slice.
@@ -590,6 +594,7 @@ func EndpointsToJSON(endpoints []EmbeddedEndpoint) []EmbeddedEndpointJSON {
 			Vision:        ep.Vision,
 			MaxIterations: ep.MaxIterations,
 			ContextTokens: ep.ContextTokens,
+			MaxConcurrent: ep.MaxConcurrent,
 		}
 	}
 	return result
@@ -610,6 +615,7 @@ func EndpointsFromJSON(jsonEps []EmbeddedEndpointJSON) []EmbeddedEndpoint {
 			Vision:        ep.Vision,
 			MaxIterations: ep.MaxIterations,
 			ContextTokens: ep.ContextTokens,
+			MaxConcurrent: ep.MaxConcurrent,
 		}
 	}
 	return result

@@ -40,7 +40,8 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				thinking: false,
 				vision: false,
 				max_iterations: 40,
-				context_tokens: 32768
+				context_tokens: 32768,
+				max_concurrent: 0
 			};
 		}
 	}
@@ -62,7 +63,8 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			thinking: editing.thinking,
 			vision: editing.vision,
 			max_iterations: parseInt(editing.max_iterations) || 40,
-			context_tokens: parseInt(editing.context_tokens) || 32768
+			context_tokens: parseInt(editing.context_tokens) || 32768,
+			max_concurrent: parseInt(editing.max_concurrent) || 0
 		};
 
 		let res;
@@ -183,6 +185,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 					<div class="embedded-detail"><span class="embedded-label">URL:</span> <code>{ep.base_url}</code></div>
 					<div class="embedded-detail"><span class="embedded-label">Context:</span> {ep.context_tokens?.toLocaleString()} tokens</div>
 					<div class="embedded-detail"><span class="embedded-label">Max Iterations:</span> {ep.max_iterations}</div>
+				<div class="embedded-detail"><span class="embedded-label">Max Concurrent:</span> {ep.max_concurrent || '∞'}</div>
 					<div class="embedded-detail"><span class="embedded-label">Thinking:</span> {ep.thinking ? 'On' : 'Off'}</div>
 					<div class="embedded-detail"><span class="embedded-label">Vision:</span> {ep.vision ? 'On' : 'Off'}</div>
 				</div>
@@ -224,6 +227,11 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				<label>Context Tokens</label>
 				<input class="input" type="number" bind:value={editing.context_tokens} min="1024" max="131072" step="1024" />
 			</div>
+			<div class="setting-row">
+				<label>Max Concurrent</label>
+				<input class="input" type="number" bind:value={editing.max_concurrent} min="0" placeholder="0" />
+			</div>
+			<p class="hint">llama.cpp <code>--parallel</code> 값과 일치시키세요. 0이면 제한 없음.</p>
 			<div class="setting-row">
 				<label>Thinking</label>
 				<label class="toggle">

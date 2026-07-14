@@ -580,6 +580,7 @@ func embeddedEndpointFromJSON(body config.EmbeddedEndpointJSON) config.EmbeddedE
 		Vision:        body.Vision,
 		MaxIterations: body.MaxIterations,
 		ContextTokens: body.ContextTokens,
+		MaxConcurrent: body.MaxConcurrent,
 	}
 }
 
