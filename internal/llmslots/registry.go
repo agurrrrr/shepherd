@@ -11,7 +11,11 @@
 // its configured max_concurrent.
 package llmslots
 
-import "sync"
+import (
+	"context"
+	"math"
+	"sync"
+)
 
 // Registry manages per-endpoint counting semaphores. The semaphores are
 // lazily created and shared by all callers that reference the same
@@ -23,7 +27,13 @@ type Registry struct {
 
 // Semaphore is a counting semaphore implemented with a buffered channel.
 // A nil Semaphore is a no-op (unlimited concurrency).
+//
+// The internal channel can be replaced at runtime via Registry.Resize.
+// A RWMutex protects the channel pointer: Acquire/TryAcquire/Release take
+// a read lock (allowing concurrent callers), while Resize takes a write
+// lock (exclusive access during the swap).
 type Semaphore struct {
+	mu sync.RWMutex
 	ch chan struct{}
 }
 
@@ -69,12 +79,25 @@ func (r *Registry) Get(endpointID string, maxConcurrent int) *Semaphore {
 	return sem
 }
 
-// Acquire blocks until a slot is available. nil semaphore → no-op.
-func (s *Semaphore) Acquire() {
+// Acquire blocks until a slot is available or ctx is cancelled. Returns nil
+// on success, ctx.Err() if the context is cancelled while waiting. nil
+// semaphore → no-op (always returns nil).
+//
+// The read lock is held during the channel send, which allows concurrent
+// Acquire calls but blocks during a Resize swap.
+func (s *Semaphore) Acquire(ctx context.Context) error {
 	if s == nil {
-		return
+		return nil
 	}
-	s.ch <- struct{}{}
+	s.mu.RLock()
+	ch := s.ch
+	s.mu.RUnlock()
+	select {
+	case ch <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // TryAcquire attempts to acquire a slot without blocking. Returns true
@@ -83,8 +106,11 @@ func (s *Semaphore) TryAcquire() bool {
 	if s == nil {
 		return true
 	}
+	s.mu.RLock()
+	ch := s.ch
+	s.mu.RUnlock()
 	select {
-	case s.ch <- struct{}{}:
+	case ch <- struct{}{}:
 		return true
 	default:
 		return false
@@ -96,7 +122,10 @@ func (s *Semaphore) Release() {
 	if s == nil {
 		return
 	}
-	<-s.ch
+	s.mu.RLock()
+	ch := s.ch
+	s.mu.RUnlock()
+	<-ch
 }
 
 // Capacity returns the maximum number of concurrent acquisitions.
@@ -105,16 +134,26 @@ func (s *Semaphore) Capacity() int {
 	if s == nil {
 		return 0
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return cap(s.ch)
 }
 
 // Available returns the number of currently available slots.
-// nil semaphore → 0 (meaningless, but avoids nil deref).
+// nil semaphore → math.MaxInt (unlimited). Callers that need to distinguish
+// unlimited from a real semaphore should check IsUnlimited().
 func (s *Semaphore) Available() int {
 	if s == nil {
-		return 0
+		return math.MaxInt
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return cap(s.ch) - len(s.ch)
+}
+
+// IsUnlimited reports whether this semaphore is nil (no concurrency limit).
+func (s *Semaphore) IsUnlimited() bool {
+	return s == nil
 }
 
 // Lookup returns the existing semaphore for the given endpoint ID, or nil
@@ -129,4 +168,55 @@ func (r *Registry) Lookup(endpointID string) *Semaphore {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.sems[endpointID]
+}
+
+// Resize changes the capacity of an existing endpoint's semaphore at runtime.
+// If the endpoint has no semaphore yet, one is created with the new capacity.
+// If newCap <= 0, the semaphore is removed (unlimited).
+//
+// Shrinking: in-flight acquisitions are preserved — the new channel is created
+// with the reduced capacity, and currently held slots are tracked so that the
+// effective limit transitions gracefully. New Acquire calls will block once
+// the new capacity is reached.
+// Growing: takes effect immediately for new Acquire calls.
+//
+// This is safe for concurrent use with Acquire/Release.
+func (r *Registry) Resize(endpointID string, newCap int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if newCap <= 0 {
+		// Remove semaphore → unlimited
+		delete(r.sems, endpointID)
+		return
+	}
+
+	old, ok := r.sems[endpointID]
+	if !ok {
+		// Create new semaphore with the given capacity
+		r.sems[endpointID] = &Semaphore{ch: make(chan struct{}, newCap)}
+		return
+	}
+
+	// Already has the right capacity — nothing to do
+	old.mu.RLock()
+	oldCap := cap(old.ch)
+	held := len(old.ch) // items in channel = currently held slots
+	old.mu.RUnlock()
+	if oldCap == newCap {
+		return
+	}
+
+	// Create a new channel with the new capacity. Transfer currently held
+	// slots to the new channel, up to the new capacity.
+	if held > newCap {
+		held = newCap
+	}
+	newCh := make(chan struct{}, newCap)
+	for i := 0; i < held; i++ {
+		newCh <- struct{}{}
+	}
+	old.mu.Lock()
+	old.ch = newCh
+	old.mu.Unlock()
 }

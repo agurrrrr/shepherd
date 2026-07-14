@@ -20,12 +20,12 @@ func TestSpawnSubagents_DeadlockPrevention_MaxConcurrent1(t *testing.T) {
 	sem := llmslots.Global().Get("test-deadlock-ep", 1)
 
 	// Simulate parent holding the slot.
-	sem.Acquire()
+	sem.Acquire(context.Background())
 
 	callCount := int32(0)
 	spawner := func(ctx context.Context, name, prompt, endpointID string, maxIter int, onOutput func(string)) (*SubagentResult, error) {
 		// Each sub-agent tries to acquire the semaphore.
-		sem.Acquire()
+		sem.Acquire(ctx)
 		defer sem.Release()
 		atomic.AddInt32(&callCount, 1)
 		return &SubagentResult{Content: fmt.Sprintf("%s done", name)}, nil
@@ -68,6 +68,9 @@ func TestSpawnSubagents_DeadlockPrevention_MaxConcurrent1(t *testing.T) {
 
 // TestSpawnSubagents_ContextCancellationPropagation verifies that when
 // the parent context is cancelled, all sub-agents are cancelled too.
+//
+// Phase 2 improvement: uses context.WithTimeout instead of time.Sleep + cancel
+// to eliminate timing-dependent flakiness.
 func TestSpawnSubagents_ContextCancellationPropagation(t *testing.T) {
 	spawner := func(ctx context.Context, name, prompt, endpointID string, maxIter int, onOutput func(string)) (*SubagentResult, error) {
 		<-ctx.Done()
@@ -76,7 +79,9 @@ func TestSpawnSubagents_ContextCancellationPropagation(t *testing.T) {
 
 	tr := &ToolRegistry{subagentSpawner: spawner}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Use a short timeout instead of sleep+cancel — deterministic and flaky-free.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
 
 	args := map[string]interface{}{
 		"subagents": []interface{}{
@@ -84,11 +89,6 @@ func TestSpawnSubagents_ContextCancellationPropagation(t *testing.T) {
 			map[string]interface{}{"name": "b", "prompt": "task b"},
 		},
 	}
-
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		cancel()
-	}()
 
 	result, err := executeSpawnSubagents(ctx, tr, args, func(s string) {})
 	// Error is acceptable — context was cancelled.
@@ -245,5 +245,75 @@ func TestSpawnSubagents_DefaultMaxIterations(t *testing.T) {
 	executeSpawnSubagents(context.Background(), tr, args, func(s string) {})
 	if receivedMaxIter != 15 {
 		t.Fatalf("expected default maxIter=15, got %d", receivedMaxIter)
+	}
+}
+
+// --- Phase 2 tests ---
+
+// TestSpawnSubagents_RealDeadlockScenario_MaxConcurrent1 verifies the real
+// production scenario: a parent agent that has acquired its endpoint slot
+// (via AccumulateStreamWithProgress) spawns sub-agents that use the same
+// endpoint. The parent releases its slot before waiting (it makes no LLM
+// calls during the wait), so sub-agents can acquire the single slot
+// sequentially without deadlocking.
+//
+// This replaces the artificial TestSpawnSubagents_DeadlockPrevention_MaxConcurrent1
+// scenario with one that mirrors the actual code path: the spawner acquires
+// via sem.Acquire(ctx) (the same way AccumulateStreamWithProgress does),
+// not via a bare sem.Acquire().
+func TestSpawnSubagents_RealDeadlockScenario_MaxConcurrent1(t *testing.T) {
+	llmslots.Reset()
+	sem := llmslots.Global().Get("test-real-deadlock-ep", 1)
+
+	// Simulate the parent holding the slot (as AccumulateStreamWithProgress does).
+	if err := sem.Acquire(context.Background()); err != nil {
+		t.Fatalf("parent Acquire failed: %v", err)
+	}
+
+	callCount := int32(0)
+	spawner := func(ctx context.Context, name, prompt, endpointID string, maxIter int, onOutput func(string)) (*SubagentResult, error) {
+		// Sub-agent acquires the semaphore using ctx — same as the real
+		// embedded client does in AccumulateStreamWithProgress.
+		if err := sem.Acquire(ctx); err != nil {
+			return nil, fmt.Errorf("sub-agent semaphore acquire: %w", err)
+		}
+		defer sem.Release()
+		atomic.AddInt32(&callCount, 1)
+		return &SubagentResult{Content: fmt.Sprintf("%s done", name)}, nil
+	}
+
+	tr := &ToolRegistry{subagentSpawner: spawner}
+
+	// Release parent slot after a short delay (simulating parent finishing
+	// its LLM call and entering the wait phase where it makes no calls).
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		sem.Release()
+	}()
+
+	args := map[string]interface{}{
+		"subagents": []interface{}{
+			map[string]interface{}{"name": "a", "prompt": "task a"},
+			map[string]interface{}{"name": "b", "prompt": "task b"},
+			map[string]interface{}{"name": "c", "prompt": "task c"},
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := executeSpawnSubagents(context.Background(), tr, args, func(s string) {})
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("executeSpawnSubagents failed: %v", err)
+		}
+		if got := atomic.LoadInt32(&callCount); got != 3 {
+			t.Fatalf("expected 3 sub-agent calls, got %d", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("deadlock detected: executeSpawnSubagents did not complete in 10s")
 	}
 }

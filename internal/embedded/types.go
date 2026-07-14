@@ -288,6 +288,13 @@ type ExecuteOptions struct {
 	// and released after, so a parent waiting for spawn_subagents results
 	// automatically releases its slot (no explicit release needed).
 	Semaphore *llmslots.Semaphore
+
+	// SubagentSpawner enables the spawn_subagents tool for this task. When
+	// non-nil, Run() sets it on its internal ToolRegistry so that the tool
+	// is both visible in OpenAIToolDefs and dispatchable via HasSubagentSpawner.
+	// The wiring layer (server.go) provides the implementation; sub-agents
+	// and MAGI proposers leave this nil (depth 1 enforcement).
+	SubagentSpawner SubagentSpawner
 }
 
 // DefaultMaxIterations is the default maximum number of agent loop iterations.

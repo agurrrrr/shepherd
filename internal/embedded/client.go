@@ -327,10 +327,13 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 func (c *Client) AccumulateStreamWithProgress(ctx context.Context, req *ChatRequest, onProgress func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
 	// Acquire endpoint slot before making the LLM call. This blocks if the
 	// endpoint is at capacity. When nil (max_concurrent=0), it is a no-op.
-	if c.semaphore != nil {
-		c.semaphore.Acquire()
-		defer c.semaphore.Release()
+	// ctx cancellation propagates: if the context is cancelled while waiting
+	// for a slot, Acquire returns ctx.Err() immediately (Phase 2: goroutine
+	// leak prevention).
+	if err := c.semaphore.Acquire(ctx); err != nil {
+		return nil, "", nil, fmt.Errorf("semaphore acquire cancelled: %w", err)
 	}
+	defer c.semaphore.Release()
 
 	var (
 		contentBuilder   strings.Builder

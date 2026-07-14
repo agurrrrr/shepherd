@@ -305,6 +305,15 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	client.SetSemaphore(opts.Semaphore)
 	toolRegistry := NewToolRegistry(opts.ProjectPath, opts.SheepName, opts.MCPDefs, opts.MCPDispatch)
 
+	// Wire the subagent spawner into the internal ToolRegistry. Without this,
+	// the tool definition (from opts.Tools) is visible to the model but
+	// HasSubagentSpawner() returns false, so the loop's dispatch bypass at
+	// line 605 is skipped and the call falls through to dispatchTool which
+	// returns "unknown tool: spawn_subagents".
+	if opts.SubagentSpawner != nil {
+		toolRegistry.SetSubagentSpawner(opts.SubagentSpawner)
+	}
+
 	// Vision is enabled either by the endpoint's model capability (opts.Vision)
 	// or because the task prompt carries attached files (the web UI prepends an
 	// "[Attached files]" block). The capability flag is the important case: a

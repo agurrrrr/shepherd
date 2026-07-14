@@ -825,6 +825,10 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 				return nil
 			},
 			Semaphore: sem,
+			// Pass the subagent spawner so Run() can set it on its internal
+			// ToolRegistry. Without this, the tool definition is visible to
+			// the model (via toolDefs) but dispatch fails with "unknown tool".
+			SubagentSpawner: subagentSpawner,
 		})
 		if err != nil {
 			return nil, err
@@ -869,6 +873,9 @@ func buildSubagentSystemPrompt(parentPrompt, agentName string) string {
 // syncEndpointSemaphores ensures the llmslots registry has semaphores for
 // all configured embedded endpoints. Called at server startup and when
 // endpoint configs are updated via API.
+//
+// Phase 2: uses Resize instead of Get so that runtime config changes to
+// max_concurrent take effect without server restart.
 func syncEndpointSemaphores() {
 	cfg, err := config.LoadEmbeddedConfig()
 	if err != nil {
@@ -876,7 +883,7 @@ func syncEndpointSemaphores() {
 	}
 	for _, ep := range cfg.Endpoints {
 		if ep.Enabled && ep.MaxConcurrent > 0 {
-			llmslots.Global().Get(ep.ID, ep.MaxConcurrent)
+			llmslots.Global().Resize(ep.ID, ep.MaxConcurrent)
 		}
 	}
 }
