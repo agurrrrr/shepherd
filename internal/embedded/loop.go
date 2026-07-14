@@ -335,6 +335,10 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	var (
 		totalPromptTokens     int64
 		totalCompletionTokens int64
+		// totalCostUSD accumulates cost from sub-agent executions. Local LLM
+		// endpoints report 0 cost, so this only matters when sub-agents use a
+		// paid API endpoint (#7461 I3).
+		totalCostUSD          float64
 		consecutiveEmpty      int
 		// Stuck-guard state: a confused local model (e.g. one blinded to an
 		// image it keeps trying to read) can repeat the exact same tool call
@@ -470,6 +474,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				IncompleteReason: fmt.Sprintf("API error: %v", err),
 				PromptTokens:     totalPromptTokens,
 				CompletionTokens: totalCompletionTokens,
+			CostUSD:          totalCostUSD,
 			}, nil
 		}
 
@@ -519,6 +524,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				IncompleteReason: "degenerate repetition detected (model looping)",
 				PromptTokens:     totalPromptTokens,
 				CompletionTokens: totalCompletionTokens,
+			CostUSD:          totalCostUSD,
 			}, nil
 		}
 
@@ -536,6 +542,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				IncompleteReason: "model output degenerated (likely silent context overflow)",
 				PromptTokens:     totalPromptTokens,
 				CompletionTokens: totalCompletionTokens,
+			CostUSD:          totalCostUSD,
 			}, nil
 		}
 
@@ -560,6 +567,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					IncompleteReason: "stuck: repeated identical tool calls with no progress",
 					PromptTokens:     totalPromptTokens,
 					CompletionTokens: totalCompletionTokens,
+				CostUSD:          totalCostUSD,
 				}, nil
 			}
 
@@ -620,6 +628,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 						// Accumulate sub-agent token/cost usage into parent task
 						totalPromptTokens += spawnResult.PromptTokens
 						totalCompletionTokens += spawnResult.CompletionTokens
+						totalCostUSD += spawnResult.CostUSD
 					}
 
 					if out := indentResult(resultStr); out != "" {
@@ -764,6 +773,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				IncompleteReason: "response truncated (max tokens reached)",
 				PromptTokens:     totalPromptTokens,
 				CompletionTokens: totalCompletionTokens,
+			CostUSD:          totalCostUSD,
 			}, nil
 		}
 
@@ -787,6 +797,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					IncompleteReason: "empty response loop detected",
 					PromptTokens:     totalPromptTokens,
 					CompletionTokens: totalCompletionTokens,
+				CostUSD:          totalCostUSD,
 				}, nil
 			}
 			// B7: Skip adding a nudge if the last message is already one — prevents
@@ -821,6 +832,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					IncompleteReason: "model repeatedly declared future actions without executing them",
 					PromptTokens:     totalPromptTokens,
 					CompletionTokens: totalCompletionTokens,
+				CostUSD:          totalCostUSD,
 				}, nil
 			}
 			emitOutput(opts.OnOutput, "⚠️ [미래형 선언 감지]: 선언한 작업을 실제 도구 호출로 완료해주세요.")
@@ -868,6 +880,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				IncompleteReason: "required build verification was never run (bash was not called)",
 				PromptTokens:     totalPromptTokens,
 				CompletionTokens: totalCompletionTokens,
+			CostUSD:          totalCostUSD,
 			}, nil
 		}
 
@@ -906,6 +919,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				IncompleteReason: "model produced a pause/handoff summary instead of finishing the task",
 				PromptTokens:     totalPromptTokens,
 				CompletionTokens: totalCompletionTokens,
+			CostUSD:          totalCostUSD,
 			}, nil
 		}
 
@@ -916,6 +930,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			Result:           msg.Content,
 			PromptTokens:     totalPromptTokens,
 			CompletionTokens: totalCompletionTokens,
+		CostUSD:          totalCostUSD,
 		}, nil
 	}
 
@@ -925,6 +940,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		IncompleteReason: fmt.Sprintf("max iterations (%d) exceeded", opts.MaxIterations),
 		PromptTokens:     totalPromptTokens,
 		CompletionTokens: totalCompletionTokens,
+	CostUSD:          totalCostUSD,
 	}, nil
 }
 

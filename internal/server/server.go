@@ -653,6 +653,125 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			sem = llmslots.Global().Get(ep.ID, ep.MaxConcurrent)
 		}
 
+		// SubagentSpawner callback — creates a read-only sub-agent loop.
+		// Each sub-agent gets its own embedded.Run with a filtered (read-only)
+		// tool set. Token/cost usage is returned for parent task aggregation
+		// (#7461 I3). The sub-agent's ToolRegistry does NOT set a spawner,
+		// so spawn_subagents is invisible to it (depth 1 enforcement).
+		subagentSpawner := func(ctx context.Context, name, subPrompt, endpointID string, maxIter int, onOutput func(string)) (*embedded.SubagentResult, error) {
+			// Resolve endpoint — empty endpointID means use the parent's endpoint.
+			var subEp *config.EmbeddedEndpoint
+			var subEpErr error // local err to avoid shadowing parent scope's err
+			if endpointID != "" {
+				subEp, subEpErr = config.GetEmbeddedEndpointByID(endpointID)
+			} else {
+				subEp = ep
+			}
+			if subEpErr != nil || subEp == nil {
+				return nil, fmt.Errorf("subagent endpoint %q not found", endpointID)
+			}
+
+			// Build read-only tool set for the sub-agent.
+			// Reuse IsAllowedProposerTool to filter MCP tools — same allowlist
+			// used by MAGI proposers (read_file/grep/glob + browser + query tools).
+			var filteredMCPDefs []embedded.MCPToolDef
+			for _, d := range mcpDefs {
+				if magi.IsAllowedProposerTool(d.Name) {
+					filteredMCPDefs = append(filteredMCPDefs, d)
+				}
+			}
+
+			// Read-only MCP dispatcher wrapper — rejects write tools at the
+			// dispatch level as a second safety net behind the tool definition
+			// filtering above.
+			subDispatch := func(toolName string, toolArgs map[string]interface{}) (string, []embedded.MCPImage, error) {
+				if !magi.IsAllowedProposerTool(toolName) {
+					return "", nil, fmt.Errorf("tool %q is not allowed for sub-agents (read-only)", toolName)
+				}
+				return mcpDispatch(toolName, toolArgs)
+			}
+
+			// Sub-agent sheep name for browser session isolation (MAGI PersonaSheepName pattern).
+			subSheepName := fmt.Sprintf("%s-sub-%s", sheepName, name)
+
+			subRegistry := embedded.NewToolRegistry(projectPath, subSheepName, filteredMCPDefs, subDispatch)
+			subRegistry.SetVision(subEp.Vision)
+			// DO NOT call SetSubagentSpawner on sub-registry → depth 1 enforcement.
+			// spawn_subagents tool won't appear in OpenAIToolDefs.
+
+			// Sub-agent system prompt: derive from parent's prompt to preserve
+			// project context (git config, code style), but add explicit
+			// read-only constraints (#7461 M1). The tool-level enforcement
+			// (IsAllowedProposerTool + no SetSubagentSpawner) is the real
+			// safety mechanism; this prompt is advisory.
+			subSystemPrompt := buildSubagentSystemPrompt(systemPrompt, name)
+
+			// Endpoint semaphore — passed via ExecuteOptions.Semaphore (step-03).
+			// Shares the same per-endpoint capacity with the parent and MAGI.
+			var subSem *llmslots.Semaphore
+			if subEp.MaxConcurrent > 0 {
+				subSem = llmslots.Global().Get(subEp.ID, subEp.MaxConcurrent)
+			}
+
+			if maxIter <= 0 {
+				maxIter = 15
+			}
+
+			result, runErr := embedded.Run(ctx, embedded.ExecuteOptions{
+				SheepName:     subSheepName,
+				ProjectPath:   projectPath,
+				BaseURL:       subEp.BaseURL,
+				APIKey:        subEp.APIKey,
+				Model:         subEp.Model,
+				SystemPrompt:  subSystemPrompt,
+				UserPrompt:    subPrompt,
+				Tools:         subRegistry.OpenAIToolDefs(),
+				OnOutput:      onOutput,
+				MaxIterations: maxIter,
+				ContextTokens: subEp.ContextTokens,
+				Vision:        subEp.Vision,
+				MCPDefs:       filteredMCPDefs,
+				MCPDispatch:   subDispatch,
+				Semaphore:     subSem,
+				// No InjectCh, ShouldHandoff, EnqueueFollowUp — sub-agents are short-lived.
+			})
+			if runErr != nil {
+				return nil, runErr
+			}
+
+			return &embedded.SubagentResult{
+				Content:          result.Result,
+				PromptTokens:     result.PromptTokens,
+				CompletionTokens: result.CompletionTokens,
+				CostUSD:          result.CostUSD,
+			}, nil
+		}
+
+		toolRegistry.SetSubagentSpawner(subagentSpawner)
+
+		// Rebuild tool definitions now that the spawner is registered —
+		// spawn_subagents will appear in the list when HasSubagentSpawner() is true.
+		toolDefs = toolRegistry.OpenAIToolDefs()
+
+		// Add spawn_subagents usage guide to the system prompt when the tool
+		// is available. BuildSystemPromptForEmbedded doesn't know about the
+		// ToolRegistry state, so we append conditionally here (safer than
+		// always adding it in the prompt builder).
+		if toolRegistry.HasSubagentSpawner() {
+			systemPrompt += "\n\n## spawn_subagents — 병렬 서브에이전트 도구\n"
+			systemPrompt += "여러 읽기 전용 서브에이전트를 병렬로 실행할 수 있습니다. 각 서브에이전트는 독립된 컨텍스트에서 작동하며, 결과만 부모에게 반환합니다.\n\n"
+			systemPrompt += "사용 예:\n"
+			systemPrompt += "- 여러 모델로 코드 리뷰 분산\n"
+			systemPrompt += "- 여러 디렉토리 동시 탐색\n"
+			systemPrompt += "- 여러 접근법으로 리서치 수행\n\n"
+			systemPrompt += "제약:\n"
+			systemPrompt += "- 서브에이전트는 읽기 전용입니다 (write_file/edit_file/bash 사용 불가).\n"
+			systemPrompt += "- 서브에이전트는 자식을 spawn할 수 없습니다 (깊이 1).\n"
+			systemPrompt += "- 최대 4개까지 동시 실행 가능합니다.\n"
+			systemPrompt += "- 태스크당 최대 3회까지 호출할 수 있습니다.\n"
+			systemPrompt += "- 결과는 개별적으로 잘릴 수 있습니다.\n"
+		}
+
 		// Run the embedded agent loop
 		result, err := embedded.Run(ctx, embedded.ExecuteOptions{
 			SheepName:     sheepName,
@@ -722,6 +841,29 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			IncompleteReason: result.IncompleteReason,
 		}, nil
 	})
+}
+
+// buildSubagentSystemPrompt creates a system prompt for a read-only sub-agent.
+// It derives from the parent's system prompt to preserve project context
+// (git config, code style, project structure), but appends explicit read-only
+// constraints that override any earlier write instructions.
+//
+// Note: This function does not attempt to parse and selectively remove write
+// directives from the parent prompt — that would be fragile (natural language
+// parsing). Instead, it appends explicit read-only constraints that override
+// any earlier write instructions. The tool-level enforcement
+// (IsAllowedProposerTool + no SetSubagentSpawner) is the real safety
+// mechanism; this prompt is advisory.
+func buildSubagentSystemPrompt(parentPrompt, agentName string) string {
+	base := parentPrompt
+
+	base += "\n\n## 서브에이전트 제약사항\n"
+	base += fmt.Sprintf("당신은 '%s'라는 이름의 읽기 전용 서브에이전트입니다.\n", agentName)
+	base += "- 파일을 탐색하고 분석할 수 있지만, 파일을 수정할 수 없습니다 (write_file/edit_file/bash 사용 불가).\n"
+	base += "- 브라우저 도구는 사용할 수 있습니다 (세션 격리됨).\n"
+	base += "- 최종 답변으로 발견한 내용을 상세히 요약해 주세요. 이 요약이 부모 에이전트에게 전달됩니다.\n"
+
+	return base
 }
 
 // syncEndpointSemaphores ensures the llmslots registry has semaphores for
