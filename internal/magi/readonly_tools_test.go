@@ -214,3 +214,19 @@ func TestIsAllowedProposerTool_MutatingWinsOverRead(t *testing.T) {
 		t.Errorf("IsAllowedProposerTool(\"ops_add_firewall_rule\") = true; want false (_add_ is mutating)")
 	}
 }
+
+// TestSpawnSubagents_BlockedInMagi verifies that spawn_subagents is blocked
+// for MAGI proposers. Sub-agents are only available to parent embedded tasks
+// that have a registered SubagentSpawner — MAGI proposers do not set one,
+// so spawn_subagents must not appear in their tool list (depth 1 enforcement).
+func TestSpawnSubagents_BlockedInMagi(t *testing.T) {
+	if !IsAllowedProposerTool("read_file") {
+		t.Fatal("read_file should be allowed for proposers")
+	}
+	if IsAllowedProposerTool("spawn_subagents") {
+		t.Fatal("spawn_subagents should be blocked for proposers")
+	}
+	if IsAllowedProposerTool("write_file") {
+		t.Fatal("write_file should be blocked for proposers")
+	}
+}
