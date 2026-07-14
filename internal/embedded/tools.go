@@ -302,7 +302,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 						"subagents": map[string]interface{}{
 							"type":        "array",
 							"description": "List of sub-agents to spawn (max 4)",
-							"maxItems":     4,
+							"maxItems":    4,
 							"items": map[string]interface{}{
 								"type": "object",
 								"properties": map[string]interface{}{
@@ -1144,7 +1144,6 @@ func executeSpawnSubagents(ctx context.Context, tr *ToolRegistry, args map[strin
 		return nil, fmt.Errorf("spawn_subagents call limit reached (%d/%d per task); "+
 			"consolidate remaining work into existing results", tr.spawnCount, maxSpawnsPerTask)
 	}
-	tr.spawnCount++
 
 	rawList, ok := args["subagents"]
 	if !ok {
@@ -1162,6 +1161,10 @@ func executeSpawnSubagents(ctx context.Context, tr *ToolRegistry, args map[strin
 	if len(list) > maxSubagents {
 		return nil, fmt.Errorf("too many sub-agents (%d); maximum is %d", len(list), maxSubagents)
 	}
+
+	// Increment spawn count only after all validation passes so malformed
+	// arguments do not consume a spawn slot (#7478 review issue #4).
+	tr.spawnCount++
 
 	type subResult struct {
 		name   string

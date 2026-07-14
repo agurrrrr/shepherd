@@ -205,8 +205,8 @@ var callEndpoint = func(
 
 	// ── Tool exploration phase (bounded by wall clock, not a round count) ──
 	turn := 0
-	handoffCount := 0 // in-place context refreshes performed so far
-	var exploreErr error // a non-cancel error mid-exploration → salvage, don't discard
+	handoffCount := 0                     // in-place context refreshes performed so far
+	var exploreErr error                  // a non-cancel error mid-exploration → salvage, don't discard
 	toolCallCount := make(map[string]int) // (tool, raw args) → executions so far
 	for {
 		// Approaching the deadline → stop exploring and force a final answer.
@@ -914,12 +914,6 @@ type RunProposersOptions struct {
 	ToolDispatch embedded.MCPDispatcher
 	ProjectPath  string
 	SheepName    string
-
-	// Semaphore limits concurrent LLM calls per endpoint. When nil,
-	// concurrency is unlimited. Set by the wiring layer from
-	// EmbeddedEndpoint.max_concurrent. The semaphore is acquired in the
-	// embedded Client before each streaming call and released after.
-	Semaphore *llmslots.Semaphore
 }
 
 // pipelineSlot resolves the original pipeline index for a compact Proposers

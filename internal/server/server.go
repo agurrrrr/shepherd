@@ -1235,8 +1235,7 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 		// Note: MAGI proposer LLM calls are gated via llmslots.Global().Lookup()
 		// inside callEndpoint/reaskProposer (proposer.go), not via this Options
 		// struct. The semaphores are created by syncEndpointSemaphores at server
-		// startup and looked up per endpoint ID. RunProposersOptions.Semaphore
-		// is reserved for future use (e.g. sub-agent spawning from MAGI).
+		// startup and looked up per endpoint ID.
 
 		result, err := magi.Run(ctx, magiOpts)
 		// Flush remaining buffered content from all MAGI coalescers so the
@@ -1254,6 +1253,7 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 			Result:           result.Result,
 			PromptTokens:     result.PromptTokens,
 			CompletionTokens: result.CompletionTokens,
+			CostUSD:          result.CostUSD,
 			Incomplete:       result.Incomplete,
 			IncompleteReason: result.IncompleteReason,
 		}, nil
