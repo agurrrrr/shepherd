@@ -98,6 +98,7 @@ func Init() error {
 	viper.SetDefault("model_opencode", "")
 	viper.SetDefault("model_pi", "")
 	viper.SetDefault("model_grok", "")
+	viper.SetDefault("grok_path", "") // empty = auto-detect (GROK_PATH env, PATH, common locations)
 
 	// 임베디드 (in-process 로컬 LLM) 프로바이더
 	viper.SetDefault("embedded_active_id", "")
@@ -443,8 +444,10 @@ func GetPiBinary() string {
 	return "pi" // fallback: hope it's in PATH
 }
 
-// GetGrokBinary returns the path to the grok (Grok Build TUI) binary.
-// It checks: 1) GROK_PATH env var, 2) config "grok_path", 3) PATH lookup, 4) common locations.
+// GetGrokBinary returns the path to the grok binary or a wrapper script (e.g.
+// grok-safe). It checks: 1) GROK_PATH env var, 2) config "grok_path", 3) PATH
+// lookup, 4) common locations. Set grok_path in the config file or WebUI to
+// point at a wrapper like ~/.local/bin/grok-safe.
 func GetGrokBinary() string {
 	// 1. Environment variable
 	if p := os.Getenv("GROK_PATH"); p != "" {

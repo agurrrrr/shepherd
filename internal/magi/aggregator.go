@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/embedded"
 	"github.com/agurrrrr/shepherd/internal/envutil"
 )
@@ -162,7 +163,7 @@ func aggregatorGrokCLI(ctx context.Context, spec AggregatorSpec, systemPrompt, u
 	}
 	args = append(args, "-p", systemPrompt+"\n\n"+userPrompt)
 
-	cmd := exec.CommandContext(ctx, "grok", args...)
+	cmd := exec.CommandContext(ctx, config.GetGrokBinary(), args...)
 	cmd.Dir = spec.WorkDir
 	cmd.Stdin = strings.NewReader("")
 	envutil.SetCleanEnv(cmd)

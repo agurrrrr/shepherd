@@ -1,7 +1,7 @@
 <script>
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
 
-	/** @type {{ model_grok: string, custom_prompt_grok: string, concurrency_limits: Record<string, number> }} */
+	/** @type {{ model_grok: string, custom_prompt_grok: string, concurrency_limits: Record<string, number>, grok_path: string }} */
 	export let configData;
 	/** @type {Array<{id: string, label: string}>} */
 	export let modelOptions;
@@ -18,6 +18,11 @@
 
 <ProviderEnableToggle {providerEnabled} provider="grok" label="⚫ Grok" />
 
+<div class="setting-row">
+	<label>Grok Binary Path</label>
+	<input class="input" type="text" bind:value={configData.grok_path} placeholder="auto-detect" />
+	<span class="hint">grok 또는 래퍼 스크립트 경로 (예: <code>~/.local/bin/grok-safe</code>). 비워두면 자동 탐지.</span>
+</div>
 <div class="setting-row">
 	<label>Grok Model</label>
 	<select class="input" bind:value={configData.model_grok}>

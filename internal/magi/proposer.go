@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/embedded"
 	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/llmslots"
@@ -1315,7 +1316,7 @@ func callGrokCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPromp
 	// The single-turn prompt goes last, via the -p flag.
 	args = append(args, "-p", systemPrompt+browserSessionDirective(sheepName)+"\n\n"+userPrompt)
 
-	cmd := exec.CommandContext(ctx, "grok", args...)
+	cmd := exec.CommandContext(ctx, config.GetGrokBinary(), args...)
 	cmd.Dir = workDir
 	cmd.Stdin = strings.NewReader("")
 	envutil.SetCleanEnv(cmd)
