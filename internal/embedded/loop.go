@@ -1097,25 +1097,24 @@ func sanitizeToolCallArgs(msg ChatMessage) ChatMessage {
 	return sanitized
 }
 
-// handoffMarker separates the handoff summary from the follow-up task prompt
-// in the model's final answer. Kept ASCII-only so any model can reproduce it.
-const handoffMarker = "===NEXT_TASK==="
-
 // attemptHandoff is called when the conversation has outgrown the context
 // window and the queue is idle. It asks the model (with the trimmed history,
-// no tools) for a completion summary plus a self-contained follow-up prompt,
-// queues the follow-up via opts.EnqueueFollowUp, and returns a completed
-// ExecuteResult. Returns ok=false on any failure so the caller falls back to
-// plain trimming.
+// no tools) for a structured completion summary plus a self-contained
+// follow-up prompt, queues the follow-up via opts.EnqueueFollowUp, and
+// returns a completed ExecuteResult.
+//
+// Returns ok=false on any failure — empty response, API error, or a summary
+// that fails the minimum quality check (too short / missing required sections)
+// — so the caller falls back to plain trimming. Handoff must never drop work
+// by accepting a degenerate stub.
+//
+// Instruction quality (Phase 3-1 / task #7547): 9-section structured prompt
+// inspired by grok-build full_replace_summary, without introducing in-session
+// compaction. The ===NEXT_TASK=== marker and EnqueueFollowUp path are preserved.
 func attemptHandoff(ctx context.Context, client *Client, opts ExecuteOptions, trimmed []ChatMessage, promptTokens, completionTokens int64) (*ExecuteResult, bool) {
-	instruction := "컨텍스트 한계에 도달했다. 이번 작업은 여기서 마무리한다.\n" +
-		"1) 지금까지 수행한 작업과 결과를 요약하라.\n" +
-		"2) 아직 남은 작업이 있으면, 마지막에 '" + handoffMarker + "' 한 줄을 쓰고 그 아래에 남은 작업을 새 작업 프롬프트로 작성하라. " +
-		"새 작업은 이 대화 내용을 볼 수 없으므로 필요한 파일 경로, 지금까지의 결정사항, 주의점을 빠짐없이 포함하라.\n" +
-		"남은 작업이 없으면 '" + handoffMarker + "' 섹션을 생략하라. 도구는 호출하지 마라."
 	msgs := append(append([]ChatMessage{}, trimmed...), ChatMessage{
 		Role:    ChatRoleUser,
-		Content: instruction,
+		Content: buildHandoffInstruction(),
 	})
 
 	// Apply the same MaxTokens cap as the main loop (task #6955, §4.3).
@@ -1141,13 +1140,14 @@ func attemptHandoff(ctx context.Context, client *Client, opts ExecuteOptions, tr
 		completionTokens += usage.CompletionTokens
 	}
 
-	summary := strings.TrimSpace(msg.Content)
-	followUp := ""
-	if i := strings.Index(summary, handoffMarker); i >= 0 {
-		followUp = strings.TrimSpace(summary[i+len(handoffMarker):])
-		summary = strings.TrimSpace(summary[:i])
+	summary, followUp, ok := parseHandoffResponse(msg.Content)
+	if !ok {
+		return nil, false
 	}
-	if summary == "" {
+	// Minimum quality gate: thin/unstructured summaries force trim fallback
+	// so a follow-up is not queued on a useless handoff.
+	if !isHandoffSummaryAcceptable(summary) {
+		emitOutput(opts.OnOutput, "⚠️ 핸드오프 요약 품질 미달 — 트리밍으로 폴백합니다.")
 		return nil, false
 	}
 
