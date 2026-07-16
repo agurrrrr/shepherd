@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -513,7 +514,8 @@ func TestDuplicateNudgePrevention(t *testing.T) {
 	// This test verifies the logic conceptually since we can't easily
 	// test the full loop. Instead, verify that the nudge message content
 	// is what we expect and that the check would work.
-	nudgeContent := "Please continue with the task."
+	// Phase 2-2: empty-response nudge is system-reminder-wrapped.
+	nudgeContent := systemReminder(emptyResponseNudgeBody)
 
 	messages := []ChatMessage{
 		{Role: ChatRoleUser, Content: nudgeContent},
@@ -548,6 +550,184 @@ func TestDuplicateNudgePrevention(t *testing.T) {
 
 	if lastNudge3 {
 		t.Error("expected lastNudge to be false when messages is empty")
+	}
+}
+
+// TestSystemReminderWrap verifies Phase 2-2 envelope used for loop nudges.
+func TestSystemReminderWrap(t *testing.T) {
+	got := systemReminder(emptyResponseNudgeBody)
+	want := "<system-reminder>\nPlease continue with the task.\n</system-reminder>"
+	if got != want {
+		t.Fatalf("systemReminder = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(got, "<system-reminder>") || !strings.HasSuffix(got, "</system-reminder>") {
+		t.Errorf("missing tags: %q", got)
+	}
+	// Body must remain intact so trigger equality / bounds stay meaningful.
+	if !strings.Contains(got, emptyResponseNudgeBody) {
+		t.Errorf("body missing from wrap: %q", got)
+	}
+	// Multi-line Korean guard nudge shape (future-intention style).
+	ko := systemReminder("위에서 선언한 작업을 실제로 도구 호출로 완료해주세요.")
+	if !strings.HasPrefix(ko, "<system-reminder>\n") || !strings.HasSuffix(ko, "\n</system-reminder>") {
+		t.Errorf("unexpected shape: %q", ko)
+	}
+}
+
+// lastUserContents parses a chat/completions request body and returns the
+// content of every role=user message (HTML-escaped JSON is decoded by Unmarshal).
+func lastUserContents(t *testing.T, body string) []string {
+	t.Helper()
+	var req struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		t.Fatalf("unmarshal request: %v\nbody=%s", err, truncateForTest(body, 400))
+	}
+	var out []string
+	for _, m := range req.Messages {
+		if m.Role == "user" && m.Content != "" {
+			out = append(out, m.Content)
+		}
+	}
+	return out
+}
+
+func truncateForTest(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+// TestEmptyResponseNudgeSystemReminder is the end-to-end check that an empty
+// model turn injects a <system-reminder>-wrapped continue message (not plain
+// user text). Trigger logic is unchanged — only the envelope.
+func TestEmptyResponseNudgeSystemReminder(t *testing.T) {
+	r1 := buildSSELines(nil, "", "stop") // empty → nudge
+	r2 := buildSSELines(nil, "작업을 완료했습니다.", "stop")
+
+	var bodies []string
+	var count atomic.Int64
+	rounds := [][]string{r1, r2}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		idx := int(count.Add(1)) - 1
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		if idx >= len(rounds) {
+			http.Error(w, "no more rounds", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fl, _ := w.(http.Flusher)
+		for _, l := range rounds[idx] {
+			_, _ = fmt.Fprintln(w, l)
+			_, _ = fmt.Fprintln(w)
+			if fl != nil {
+				fl.Flush()
+			}
+		}
+	}))
+	defer srv.Close()
+
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL,
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "간단한 작업을 해주세요.",
+		MaxIterations: 4,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("Incomplete: %s", result.IncompleteReason)
+	}
+	if len(bodies) < 2 {
+		t.Fatalf("expected >=2 requests, got %d", len(bodies))
+	}
+	users := lastUserContents(t, bodies[1])
+	want := systemReminder(emptyResponseNudgeBody)
+	found := false
+	for _, c := range users {
+		if c == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("2nd request missing system-reminder nudge.\nwant:\n%q\ngot user msgs:\n%q", want, users)
+	}
+	// Must not inject the bare string as a standalone user message without tags.
+	for _, c := range users {
+		if c == emptyResponseNudgeBody {
+			t.Error("2nd request has unwrapped empty-response nudge")
+		}
+	}
+}
+
+// TestFutureIntentionNudgeSystemReminder verifies the future-intention guard
+// injects a wrapped nudge while still recovering when the model acts.
+func TestFutureIntentionNudgeSystemReminder(t *testing.T) {
+	r1 := buildSSELines(nil, "이제 설정을 수정하겠습니다.", "stop")
+	r2 := buildSSELines(nil, "설정을 수정했고 검증을 마쳤습니다.", "stop")
+
+	var bodies []string
+	var count atomic.Int64
+	rounds := [][]string{r1, r2}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		idx := int(count.Add(1)) - 1
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		if idx >= len(rounds) {
+			http.Error(w, "no more rounds", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fl, _ := w.(http.Flusher)
+		for _, l := range rounds[idx] {
+			_, _ = fmt.Fprintln(w, l)
+			_, _ = fmt.Fprintln(w)
+			if fl != nil {
+				fl.Flush()
+			}
+		}
+	}))
+	defer srv.Close()
+
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL,
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "설정을 고쳐주세요.",
+		MaxIterations: 4,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("Incomplete: %s", result.IncompleteReason)
+	}
+	if len(bodies) < 2 {
+		t.Fatalf("expected >=2 requests, got %d", len(bodies))
+	}
+	users := lastUserContents(t, bodies[1])
+	found := false
+	for _, c := range users {
+		if strings.HasPrefix(c, "<system-reminder>") &&
+			strings.Contains(c, "도구 호출") &&
+			strings.HasSuffix(c, "</system-reminder>") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("future-intention nudge not wrapped; user msgs=%q", users)
 	}
 }
 

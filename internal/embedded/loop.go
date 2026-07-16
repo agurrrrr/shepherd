@@ -60,6 +60,18 @@ const maxPauseSummaryNudges = 2
 // unambiguous, so skipping it is a real false completion.
 const maxBuildGateNudges = 2
 
+// emptyResponseNudgeBody is the plain body of the empty-response continue
+// nudge. Injected as role:user wrapped in systemReminder so the model can
+// distinguish it from real user speech (Phase 2-2 / task #7547).
+const emptyResponseNudgeBody = "Please continue with the task."
+
+// systemReminder wraps automatic system guidance so the model can distinguish
+// it from real user speech. Trigger logic and fire bounds are unchanged —
+// only the envelope. Convention is documented in the embedded system prompt.
+func systemReminder(body string) string {
+	return "<system-reminder>\n" + body + "\n</system-reminder>"
+}
+
 // replacementCharRatio / minDegenerateRunes gate the degeneration guard. A
 // short reply with a stray U+FFFD must not trip it, so require both a minimum
 // length and a high replacement-char fraction.
@@ -810,15 +822,17 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				}, nil
 			}
 			// B7: Skip adding a nudge if the last message is already one — prevents
-			// stacking duplicate "Please continue" messages when the model keeps
-			// returning empty responses.
+			// stacking duplicate continue messages when the model keeps
+			// returning empty responses. Content is system-reminder-wrapped
+			// (Phase 2-2) so equality must use the wrapped form.
+			emptyNudge := systemReminder(emptyResponseNudgeBody)
 			lastNudge := len(messages) > 0 &&
 				messages[len(messages)-1].Role == ChatRoleUser &&
-				messages[len(messages)-1].Content == "Please continue with the task."
+				messages[len(messages)-1].Content == emptyNudge
 			if !lastNudge {
 				messages = append(messages, ChatMessage{
 					Role:    ChatRoleUser,
-					Content: "Please continue with the task.",
+					Content: emptyNudge,
 				})
 			}
 			continue
@@ -851,8 +865,10 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			})
 			messages = append(messages, ChatMessage{
 				Role: ChatRoleUser,
-				Content: "위에서 선언한 작업을 실제로 도구 호출(bash, write_file 등)로 완료해주세요. " +
-					"단순히 '하겠습니다'라고 말하는 대신, 실제 파일 수정이나 빌드 실행을 해주세요.",
+				Content: systemReminder(
+					"위에서 선언한 작업을 실제로 도구 호출(bash, write_file 등)로 완료해주세요. " +
+						"단순히 '하겠습니다'라고 말하는 대신, 실제 파일 수정이나 빌드 실행을 해주세요.",
+				),
 			})
 			continue
 		}
@@ -876,9 +892,11 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				messages = append(messages, ChatMessage{Role: ChatRoleAssistant, Content: msg.Content})
 				messages = append(messages, ChatMessage{
 					Role: ChatRoleUser,
-					Content: "빌드 관련 작업을 완료했다고 보고했지만 bash로 빌드가 실행된 적이 없습니다. " +
-						"bash 도구로 빌드를 실행해 검증해주세요. 빌드 검증이 필요 없는 변경이라면 " +
-						"그 이유를 명시하고 완료 보고를 다시 작성해주세요.",
+					Content: systemReminder(
+						"빌드 관련 작업을 완료했다고 보고했지만 bash로 빌드가 실행된 적이 없습니다. " +
+							"bash 도구로 빌드를 실행해 검증해주세요. 빌드 검증이 필요 없는 변경이라면 " +
+							"그 이유를 명시하고 완료 보고를 다시 작성해주세요.",
+					),
 				})
 				continue
 			}
@@ -908,9 +926,11 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				messages = append(messages, ChatMessage{Role: ChatRoleAssistant, Content: msg.Content})
 				messages = append(messages, ChatMessage{
 					Role: ChatRoleUser,
-					Content: "아직 작업이 끝나지 않았습니다. '중단 시점' 요약을 작성하지 말고, " +
-						"남은 작업을 실제 도구 호출(bash, write_file, mobile_* 등)로 계속 진행해주세요. " +
-						"정말로 모든 작업이 끝났다면 무엇을 완료했는지만 명확히 보고해주세요.",
+					Content: systemReminder(
+						"아직 작업이 끝나지 않았습니다. '중단 시점' 요약을 작성하지 말고, " +
+							"남은 작업을 실제 도구 호출(bash, write_file, mobile_* 등)로 계속 진행해주세요. " +
+							"정말로 모든 작업이 끝났다면 무엇을 완료했는지만 명확히 보고해주세요.",
+					),
 				})
 				continue
 			}

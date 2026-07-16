@@ -93,6 +93,11 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 			"- edit_file의 oldText에는 `→` 이후 실제 내용만 넣어라. `N→` 프리픽스를 복사하지 마라.\n"+
 			"- edit_file 성공 스니펫도 같은 `N→` 형식을 쓰므로, 검증 시에도 프리픽스는 무시하라.")
 
+	// Behavior discipline — 1st line of defense against false-completion / bash-for-files
+	// (Phase 2-2 / task #7547). Keep concise; existing loop.go guards remain the backstop.
+	// Order: base discipline here → custom_prompt_embedded overlay last.
+	sections = append(sections, embeddedBehaviorDiscipline())
+
 	// Available tools guide — use project-specific guide if provided
 	if mcpGuide != "" {
 		sections = append(sections, mcpGuide)
@@ -113,12 +118,23 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 		sections = append(sections, memText)
 	}
 
-	// Custom prompt
+	// Custom prompt (overlay after base discipline)
 	if custom := config.GetString("custom_prompt_embedded"); custom != "" {
 		sections = append(sections, fmt.Sprintf("[User Custom Instructions]\n%s", custom))
 	}
 
 	return joinSections(sections)
+}
+
+// embeddedBehaviorDiscipline is the short fixed conduct block for the embedded
+// coding agent. Intentionally brief to limit context cost on local models.
+func embeddedBehaviorDiscipline() string {
+	return "[행동 규율]\n" +
+		"- 파일 읽기/수정은 read_file, edit_file, write_file 도구만 사용한다. bash로 cat/sed/head/awk 등으로 파일을 읽거나 편집하지 마라.\n" +
+		"- 미래형으로 \"하겠습니다\"만 서술하고 멈추지 마라. 지금 도구를 호출하라.\n" +
+		"- 파괴적·공유 상태 변경(삭제, force push, 원격 푸시 등) 전에는 확인·보고하라.\n" +
+		"- 코드 수정 후 완료 선언 전에 bash로 빌드/테스트를 검증하라.\n" +
+		"- `<system-reminder>...</system-reminder>`로 감싼 내용은 사용자가 직접 한 말이 아니라 시스템 자동 안내다."
 }
 
 // BuildSystemPromptForMagi builds the base system prompt for MAGI proposers.
