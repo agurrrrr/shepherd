@@ -11,6 +11,24 @@ export function stripAnsi(text) {
 	return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
 }
 
+/**
+ * Strip optional stream-routing prefixes that agents/orchestrators attach
+ * for Live Output demux. Prefixes are metadata for SubagentStreamPanel /
+ * MagiStreamPanel; OutputViewer protocol markers (🔧 💭 etc.) sit after them.
+ *
+ *   [SUB:verify-loop] 🔧 read_file → …  →  🔧 read_file → …
+ *   [MAGI:0] 💭 reasoning…              →  💭 reasoning…
+ *
+ * Without this, classifyLine only matches line-start markers and every
+ * prefixed tool/thinking/result line collapses into one giant text block
+ * (project Live Output wall-of-text after #7565 per-line [SUB:] prefix).
+ */
+export function stripStreamLinePrefix(raw) {
+	const line = stripAnsi(raw ?? '');
+	const m = line.match(/^\[(?:SUB:[^\]]+|MAGI:\d)\]\s?(.*)$/s);
+	return m ? m[1] : line;
+}
+
 // True stream-protocol markers that may be glued mid-line after a missing \n.
 // Intentionally excludes ✅ / 🚀 / 📋 — agents use those in normal markdown
 // (checklists, todo labels). Splitting on them turns "1. ✅ item" into a bare
@@ -74,7 +92,8 @@ const STATUS_OK = /^✅ (Task complete|Tool complete|Task #\d+ completed|Done|Re
  * @returns {string}
  */
 export function classifyLine(raw, prevType) {
-	const line = stripAnsi(raw);
+	// Strip [SUB:name] / [MAGI:N] so protocol markers are visible at column 0.
+	const line = stripStreamLinePrefix(raw);
 	if (/^[🟠🟢🔵⚪]\s/.test(line)) return 'sheep';
 	if (line.startsWith('🚀 ')) return 'status';
 	if (STATUS_OK.test(line) || line.startsWith('✅ Task ') || line.startsWith('✅ Tool ')) {
@@ -148,8 +167,9 @@ export function groupLines(lines) {
 	for (const raw of expandGluedLines(lines)) {
 		// DB-persisted lines keep a trailing '\n'; SSE path (appendLiveOutput)
 		// strips it. Normalize so text-block joins don't invent blank lines
-		// that break markdown lists.
-		const text = stripAnsi(raw).replace(/\n$/, '');
+		// that break markdown lists. Also drop [SUB:]/[MAGI:] routing prefixes
+		// so block bodies show protocol content without demux metadata.
+		const text = stripStreamLinePrefix(raw).replace(/\n$/, '');
 		const isFence = FENCE_LINE.test(text);
 
 		// Inside a fenced code block everything is markdown text — even lines

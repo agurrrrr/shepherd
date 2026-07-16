@@ -4,7 +4,9 @@
 	import { groupLines } from '$lib/outputLines.js';
 	import { createMdStreamCache } from '$lib/mdStream.js';
 
-	let { lines = [], maxHeight = '500px' } = $props();
+	// embedded: nest inside SubagentStreamPanel/Magi cards — no chrome, no
+	// own scroll (parent panel scrolls). Plain: standalone Live Output pane.
+	let { lines = [], maxHeight = '500px', embedded = false } = $props();
 	let container;
 
 	const carta = new Carta({ sanitizer: DOMPurify.sanitize });
@@ -53,8 +55,9 @@
 		return () => clearTimeout(t);
 	});
 
-	// Auto-scroll
+	// Auto-scroll (standalone only — embedded parent owns the scrollport)
 	$effect(() => {
+		if (embedded) return;
 		if (lines.length && container) {
 			requestAnimationFrame(() => {
 				container.scrollTop = container.scrollHeight;
@@ -85,7 +88,12 @@
 	}
 </script>
 
-<div class="output-viewer" style="max-height: {maxHeight}" bind:this={container}>
+<div
+	class="output-viewer"
+	class:embedded
+	style="max-height: {embedded ? 'none' : maxHeight}"
+	bind:this={container}
+>
 	{#each blocks as block, i (block.type + ':' + i)}
 		{#if block.type === 'sheep'}
 			<div class="block-sheep">{block.text.trim()}</div>
@@ -179,6 +187,16 @@
 		flex-direction: column;
 		gap: 4px;
 		min-width: 0;
+	}
+
+	/* Nested in a demux panel card: parent provides chrome + scroll. */
+	.output-viewer.embedded {
+		background: transparent;
+		border: none;
+		border-radius: 0;
+		padding: 0;
+		overflow: visible;
+		max-height: none;
 	}
 
 	.block-sheep {

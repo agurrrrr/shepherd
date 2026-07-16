@@ -28,7 +28,7 @@ describe('parseSubagentLine', () => {
 
 describe('assembleSubagentPanel', () => {
 	it('keeps per-agent tools/results separated when all lines are prefixed', () => {
-		const { slots, general } = assembleSubagentPanel([
+		const { slots, general, generalLines } = assembleSubagentPanel([
 			'[SUB:*] 2개 서브에이전트 시작\n',
 			'[SUB:logo-analysis] 시작 — find logo\n',
 			'[SUB:redirect-analysis] 시작 — find redirect\n',
@@ -52,6 +52,10 @@ describe('assembleSubagentPanel', () => {
 		assert.match(logo.text, /No files found/);
 		assert.doesNotMatch(logo.text, /get_history|redirect thinking/);
 		assert.equal(logo.status, 'done');
+		// lines[] is what OutputViewer consumes inside SubagentStreamPanel.
+		assert.ok(logo.lines.some((l) => l.includes('glob')));
+		assert.ok(logo.lines.some((l) => l.includes('No files found')));
+		assert.ok(!logo.lines.some((l) => l.includes('get_history')));
 
 		assert.match(redir.text, /redirect thinking/);
 		assert.match(redir.text, /get_history/);
@@ -61,6 +65,9 @@ describe('assembleSubagentPanel', () => {
 
 		assert.match(general, /2개 서브에이전트 시작/);
 		assert.match(general, /2개 서브에이전트 완료/);
+		assert.equal(generalLines.length, 2);
+		assert.ok(generalLines[0].includes('시작'));
+		assert.ok(generalLines[1].includes('완료'));
 	});
 
 	it('routes unprefixed lines to general (parent), not lastSlot', () => {

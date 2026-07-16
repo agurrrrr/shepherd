@@ -3,7 +3,13 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { expandGluedLines, classifyLine, groupLines, thinkingBody } from './outputLines.js';
+import {
+	expandGluedLines,
+	classifyLine,
+	groupLines,
+	thinkingBody,
+	stripStreamLinePrefix
+} from './outputLines.js';
 
 describe('expandGluedLines', () => {
 	it('does not split checklist items with ✅', () => {
@@ -52,6 +58,22 @@ describe('expandGluedLines', () => {
 	});
 });
 
+describe('stripStreamLinePrefix', () => {
+	it('strips [SUB:name] and [MAGI:N] demux prefixes', () => {
+		assert.equal(
+			stripStreamLinePrefix('[SUB:verify-loop] 🔧 read_file → loop.go\n'),
+			'🔧 read_file → loop.go\n'
+		);
+		assert.equal(stripStreamLinePrefix('[MAGI:0] 💭 reasoning'), '💭 reasoning');
+		assert.equal(stripStreamLinePrefix('[SUB:*] 2개 시작'), '2개 시작');
+	});
+
+	it('leaves unprefixed lines unchanged', () => {
+		assert.equal(stripStreamLinePrefix('🔧 bash → ls\n'), '🔧 bash → ls\n');
+		assert.equal(stripStreamLinePrefix('parent narration'), 'parent narration');
+	});
+});
+
 describe('classifyLine', () => {
 	it('keeps agent checklist ✅ lines as text', () => {
 		assert.equal(classifyLine('✅ TTS 캐시 K8s 볼륨 (M2-4)\n', 'text'), 'text');
@@ -76,6 +98,15 @@ describe('classifyLine', () => {
 		assert.equal(classifyLine('   more thought on next line\n', 'thinking'), 'thinking');
 		// 3-space indent after text is ordinary markdown, not thinking.
 		assert.equal(classifyLine('   indented list item\n', 'text'), 'text');
+	});
+
+	it('classifies protocol markers after [SUB:] / [MAGI:] prefixes (#7575)', () => {
+		assert.equal(classifyLine('[SUB:verify-loop] 🔧 read_file → loop.go\n', null), 'tool');
+		assert.equal(classifyLine('[SUB:a] 💭 reasoning\n', null), 'thinking');
+		assert.equal(classifyLine('[SUB:a]   indented result\n', 'tool'), 'result');
+		assert.equal(classifyLine('[MAGI:1] 🔧 bash → ls\n', null), 'tool');
+		// Prefixed prose stays text (not swallowed into a prior tool).
+		assert.equal(classifyLine('[SUB:a] summary paragraph\n', null), 'text');
 	});
 });
 
@@ -180,6 +211,37 @@ describe('groupLines', () => {
 		const texts = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
 		assert.ok(texts.includes('수정하겠습니다.'));
 		assert.ok(texts.includes('테스트 42개'));
+	});
+
+	it('classifies [SUB:]-prefixed tool/thinking/result into real blocks (#7575)', () => {
+		// Project Live Output used to feed these straight to OutputViewer;
+		// without stripStreamLinePrefix every line was type=text → markdown wall.
+		const lines = [
+			'[SUB:verify-loop] 🔧 read_file → internal/embedded/loop.go\n',
+			'[SUB:verify-loop]   1→package embedded\n',
+			'[SUB:verify-loop]   2→\n',
+			'[SUB:verify-tools] 💭 checking mutex coverage\n',
+			'[SUB:verify-tools] Mutex protects pendingImages.\n',
+			'부모 요약: 3개 서브에이전트 완료\n'
+		];
+		const blocks = groupLines(lines);
+		const types = blocks.map((b) => b.type);
+		assert.ok(types.includes('tool'), 'tool block expected');
+		assert.ok(types.includes('result'), 'result block expected');
+		assert.ok(types.includes('thinking'), 'thinking block expected');
+		assert.ok(types.includes('text'), 'text block expected');
+
+		const tool = blocks.find((b) => b.type === 'tool');
+		assert.ok(tool.text.includes('read_file'));
+		assert.ok(!tool.text.includes('[SUB:'), 'demux prefix stripped from body');
+
+		const result = blocks.find((b) => b.type === 'result');
+		assert.ok(result.lines.some((l) => l.includes('package embedded')));
+
+		const texts = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+		assert.ok(texts.includes('Mutex protects'));
+		assert.ok(texts.includes('부모 요약'));
+		assert.ok(!texts.includes('[SUB:'), 'demux prefix stripped from text bodies');
 	});
 
 	it('does not let fence markers inside tool results toggle inFence', () => {

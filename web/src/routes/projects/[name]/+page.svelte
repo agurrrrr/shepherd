@@ -8,6 +8,7 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
 	import MagiStreamPanel from '$lib/components/MagiStreamPanel.svelte';
+	import SubagentStreamPanel from '$lib/components/SubagentStreamPanel.svelte';
 	import CommandInput from '$lib/components/CommandInput.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import GitGraph from '$lib/components/GitGraph.svelte';
@@ -72,6 +73,13 @@
 	// Thinking toggle applies only to the CLI-harness providers, not embedded.
 	let providerHasThinking = $derived(
 		sheepProvider === 'opencode' || sheepProvider === 'pi'
+	);
+
+	// Detect subagent demux lines: any [SUB:… prefix → SubagentStreamPanel.
+	// Mirrors tasks/[id]/+page.svelte; project Live Output used to skip this
+	// and render raw prefixes through OutputViewer (#7575 wall-of-text).
+	let hasSubagentOutput = $derived(
+		liveOutput.some((line) => /^\[SUB:/.test(line ?? ''))
 	);
 
 	// Provider 사용유무 (설정에서 끄면 선택지에서 숨김). 기본 모두 켜짐.
@@ -718,6 +726,11 @@
 				<div class="output-fill">
 					{#if sheepProvider === 'magi'}
 						<MagiStreamPanel lines={liveOutput} maxHeight="none" />
+					{:else if hasSubagentOutput}
+						<!-- Same routing as tasks/[id]: [SUB:] → demux panel.
+						     Without this, OutputViewer treats every prefixed
+						     🔧/💭 line as plain text → markdown wall (#7575). -->
+						<SubagentStreamPanel lines={liveOutput} maxHeight="none" />
 					{:else}
 						<OutputViewer lines={liveOutput} maxHeight="none" />
 					{/if}

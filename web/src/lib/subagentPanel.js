@@ -65,14 +65,17 @@ export function appendSlotLine(existing, text) {
  *
  * @param {string[]} lines
  * @returns {{
- *   slots: Array<{ name: string, text: string, status: string }>,
+ *   slots: Array<{ name: string, text: string, lines: string[], status: string }>,
  *   general: string,
+ *   generalLines: string[],
  * }}
  */
 export function assembleSubagentPanel(lines) {
-	/** @type {Map<string, { name: string, text: string, status: string }>} */
+	/** @type {Map<string, { name: string, text: string, lines: string[], status: string }>} */
 	const slots = new Map();
 	let general = '';
+	/** @type {string[]} */
+	const generalLines = [];
 
 	const input = Array.isArray(lines) ? lines : [];
 
@@ -84,23 +87,26 @@ export function assembleSubagentPanel(lines) {
 			// Do NOT attach to a "last active" sub-agent slot — parallel bare
 			// streams used to collapse every agent into one card.
 			general = appendSlotLine(general, text);
+			generalLines.push(text);
 			continue;
 		}
 
 		if (slot === '*') {
 			general = appendSlotLine(general, text);
+			generalLines.push(text);
 			continue;
 		}
 
 		// Per-agent line
 		if (!slots.has(slot)) {
-			slots.set(slot, { name: slot, text: '', status: 'running' });
+			slots.set(slot, { name: slot, text: '', lines: [], status: 'running' });
 		}
 		const s = slots.get(slot);
 		// Prefixed lines are always accepted — including after ✅/❌ —
 		// so late body chunks are not dropped when lifecycle "완료" races
 		// ahead of residual Flush (#7564 P2 partial: drop only unprefixed).
 		s.text = appendSlotLine(s.text, text);
+		s.lines.push(text);
 
 		// Detect status from content markers
 		if (text.includes('✅')) {
@@ -110,5 +116,5 @@ export function assembleSubagentPanel(lines) {
 		}
 	}
 
-	return { slots: Array.from(slots.values()), general };
+	return { slots: Array.from(slots.values()), general, generalLines };
 }
