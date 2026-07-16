@@ -102,6 +102,9 @@ func Init() error {
 
 	// 임베디드 (in-process 로컬 LLM) 프로바이더
 	viper.SetDefault("embedded_active_id", "")
+	// tool/bash 결과 SSE·히스토리 저장 직전 시크릿 redaction (기본 on).
+	// false로 끄면 원문 그대로 흘린다 — 디버깅용. 프로덕션에서는 끄지 말 것.
+	viper.SetDefault("embedded_redact_secrets", true)
 
 	// 작업 실행 타임아웃 (Claude/OpenCode CLI 한 번 실행에 허용되는 최대 시간).
 	// time.ParseDuration 형식 — 예: "4h", "30m", "8h30m".

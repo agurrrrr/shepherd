@@ -1211,8 +1211,11 @@ func sanitizeToolResult(s string) string {
 //
 // Binary control characters are stripped first (sanitizeToolResult) to prevent
 // them from poisoning the model's context and causing empty-response loops.
+// High-confidence secrets are redacted next (redactSecrets) so API keys / JWTs /
+// PEM blocks never persist in chat history after compaction.
 func truncateToolResult(s, toolName string) string {
 	s = sanitizeToolResult(s)
+	s = redactSecrets(s)
 	runes := []rune(s)
 	if len(runes) <= maxToolResultChars {
 		return s
@@ -1298,7 +1301,10 @@ func toolCallHeader(name string, args map[string]interface{}) string {
 // renders it as a monospace result box (it classifies lines starting with 2+
 // spaces as "result"). Returns "" when there is no visible output. Always ends
 // with '\n' so the following narration/tool header is not glued mid-line.
+// Secrets are redacted before the preview is emitted over SSE so live output
+// does not leak keys that would later be scrubbed from history alone.
 func indentResult(s string) string {
+	s = redactSecrets(s)
 	s = strings.TrimRight(s, "\n")
 	if strings.TrimSpace(s) == "" {
 		return ""
