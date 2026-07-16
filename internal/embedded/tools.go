@@ -49,6 +49,11 @@ type ToolRegistry struct {
 	// instead of a "cannot read binary" notice. Set by the loop when the task
 	// prompt carries attached files.
 	visionEnabled bool
+	// mu protects mutable session state that pure-read tools may touch when
+	// a parallel read batch runs (pendingImages, readImages, lastRead*).
+	// Write/side-effect tools stay sequential, so they only contend with
+	// concurrent readers in the all-read parallel path.
+	mu sync.Mutex
 	// pendingImages collects images produced by read_file during the current
 	// turn. The loop drains them after tool results and appends them as an
 	// image_url user message. See DrainPendingImages.
@@ -65,6 +70,10 @@ type ToolRegistry struct {
 	// guard kills the task (task #6505).
 	lastReadPath    string
 	lastReadEndLine int
+	// parallelReadDepth is >0 while a pure-read parallel batch is in flight.
+	// Auto-paging is disabled in that window so concurrent same-path reads
+	// cannot race each other into "already read entire file" (Phase 3-3).
+	parallelReadDepth int
 
 	// subagentSpawner enables the spawn_subagents tool. When nil, the tool
 	// is not registered (depth 1 enforcement for MAGI proposers and
@@ -103,6 +112,8 @@ func (tr *ToolRegistry) SetVision(enabled bool) {
 // Call this for images pre-attached to the initial prompt so the model doesn't
 // try to read_file them again (which would cause an infinite loop).
 func (tr *ToolRegistry) MarkImageRead(path string) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
 	tr.readImages[path] = true
 }
 
@@ -111,6 +122,8 @@ func (tr *ToolRegistry) MarkImageRead(path string) {
 func (tr *ToolRegistry) MarkPreReadImages(prompt string) {
 	// Match common image extensions in file paths (uses shared imagePathRe).
 	matches := imagePathRe.FindAllStringSubmatch(prompt, -1)
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
 	for _, m := range matches {
 		if len(m) >= 2 {
 			tr.readImages[m[1]] = true
@@ -123,12 +136,37 @@ func (tr *ToolRegistry) MarkPreReadImages(prompt string) {
 // can follow as a separate user message (OpenAI requires tool results to
 // immediately follow the assistant's tool_calls).
 func (tr *ToolRegistry) DrainPendingImages() []pendingImage {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
 	if len(tr.pendingImages) == 0 {
 		return nil
 	}
 	imgs := tr.pendingImages
 	tr.pendingImages = nil
 	return imgs
+}
+
+// beginParallelReads / endParallelReads bracket a pure-read parallel batch so
+// read_file auto-paging (lastRead*) stays off for the duration — concurrent
+// same-path reads would otherwise race into false "already complete" replies.
+func (tr *ToolRegistry) beginParallelReads() {
+	if tr == nil {
+		return
+	}
+	tr.mu.Lock()
+	tr.parallelReadDepth++
+	tr.mu.Unlock()
+}
+
+func (tr *ToolRegistry) endParallelReads() {
+	if tr == nil {
+		return
+	}
+	tr.mu.Lock()
+	if tr.parallelReadDepth > 0 {
+		tr.parallelReadDepth--
+	}
+	tr.mu.Unlock()
 }
 
 // SetSubagentSpawner registers the sub-agent spawning callback. When set,
@@ -523,10 +561,12 @@ func (tr *ToolRegistry) bufferMCPImages(toolName, text string, images []MCPImage
 		// maxImageDim and re-encodes as JPEG quality 85, cutting payload by
 		// up to 80 % with negligible quality loss for screenshots (task #6688).
 		dataURL := optimizeMCPImage(img)
+		tr.mu.Lock()
 		tr.pendingImages = append(tr.pendingImages, pendingImage{
 			name:    fmt.Sprintf("%s#%d", toolName, i+1),
 			dataURL: dataURL,
 		})
+		tr.mu.Unlock()
 	}
 	note := fmt.Sprintf("[%s returned %d image(s), attached below for you to view directly.]", toolName, len(images))
 	if strings.TrimSpace(text) == "" {
@@ -685,23 +725,31 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 		if tr.visionEnabled && strings.HasPrefix(mime, "image/") {
 			// Check if this image has already been loaded — prevent infinite loops
 			// where the model keeps calling read_file on the same image.
-			if tr.readImages[path] {
+			// Locked: parallel read batches may load images concurrently.
+			tr.mu.Lock()
+			already := tr.readImages[path]
+			if !already {
+				tr.readImages[path] = true
+			}
+			tr.mu.Unlock()
+			if already {
 				return fmt.Sprintf(
 					"[Image %s has already been loaded and is visible in the conversation context above. "+
 						"Do NOT call read_file on it again. Please analyze the image you can already see and provide your response.]",
 					filepath.Base(path),
 				), nil
 			}
-			tr.readImages[path] = true
 			// Optimize large images before injecting into context: a raw phone
 			// screenshot can be 2–3 MB as base64, consuming thousands of tokens.
 			// optimizeImageFile resizes and re-encodes to keep payload small
 			// while preserving visual quality (task #6688).
 			dataURL := optimizeImageFile(data, mime)
+			tr.mu.Lock()
 			tr.pendingImages = append(tr.pendingImages, pendingImage{
 				name:    filepath.Base(path),
 				dataURL: dataURL,
 			})
+			tr.mu.Unlock()
 			return fmt.Sprintf(
 				"[Loaded image %s (%s, %d bytes). It is attached below as an image for you to view directly.]",
 				filepath.Base(path), mime, len(data),
@@ -734,24 +782,33 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 	// stuck guard kills the task (task #6505). When the same path is read again
 	// with no explicit offset, advance past the last line we showed so the call
 	// makes guaranteed forward progress.
+	// lastRead* is protected by mu for parallel read batches. Auto-page is
+	// skipped entirely while parallelReadDepth > 0 (see beginParallelReads).
 	autoAdvanced := false
-	if !offsetGiven && tr.lastReadPath == path && tr.lastReadEndLine > 0 {
-		if tr.lastReadEndLine >= totalLines {
-			// The whole file has already been shown. Returning page 1 again
-			// would let a spinning model cycle forever (every page changes the
-			// signature), so return a stable message instead: it tells the model
-			// it already has the file and — being byte-identical turn after turn
-			// — lets the stuck guard catch genuine spinning. The offset=1 hatch
-			// still allows a real re-read (e.g. after the earlier read was
-			// trimmed from context). Deliberately leaves lastReadEndLine intact.
-			return fmt.Sprintf(
-				"[You have already read this entire file (%d lines); there is nothing after "+
-					"line %d. Proceed with what you've read. To re-read from the top, call "+
-					"read_file with \"offset\": 1.]",
-				totalLines, tr.lastReadEndLine), nil
+	if !offsetGiven {
+		tr.mu.Lock()
+		inParallel := tr.parallelReadDepth > 0
+		samePath := !inParallel && tr.lastReadPath == path && tr.lastReadEndLine > 0
+		lastEnd := tr.lastReadEndLine
+		tr.mu.Unlock()
+		if samePath {
+			if lastEnd >= totalLines {
+				// The whole file has already been shown. Returning page 1 again
+				// would let a spinning model cycle forever (every page changes the
+				// signature), so return a stable message instead: it tells the model
+				// it already has the file and — being byte-identical turn after turn
+				// — lets the stuck guard catch genuine spinning. The offset=1 hatch
+				// still allows a real re-read (e.g. after the earlier read was
+				// trimmed from context). Deliberately leaves lastReadEndLine intact.
+				return fmt.Sprintf(
+					"[You have already read this entire file (%d lines); there is nothing after "+
+						"line %d. Proceed with what you've read. To re-read from the top, call "+
+						"read_file with \"offset\": 1.]",
+					totalLines, lastEnd), nil
+			}
+			start = lastEnd + 1
+			autoAdvanced = true
 		}
-		start = tr.lastReadEndLine + 1
-		autoAdvanced = true
 	}
 
 	if start > totalLines {
@@ -813,8 +870,10 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 
 	// Remember where this read ended so a follow-up call to the same path with
 	// no explicit offset auto-advances (see the auto-page block above).
+	tr.mu.Lock()
 	tr.lastReadPath = path
 	tr.lastReadEndLine = endLine
+	tr.mu.Unlock()
 
 	if autoAdvanced {
 		shown = fmt.Sprintf(

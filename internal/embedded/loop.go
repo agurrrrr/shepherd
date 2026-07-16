@@ -609,7 +609,10 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			// Add assistant message with tool calls to history.
 			// Sanitize args first: malformed JSON in tool_calls causes llama.cpp to
 			// return HTTP 500 on the very next request (its grammar engine rejects them).
+			// Fill empty tool-call IDs before history append so role:tool ToolCallIDs
+			// match the assistant message (llama.cpp streaming often omits IDs).
 			sanitized := sanitizeToolCallArgs(*msg)
+			ensureToolCallIDs(sanitized.ToolCalls, iteration)
 			messages = append(messages, sanitized)
 
 			// Surface any narration the model wrote alongside its tool calls (the
@@ -618,85 +621,17 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				emitOutput(opts.OnOutput, narration)
 			}
 
-			// Execute each tool call
-			for idx, tc := range msg.ToolCalls {
-				// B2: Assign a fallback ID to tool calls that arrived without one.
-				// Some servers (llama.cpp) return empty tc.ID in streaming mode,
-				// which causes tool result messages to fail validation on the next turn.
-				if tc.ID == "" {
-					tc.ID = fmt.Sprintf("call_%d_%d", iteration, idx)
-				}
-
-				// Show the tool call (name + command/args) BEFORE running it, in the
-				// "🔧 name → detail" format the web UI parses (OutputViewer.svelte).
-				parsedArgs, _ := normalizeJSON(tc.Func.Args)
-				emitOutput(opts.OnOutput, toolCallHeader(tc.Func.Name, parsedArgs))
-
-				// spawn_subagents bypasses dispatchTool to avoid the 5-minute hard
-				// timeout (#7461 I1). Sub-agents may run for tens of minutes, so
-				// the call is handled directly here and the result is injected into
-				// messages in the same format as a normal tool result. Token/cost
-				// usage from SubagentSpawnResult is accumulated into the parent task.
-				if tc.Func.Name == "spawn_subagents" && toolRegistry.HasSubagentSpawner() {
-					var saArgs map[string]interface{}
-					if err := json.Unmarshal([]byte(tc.Func.Args), &saArgs); err != nil {
-						resultStr := fmt.Sprintf("Error: JSON parse error for spawn_subagents: %v", err)
-						if out := indentResult(resultStr); out != "" {
-							emitOutput(opts.OnOutput, out)
-						}
-						messages = append(messages, ChatMessage{
-							Role:       ChatRoleTool,
-							Content:    truncateToolResult(resultStr, tc.Func.Name),
-							ToolCallID: tc.ID,
-						})
-						continue
-					}
-
-					spawnResult, saErr := executeSpawnSubagents(ctx, toolRegistry, saArgs, opts.OnOutput)
-					markToolUsed(tc.Func.Name)
-
-					var resultStr string
-					if saErr != nil {
-						resultStr = fmt.Sprintf("Error: %v", saErr)
-					} else {
-						resultStr = spawnResult.Content
-						// Accumulate sub-agent token/cost usage into parent task
-						totalPromptTokens += spawnResult.PromptTokens
-						totalCompletionTokens += spawnResult.CompletionTokens
-						totalCostUSD += spawnResult.CostUSD
-					}
-
-					if out := indentResult(resultStr); out != "" {
-						emitOutput(opts.OnOutput, out)
-					}
-					messages = append(messages, ChatMessage{
-						Role:       ChatRoleTool,
-						Content:    truncateToolResult(resultStr, tc.Func.Name),
-						ToolCallID: tc.ID,
-					})
-					continue
-				}
-
-				result, err := dispatchTool(ctx, toolRegistry, tc, opts)
-				markToolUsed(tc.Func.Name)
-				var resultStr string
-				if err != nil {
-					resultStr = fmt.Sprintf("Error: %v", err)
-				} else {
-					resultStr = result
-				}
-
-				// Stream the result preview as an indented block (rendered as a
-				// monospace result box by the web UI).
-				if out := indentResult(resultStr); out != "" {
-					emitOutput(opts.OnOutput, out)
-				}
-
-				messages = append(messages, ChatMessage{
-					Role:       ChatRoleTool,
-					Content:    truncateToolResult(resultStr, tc.Func.Name),
-					ToolCallID: tc.ID,
-				})
+			// Execute tool calls: pure-read batches (read_file/grep/glob only)
+			// run in parallel with bounded concurrency; any write/side-effect
+			// tool mixed into the batch forces the whole batch sequential
+			// (Phase 3-3 / task #7547). Results keep original tool_call order.
+			// spawn_subagents stays sequential and bypasses the 5-minute timeout.
+			outcomes := runToolCallBatch(ctx, toolRegistry, sanitized.ToolCalls, iteration, opts, markToolUsed)
+			for _, o := range outcomes {
+				totalPromptTokens += o.promptTokens
+				totalCompletionTokens += o.completionTokens
+				totalCostUSD += o.costUSD
+				messages = append(messages, o.msg)
 			}
 			// All tool results are now appended; surface any images read_file
 			// produced as a following user message (OpenAI requires tool results
@@ -738,10 +673,12 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					emitOutput(opts.OnOutput, narration)
 				}
 
+				// Build a call list, feeding parse errors back immediately so the
+				// model can self-repair; remaining valid calls go through the same
+				// parallel-safe / sequential batch path as native tool_calls.
+				leakedCalls := make([]ToolCall, 0, len(leaked))
 				for _, tc := range leaked {
-					args, parseErr := normalizeJSON(tc.Func.Args)
-					if parseErr != nil {
-						// Feed error back to model for self-repair.
+					if _, parseErr := normalizeJSON(tc.Func.Args); parseErr != nil {
 						messages = append(messages, ChatMessage{
 							Role:       ChatRoleTool,
 							Content:    fmt.Sprintf("JSON parse error in arguments for %s: %v. Please retry with valid JSON.", tc.Func.Name, parseErr),
@@ -749,32 +686,16 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 						})
 						continue
 					}
-
-					// Show the recovered tool call before running it.
-					emitOutput(opts.OnOutput, toolCallHeader(tc.Func.Name, args))
-
-					// Route leaked tool calls through dispatchTool so they get the same
-					// protections as native tool calls: 5-minute timeout, ctx cancel
-					// propagation (task stop), and sheep_name injection. Previously this
-					// path called toolRegistry.Dispatch directly, bypassing all guards.
-					result, err := dispatchTool(ctx, toolRegistry, tc.ToolCall, opts)
-					markToolUsed(tc.ToolCall.Func.Name)
-					var resultStr string
-					if err != nil {
-						resultStr = fmt.Sprintf("Error: %v", err)
-					} else {
-						resultStr = result
+					leakedCalls = append(leakedCalls, tc.ToolCall)
+				}
+				if len(leakedCalls) > 0 {
+					outcomes := runToolCallBatch(ctx, toolRegistry, leakedCalls, iteration, opts, markToolUsed)
+					for _, o := range outcomes {
+						totalPromptTokens += o.promptTokens
+						totalCompletionTokens += o.completionTokens
+						totalCostUSD += o.costUSD
+						messages = append(messages, o.msg)
 					}
-
-					if out := indentResult(resultStr); out != "" {
-						emitOutput(opts.OnOutput, out)
-					}
-
-					messages = append(messages, ChatMessage{
-						Role:       ChatRoleTool,
-						Content:    truncateToolResult(resultStr, tc.Func.Name),
-						ToolCallID: tc.ID,
-					})
 				}
 				messages = appendPendingImages(messages, toolRegistry)
 				continue
