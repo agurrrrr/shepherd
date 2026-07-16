@@ -178,8 +178,15 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 		{
 			Type: "function",
 			Function: OpenAIFunction{
-				Name:        "read_file",
-				Description: "Read the contents of a file. For text files, returns the text. For image files (png/jpeg/gif/webp), when the task has attached images, returns the image for you to view directly — so call this on attached image paths to look at them. Other binary files (archives, executables) return a short notice instead. Large text files are returned one page at a time, ending with a footer like '[File has N lines. Showing lines A-B. Call read_file with offset=C to read more.]' — call read_file again with that exact offset to continue paging through the file.",
+				Name: "read_file",
+				Description: "Read the contents of a file. For text files, each line is prefixed with its 1-based line number as `N→` " +
+					"(e.g. `42→func main() {`). That `N→` prefix is display-only — NOT part of the file. " +
+					"When calling edit_file, put only the text AFTER `→` into oldText. " +
+					"For image files (png/jpeg/gif/webp), when the task has attached images, returns the image for you to view directly — so call this on attached image paths to look at them. " +
+					"Other binary files (archives, executables) return a short notice instead. " +
+					"Large text files are returned one page at a time, ending with a footer like " +
+					"'[File has N lines. Showing lines A-B. Call read_file with offset=C to read more.]' — " +
+					"call read_file again with that exact offset to continue paging through the file.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -214,12 +221,14 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 				Name: "edit_file",
 				Description: "Edit a file by replacing exact text. The old text must match uniquely in the file " +
 					"unless replace_all is true. Aliases old_string/new_string are accepted. " +
-					"Falls back to Unicode confusable-normalized matching (smart quotes, dashes, ellipsis, NBSP) if exact match fails.",
+					"Falls back to Unicode confusable-normalized matching (smart quotes, dashes, ellipsis, NBSP) if exact match fails. " +
+					"IMPORTANT: read_file shows lines as `N→content` — the `N→` prefix is NOT file content. " +
+					"oldText must contain only the real file bytes after `→` (never include the line-number prefix).",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"path":        map[string]interface{}{"type": "string", "description": "Path to the file"},
-						"oldText":     map[string]interface{}{"type": "string", "description": "Exact text to find and replace (alias: old_string)"},
+						"oldText":     map[string]interface{}{"type": "string", "description": "Exact text to find and replace (alias: old_string). Do not include read_file line prefixes (`N→`)."},
 						"newText":     map[string]interface{}{"type": "string", "description": "Replacement text (alias: new_string)"},
 						"old_string":  map[string]interface{}{"type": "string", "description": "Alias for oldText (Claude/grok compatibility)"},
 						"new_string":  map[string]interface{}{"type": "string", "description": "Alias for newText (Claude/grok compatibility)"},
@@ -667,14 +676,18 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 	if limit < len(window) {
 		window = window[:limit]
 	}
-	shown := strings.Join(window, "\n")
+	// Prefix every body line with its real 1-based file line number ("N→").
+	// Display-only — never written back by edit_file/write_file. Paging offsets
+	// stay tied to these absolute line numbers (task #7550 / Phase 1-2).
+	shown := formatReadFilePage(window, start)
 
 	// endLine is the last line number (1-indexed) actually included in `shown`.
 	endLine := start + len(window) - 1
 
 	// Character cap. Even a small line window can blow past the history budget
 	// (e.g. minified files with very long lines), and the footer below must
-	// survive truncateToolResult, so cap by runes here.
+	// survive truncateToolResult, so cap by runes here. Prefixes are included
+	// in the budget so the model never sees a partial page past the history cut.
 	if runes := []rune(shown); len(runes) > maxReadFileChars {
 		shown = string(runes[:maxReadFileChars])
 		completeLines := strings.Count(shown, "\n")
@@ -719,6 +732,35 @@ func (tr *ToolRegistry) readfile(_ context.Context, args map[string]interface{})
 	}
 
 	return shown, nil
+}
+
+// formatReadFilePage renders a page of file lines with 1-based line-number
+// prefixes in grok style ("123→content"). start is the 1-based line number of
+// lines[0]. Prefixes are display-only metadata for the model.
+func formatReadFilePage(lines []string, start int) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	// Rough size: content + ~6 runes per line for "N→".
+	b.Grow(len(lines) * 8)
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "%d→%s", start+i, line)
+	}
+	return b.String()
+}
+
+// copiedLinePrefixRe matches leading read_file display prefixes ("12→") that
+// local models often paste into edit_file oldText by mistake.
+var copiedLinePrefixRe = regexp.MustCompile(`(?m)^\d+→`)
+
+// stripCopiedLinePrefixes removes per-line "N→" display prefixes from a string.
+// Used only as an edit_file match recovery path when exact match fails.
+func stripCopiedLinePrefixes(s string) string {
+	return copiedLinePrefixRe.ReplaceAllString(s, "")
 }
 
 func (tr *ToolRegistry) writefile(_ context.Context, args map[string]interface{}) (string, error) {
@@ -774,76 +816,105 @@ func (tr *ToolRegistry) editfile(_ context.Context, args map[string]interface{})
 
 	content := string(data)
 
-	// 1) Exact match first (preserves historical behavior and uniqueness).
-	count := strings.Count(content, oldText)
-	if count > 0 {
-		if count > 1 && !replaceAll {
-			return "", fmt.Errorf("text appears %d times in %s, must be unique (set replace_all=true to replace every occurrence)", count, path)
-		}
-		n := 1
-		if replaceAll {
-			n = -1
-		}
-		// First occurrence byte offset for snippet (exact path).
-		startPos := strings.Index(content, oldText)
-		newContent := strings.Replace(content, oldText, newText, n)
-		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
-			return "", fmt.Errorf("write %s: %w", path, err)
-		}
-		replaced := count
-		if !replaceAll {
-			replaced = 1
-		}
-		snippet := editSnippet(newContent, startPos, newText, 3)
-		return fmt.Sprintf("Edited %s (replaced %d occurrence(s), %d→%d bytes)\n\nSnippet:\n%s",
-			path, replaced, len(oldText), len(newText), snippet), nil
+	// Try needles in order: raw oldText first, then oldText with accidental
+	// read_file "N→" prefixes stripped (models often paste the display form).
+	needles := []string{oldText}
+	if stripped := stripCopiedLinePrefixes(oldText); stripped != "" && stripped != oldText {
+		needles = append(needles, stripped)
 	}
 
-	// 2) Confusable-normalized fallback (typography only). Match discovery only;
-	// replacements still use original byte ranges so file encoding is preserved
-	// outside the matched span.
-	kind, matches := findNormalizedMatchPositions(content, oldText)
-	switch kind {
-	case normAmbiguous:
-		return "", fmt.Errorf(
-			"text match is ambiguous in %s after Unicode confusable normalization "+
-				"(partial/overlapping candidates). Use a longer oldText anchored on nearby ASCII-only context, "+
-				"or re-read the file with read_file and retry with the exact bytes",
-			path)
-	case normMatches:
-		if len(matches) > 1 && !replaceAll {
+	for needleIdx, needle := range needles {
+		// 1) Exact match first (preserves historical behavior and uniqueness).
+		count := strings.Count(content, needle)
+		if count > 0 {
+			if count > 1 && !replaceAll {
+				return "", fmt.Errorf("text appears %d times in %s, must be unique (set replace_all=true to replace every occurrence)", count, path)
+			}
+			n := 1
+			if replaceAll {
+				n = -1
+			}
+			// First occurrence byte offset for snippet (exact path).
+			startPos := strings.Index(content, needle)
+			newContent := strings.Replace(content, needle, newText, n)
+			if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+				return "", fmt.Errorf("write %s: %w", path, err)
+			}
+			replaced := count
+			if !replaceAll {
+				replaced = 1
+			}
+			snippet := editSnippet(newContent, startPos, newText, 3)
+			note := ""
+			if needleIdx > 0 {
+				note = " after stripping read_file line-number prefixes"
+			}
+			return fmt.Sprintf("Edited %s (replaced %d occurrence(s)%s, %d→%d bytes)\n\nSnippet:\n%s",
+				path, replaced, note, len(needle), len(newText), snippet), nil
+		}
+
+		// 2) Confusable-normalized fallback (typography only). Match discovery only;
+		// replacements still use original byte ranges so file encoding is preserved
+		// outside the matched span.
+		kind, matches := findNormalizedMatchPositions(content, needle)
+		switch kind {
+		case normAmbiguous:
 			return "", fmt.Errorf(
-				"text appears %d times in %s after confusable normalization, must be unique "+
-					"(set replace_all=true to replace every occurrence)",
-				len(matches), path)
+				"text match is ambiguous in %s after Unicode confusable normalization "+
+					"(partial/overlapping candidates). Use a longer oldText anchored on nearby ASCII-only context, "+
+					"or re-read the file with read_file and retry with the exact bytes",
+				path)
+		case normMatches:
+			if len(matches) > 1 && !replaceAll {
+				return "", fmt.Errorf(
+					"text appears %d times in %s after confusable normalization, must be unique "+
+						"(set replace_all=true to replace every occurrence)",
+					len(matches), path)
+			}
+			use := matches
+			if !replaceAll {
+				use = matches[:1]
+			}
+			startPos := use[0].originalStart
+			// newContent positions for snippet: first replacement lands at originalStart
+			// (prefix length unchanged before the first match).
+			newContent := replaceNormalizedMatches(content, use, newText)
+			if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+				return "", fmt.Errorf("write %s: %w", path, err)
+			}
+			snippet := editSnippet(newContent, startPos, newText, 3)
+			note := " via confusable-normalized match"
+			if needleIdx > 0 {
+				note += " after stripping read_file line-number prefixes"
+			}
+			return fmt.Sprintf("Edited %s (replaced %d occurrence(s)%s, %d→%d bytes)\n\nSnippet:\n%s",
+				path, len(use), note, use[0].originalLen, len(newText), snippet), nil
 		}
-		use := matches
-		if !replaceAll {
-			use = matches[:1]
-		}
-		startPos := use[0].originalStart
-		// newContent positions for snippet: first replacement lands at originalStart
-		// (prefix length unchanged before the first match).
-		newContent := replaceNormalizedMatches(content, use, newText)
-		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
-			return "", fmt.Errorf("write %s: %w", path, err)
-		}
-		snippet := editSnippet(newContent, startPos, newText, 3)
-		return fmt.Sprintf("Edited %s (replaced %d occurrence(s) via confusable-normalized match, %d→%d bytes)\n\nSnippet:\n%s",
-			path, len(use), use[0].originalLen, len(newText), snippet), nil
 	}
 
 	// 3) Not found — rich error so the model stops retrying the same wrong string.
-	return "", fmt.Errorf("%s", editNotFoundMessage(path, content, oldText, count))
+	return "", fmt.Errorf("%s", editNotFoundMessage(path, content, oldText, strings.Count(content, oldText)))
 }
 
 // editNotFoundMessage builds a diagnostic error for a failed edit_file match.
-// Includes occurrence count (0), a nearest-match line hint, and a re-read nudge.
+// Includes occurrence count (0), a nearest-match line hint, line-prefix warning,
+// and a re-read nudge.
 func editNotFoundMessage(path, content, oldText string, exactCount int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "text not found in %s (exact occurrences: %d)", path, exactCount)
 	if hint := buildNearestMatchHint(content, oldText); hint != "" {
 		b.WriteString(hint)
+	}
+	// Prefer the stripped form for nearest-match when the model pasted prefixes.
+	if stripped := stripCopiedLinePrefixes(oldText); stripped != "" && stripped != oldText {
+		if hint := buildNearestMatchHint(content, stripped); hint != "" && !strings.Contains(b.String(), hint) {
+			b.WriteString(hint)
+		}
+		b.WriteString("\n\nHint: oldText looks like it still has read_file line-number prefixes (`N→`). " +
+			"Remove them — only the text after `→` is real file content.")
+	} else {
+		b.WriteString("\n\nHint: if you copied from read_file, remove the line-number prefix (`N→`) first — " +
+			"only the text after `→` is real file content.")
 	}
 	b.WriteString("\n\nRe-read the file with read_file, then retry edit_file with the exact text from the file content (not approximate memory).")
 	return b.String()

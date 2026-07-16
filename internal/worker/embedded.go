@@ -85,6 +85,14 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 			projectPath))
 	}
 
+	// read_file line prefixes — primary cause of edit_file match failures on local
+	// models (Phase 1-2 / task #7550). Keep this short; tools also restate it.
+	sections = append(sections,
+		"[read_file / edit_file 줄 번호 규칙]\n"+
+			"- read_file 본문 각 줄 앞의 `N→`(예: `42→func main()`)는 줄 번호 표시일 뿐, 파일 내용이 아니다.\n"+
+			"- edit_file의 oldText에는 `→` 이후 실제 내용만 넣어라. `N→` 프리픽스를 복사하지 마라.\n"+
+			"- edit_file 성공 스니펫도 같은 `N→` 형식을 쓰므로, 검증 시에도 프리픽스는 무시하라.")
+
 	// Available tools guide — use project-specific guide if provided
 	if mcpGuide != "" {
 		sections = append(sections, mcpGuide)

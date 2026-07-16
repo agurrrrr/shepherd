@@ -66,7 +66,7 @@ func TestReadfileBinaryGuard(t *testing.T) {
 		t.Error("binary notice must not contain raw NUL bytes")
 	}
 
-	// A normal text file still reads through.
+	// A normal text file still reads through (with line-number prefixes).
 	txtPath := filepath.Join(dir, "note.txt")
 	if err := os.WriteFile(txtPath, []byte("just text"), 0644); err != nil {
 		t.Fatal(err)
@@ -75,8 +75,8 @@ func TestReadfileBinaryGuard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readfile text returned error: %v", err)
 	}
-	if out != "just text" {
-		t.Errorf("expected text content, got %q", out)
+	if out != "1→just text" {
+		t.Errorf("expected prefixed text content, got %q", out)
 	}
 }
 
@@ -243,7 +243,7 @@ func lastChars(s string) string {
 	return string(r[len(r)-160:])
 }
 
-// A small file is returned verbatim — no paging footer added.
+// A small file is returned with line-number prefixes — no paging footer added.
 func TestReadfileSmallFileNoFooter(t *testing.T) {
 	dir := t.TempDir()
 	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
@@ -255,8 +255,9 @@ func TestReadfileSmallFileNoFooter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readfile error: %v", err)
 	}
-	if out != content {
-		t.Errorf("small file should return exact content, got %q", out)
+	want := "1→line1\n2→line2\n3→line3"
+	if out != want {
+		t.Errorf("small file should return line-prefixed content, got %q want %q", out, want)
 	}
 	if strings.Contains(out, "Call read_file with offset") {
 		t.Error("small file must not get a paging footer")
@@ -555,10 +556,10 @@ func TestReadfileExplicitLimitRespected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readfile error: %v", err)
 	}
-	if !strings.Contains(out, "L10\n") || !strings.Contains(out, "L14\n") {
-		t.Errorf("expected lines L10-L14, got: %q", out)
+	if !strings.Contains(out, "10→L10\n") || !strings.Contains(out, "14→L14\n") {
+		t.Errorf("expected lines L10-L14 with prefixes, got: %q", out)
 	}
-	if strings.Contains(out, "L15\n") {
+	if strings.Contains(out, "15→L15") {
 		t.Error("limit=5 should stop at L14")
 	}
 	next, ok := parseFooterOffset(out)
@@ -1073,6 +1074,9 @@ func TestEditfileNotFoundNearestMatchHint(t *testing.T) {
 	if !strings.Contains(msg, "read_file") {
 		t.Errorf("should nudge re-read, got %q", msg)
 	}
+	if !strings.Contains(msg, "N→") {
+		t.Errorf("should mention line-number prefix defense, got %q", msg)
+	}
 }
 
 func TestEditfileSuccessSnippetContext(t *testing.T) {
@@ -1156,5 +1160,200 @@ func TestEditSnippet(t *testing.T) {
 	}
 	if !strings.Contains(snip, "5→five") {
 		t.Errorf("should include 3 lines after, got %q", snip)
+	}
+}
+
+// ─────────────────────────────────────────────
+// read_file line prefixes (Phase 1-2 / task #7550)
+// ─────────────────────────────────────────────
+
+func TestFormatReadFilePage(t *testing.T) {
+	got := formatReadFilePage([]string{"a", "b", "c"}, 10)
+	want := "10→a\n11→b\n12→c"
+	if got != want {
+		t.Errorf("formatReadFilePage = %q, want %q", got, want)
+	}
+	if formatReadFilePage(nil, 1) != "" {
+		t.Error("empty page should be empty string")
+	}
+}
+
+func TestReadfileLinePrefixesAbsoluteAcrossPages(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	var sb strings.Builder
+	for i := 1; i <= 30; i++ {
+		fmt.Fprintf(&sb, "body-%d\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "p.txt"), []byte(sb.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := tr.readfile(context.Background(), map[string]interface{}{
+		"path": "p.txt", "offset": float64(10), "limit": float64(3),
+	})
+	if err != nil {
+		t.Fatalf("readfile: %v", err)
+	}
+	// Absolute line numbers, not page-relative.
+	for _, want := range []string{"10→body-10", "11→body-11", "12→body-12"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %q", want, out)
+		}
+	}
+	if strings.Contains(out, "1→body-10") {
+		t.Error("must not renumber from 1 within a page")
+	}
+	// File on disk must remain unprefixed.
+	raw, _ := os.ReadFile(filepath.Join(dir, "p.txt"))
+	if strings.Contains(string(raw), "→") {
+		t.Error("line prefixes must not be written to the file")
+	}
+}
+
+func TestStripCopiedLinePrefixes(t *testing.T) {
+	in := "3→hello\n4→world"
+	got := stripCopiedLinePrefixes(in)
+	if got != "hello\nworld" {
+		t.Errorf("strip = %q", got)
+	}
+	// No prefixes: unchanged.
+	if stripCopiedLinePrefixes("plain") != "plain" {
+		t.Error("plain text should pass through")
+	}
+}
+
+// Model pastes read_file display lines into oldText; edit_file must strip N→
+// and still match the raw file bytes (without writing prefixes back).
+func TestEditfileStripsReadFileLinePrefixes(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "m.txt")
+	os.WriteFile(path, []byte("alpha\nbeta\ngamma\n"), 0644)
+
+	out, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "m.txt",
+		"oldText": "2→beta",
+		"newText": "BETA",
+	})
+	if err != nil {
+		t.Fatalf("edit with prefix: %v", err)
+	}
+	if !strings.Contains(out, "stripping read_file line-number prefixes") {
+		t.Errorf("should note prefix strip recovery, got %q", out)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "alpha\nBETA\ngamma\n" {
+		t.Errorf("file content = %q (prefixes must not be written)", data)
+	}
+}
+
+// Multi-line oldText with per-line prefixes (typical copy from read_file page).
+func TestEditfileStripsMultilineReadFilePrefixes(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "n.txt")
+	os.WriteFile(path, []byte("one\ntwo\nthree\nfour\n"), 0644)
+
+	_, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "n.txt",
+		"oldText": "2→two\n3→three",
+		"newText": "TWO\nTHREE",
+	})
+	if err != nil {
+		t.Fatalf("multiline prefix strip: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "one\nTWO\nTHREE\nfour\n" {
+		t.Errorf("content = %q", data)
+	}
+}
+
+// Full read → edit round-trip: model reads prefixed output, copies a line
+// (with or without the prefix), and the edit lands on the real file bytes.
+func TestReadfileEditfileRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "rt.go")
+	src := "package main\n\nfunc hello() {\n\treturn\n}\n"
+	os.WriteFile(path, []byte(src), 0644)
+
+	readOut, err := tr.readfile(context.Background(), map[string]interface{}{"path": "rt.go"})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// Prefixed display must include the target line.
+	if !strings.Contains(readOut, "3→func hello() {") {
+		t.Fatalf("read output missing target line prefix, got %q", readOut)
+	}
+
+	// Path A: model correctly strips the prefix (happy path).
+	_, err = tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "rt.go",
+		"oldText": "func hello() {",
+		"newText": "func helloWorld() {",
+	})
+	if err != nil {
+		t.Fatalf("edit without prefix: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "func helloWorld() {") {
+		t.Fatalf("happy-path edit failed: %q", data)
+	}
+	if strings.Contains(string(data), "→") {
+		t.Fatal("file must not contain display arrows")
+	}
+
+	// Reset and Path B: model pastes the prefixed line from read_file.
+	os.WriteFile(path, []byte(src), 0644)
+	// Re-read so state is clean (auto-page bookkeeping).
+	tr2 := NewToolRegistry(dir, "test-sheep", nil, nil)
+	readOut, err = tr2.readfile(context.Background(), map[string]interface{}{"path": "rt.go"})
+	if err != nil {
+		t.Fatalf("re-read: %v", err)
+	}
+	// Extract the display line the model would copy.
+	var prefixed string
+	for _, line := range strings.Split(readOut, "\n") {
+		if strings.Contains(line, "func hello()") {
+			prefixed = line
+			break
+		}
+	}
+	if prefixed == "" || !strings.Contains(prefixed, "→") {
+		t.Fatalf("could not find prefixed line in read output: %q", readOut)
+	}
+	_, err = tr2.editfile(context.Background(), map[string]interface{}{
+		"path":    "rt.go",
+		"oldText": prefixed,
+		"newText": "func helloWorld() {",
+	})
+	if err != nil {
+		t.Fatalf("edit with pasted prefix %q: %v", prefixed, err)
+	}
+	data, _ = os.ReadFile(path)
+	if string(data) != "package main\n\nfunc helloWorld() {\n\treturn\n}\n" {
+		t.Errorf("round-trip content = %q", data)
+	}
+}
+
+func TestEditfileNotFoundHintWhenPrefixesPresent(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "o.txt")
+	os.WriteFile(path, []byte("only this line\n"), 0644)
+
+	// Prefixed text that also doesn't exist after strip → not found + prefix hint.
+	_, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "o.txt",
+		"oldText": "9→does not exist anywhere",
+		"newText": "x",
+	})
+	if err == nil {
+		t.Fatal("expected not found")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "line-number prefixes") && !strings.Contains(msg, "N→") {
+		t.Errorf("expected prefix hint in not-found error, got %q", msg)
 	}
 }
