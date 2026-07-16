@@ -1,12 +1,15 @@
 /**
  * Subagent live-output panel assembly for SubagentStreamPanel.
  *
- * Server contract (step-04/05):
+ * Server contract (step-04/05, hardened #7562/#7564):
  *   - Each complete line is stored as a separate array entry, often with
  *     a "[SUB:name]" / "[SUB:*]" prefix.
  *   - Same LineCoalescer contract as [MAGI:N] (task #7209).
- *   - Lines without a prefix are continuations of a multi-line OnOutput
- *     chunk (only the first line carried the prefix).
+ *   - Body stream lines from sub-agents are ALL prefixed per-agent via
+ *     wrapSubagentOnOutput (server.go). Lifecycle lines also carry prefix.
+ *   - Lines without a prefix are treated as parent/general stream — not as
+ *     continuation of the last sub-agent slot (P1 defense for partial deploy
+ *     and parent narration interleaved with spawn_subagents).
  *
  * Unlike magiPanel.js which assumes 3 fixed numeric slots (proposerTexts[0..2]),
  * this parser handles a variable number of named agents (1~4).
@@ -28,7 +31,7 @@ export function normalizeSubagentLine(raw) {
 /**
  * Parse a raw line into { slot, text }.
  * slot: string | '*' | null
- *   - null means "no [SUB:] prefix" → continuation of previous slot
+ *   - null means "no [SUB:] prefix" → parent/general stream (not lastSlot)
  */
 export function parseSubagentLine(raw) {
 	const line = normalizeSubagentLine(raw);
@@ -70,7 +73,6 @@ export function assembleSubagentPanel(lines) {
 	/** @type {Map<string, { name: string, text: string, status: string }>} */
 	const slots = new Map();
 	let general = '';
-	let lastSlot = null;
 
 	const input = Array.isArray(lines) ? lines : [];
 
@@ -78,30 +80,26 @@ export function assembleSubagentPanel(lines) {
 		const { slot, text } = parseSubagentLine(raw);
 
 		if (slot === null) {
-			// Continuation — append to whichever slot was last active.
-			if (lastSlot === null || lastSlot === '*') {
-				general = appendSlotLine(general, text);
-			} else {
-				const s = slots.get(lastSlot);
-				if (s && s.status === 'running') {
-					s.text = appendSlotLine(s.text, text);
-				}
-			}
+			// Unprefixed = parent/general stream (task #7564 P1).
+			// Do NOT attach to a "last active" sub-agent slot — parallel bare
+			// streams used to collapse every agent into one card.
+			general = appendSlotLine(general, text);
 			continue;
 		}
 
 		if (slot === '*') {
-			lastSlot = '*';
 			general = appendSlotLine(general, text);
 			continue;
 		}
 
 		// Per-agent line
-		lastSlot = slot;
 		if (!slots.has(slot)) {
 			slots.set(slot, { name: slot, text: '', status: 'running' });
 		}
 		const s = slots.get(slot);
+		// Prefixed lines are always accepted — including after ✅/❌ —
+		// so late body chunks are not dropped when lifecycle "완료" races
+		// ahead of residual Flush (#7564 P2 partial: drop only unprefixed).
 		s.text = appendSlotLine(s.text, text);
 
 		// Detect status from content markers

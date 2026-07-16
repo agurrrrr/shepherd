@@ -665,6 +665,12 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		// tool set. Token/cost usage is returned for parent task aggregation
 		// (#7461 I3). The sub-agent's ToolRegistry does NOT set a spawner,
 		// so spawn_subagents is invisible to it (depth 1 enforcement).
+		//
+		// subOutMu serializes complete-line emits from parallel sub-agents
+		// into the shared parent OnOutput sink (parent LineCoalescer is not
+		// concurrent-safe). Per-agent LineCoalescer + [SUB:name] prefix is
+		// applied inside wrapSubagentOnOutput (tasks #7562/#7564, MAGI #7209).
+		subOutMu := &sync.Mutex{}
 		subagentSpawner := func(ctx context.Context, name, subPrompt, endpointID string, maxIter int, onOutput func(string)) (*embedded.SubagentResult, error) {
 			// Resolve endpoint — empty endpointID means use the parent's endpoint.
 			var subEp *config.EmbeddedEndpoint
@@ -724,6 +730,12 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 				maxIter = 15
 			}
 
+			// Prefix every complete body line with [SUB:name] via per-agent
+			// LineCoalescer. Lifecycle lines (시작/완료) are emitted by
+			// tools.go outside this wrapper — do not double-prefix them.
+			wrappedOut, flushOut := wrapSubagentOnOutput(name, onOutput, subOutMu)
+			defer flushOut()
+
 			result, runErr := embedded.Run(ctx, embedded.ExecuteOptions{
 				SheepName:     subSheepName,
 				ProjectPath:   projectPath,
@@ -733,7 +745,7 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 				SystemPrompt:  subSystemPrompt,
 				UserPrompt:    subPrompt,
 				Tools:         subRegistry.OpenAIToolDefs(),
-				OnOutput:      onOutput,
+				OnOutput:      wrappedOut,
 				MaxIterations: maxIter,
 				ContextTokens: subEp.ContextTokens,
 				Vision:        subEp.Vision,
@@ -1376,4 +1388,43 @@ func toEmbeddedMCPImages(imgs []mcp.ToolImage) []embedded.MCPImage {
 		out[i] = embedded.MCPImage{MIMEType: img.MIMEType, Data: img.Data}
 	}
 	return out
+}
+
+// wrapSubagentOnOutput returns a body-stream OnOutput wrapper and a flush
+// function for a single sub-agent (tasks #7562/#7564).
+//
+// Contract (mirrors MAGI OnProposerToken + LineCoalescer from #7209):
+//   - Incomplete chunks stay buffered per agent so they never glue onto
+//     another agent's open line.
+//   - Each complete line (and Flush residual) is emitted as
+//     "[SUB:name] <line>" — every physical line, not only the first.
+//   - mu serializes emits into the shared parent sink. Callers must pass the
+//     same mutex for all sub-agents of one parent task.
+//   - Lifecycle lines ("시작"/"완료") stay outside this wrapper so they are
+//     not double-prefixed by tools.go.
+//
+// When onOutput is nil both returned funcs are no-ops.
+func wrapSubagentOnOutput(name string, onOutput func(string), mu *sync.Mutex) (wrapped func(string), flush func()) {
+	if onOutput == nil {
+		return func(string) {}, func() {}
+	}
+	if mu == nil {
+		mu = &sync.Mutex{}
+	}
+	c := worker.NewLineCoalescer(func(line string) {
+		// Called while mu is held by Append/Flush — parent sink sees
+		// one complete prefixed line at a time.
+		onOutput(fmt.Sprintf("[SUB:%s] %s", name, line))
+	})
+	wrapped = func(text string) {
+		mu.Lock()
+		defer mu.Unlock()
+		c.Append(text)
+	}
+	flush = func() {
+		mu.Lock()
+		defer mu.Unlock()
+		c.Flush()
+	}
+	return wrapped, flush
 }
