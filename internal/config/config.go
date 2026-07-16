@@ -105,6 +105,10 @@ func Init() error {
 	// tool/bash 결과 SSE·히스토리 저장 직전 시크릿 redaction (기본 on).
 	// false로 끄면 원문 그대로 흘린다 — 디버깅용. 프로덕션에서는 끄지 말 것.
 	viper.SetDefault("embedded_redact_secrets", true)
+	// todo_write 도구 + 미완료 todo turn-end nudge (Phase 3-2). 기본 off —
+	// 기존 정규식 false-completion 가드와 병행 도입·A/B 검증용. on일 때만
+	// 도구 노출·nudge 동작. 가드 3종을 대체하지 않는다.
+	viper.SetDefault("embedded_todo_gate", false)
 
 	// 작업 실행 타임아웃 (Claude/OpenCode CLI 한 번 실행에 허용되는 최대 시간).
 	// time.ParseDuration 형식 — 예: "4h", "30m", "8h30m".

@@ -75,6 +75,12 @@ type ToolRegistry struct {
 	// in the current task. Capped at maxSpawnsPerTask (3) to prevent
 	// runaway cost (#7463 review: Important #4).
 	spawnCount int
+
+	// todoEnabled gates the opt-in todo_write tool (Phase 3-2 / task #7547).
+	// Default false: tool absent from OpenAIToolDefs and Dispatch unknown.
+	// When true, Todo holds session plan state for the turn-end incomplete gate.
+	todoEnabled bool
+	todo        TodoState
 }
 
 // maxSpawnsPerTask is the per-task limit on spawn_subagents calls to prevent
@@ -139,6 +145,30 @@ func (tr *ToolRegistry) HasSubagentSpawner() bool {
 // CanSpawn returns false if the per-task spawn limit has been reached.
 func (tr *ToolRegistry) CanSpawn() bool {
 	return tr.spawnCount < maxSpawnsPerTask
+}
+
+// EnableTodo turns on the opt-in todo_write tool and session TodoState.
+// Must be called before OpenAIToolDefs / Dispatch when embedded_todo_gate is on.
+// Default is off so existing false-completion guards keep sole responsibility.
+func (tr *ToolRegistry) EnableTodo() {
+	if tr == nil {
+		return
+	}
+	tr.todoEnabled = true
+	tr.nativeTools["todo_write"] = tr.execTodoWrite
+}
+
+// TodoEnabled reports whether todo_write is active for this registry.
+func (tr *ToolRegistry) TodoEnabled() bool {
+	return tr != nil && tr.todoEnabled
+}
+
+// Todo returns a pointer to the session TodoState (nil-safe empty when disabled).
+func (tr *ToolRegistry) Todo() *TodoState {
+	if tr == nil {
+		return nil
+	}
+	return &tr.todo
 }
 
 // toolFunc receives the loop's context so task stop (ctx cancel) propagates
@@ -342,6 +372,70 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 						},
 					},
 					"required": []string{"subagents"},
+				},
+			},
+		})
+	}
+
+	// todo_write — opt-in structured plan tool (Phase 3-2). Absent when
+	// embedded_todo_gate is off so existing false-completion guards are sole path.
+	if tr.todoEnabled {
+		defs = append(defs, OpenAIToolDef{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name: "todo_write",
+				Description: "Create and manage a structured task list for multi-step work. " +
+					"Use for any task with 3+ steps. Skip for trivial single-step work. " +
+					"When merge is true (default), updates by id; send just id+status to flip status. " +
+					"When merge is false, the list fully replaces prior state. " +
+					"Statuses: pending, in_progress, completed, cancelled.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"merge": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Optional. When true (default), merge by id. When false, replace the full list.",
+						},
+						"todos": map[string]interface{}{
+							"type":        "array",
+							"description": "Todo items to write. Alias: steps.",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"id": map[string]interface{}{
+										"type":        "string",
+										"description": "Unique id (auto 1,2,… if omitted)",
+									},
+									"content": map[string]interface{}{
+										"type":        "string",
+										"description": "Item text (aliases: text, description)",
+									},
+									"text": map[string]interface{}{
+										"type":        "string",
+										"description": "Alias for content",
+									},
+									"status": map[string]interface{}{
+										"type":        "string",
+										"description": "pending | in_progress | completed | cancelled",
+									},
+								},
+							},
+						},
+						"steps": map[string]interface{}{
+							"type":        "array",
+							"description": "Alias for todos",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"id":      map[string]interface{}{"type": "string"},
+									"text":    map[string]interface{}{"type": "string"},
+									"content": map[string]interface{}{"type": "string"},
+									"status":  map[string]interface{}{"type": "string"},
+								},
+							},
+						},
+					},
+					"required": []string{"todos"},
 				},
 			},
 		})
@@ -1332,6 +1426,21 @@ func matchGlob(path, pattern string) bool {
 	}
 
 	return re.MatchString(path)
+}
+
+// execTodoWrite updates the session TodoState. Pure state storage — no LLM call.
+func (tr *ToolRegistry) execTodoWrite(_ context.Context, args map[string]interface{}) (string, error) {
+	if !tr.todoEnabled {
+		return "", fmt.Errorf("todo_write is disabled (embedded_todo_gate is off)")
+	}
+	merge, updates, err := parseTodoWriteArgs(args)
+	if err != nil {
+		return "", err
+	}
+	if err := tr.todo.Apply(merge, updates); err != nil {
+		return "", err
+	}
+	return tr.todo.Summary(), nil
 }
 
 // capOutput bounds a tool's raw output to maxOutputBytes before it is returned.

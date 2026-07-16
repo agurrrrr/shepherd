@@ -60,6 +60,9 @@ const maxPauseSummaryNudges = 2
 // unambiguous, so skipping it is a real false completion.
 const maxBuildGateNudges = 2
 
+// Todo gate max fires is defined in todo.go as maxTodoGateNudges (=2), matching
+// grok DEFAULT_TODO_GATE_MAX_FIRES. Opt-in via ExecuteOptions.TodoGateEnabled.
+
 // emptyResponseNudgeBody is the plain body of the empty-response continue
 // nudge. Injected as role:user wrapped in systemReminder so the model can
 // distinguish it from real user speech (Phase 2-2 / task #7547).
@@ -326,6 +329,13 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		toolRegistry.SetSubagentSpawner(opts.SubagentSpawner)
 	}
 
+	// Opt-in todo_write + turn-end incomplete gate (Phase 3-2). Default off.
+	// Server also EnableTodo on its registry so opts.Tools includes the def;
+	// this enables Dispatch and session TodoState on the loop-owned registry.
+	if opts.TodoGateEnabled {
+		toolRegistry.EnableTodo()
+	}
+
 	// Vision is enabled either by the endpoint's model capability (opts.Vision)
 	// or because the task prompt carries attached files (the web UI prepends an
 	// "[Attached files]" block). The capability flag is the important case: a
@@ -382,6 +392,10 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// pauseSummaryNudges counts consecutive "paused, continue later" handoff
 		// summaries so that guard's nudge loop is bounded (task #6690).
 		pauseSummaryNudges int
+		// todoGateNudges bounds the opt-in incomplete-todo turn-end gate
+		// (Phase 3-2). Only active when opts.TodoGateEnabled; does not replace
+		// the regex guards above — they still run first.
+		todoGateNudges int
 	)
 
 	// markToolUsed records state-changing tool activity for the false-completion
@@ -950,6 +964,33 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				CompletionTokens: totalCompletionTokens,
 				CostUSD:          totalCostUSD,
 			}, nil
+		}
+
+		// ── Mitigation ④: Opt-in incomplete-todo gate (Phase 3-2 / task #7547) ──
+		// Structured todos remaining after a content-only turn → nudge up to
+		// maxTodoGateNudges times, then incomplete. Empty state (never used
+		// todo_write) does NOT fire. Existing guards ①–③ above stay active.
+		if opts.TodoGateEnabled && toolRegistry.Todo().HasIncomplete() {
+			todoGateNudges++
+			pending, inProg := toolRegistry.Todo().IncompleteBuckets()
+			if todoGateNudges > maxTodoGateNudges {
+				emitOutput(opts.OnOutput, "⚠️ [todo 게이트]: 미완료 todo가 남아 있는데 완료 선언이 반복되어 미완료로 종료합니다.")
+				return &ExecuteResult{
+					Result:           msg.Content,
+					Incomplete:       true,
+					IncompleteReason: "incomplete todos remaining after bounded nudges",
+					PromptTokens:     totalPromptTokens,
+					CompletionTokens: totalCompletionTokens,
+					CostUSD:          totalCostUSD,
+				}, nil
+			}
+			emitOutput(opts.OnOutput, "⚠️ [todo 게이트]: 미완료 todo 항목이 남아 있습니다. 계속 진행해주세요.")
+			messages = append(messages, ChatMessage{Role: ChatRoleAssistant, Content: msg.Content})
+			messages = append(messages, ChatMessage{
+				Role:    ChatRoleUser,
+				Content: systemReminder(buildTodoGateReminder(pending, inProg)),
+			})
+			continue
 		}
 
 		// Successful completion

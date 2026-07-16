@@ -295,6 +295,13 @@ type ExecuteOptions struct {
 	// The wiring layer (server.go) provides the implementation; sub-agents
 	// and MAGI proposers leave this nil (depth 1 enforcement).
 	SubagentSpawner SubagentSpawner
+
+	// TodoGateEnabled is opt-in (default false). When true, Run exposes
+	// todo_write and runs a bounded turn-end nudge if pending/in_progress
+	// todos remain on a content-only completion (Phase 3-2 / task #7547).
+	// Existing regex false-completion guards stay active regardless.
+	// Wire from config embedded_todo_gate; leave false for MAGI/sub-agents.
+	TodoGateEnabled bool
 }
 
 // DefaultMaxIterations is the default maximum number of agent loop iterations.

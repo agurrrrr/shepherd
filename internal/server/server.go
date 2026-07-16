@@ -641,6 +641,13 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 
 		// Create tool registry (used here to derive the tool definitions the model sees)
 		toolRegistry := embedded.NewToolRegistry(projectPath, sheepName, mcpDefs, mcpDispatch)
+		// Opt-in todo_write (Phase 3-2): must EnableTodo before OpenAIToolDefs
+		// so the model sees the tool when embedded_todo_gate is on. Loop-owned
+		// registry is enabled separately via ExecuteOptions.TodoGateEnabled.
+		todoGate := config.GetBool("embedded_todo_gate")
+		if todoGate {
+			toolRegistry.EnableTodo()
+		}
 		toolDefs := toolRegistry.OpenAIToolDefs()
 
 		// Resolve endpoint concurrency limiter from max_concurrent. When
@@ -774,21 +781,22 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 
 		// Run the embedded agent loop
 		result, err := embedded.Run(ctx, embedded.ExecuteOptions{
-			SheepName:     sheepName,
-			ProjectPath:   projectPath,
-			BaseURL:       ep.BaseURL,
-			APIKey:        ep.APIKey,
-			Model:         ep.Model,
-			SystemPrompt:  systemPrompt,
-			UserPrompt:    prompt,
-			Tools:         toolDefs,
-			OnOutput:      opts.OnOutput,
-			MaxIterations: ep.MaxIterations,
-			ContextTokens: ep.ContextTokens,
-			Vision:        ep.Vision,
-			MCPDefs:       mcpDefs,
-			MCPDispatch:   mcpDispatch,
-			InjectCh:      injectCh,
+			SheepName:       sheepName,
+			ProjectPath:     projectPath,
+			BaseURL:         ep.BaseURL,
+			APIKey:          ep.APIKey,
+			Model:           ep.Model,
+			SystemPrompt:    systemPrompt,
+			UserPrompt:      prompt,
+			Tools:           toolDefs,
+			OnOutput:        opts.OnOutput,
+			MaxIterations:   ep.MaxIterations,
+			ContextTokens:   ep.ContextTokens,
+			Vision:          ep.Vision,
+			MCPDefs:         mcpDefs,
+			MCPDispatch:     mcpDispatch,
+			InjectCh:        injectCh,
+			TodoGateEnabled: todoGate,
 			// Context-overflow handoff: when the conversation outgrows the
 			// context window, finish the task with a summary and queue the
 			// remaining work as a follow-up instead of trimming old turns.
