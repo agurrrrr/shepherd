@@ -98,6 +98,13 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 	// Order: base discipline here → custom_prompt_embedded overlay last.
 	sections = append(sections, embeddedBehaviorDiscipline())
 
+	// Project rule files (AGENTS.md / CLAUDE.md / PROJECT.md) — cwd→repo-root walk,
+	// root→leaf order, path-deduped, hard 8KB cap (Phase 2-3 / task #7547).
+	// Cap is mandatory: uncapped rules steal local context and force early handoff.
+	if rules := buildProjectRulesSection(projectPath); rules != "" {
+		sections = append(sections, rules)
+	}
+
 	// Available tools guide — use project-specific guide if provided
 	if mcpGuide != "" {
 		sections = append(sections, mcpGuide)
