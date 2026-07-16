@@ -211,14 +211,19 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 		{
 			Type: "function",
 			Function: OpenAIFunction{
-				Name:        "edit_file",
-				Description: "Edit a file by replacing exact text. The old text must match uniquely in the file.",
+				Name: "edit_file",
+				Description: "Edit a file by replacing exact text. The old text must match uniquely in the file " +
+					"unless replace_all is true. Aliases old_string/new_string are accepted. " +
+					"Falls back to Unicode confusable-normalized matching (smart quotes, dashes, ellipsis, NBSP) if exact match fails.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"path":    map[string]interface{}{"type": "string", "description": "Path to the file"},
-						"oldText": map[string]interface{}{"type": "string", "description": "Exact text to find and replace"},
-						"newText": map[string]interface{}{"type": "string", "description": "Replacement text"},
+						"path":        map[string]interface{}{"type": "string", "description": "Path to the file"},
+						"oldText":     map[string]interface{}{"type": "string", "description": "Exact text to find and replace (alias: old_string)"},
+						"newText":     map[string]interface{}{"type": "string", "description": "Replacement text (alias: new_string)"},
+						"old_string":  map[string]interface{}{"type": "string", "description": "Alias for oldText (Claude/grok compatibility)"},
+						"new_string":  map[string]interface{}{"type": "string", "description": "Alias for newText (Claude/grok compatibility)"},
+						"replace_all": map[string]interface{}{"type": "boolean", "description": "If true, replace every occurrence; if false (default), require a unique match"},
 					},
 					"required": []string{"path", "oldText", "newText"},
 				},
@@ -740,8 +745,20 @@ func (tr *ToolRegistry) writefile(_ context.Context, args map[string]interface{}
 
 func (tr *ToolRegistry) editfile(_ context.Context, args map[string]interface{}) (string, error) {
 	pathStr, _ := args["path"].(string)
+	// Prefer camelCase; fall back to Claude/grok snake_case aliases.
 	oldText, _ := args["oldText"].(string)
-	newText, _ := args["newText"].(string)
+	if oldText == "" {
+		oldText, _ = args["old_string"].(string)
+	}
+	newText, hasNewText := args["newText"].(string)
+	if !hasNewText {
+		newText, _ = args["new_string"].(string)
+	}
+	replaceAll := false
+	if v, ok := args["replace_all"].(bool); ok {
+		replaceAll = v
+	}
+
 	if pathStr == "" || oldText == "" {
 		return "", fmt.Errorf("path and oldText are required")
 	}
@@ -757,20 +774,160 @@ func (tr *ToolRegistry) editfile(_ context.Context, args map[string]interface{})
 
 	content := string(data)
 
-	// Check uniqueness
+	// 1) Exact match first (preserves historical behavior and uniqueness).
 	count := strings.Count(content, oldText)
-	if count == 0 {
-		return "", fmt.Errorf("text not found in %s", path)
-	}
-	if count > 1 {
-		return "", fmt.Errorf("text appears %d times in %s, must be unique", count, path)
+	if count > 0 {
+		if count > 1 && !replaceAll {
+			return "", fmt.Errorf("text appears %d times in %s, must be unique (set replace_all=true to replace every occurrence)", count, path)
+		}
+		n := 1
+		if replaceAll {
+			n = -1
+		}
+		// First occurrence byte offset for snippet (exact path).
+		startPos := strings.Index(content, oldText)
+		newContent := strings.Replace(content, oldText, newText, n)
+		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+			return "", fmt.Errorf("write %s: %w", path, err)
+		}
+		replaced := count
+		if !replaceAll {
+			replaced = 1
+		}
+		snippet := editSnippet(newContent, startPos, newText, 3)
+		return fmt.Sprintf("Edited %s (replaced %d occurrence(s), %d→%d bytes)\n\nSnippet:\n%s",
+			path, replaced, len(oldText), len(newText), snippet), nil
 	}
 
-	newContent := strings.Replace(content, oldText, newText, 1)
-	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
-		return "", fmt.Errorf("write %s: %w", path, err)
+	// 2) Confusable-normalized fallback (typography only). Match discovery only;
+	// replacements still use original byte ranges so file encoding is preserved
+	// outside the matched span.
+	kind, matches := findNormalizedMatchPositions(content, oldText)
+	switch kind {
+	case normAmbiguous:
+		return "", fmt.Errorf(
+			"text match is ambiguous in %s after Unicode confusable normalization "+
+				"(partial/overlapping candidates). Use a longer oldText anchored on nearby ASCII-only context, "+
+				"or re-read the file with read_file and retry with the exact bytes",
+			path)
+	case normMatches:
+		if len(matches) > 1 && !replaceAll {
+			return "", fmt.Errorf(
+				"text appears %d times in %s after confusable normalization, must be unique "+
+					"(set replace_all=true to replace every occurrence)",
+				len(matches), path)
+		}
+		use := matches
+		if !replaceAll {
+			use = matches[:1]
+		}
+		startPos := use[0].originalStart
+		// newContent positions for snippet: first replacement lands at originalStart
+		// (prefix length unchanged before the first match).
+		newContent := replaceNormalizedMatches(content, use, newText)
+		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+			return "", fmt.Errorf("write %s: %w", path, err)
+		}
+		snippet := editSnippet(newContent, startPos, newText, 3)
+		return fmt.Sprintf("Edited %s (replaced %d occurrence(s) via confusable-normalized match, %d→%d bytes)\n\nSnippet:\n%s",
+			path, len(use), use[0].originalLen, len(newText), snippet), nil
 	}
-	return fmt.Sprintf("Edited %s (replaced %d bytes with %d bytes)", path, len(oldText), len(newText)), nil
+
+	// 3) Not found — rich error so the model stops retrying the same wrong string.
+	return "", fmt.Errorf("%s", editNotFoundMessage(path, content, oldText, count))
+}
+
+// editNotFoundMessage builds a diagnostic error for a failed edit_file match.
+// Includes occurrence count (0), a nearest-match line hint, and a re-read nudge.
+func editNotFoundMessage(path, content, oldText string, exactCount int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "text not found in %s (exact occurrences: %d)", path, exactCount)
+	if hint := buildNearestMatchHint(content, oldText); hint != "" {
+		b.WriteString(hint)
+	}
+	b.WriteString("\n\nRe-read the file with read_file, then retry edit_file with the exact text from the file content (not approximate memory).")
+	return b.String()
+}
+
+// buildNearestMatchHint finds the first file line containing the longest token
+// from oldText's first line. Returns "\n\nNearest match: line N: ..." (≤200 chars)
+// or empty if no useful token/match exists. Ported from grok-build search_replace.
+func buildNearestMatchHint(file, oldText string) string {
+	firstLine := oldText
+	if i := strings.IndexByte(oldText, '\n'); i >= 0 {
+		firstLine = oldText[:i]
+	}
+	keyword := ""
+	for _, w := range strings.Fields(firstLine) {
+		if len(w) > len(keyword) {
+			keyword = w
+		}
+	}
+	if keyword == "" {
+		return ""
+	}
+	for i, line := range strings.Split(file, "\n") {
+		if strings.Contains(line, keyword) {
+			full := fmt.Sprintf("\n\nNearest match: line %d: %s", i+1, strings.TrimRight(line, "\r"))
+			if len(full) > 200 {
+				// Truncate with ellipsis (ASCII) to keep error messages bounded.
+				return full[:199] + "…"
+			}
+			return full
+		}
+	}
+	return ""
+}
+
+// editSnippet returns ~contextLines lines before/after the edit region in
+// newContent, with 1-based line prefixes "N→" for model self-verification.
+func editSnippet(newContent string, startPos int, inserted string, contextLines int) string {
+	if startPos < 0 {
+		startPos = 0
+	}
+	if startPos > len(newContent) {
+		startPos = len(newContent)
+	}
+	// Line index (0-based) where the insertion begins.
+	startLine := strings.Count(newContent[:startPos], "\n")
+	// How many lines the inserted text spans (at least 1).
+	insertedLines := strings.Count(inserted, "\n") + 1
+	if inserted == "" {
+		insertedLines = 1
+	}
+	endLine := startLine + insertedLines - 1
+
+	lines := strings.SplitAfter(newContent, "\n")
+	// SplitAfter keeps trailing empty after final \n; drop if file ends with \n.
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	total := len(lines)
+	if total == 0 {
+		return "(empty file)"
+	}
+	if endLine >= total {
+		endLine = total - 1
+	}
+
+	snippetStart := startLine - contextLines
+	if snippetStart < 0 {
+		snippetStart = 0
+	}
+	snippetEnd := endLine + contextLines
+	if snippetEnd >= total {
+		snippetEnd = total - 1
+	}
+
+	var b strings.Builder
+	for i := snippetStart; i <= snippetEnd; i++ {
+		line := lines[i]
+		// Strip trailing newline for display; keep content as-is otherwise.
+		display := strings.TrimSuffix(line, "\n")
+		display = strings.TrimSuffix(display, "\r")
+		fmt.Fprintf(&b, "%d→%s\n", i+1, display)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{}) (string, error) {

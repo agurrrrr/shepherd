@@ -891,3 +891,270 @@ func TestExecGrepExcludesBuildDir(t *testing.T) {
 		t.Errorf("build dir match should be excluded, got %q", out)
 	}
 }
+
+// ─────────────────────────────────────────────
+// edit_file hardening (Phase 1-1 / task #7549)
+// ─────────────────────────────────────────────
+
+func TestEditfileExactMatchStillWorks(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "a.txt")
+	os.WriteFile(path, []byte("hello world\n"), 0644)
+
+	out, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "a.txt",
+		"oldText": "world",
+		"newText": "shepherd",
+	})
+	if err != nil {
+		t.Fatalf("editfile: %v", err)
+	}
+	if !strings.Contains(out, "Snippet:") {
+		t.Errorf("success should include snippet, got %q", out)
+	}
+	if !strings.Contains(out, "→") {
+		t.Errorf("snippet should use line prefixes, got %q", out)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "hello shepherd\n" {
+		t.Errorf("content = %q", data)
+	}
+}
+
+func TestEditfileReplaceAll(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "b.txt")
+	os.WriteFile(path, []byte("foo bar foo baz foo"), 0644)
+
+	// Without replace_all: multi-match must fail.
+	_, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "b.txt",
+		"oldText": "foo",
+		"newText": "X",
+	})
+	if err == nil {
+		t.Fatal("expected uniqueness error")
+	}
+	if !strings.Contains(err.Error(), "appears 3 times") {
+		t.Errorf("error = %q", err)
+	}
+
+	// With replace_all: all replaced.
+	out, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":        "b.txt",
+		"oldText":     "foo",
+		"newText":     "X",
+		"replace_all": true,
+	})
+	if err != nil {
+		t.Fatalf("replace_all: %v", err)
+	}
+	if !strings.Contains(out, "3 occurrence") {
+		t.Errorf("should report 3 occurrences, got %q", out)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "X bar X baz X" {
+		t.Errorf("content = %q", data)
+	}
+}
+
+func TestEditfileFieldAliases(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "c.txt")
+	os.WriteFile(path, []byte("alpha beta gamma"), 0644)
+
+	_, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":       "c.txt",
+		"old_string": "beta",
+		"new_string": "BETA",
+	})
+	if err != nil {
+		t.Fatalf("alias edit: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "alpha BETA gamma" {
+		t.Errorf("content = %q", data)
+	}
+}
+
+func TestEditfileConfusableFallbackSmartQuotes(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "d.txt")
+	// File has smart quotes; model supplies ASCII quotes.
+	os.WriteFile(path, []byte("say \u201Chello\u201D world\n"), 0644)
+
+	out, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "d.txt",
+		"oldText": `"hello"`,
+		"newText": `"goodbye"`,
+	})
+	if err != nil {
+		t.Fatalf("confusable fallback: %v", err)
+	}
+	if !strings.Contains(out, "confusable-normalized") {
+		t.Errorf("should note confusable match, got %q", out)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "say \"goodbye\" world\n" {
+		t.Errorf("content = %q", data)
+	}
+}
+
+func TestEditfileConfusableFallbackEmDash(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "e.txt")
+	os.WriteFile(path, []byte("foo\u2014bar"), 0644)
+
+	_, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "e.txt",
+		"oldText": "foo--bar",
+		"newText": "foo-bar",
+	})
+	if err != nil {
+		t.Fatalf("em-dash fallback: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "foo-bar" {
+		t.Errorf("content = %q", data)
+	}
+}
+
+func TestEditfileConfusableAmbiguousFailClosed(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "f.txt")
+	// Partial expansion of "-" inside em-dash must not succeed.
+	os.WriteFile(path, []byte("a\u2014b"), 0644)
+
+	_, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "f.txt",
+		"oldText": "-",
+		"newText": "x",
+	})
+	if err == nil {
+		t.Fatal("partial confusable match must fail closed")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("expected ambiguous error, got %q", err)
+	}
+	// File untouched.
+	data, _ := os.ReadFile(path)
+	if string(data) != "a\u2014b" {
+		t.Errorf("file should be unchanged, got %q", data)
+	}
+}
+
+func TestEditfileNotFoundNearestMatchHint(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "g.txt")
+	os.WriteFile(path, []byte("line one\noCollMode_set, value\nline three\n"), 0644)
+
+	_, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "g.txt",
+		"oldText": "oCollMode_set, wrong",
+		"newText": "x",
+	})
+	if err == nil {
+		t.Fatal("expected not found")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "exact occurrences: 0") {
+		t.Errorf("should report occurrence count, got %q", msg)
+	}
+	if !strings.Contains(msg, "Nearest match: line 2") {
+		t.Errorf("should include nearest-match hint, got %q", msg)
+	}
+	if !strings.Contains(msg, "read_file") {
+		t.Errorf("should nudge re-read, got %q", msg)
+	}
+}
+
+func TestEditfileSuccessSnippetContext(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "h.txt")
+	// 7 lines; edit line 4; expect lines 1-7 with 3-line context.
+	content := "L1\nL2\nL3\nTARGET\nL5\nL6\nL7\n"
+	os.WriteFile(path, []byte(content), 0644)
+
+	out, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "h.txt",
+		"oldText": "TARGET",
+		"newText": "DONE",
+	})
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	// Context of 3 around line 4 → lines 1..7
+	for _, want := range []string{"1→L1", "4→DONE", "7→L7"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("snippet missing %q in %q", want, out)
+		}
+	}
+}
+
+func TestEditfileReplaceAllConfusable(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewToolRegistry(dir, "test-sheep", nil, nil)
+	path := filepath.Join(dir, "i.txt")
+	os.WriteFile(path, []byte("\u201Ca\u201D and \u201Ca\u201D"), 0644)
+
+	// Unique requirement without replace_all.
+	_, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":    "i.txt",
+		"oldText": `"a"`,
+		"newText": `"b"`,
+	})
+	if err == nil {
+		t.Fatal("expected multi-match error after normalization")
+	}
+
+	out, err := tr.editfile(context.Background(), map[string]interface{}{
+		"path":        "i.txt",
+		"oldText":     `"a"`,
+		"newText":     `"b"`,
+		"replace_all": true,
+	})
+	if err != nil {
+		t.Fatalf("replace_all confusable: %v", err)
+	}
+	if !strings.Contains(out, "2 occurrence") {
+		t.Errorf("got %q", out)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != `"b" and "b"` {
+		t.Errorf("content = %q", data)
+	}
+}
+
+func TestBuildNearestMatchHint(t *testing.T) {
+	file := "alpha\noCollMode_set, foo\nbeta\n"
+	hint := buildNearestMatchHint(file, "oCollMode_set, wrong")
+	if !strings.Contains(hint, "Nearest match: line 2") {
+		t.Errorf("hint = %q", hint)
+	}
+	if buildNearestMatchHint(file, "zzzz_not_present") != "" {
+		t.Error("missing keyword should yield empty hint")
+	}
+	if buildNearestMatchHint(file, "   \n") != "" {
+		t.Error("whitespace-only oldText should yield empty hint")
+	}
+}
+
+func TestEditSnippet(t *testing.T) {
+	text := "one\ntwo NEW here\nthree\nfour\nfive\n"
+	start := strings.Index(text, "NEW here")
+	snip := editSnippet(text, start, "NEW here", 3)
+	if !strings.Contains(snip, "1→one") || !strings.Contains(snip, "2→two NEW here") {
+		t.Errorf("snippet = %q", snip)
+	}
+	if !strings.Contains(snip, "5→five") {
+		t.Errorf("should include 3 lines after, got %q", snip)
+	}
+}
