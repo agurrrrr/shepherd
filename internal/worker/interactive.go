@@ -2444,8 +2444,15 @@ func extractTokensFromOutput(output string) (promptTokens, completionTokens int6
 // Claude Code is trying to resume is no longer valid (expired, deleted, or
 // never existed). When this happens, the sheep's session ID should be cleared
 // so the next task starts a fresh session.
+//
+// Known real-world messages (see #7626 / #7630):
+//   - "No conversation found with session ID: <uuid>"
+//   - "--resume requires a valid session id"
+//   - "... does not match any session ..."
 func isStaleSessionError(errMsg string) bool {
 	lower := strings.ToLower(errMsg)
 	return strings.Contains(lower, "--resume requires a valid session id") ||
-		strings.Contains(lower, "does not match any session")
+		strings.Contains(lower, "does not match any session") ||
+		strings.Contains(lower, "no conversation found with session id") ||
+		strings.Contains(lower, "no conversation found")
 }

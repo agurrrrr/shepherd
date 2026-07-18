@@ -251,6 +251,56 @@ var recallCmd = &cobra.Command{
 	},
 }
 
+// sheep command group
+var sheepCmd = &cobra.Command{
+	Use:   "sheep",
+	Short: "Manage sheep (workers)",
+	Long:  "Manage sheep status and operational recovery. Prefer these commands over raw SQL.",
+}
+
+var (
+	sheepResetClearSession bool
+	sheepResetCircuit      bool
+)
+
+// sheep reset — safe idle recovery while daemon is running (#7630 / #7633)
+var sheepResetCmd = &cobra.Command{
+	Use:   "reset <name>",
+	Short: "Reset a sheep stuck in error/working to idle",
+	Long: `Resets a sheep to idle so its pending queue can resume.
+
+Safe while the daemon is running: refuses if the sheep still owns a live
+running task (in-memory or under another process). Use this instead of
+UPDATE sheep SET status='idle' ...
+
+Optional flags:
+  --clear-session   clear session_id (next run starts a fresh conversation)
+  --reset-circuit   zero consecutive_failures (untrip circuit breaker)`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+		result, err := worker.Reset(name, worker.ResetOptions{
+			ClearSession: sheepResetClearSession,
+			ResetCircuit: sheepResetCircuit,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to reset sheep: %v\n", err)
+			os.Exit(1)
+		}
+		if result.AlreadyIdle {
+			fmt.Printf("🐏 %s is already idle\n", name)
+			return
+		}
+		fmt.Printf("🐏 %s reset: %s → idle\n", name, result.PreviousStatus)
+		if result.ClearedSession {
+			fmt.Println("   session_id cleared")
+		}
+		if result.ResetCircuitFailures {
+			fmt.Println("   consecutive_failures reset to 0")
+		}
+	},
+}
+
 // names command
 var namesCmd = &cobra.Command{
 	Use:   "names",
@@ -4090,6 +4140,12 @@ func init() {
 
 	// Register recover command
 	rootCmd.AddCommand(recoverCmd)
+
+	// Register sheep command group (reset, …)
+	sheepResetCmd.Flags().BoolVar(&sheepResetClearSession, "clear-session", false, "Clear session_id so the next run starts fresh")
+	sheepResetCmd.Flags().BoolVar(&sheepResetCircuit, "reset-circuit", false, "Reset consecutive_failures (untrip circuit breaker)")
+	sheepCmd.AddCommand(sheepResetCmd)
+	rootCmd.AddCommand(sheepCmd)
 
 	// Register init command
 	rootCmd.AddCommand(initCmd)

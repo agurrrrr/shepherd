@@ -114,6 +114,13 @@ type Processor struct {
 	OnStatusChange func(sheepName, status string)
 }
 
+// shouldAutoHealError is true when a sheep stuck in StatusError has no live
+// in-memory task and can safely be returned to idle before dispatch.
+// Circuit breaker (consecutive_failures) remains the durable pause gate.
+func shouldAutoHealError(status sheep.Status, taskRunning bool) bool {
+	return status == sheep.StatusError && !taskRunning
+}
+
 // NewProcessor creates a new task queue processor.
 func NewProcessor(interval time.Duration) *Processor {
 	return &Processor{
@@ -268,6 +275,21 @@ func (p *Processor) checkAndExecutePendingTasks() {
 	dispatched := 0
 	dispatchedByGroup := make(map[string]int)
 	for _, s := range sheepList {
+		// Auto-heal sticky error: if the sheep is in error with no live
+		// in-memory task, return it to idle so pending work can resume.
+		// Legacy non-interactive Execute used to leave StatusError forever
+		// and starve the project queue (#7630 / #7633). The circuit breaker
+		// (consecutive_failures) remains the only durable pause gate.
+		if shouldAutoHealError(s.Status, worker.IsTaskRunning(s.Name)) {
+			if err := worker.UpdateStatus(s.Name, sheep.StatusIdle); err == nil {
+				s.Status = sheep.StatusIdle
+				if p.OnStatusChange != nil {
+					p.OnStatusChange(s.Name, "idle")
+				}
+				log.Printf("[processor] auto-healed sheep %s from error → idle", s.Name)
+			}
+		}
+
 		// Only process sheep in idle status
 		if s.Status != sheep.StatusIdle {
 			continue
@@ -354,8 +376,9 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 
 	// Start task
 	if err := StartTask(taskID); err != nil {
+		// Sheep never left idle; keep SSE status consistent with DB.
 		if p.OnStatusChange != nil {
-			p.OnStatusChange(sheepName, "error")
+			p.OnStatusChange(sheepName, "idle")
 		}
 		if p.OnTaskFail != nil {
 			p.OnTaskFail(taskID, sheepName, projectName, err.Error())
@@ -487,8 +510,12 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 		// Track consecutive failures for circuit breaker
 		incrementConsecutiveFailures(sheepName)
 
+		// ExecuteInteractive already restores the sheep to idle in the DB.
+		// Broadcast idle (not error) so SSE/UI match DB and the queue can
+		// pick up the next pending task. Pause is via consecutive_failures
+		// only (#7633 — remove sticky StatusError gate).
 		if p.OnStatusChange != nil {
-			p.OnStatusChange(sheepName, "error")
+			p.OnStatusChange(sheepName, "idle")
 		}
 
 		errMsg := execErr.Error()

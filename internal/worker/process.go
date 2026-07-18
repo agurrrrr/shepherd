@@ -79,6 +79,15 @@ func ExecuteWithOptions(sheepName, prompt string, opts ExecuteOptions) (*Execute
 		return nil, fmt.Errorf("failed to change status: %w", err)
 	}
 
+	// Honor session_reuse (same contract as ExecuteInteractive). Without this
+	// check, a sheep with session_reuse:false still passed --resume and could
+	// fail with a stale-session error that stuck the whole project queue
+	// (see #7630 / #7633).
+	sessionID := s.SessionID
+	if !config.GetBool("session_reuse") {
+		sessionID = ""
+	}
+
 	// Execute Claude Code (with retries)
 	var result *ExecuteResult
 	var lastErr error
@@ -88,7 +97,7 @@ func ExecuteWithOptions(sheepName, prompt string, opts ExecuteOptions) (*Execute
 			time.Sleep(RetryDelay)
 		}
 
-		result, lastErr = executeClaudeCodeWithTimeout(proj.Path, s.SessionID, prompt, opts.Timeout)
+		result, lastErr = executeClaudeCodeWithTimeout(proj.Path, sessionID, prompt, opts.Timeout)
 		if lastErr == nil {
 			break
 		}
@@ -100,11 +109,19 @@ func ExecuteWithOptions(sheepName, prompt string, opts ExecuteOptions) (*Execute
 	}
 
 	if lastErr != nil {
-		// Change to error status
-		_, _ = client.Sheep.Update().
+		// Return to idle — never sticky-error. A single Execute failure used to
+		// set StatusError permanently; the queue processor only dispatches idle
+		// sheep, so the project's pending tasks stalled forever (#7630). Circuit
+		// breaker (consecutive_failures) is the durable pause gate; sticky
+		// StatusError was a second, inconsistent gate. Mirror ExecuteInteractive.
+		updateQuery := client.Sheep.Update().
 			Where(sheep.Name(sheepName)).
-			SetStatus(sheep.StatusError).
-			Save(ctx)
+			SetStatus(sheep.StatusIdle)
+		// Clear a dead session so the next run does not --resume the same ID.
+		if isStaleSessionError(lastErr.Error()) {
+			updateQuery = updateQuery.ClearSessionID()
+		}
+		_, _ = updateQuery.Save(ctx)
 		return nil, lastErr
 	}
 
@@ -204,6 +221,94 @@ func ClearSession(sheepName string) error {
 	}
 
 	return nil
+}
+
+// ResetOptions controls optional side-effects of Reset.
+type ResetOptions struct {
+	// ClearSession clears the sheep's session_id so the next run starts fresh.
+	ClearSession bool
+	// ResetCircuit zeroes consecutive_failures (untrips the circuit breaker).
+	ResetCircuit bool
+}
+
+// ResetResult describes what Reset did.
+type ResetResult struct {
+	Name                 string
+	PreviousStatus       sheep.Status
+	NewStatus            sheep.Status
+	ClearedSession       bool
+	ResetCircuitFailures bool
+	AlreadyIdle          bool
+}
+
+// Reset returns a sheep stuck in error (or orphaned working) status to idle.
+// Safe while the daemon is running: refuses if this process has a live
+// in-memory task for the sheep, or if a different live process owns a
+// running DB task for it. Prefer this over raw SQL status updates (#7633).
+func Reset(sheepName string, opts ResetOptions) (*ResetResult, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	s, err := client.Sheep.Query().
+		Where(sheep.Name(sheepName)).
+		Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return nil, fmt.Errorf("'%s' not found", sheepName)
+		}
+		return nil, fmt.Errorf("failed to query sheep: %w", err)
+	}
+
+	// In-memory task owned by this process.
+	if IsTaskRunning(sheepName) {
+		return nil, fmt.Errorf("'%s' still has a running task in this process; stop it first", sheepName)
+	}
+
+	// Running DB task owned by another live process — do not desync.
+	selfPID := os.Getpid()
+	running, err := client.Task.Query().
+		Where(
+			task.StatusEQ(task.StatusRunning),
+			task.HasSheepWith(sheep.ID(s.ID)),
+		).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query running tasks: %w", err)
+	}
+	for _, t := range running {
+		if t.OwnerPid != 0 && t.OwnerPid != selfPID && daemon.IsPIDAlive(t.OwnerPid) {
+			return nil, fmt.Errorf(
+				"'%s' owns running task #%d under live PID %d; refuse to reset",
+				sheepName, t.ID, t.OwnerPid,
+			)
+		}
+	}
+
+	result := &ResetResult{
+		Name:           sheepName,
+		PreviousStatus: s.Status,
+		NewStatus:      sheep.StatusIdle,
+	}
+
+	if s.Status == sheep.StatusIdle && !opts.ClearSession && !opts.ResetCircuit {
+		result.AlreadyIdle = true
+		return result, nil
+	}
+
+	update := client.Sheep.UpdateOneID(s.ID).SetStatus(sheep.StatusIdle)
+	if opts.ClearSession {
+		update = update.ClearSessionID()
+		result.ClearedSession = true
+	}
+	if opts.ResetCircuit {
+		update = update.SetConsecutiveFailures(0)
+		result.ResetCircuitFailures = true
+	}
+
+	if _, err := update.Save(ctx); err != nil {
+		return nil, fmt.Errorf("failed to reset sheep: %w", err)
+	}
+	return result, nil
 }
 
 // RecoverStuckSheep recovers sheep that are stuck in working/error status.
