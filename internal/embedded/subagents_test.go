@@ -145,6 +145,39 @@ func TestSpawnSubagents_SpawnBlockedForSubAgents(t *testing.T) {
 	}
 }
 
+// TestSpawnSubagents_EndpointIDDescriptionIncludesHint verifies that available
+// endpoint ids are surfaced in the tool schema so models do not invent
+// systemd names or ports (#7728–#7730).
+func TestSpawnSubagents_EndpointIDDescriptionIncludesHint(t *testing.T) {
+	tr := NewToolRegistry("/tmp", "test-sheep", nil, nil)
+	tr.SetSubagentSpawner(func(ctx context.Context, name, prompt, endpointID string, maxIter int, onOutput func(string)) (*SubagentResult, error) {
+		return &SubagentResult{Content: "ok"}, nil
+	})
+	tr.SetSubagentEndpointHint("gents-a1-4b, umans")
+
+	var desc string
+	for _, def := range tr.OpenAIToolDefs() {
+		if def.Function.Name != "spawn_subagents" {
+			continue
+		}
+		props, _ := def.Function.Parameters["properties"].(map[string]interface{})
+		sub, _ := props["subagents"].(map[string]interface{})
+		items, _ := sub["items"].(map[string]interface{})
+		itemProps, _ := items["properties"].(map[string]interface{})
+		ep, _ := itemProps["endpoint_id"].(map[string]interface{})
+		desc, _ = ep["description"].(string)
+	}
+	if desc == "" {
+		t.Fatal("endpoint_id description missing from spawn_subagents schema")
+	}
+	if !strings.Contains(desc, "gents-a1-4b") || !strings.Contains(desc, "umans") {
+		t.Fatalf("description should list available ids, got: %s", desc)
+	}
+	if !strings.Contains(desc, "not label") {
+		t.Fatalf("description should warn against using label/systemd/port: %s", desc)
+	}
+}
+
 // TestSpawnSubagents_MaxFourAgents verifies the max-4 limit.
 func TestSpawnSubagents_MaxFourAgents(t *testing.T) {
 	spawner := func(ctx context.Context, name, prompt, endpointID string, maxIter int, onOutput func(string)) (*SubagentResult, error) {

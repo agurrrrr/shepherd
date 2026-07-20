@@ -652,6 +652,86 @@ func GetEmbeddedEndpointByID(id string) (*EmbeddedEndpoint, error) {
 	return nil, nil
 }
 
+// ListEnabledEndpoints returns a copy of all enabled embedded endpoints.
+// Disabled entries are omitted. Secrets (APIKey) are present on the struct —
+// callers that surface this to models/CLI must not print APIKey.
+func ListEnabledEndpoints() ([]EmbeddedEndpoint, error) {
+	cfg, err := LoadEmbeddedConfig()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EmbeddedEndpoint, 0, len(cfg.Endpoints))
+	for _, ep := range cfg.Endpoints {
+		if ep.Enabled {
+			out = append(out, ep)
+		}
+	}
+	return out, nil
+}
+
+// EnabledEndpointIDs returns the IDs of all enabled embedded endpoints.
+func EnabledEndpointIDs() ([]string, error) {
+	eps, err := ListEnabledEndpoints()
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(eps))
+	for _, ep := range eps {
+		ids = append(ids, ep.ID)
+	}
+	return ids, nil
+}
+
+// FormatEndpointCatalog formats endpoints for agent prompts / error messages.
+// It never includes API keys or base URLs (base URLs can leak LAN topology;
+// IDs/labels/models are enough for spawn_subagents endpoint_id selection).
+//
+// Example line:
+//
+//	- id="gents-a1-4b" label="agents-a1-4b" model="agents-a1-4b" max_concurrent=8
+func FormatEndpointCatalog(endpoints []EmbeddedEndpoint) string {
+	if len(endpoints) == 0 {
+		return "(no enabled endpoints)"
+	}
+	var sb strings.Builder
+	for i, ep := range endpoints {
+		if i > 0 {
+			sb.WriteByte('\n')
+		}
+		label := ep.Label
+		if label == "" {
+			label = ep.ID
+		}
+		fmt.Fprintf(&sb, "- id=%q label=%q model=%q max_concurrent=%d",
+			ep.ID, label, ep.Model, ep.MaxConcurrent)
+	}
+	return sb.String()
+}
+
+// FormatEnabledEndpointCatalog loads enabled endpoints and formats them.
+// On load error it returns a short diagnostic string (never panics).
+func FormatEnabledEndpointCatalog() string {
+	eps, err := ListEnabledEndpoints()
+	if err != nil {
+		return fmt.Sprintf("(failed to load endpoints: %v)", err)
+	}
+	return FormatEndpointCatalog(eps)
+}
+
+// FormatUnknownEndpointError builds a clear error when endpoint_id resolution fails.
+// Includes available IDs so agents can retry without inventing systemd names/ports.
+func FormatUnknownEndpointError(endpointID string) string {
+	ids, err := EnabledEndpointIDs()
+	if err != nil {
+		return fmt.Sprintf("subagent endpoint %q not found (could not list available: %v)", endpointID, err)
+	}
+	if len(ids) == 0 {
+		return fmt.Sprintf("subagent endpoint %q not found (no enabled endpoints configured in embedded.yaml)", endpointID)
+	}
+	return fmt.Sprintf("subagent endpoint %q not found; available endpoint ids: %s (use exact id, not label/systemd/port)",
+		endpointID, strings.Join(ids, ", "))
+}
+
 // GetActiveEmbeddedEndpoint returns the currently active embedded endpoint,
 // or nil when the active ID is not set or the endpoint is disabled.
 func GetActiveEmbeddedEndpoint() (*EmbeddedEndpoint, error) {

@@ -80,6 +80,12 @@ type ToolRegistry struct {
 	// sub-agents themselves).
 	subagentSpawner SubagentSpawner
 
+	// subagentEndpointHint is a short list of available endpoint IDs injected
+	// into the spawn_subagents tool schema so models do not guess systemd
+	// service names or ports. Empty when unset (description falls back to
+	// generic text). Set via SetSubagentEndpointHint before OpenAIToolDefs.
+	subagentEndpointHint string
+
 	// spawnCount tracks how many times spawn_subagents has been called
 	// in the current task. Capped at maxSpawnsPerTask (3) to prevent
 	// runaway cost (#7463 review: Important #4).
@@ -175,9 +181,28 @@ func (tr *ToolRegistry) SetSubagentSpawner(fn SubagentSpawner) {
 	tr.subagentSpawner = fn
 }
 
+// SetSubagentEndpointHint sets the comma-separated available endpoint IDs
+// shown in the spawn_subagents endpoint_id parameter description. Call before
+// OpenAIToolDefs so the model sees exact ids (not labels/ports).
+func (tr *ToolRegistry) SetSubagentEndpointHint(hint string) {
+	tr.subagentEndpointHint = hint
+}
+
 // HasSubagentSpawner returns whether this registry can spawn sub-agents.
 func (tr *ToolRegistry) HasSubagentSpawner() bool {
 	return tr.subagentSpawner != nil
+}
+
+// endpointIDParamDescription builds the spawn_subagents endpoint_id field
+// description. When a hint was set, lists exact available IDs so models do
+// not invent systemd unit names, labels, or port numbers.
+func (tr *ToolRegistry) endpointIDParamDescription() string {
+	base := "Embedded endpoint id from ~/.shepherd/embedded.yaml (empty = parent's endpoint). " +
+		"Use the exact id field, not label, model name, systemd unit, or port."
+	if tr == nil || strings.TrimSpace(tr.subagentEndpointHint) == "" {
+		return base
+	}
+	return base + " Available ids: " + tr.subagentEndpointHint
 }
 
 // CanSpawn returns false if the per-task spawn limit has been reached.
@@ -398,7 +423,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 									},
 									"endpoint_id": map[string]interface{}{
 										"type":        "string",
-										"description": "Endpoint ID to use (empty = parent's endpoint)",
+										"description": tr.endpointIDParamDescription(),
 									},
 									"max_iterations": map[string]interface{}{
 										"type":        "integer",

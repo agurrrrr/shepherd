@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -104,5 +105,37 @@ func TestEmbeddedEndpoint_MaxConcurrent_JSONRoundTrip(t *testing.T) {
 	back := EndpointsToJSON(eps)
 	if back[0].MaxConcurrent != 3 {
 		t.Fatalf("EndpointsToJSON: expected MaxConcurrent=3, got %d", back[0].MaxConcurrent)
+	}
+}
+
+// TestFormatEndpointCatalog verifies the agent-facing catalog omits secrets
+// and uses exact id fields (spawn_subagents endpoint discovery, #7728–#7730).
+func TestFormatEndpointCatalog(t *testing.T) {
+	if got := FormatEndpointCatalog(nil); got != "(no enabled endpoints)" {
+		t.Fatalf("empty: got %q", got)
+	}
+
+	eps := []EmbeddedEndpoint{
+		{ID: "gents-a1-4b", Label: "agents-a1-4b", Model: "agents-a1-4b", APIKey: "SECRET", BaseURL: "http://127.0.0.1:8090/v1", MaxConcurrent: 8},
+		{ID: "umans", Label: "umans-glm", Model: "umans-glm-5.2", APIKey: "SECRET2", MaxConcurrent: 3},
+	}
+	got := FormatEndpointCatalog(eps)
+	if !strings.Contains(got, `id="gents-a1-4b"`) {
+		t.Fatalf("missing id: %s", got)
+	}
+	if !strings.Contains(got, `label="agents-a1-4b"`) {
+		t.Fatalf("missing label: %s", got)
+	}
+	if strings.Contains(got, "SECRET") || strings.Contains(got, "127.0.0.1") {
+		t.Fatalf("catalog must not include API keys or base URLs: %s", got)
+	}
+}
+
+// TestFormatUnknownEndpointError lists available ids for agent retry.
+func TestFormatUnknownEndpointError(t *testing.T) {
+	// This hits the live config path; only assert shape when load succeeds.
+	msg := FormatUnknownEndpointError("agent-a1-4b")
+	if !strings.Contains(msg, `endpoint "agent-a1-4b" not found`) {
+		t.Fatalf("unexpected message: %s", msg)
 	}
 }

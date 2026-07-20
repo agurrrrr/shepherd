@@ -123,6 +123,57 @@ var configSetCmd = &cobra.Command{
 	},
 }
 
+// endpoints command — list configured embedded LLM endpoints (for agents
+// and humans). Does not print API keys. Used by spawn_subagents flows when
+// models need to re-check available endpoint ids (tasks #7728–#7730).
+var endpointsCmd = &cobra.Command{
+	Use:   "endpoints",
+	Short: "List embedded LLM endpoints",
+	Long:  "List endpoints from ~/.shepherd/embedded.yaml (id, label, model, enabled, max_concurrent). API keys are never printed. Use the id field as spawn_subagents endpoint_id.",
+	Run: func(cmd *cobra.Command, args []string) {
+		printEndpointsList()
+	},
+}
+
+var endpointsListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List embedded LLM endpoints",
+	Run: func(cmd *cobra.Command, args []string) {
+		printEndpointsList()
+	},
+}
+
+func printEndpointsList() {
+	cfg, err := config.LoadEmbeddedConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading embedded config: %v\n", err)
+		os.Exit(1)
+	}
+	activeID := config.GetString("embedded_active_id")
+	if len(cfg.Endpoints) == 0 {
+		fmt.Println("No embedded endpoints configured (~/.shepherd/embedded.yaml).")
+		fmt.Println("Add them via Web UI Settings → Embedded.")
+		return
+	}
+	fmt.Printf("%-22s %-22s %-28s %-8s %-6s %-8s %s\n",
+		"ID", "LABEL", "MODEL", "ENABLED", "ACTIVE", "MAXCONC", "BASE_URL")
+	for _, ep := range cfg.Endpoints {
+		enabled := "false"
+		if ep.Enabled {
+			enabled = "true"
+		}
+		active := ""
+		if ep.ID == activeID {
+			active = "*"
+		}
+		fmt.Printf("%-22s %-22s %-28s %-8s %-6s %-8d %s\n",
+			ep.ID, ep.Label, ep.Model, enabled, active, ep.MaxConcurrent, ep.BaseURL)
+	}
+	fmt.Println()
+	fmt.Println("spawn_subagents endpoint_id must be the ID column (exact match), not label/model/systemd/port.")
+	fmt.Printf("Config file: %s\n", config.EmbeddedConfigFile())
+}
+
 var configPathCmd = &cobra.Command{
 	Use:   "path",
 	Short: "Print configuration file path",
@@ -4020,6 +4071,10 @@ func init() {
 	configCmd.AddCommand(configSetCmd)
 	configCmd.AddCommand(configPathCmd)
 	rootCmd.AddCommand(configCmd)
+
+	// Register endpoints commands (embedded.yaml catalog for agents/humans)
+	endpointsCmd.AddCommand(endpointsListCmd)
+	rootCmd.AddCommand(endpointsCmd)
 
 	// Register spawn command
 	spawnCmd.Flags().StringVarP(&spawnName, "name", "n", "", i18n.T().CLIFlagSheepName)

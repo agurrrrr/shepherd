@@ -680,8 +680,13 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			} else {
 				subEp = ep
 			}
-			if subEpErr != nil || subEp == nil {
-				return nil, fmt.Errorf("subagent endpoint %q not found", endpointID)
+			if subEpErr != nil {
+				return nil, fmt.Errorf("subagent endpoint %q: %w", endpointID, subEpErr)
+			}
+			if subEp == nil {
+				// Include available ids so the parent agent can retry with a
+				// valid endpoint_id instead of inventing service/port names.
+				return nil, fmt.Errorf("%s", config.FormatUnknownEndpointError(endpointID))
 			}
 
 			// Build read-only tool set for the sub-agent.
@@ -768,6 +773,13 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 
 		toolRegistry.SetSubagentSpawner(subagentSpawner)
 
+		// Inject available endpoint IDs into the tool schema *before*
+		// OpenAIToolDefs so models see exact ids (task #7728/#7729/#7730:
+		// agents were inventing systemd unit names / guessing labels).
+		if ids, idErr := config.EnabledEndpointIDs(); idErr == nil && len(ids) > 0 {
+			toolRegistry.SetSubagentEndpointHint(strings.Join(ids, ", "))
+		}
+
 		// Rebuild tool definitions now that the spawner is registered —
 		// spawn_subagents will appear in the list when HasSubagentSpawner() is true.
 		toolDefs = toolRegistry.OpenAIToolDefs()
@@ -783,6 +795,12 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			systemPrompt += "- 여러 모델로 코드 리뷰 분산\n"
 			systemPrompt += "- 여러 디렉토리 동시 탐색\n"
 			systemPrompt += "- 여러 접근법으로 리서치 수행\n\n"
+			systemPrompt += "endpoint_id 선택 (중요):\n"
+			systemPrompt += "- endpoint_id는 `~/.shepherd/embedded.yaml`의 **id** 필드입니다. label/model/systemd 유닛/포트 번호가 아닙니다.\n"
+			systemPrompt += "- 생략하면 부모 에이전트와 같은 엔드포인트를 사용합니다.\n"
+			systemPrompt += "- 가용 엔드포인트 목록 (id를 그대로 복사해 사용):\n"
+			systemPrompt += config.FormatEnabledEndpointCatalog() + "\n"
+			systemPrompt += "- 목록 재확인이 필요하면 셸에서 `shepherd endpoints list` 를 실행하세요 (API 키는 출력되지 않음).\n\n"
 			systemPrompt += "제약:\n"
 			systemPrompt += "- 서브에이전트는 읽기 전용입니다 (write_file/edit_file/bash 사용 불가).\n"
 			systemPrompt += "- 서브에이전트는 자식을 spawn할 수 없습니다 (깊이 1).\n"
