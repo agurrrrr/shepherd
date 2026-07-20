@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -102,8 +103,10 @@ func ExecuteWithOptions(sheepName, prompt string, opts ExecuteOptions) (*Execute
 			break
 		}
 
-		// Don't retry on timeout or cancellation errors
-		if ctx.Err() != nil {
+		// Don't retry on timeout/cancel. executeClaudeCodeWithTimeout uses its
+		// own deadline context; the Execute ctx is Background and never
+		// cancels, so checking ctx.Err() here was dead code (#7646).
+		if isNonRetryableExecuteError(lastErr) {
 			break
 		}
 	}
@@ -121,7 +124,9 @@ func ExecuteWithOptions(sheepName, prompt string, opts ExecuteOptions) (*Execute
 		if isStaleSessionError(lastErr.Error()) {
 			updateQuery = updateQuery.ClearSessionID()
 		}
-		_, _ = updateQuery.Save(ctx)
+		if _, saveErr := updateQuery.Save(ctx); saveErr != nil {
+			log.Printf("[worker] failed to restore sheep %s to idle after Execute error: %v", sheepName, saveErr)
+		}
 		return nil, lastErr
 	}
 
@@ -239,12 +244,37 @@ type ResetResult struct {
 	ClearedSession       bool
 	ResetCircuitFailures bool
 	AlreadyIdle          bool
+	// ClearedOrphanTasks is the number of orphan running DB tasks failed during reset.
+	ClearedOrphanTasks int
+}
+
+// isLiveForeignOwned reports whether a running task is owned by a different,
+// still-alive process. owner_pid==0 and dead PIDs are treated as orphans so
+// Reset can clear them rather than leaving concurrency slots eaten (#7646).
+func isLiveForeignOwned(ownerPid, selfPid int, alive func(int) bool) bool {
+	return ownerPid != 0 && ownerPid != selfPid && alive(ownerPid)
+}
+
+// isNonRetryableExecuteError is true for errors that should not be retried
+// by Execute's attempt loop (timeouts, cancellation). Used instead of the
+// dead ctx.Err() check on context.Background() (#7646).
+func isNonRetryableExecuteError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "execution timeout") ||
+		strings.Contains(msg, "task was cancelled") ||
+		strings.Contains(msg, "context canceled") ||
+		strings.Contains(msg, "context cancelled")
 }
 
 // Reset returns a sheep stuck in error (or orphaned working) status to idle.
 // Safe while the daemon is running: refuses if this process has a live
 // in-memory task for the sheep, or if a different live process owns a
-// running DB task for it. Prefer this over raw SQL status updates (#7633).
+// running DB task for it. Orphan running tasks (owner_pid==0 or dead PID)
+// are marked failed so they stop eating concurrency counts (#7646).
+// Prefer this over raw SQL status updates (#7633).
 func Reset(sheepName string, opts ResetOptions) (*ResetResult, error) {
 	ctx := context.Background()
 	client := db.Client()
@@ -265,6 +295,8 @@ func Reset(sheepName string, opts ResetOptions) (*ResetResult, error) {
 	}
 
 	// Running DB task owned by another live process — do not desync.
+	// Orphan running tasks (owner_pid==0 / dead PID / self without in-memory)
+	// are failed below so they do not leave concurrency slots locked (#7646).
 	selfPID := os.Getpid()
 	running, err := client.Task.Query().
 		Where(
@@ -275,19 +307,36 @@ func Reset(sheepName string, opts ResetOptions) (*ResetResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query running tasks: %w", err)
 	}
+	var orphans []*ent.Task
 	for _, t := range running {
-		if t.OwnerPid != 0 && t.OwnerPid != selfPID && daemon.IsPIDAlive(t.OwnerPid) {
+		if isLiveForeignOwned(t.OwnerPid, selfPID, daemon.IsPIDAlive) {
 			return nil, fmt.Errorf(
 				"'%s' owns running task #%d under live PID %d; refuse to reset",
 				sheepName, t.ID, t.OwnerPid,
 			)
 		}
+		orphans = append(orphans, t)
 	}
 
 	result := &ResetResult{
 		Name:           sheepName,
 		PreviousStatus: s.Status,
 		NewStatus:      sheep.StatusIdle,
+	}
+
+	// Always clear orphans even when sheep is already idle — they still
+	// lock concurrency counters independently of sheep status.
+	now := time.Now()
+	for _, t := range orphans {
+		if _, err := client.Task.UpdateOneID(t.ID).
+			SetStatus(task.StatusFailed).
+			SetError("orphaned running task cleared by sheep reset").
+			SetCompletedAt(now).
+			Save(ctx); err != nil {
+			return nil, fmt.Errorf("failed to clear orphan task #%d: %w", t.ID, err)
+		}
+		result.ClearedOrphanTasks++
+		log.Printf("[worker] cleared orphan running task #%d for sheep %s (owner_pid=%d)", t.ID, sheepName, t.OwnerPid)
 	}
 
 	if s.Status == sheep.StatusIdle && !opts.ClearSession && !opts.ResetCircuit {

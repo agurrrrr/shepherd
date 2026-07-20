@@ -287,6 +287,8 @@ func (p *Processor) checkAndExecutePendingTasks() {
 					p.OnStatusChange(s.Name, "idle")
 				}
 				log.Printf("[processor] auto-healed sheep %s from error → idle", s.Name)
+			} else {
+				log.Printf("[processor] auto-heal sheep %s failed: %v", s.Name, err)
 			}
 		}
 

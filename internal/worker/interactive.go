@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -477,13 +478,17 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 
 		// If Claude can't find the session, clear the stale session ID so the
 		// next task won't retry with the same invalid --resume flag.
+		// Use ClearSessionID (NULL) not SetSessionID("") — empty string and NULL
+		// diverge for WHERE session_id IS NULL queries (#7646 review).
 		if execErr != nil && isStaleSessionError(execErr.Error()) {
-			updateQuery = updateQuery.SetSessionID("")
+			updateQuery = updateQuery.ClearSessionID()
 		} else if result != nil && result.SessionID != "" {
 			updateQuery = updateQuery.SetSessionID(result.SessionID)
 		}
 
-		_, _ = updateQuery.Save(bgCtx)
+		if _, err := updateQuery.Save(bgCtx); err != nil {
+			log.Printf("[worker] failed to restore sheep %s status after execute: %v", sheepName, err)
+		}
 	}
 
 	// User cancelled

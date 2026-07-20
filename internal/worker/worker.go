@@ -323,11 +323,12 @@ func UpdateProvider(name string, provider string) error {
 		return fmt.Errorf("'%s' is not a valid provider (claude, opencode, pi, grok, embedded, magi, auto)", provider)
 	}
 
-	// Clear session ID when changing provider (different providers use different session systems)
+	// Clear session ID when changing provider (different providers use different session systems).
+	// Use ClearSessionID (NULL) not SetSessionID("") — keep empty vs NULL consistent (#7646).
 	count, err := client.Sheep.Update().
 		Where(sheep.Name(name)).
 		SetProvider(sheep.Provider(provider)).
-		SetSessionID("").
+		ClearSessionID().
 		Save(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to update sheep provider: %w", err)

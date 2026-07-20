@@ -270,8 +270,9 @@ var sheepResetCmd = &cobra.Command{
 	Long: `Resets a sheep to idle so its pending queue can resume.
 
 Safe while the daemon is running: refuses if the sheep still owns a live
-running task (in-memory or under another process). Use this instead of
-UPDATE sheep SET status='idle' ...
+running task (in-memory or under another live process). Orphan running
+tasks (owner_pid==0 or dead PID) are marked failed so they stop eating
+concurrency slots. Use this instead of UPDATE sheep SET status='idle' ...
 
 Optional flags:
   --clear-session   clear session_id (next run starts a fresh conversation)
@@ -289,6 +290,9 @@ Optional flags:
 		}
 		if result.AlreadyIdle {
 			fmt.Printf("🐏 %s is already idle\n", name)
+			if result.ClearedOrphanTasks > 0 {
+				fmt.Printf("   cleared %d orphan running task(s)\n", result.ClearedOrphanTasks)
+			}
 			return
 		}
 		fmt.Printf("🐏 %s reset: %s → idle\n", name, result.PreviousStatus)
@@ -297,6 +301,9 @@ Optional flags:
 		}
 		if result.ResetCircuitFailures {
 			fmt.Println("   consecutive_failures reset to 0")
+		}
+		if result.ClearedOrphanTasks > 0 {
+			fmt.Printf("   cleared %d orphan running task(s)\n", result.ClearedOrphanTasks)
 		}
 	},
 }
