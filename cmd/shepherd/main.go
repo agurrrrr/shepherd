@@ -170,7 +170,8 @@ func printEndpointsList() {
 			ep.ID, ep.Label, ep.Model, enabled, active, ep.MaxConcurrent, ep.BaseURL)
 	}
 	fmt.Println()
-	fmt.Println("spawn_subagents endpoint_id must be the ID column (exact match), not label/model/systemd/port.")
+	fmt.Println("spawn_subagents endpoint_id: prefer the ID column. Unique label or model is also accepted;")
+	fmt.Println("do not use systemd unit names or port numbers (those are not shepherd endpoints).")
 	fmt.Printf("Config file: %s\n", config.EmbeddedConfigFile())
 }
 

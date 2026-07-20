@@ -521,17 +521,20 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		injectCh <-chan string,
 	) (*worker.ExecuteResult, error) {
 		// When the project explicitly selects an endpoint (opts.Model holds the
-		// endpoint ID), use that one; otherwise fall back to the globally active
-		// endpoint.
+		// endpoint ID, or a unique label/model), use that one; otherwise fall
+		// back to the globally active endpoint.
 		var ep *config.EmbeddedEndpoint
 		var err error
 		if opts.Model != "" {
-			ep, err = config.GetEmbeddedEndpointByID(opts.Model)
+			// ResolveEmbeddedEndpoint accepts exact id, unique label, or unique
+			// model so mis-copied labels from "endpoints list" still work
+			// (#7728–#7730). On failure, list available ids for retry.
+			ep, err = config.ResolveEmbeddedEndpoint(opts.Model)
 			if err != nil {
 				return nil, fmt.Errorf("embedded config error: %w", err)
 			}
 			if ep == nil {
-				return nil, fmt.Errorf("embedded endpoint %q not found or disabled", opts.Model)
+				return nil, fmt.Errorf("%s", config.FormatUnknownEndpointError(opts.Model))
 			}
 		} else {
 			ep, err = config.GetActiveEmbeddedEndpoint()
@@ -673,10 +676,12 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		subOutMu := &sync.Mutex{}
 		subagentSpawner := func(ctx context.Context, name, subPrompt, endpointID string, maxIter int, onOutput func(string)) (*embedded.SubagentResult, error) {
 			// Resolve endpoint — empty endpointID means use the parent's endpoint.
+			// Non-empty: exact id, or unique label/model (#7728–#7730 agents
+			// often paste label/systemd unit names instead of embedded id).
 			var subEp *config.EmbeddedEndpoint
 			var subEpErr error // local err to avoid shadowing parent scope's err
 			if endpointID != "" {
-				subEp, subEpErr = config.GetEmbeddedEndpointByID(endpointID)
+				subEp, subEpErr = config.ResolveEmbeddedEndpoint(endpointID)
 			} else {
 				subEp = ep
 			}

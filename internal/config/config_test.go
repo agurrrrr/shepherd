@@ -131,11 +131,56 @@ func TestFormatEndpointCatalog(t *testing.T) {
 	}
 }
 
-// TestFormatUnknownEndpointError lists available ids for agent retry.
-func TestFormatUnknownEndpointError(t *testing.T) {
-	// This hits the live config path; only assert shape when load succeeds.
-	msg := FormatUnknownEndpointError("agent-a1-4b")
+// TestFormatUnknownEndpointErrorWithIDs lists available ids for agent retry.
+func TestFormatUnknownEndpointErrorWithIDs(t *testing.T) {
+	empty := FormatUnknownEndpointErrorWithIDs("agent-a1-4b", nil)
+	if !strings.Contains(empty, `endpoint "agent-a1-4b" not found`) {
+		t.Fatalf("empty ids: %s", empty)
+	}
+	if !strings.Contains(empty, "shepherd endpoints list") {
+		t.Fatalf("empty ids should hint CLI: %s", empty)
+	}
+
+	msg := FormatUnknownEndpointErrorWithIDs("agent-a1-4b", []string{"gents-a1-4b", "umans"})
 	if !strings.Contains(msg, `endpoint "agent-a1-4b" not found`) {
 		t.Fatalf("unexpected message: %s", msg)
+	}
+	if !strings.Contains(msg, "gents-a1-4b") || !strings.Contains(msg, "umans") {
+		t.Fatalf("should list available ids: %s", msg)
+	}
+	if !strings.Contains(msg, "not systemd") {
+		t.Fatalf("should warn against systemd/port: %s", msg)
+	}
+}
+
+// TestResolveFromEnabled covers id / unique label / unique model / ambiguity
+// for spawn_subagents endpoint_id discovery (#7728–#7730).
+func TestResolveFromEnabled(t *testing.T) {
+	eps := []EmbeddedEndpoint{
+		{ID: "gents-a1-4b", Label: "agents-a1-4b", Model: "agents-a1-4b", Enabled: true},
+		{ID: "umans", Label: "umans-glm", Model: "umans-glm-5.2", Enabled: true},
+		{ID: "umans-kimi", Label: "umans-kimi", Model: "shared-model", Enabled: true},
+		{ID: "other-kimi", Label: "other", Model: "shared-model", Enabled: true},
+	}
+
+	if got := resolveFromEnabled("gents-a1-4b", eps); got == nil || got.ID != "gents-a1-4b" {
+		t.Fatalf("exact id: got %#v", got)
+	}
+	// Agents often paste the human label / systemd unit name (#7728).
+	if got := resolveFromEnabled("agents-a1-4b", eps); got == nil || got.ID != "gents-a1-4b" {
+		t.Fatalf("unique label: got %#v", got)
+	}
+	if got := resolveFromEnabled("umans-glm-5.2", eps); got == nil || got.ID != "umans" {
+		t.Fatalf("unique model: got %#v", got)
+	}
+	// Ambiguous model must not pick an arbitrary endpoint.
+	if got := resolveFromEnabled("shared-model", eps); got != nil {
+		t.Fatalf("ambiguous model should be nil, got %#v", got)
+	}
+	if got := resolveFromEnabled("systemd-unit-name", eps); got != nil {
+		t.Fatalf("unknown ref should be nil, got %#v", got)
+	}
+	if got := resolveFromEnabled("", eps); got != nil {
+		t.Fatalf("empty ref should be nil, got %#v", got)
 	}
 }

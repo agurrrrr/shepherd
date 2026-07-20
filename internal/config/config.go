@@ -632,7 +632,8 @@ func EndpointsFromJSON(jsonEps []EmbeddedEndpointJSON) []EmbeddedEndpoint {
 }
 
 // GetEmbeddedEndpointByID returns the embedded endpoint with the given ID,
-// or nil when it does not exist or is disabled.
+// or nil when it does not exist or is disabled. Exact id match only — for
+// agent-facing refs that may use label/model, use ResolveEmbeddedEndpoint.
 func GetEmbeddedEndpointByID(id string) (*EmbeddedEndpoint, error) {
 	if id == "" {
 		return nil, nil
@@ -650,6 +651,74 @@ func GetEmbeddedEndpointByID(id string) (*EmbeddedEndpoint, error) {
 	}
 
 	return nil, nil
+}
+
+// ResolveEmbeddedEndpoint resolves an agent-facing endpoint reference.
+// Match order among enabled endpoints:
+//  1. exact id
+//  2. unique label (case-sensitive)
+//  3. unique model name
+//
+// Ambiguous label/model matches are treated as not found (return nil) so the
+// caller surfaces FormatUnknownEndpointError with the full id catalog.
+// Returns (nil, nil) when ref is empty or no unique match exists.
+func ResolveEmbeddedEndpoint(ref string) (*EmbeddedEndpoint, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, nil
+	}
+	eps, err := ListEnabledEndpoints()
+	if err != nil {
+		return nil, err
+	}
+	return resolveFromEnabled(ref, eps), nil
+}
+
+// resolveFromEnabled is the pure matcher used by ResolveEmbeddedEndpoint and tests.
+func resolveFromEnabled(ref string, eps []EmbeddedEndpoint) *EmbeddedEndpoint {
+	if ref == "" {
+		return nil
+	}
+	// 1) exact id
+	for i := range eps {
+		if eps[i].ID == ref {
+			ep := eps[i]
+			return &ep
+		}
+	}
+	// 2) unique label
+	var labelHit *EmbeddedEndpoint
+	for i := range eps {
+		label := eps[i].Label
+		if label == "" {
+			continue
+		}
+		if label != ref {
+			continue
+		}
+		if labelHit != nil {
+			labelHit = nil // ambiguous
+			break
+		}
+		ep := eps[i]
+		labelHit = &ep
+	}
+	if labelHit != nil {
+		return labelHit
+	}
+	// 3) unique model
+	var modelHit *EmbeddedEndpoint
+	for i := range eps {
+		if eps[i].Model != ref {
+			continue
+		}
+		if modelHit != nil {
+			return nil // ambiguous
+		}
+		ep := eps[i]
+		modelHit = &ep
+	}
+	return modelHit
 }
 
 // ListEnabledEndpoints returns a copy of all enabled embedded endpoints.
@@ -688,7 +757,7 @@ func EnabledEndpointIDs() ([]string, error) {
 //
 // Example line:
 //
-//	- id="gents-a1-4b" label="agents-a1-4b" model="agents-a1-4b" max_concurrent=8
+//	- id="agents-a1-4b" label="agents-a1-4b" model="agents-a1-4b" max_concurrent=8
 func FormatEndpointCatalog(endpoints []EmbeddedEndpoint) string {
 	if len(endpoints) == 0 {
 		return "(no enabled endpoints)"
@@ -723,12 +792,20 @@ func FormatEnabledEndpointCatalog() string {
 func FormatUnknownEndpointError(endpointID string) string {
 	ids, err := EnabledEndpointIDs()
 	if err != nil {
-		return fmt.Sprintf("subagent endpoint %q not found (could not list available: %v)", endpointID, err)
+		return FormatUnknownEndpointErrorWithIDs(endpointID, nil) +
+			fmt.Sprintf(" (could not list available: %v)", err)
 	}
+	return FormatUnknownEndpointErrorWithIDs(endpointID, ids)
+}
+
+// FormatUnknownEndpointErrorWithIDs is the pure form of FormatUnknownEndpointError
+// (testable without loading embedded.yaml).
+func FormatUnknownEndpointErrorWithIDs(endpointID string, ids []string) string {
 	if len(ids) == 0 {
-		return fmt.Sprintf("subagent endpoint %q not found (no enabled endpoints configured in embedded.yaml)", endpointID)
+		return fmt.Sprintf("embedded endpoint %q not found (no enabled endpoints configured in embedded.yaml; run: shepherd endpoints list)",
+			endpointID)
 	}
-	return fmt.Sprintf("subagent endpoint %q not found; available endpoint ids: %s (use exact id, not label/systemd/port)",
+	return fmt.Sprintf("embedded endpoint %q not found; available endpoint ids: %s (use exact id from shepherd endpoints list / embedded.yaml, not systemd unit/port; label/model accepted only when unique)",
 		endpointID, strings.Join(ids, ", "))
 }
 
