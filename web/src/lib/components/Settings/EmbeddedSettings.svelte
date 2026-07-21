@@ -194,10 +194,10 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	{/if}
 </div>
 
-<!-- Embedded endpoint editor modal -->
+<!-- Embedded endpoint editor modal — only Cancel closes (no outside-click dismiss) -->
 {#if editing}
-	<div class="modal-overlay" onclick={closeEditor}>
-		<div class="modal-card" onclick={(e) => e.stopPropagation()}>
+	<div class="modal-overlay">
+		<div class="modal-card">
 			<h3>{editing._existing ? 'Edit Endpoint' : 'Add Endpoint'}</h3>
 			<div class="setting-row">
 				<label>ID</label>

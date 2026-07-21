@@ -235,10 +235,10 @@
 		<button class="btn btn-sm" onclick={resetFilters}>초기화</button>
 	</div>
 
-	<!-- Create Form Modal -->
+	<!-- Create Form Modal — only Cancel/× close (no outside-click dismiss; avoid data loss while typing) -->
 	{#if showCreate}
-	<div class="modal-overlay" onclick={closeCreate}>
-		<div class="modal modal-lg" onclick={(e) => e.stopPropagation()}>
+	<div class="modal-overlay">
+		<div class="modal modal-lg">
 			<div class="modal-header">
 				<h3>새 이슈 생성</h3>
 				<button class="btn-close" onclick={closeCreate}>×</button>

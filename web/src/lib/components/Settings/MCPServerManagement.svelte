@@ -166,10 +166,10 @@
 	{/if}
 </div>
 
-<!-- MCP Server editor modal -->
+<!-- MCP Server editor modal — only Cancel closes (no outside-click dismiss) -->
 {#if editing}
-	<div class="modal-overlay" onclick={closeEditor}>
-		<div class="modal-card" onclick={(e) => e.stopPropagation()}>
+	<div class="modal-overlay">
+		<div class="modal-card">
 			<h3>{editing._existing ? 'Edit MCP Server' : 'Add MCP Server'}</h3>
 
 			<div class="setting-row">

@@ -854,8 +854,9 @@
 					{/if}
 
 					{#if showScheduleForm}
-						<div class="modal-overlay" onclick={closeScheduleForm}>
-							<div class="modal-content card" onclick={(e) => e.stopPropagation()}>
+						<!-- Form modal — only Close/Cancel closes (no outside-click dismiss) -->
+						<div class="modal-overlay">
+							<div class="modal-content card">
 								<div class="modal-hdr">
 									<h2>{editingSchedule ? 'Edit Schedule' : 'New Schedule'}</h2>
 									<button class="btn" onclick={closeScheduleForm}>Close</button>
@@ -998,8 +999,9 @@
 					{/if}
 
 					{#if showSkillForm}
-						<div class="modal-overlay" onclick={closeSkillForm}>
-							<div class="modal-content card" onclick={(e) => e.stopPropagation()}>
+						<!-- Form modal — only Close/Cancel closes (no outside-click dismiss) -->
+						<div class="modal-overlay">
+							<div class="modal-content card">
 								<div class="modal-hdr">
 									<h2>{editingSkillItem ? 'Edit Skill' : 'New Skill'}</h2>
 									<button class="btn" onclick={closeSkillForm}>Close</button>

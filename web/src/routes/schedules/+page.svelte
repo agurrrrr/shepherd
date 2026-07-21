@@ -141,10 +141,10 @@
 		</div>
 	{/if}
 
-	<!-- Create/Edit Modal -->
+	<!-- Create/Edit Modal — only Close/Cancel closes (no outside-click dismiss) -->
 	{#if showForm}
-		<div class="modal-overlay" onclick={closeForm}>
-			<div class="modal-content card" onclick={(e) => e.stopPropagation()}>
+		<div class="modal-overlay">
+			<div class="modal-content card">
 				<div class="modal-header">
 					<h2>{editingSchedule ? 'Edit Schedule' : 'New Schedule'}</h2>
 					<button class="btn" onclick={closeForm}>Close</button>
