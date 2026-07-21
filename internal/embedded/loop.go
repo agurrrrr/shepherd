@@ -39,7 +39,20 @@ const maxRepeatedToolTurns = 4
 // token-burning loop a confused model can fall into (task #6294). State-changing
 // tool calls (bash/write_file/edit_file) reset the counter, so a model that
 // declares then actually acts never exhausts the budget.
+//
+// Task #7751 refined the guard: it only arms when state-changing tools are
+// available, only fires when none have been used yet (incomplete evidence), and
+// the nudge text offers an escape hatch for analysis/advisory completions.
 const maxFutureIntentionNudges = 2
+
+// futureIntentionNudgeBody is the plain body of the future-intention turn-end
+// nudge (wrapped by systemReminder). Escape hatch included so a strong model
+// that already finished (or is only advising) can restate and complete rather
+// than being forced into a no-op tool call. Tool names are intentionally
+// omitted — naming bash/write_file biased models toward unnecessary writes
+// (task #7751 (B)).
+const futureIntentionNudgeBody = "위에서 선언한 작업이 아직 남아 있다면 지금 실행해주세요. " +
+	"이미 완료했거나 이 답변이 실행이 아닌 분석·권고라면, 그렇게 명시하고 최종 보고를 다시 작성해주세요."
 
 // maxPauseSummaryNudges bounds how many times the pause-summary guard (task
 // #6690) nudges a model that voluntarily writes a "paused, continue later"
@@ -161,21 +174,68 @@ var futureIntentionKorean = regexp.MustCompile(
 		`|(할게요|할께요|해볼게요|볼게요|해드릴게요|을게요|를게요)$` +
 		`|(려고\s*합니다|려\s*합니다|할\s*예정입니다|할\s*것입니다|할\s*계획입니다)$`)
 
-// futureIntentionEnglish is a contains-match (declarations often precede a
-// trailing sentence). A first-person subject is required so "you can run …"
-// style suggestions don't trip it.
+// futureIntentionEnglish matches first-person future declarations. Scoped to the
+// last 1–2 sentences by isFutureIntention (task #7751 (D)) so a polished final
+// report that mentions a follow-up mid-text ("Next, I'll…") no longer fires.
+// A first-person subject is required so "you can run …" suggestions don't trip it.
 var futureIntentionEnglish = regexp.MustCompile(`(?i)\b(let me (now |then |go ahead and |try to )?(finish|complete|implement|build|rebuild|run|re-?run|execute|check|verify|test|fix|continue|add|create|update|write)|i('ll| will|'m going to| am going to)( now| then| also| next)? (finish|complete|implement|build|rebuild|run|re-?run|execute|check|verify|test|fix|continue|add|create|update|write)|now i('ll| will)|next,? i('ll| will))\b`)
 
 // futureIntentionTrailing is the set of trailing characters stripped before the
 // end-anchored Korean check, so a trailing ". ! ~ … 。" or quote doesn't defeat $.
 const futureIntentionTrailing = " \t\r\n.!?~…。\"'’”)】」』"
 
+// lastSentences returns the trailing n sentence-like clauses of s. Used to
+// scope English future-intention matching to the end of the message (Korean
+// already end-anchors via $). n<=0 or empty input returns s unchanged.
+func lastSentences(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if s == "" || n <= 0 {
+		return s
+	}
+	// Collect byte offsets where a new sentence likely begins (after .!? or
+	// newline followed by whitespace / end).
+	starts := []int{0}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c != '.' && c != '!' && c != '?' && c != '\n' {
+			continue
+		}
+		j := i + 1
+		for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\n' || s[j] == '\r') {
+			j++
+		}
+		if j < len(s) && j > starts[len(starts)-1] {
+			starts = append(starts, j)
+		}
+	}
+	if len(starts) <= n {
+		return s
+	}
+	return s[starts[len(starts)-n]:]
+}
+
+// hasStateChangingTools reports whether the active tool set includes at least
+// one tool that can satisfy/reset the future-intention guard. Read-only
+// executions (analysis, review, advisory, disallowed Write/Bash skills) must
+// not arm the guard — reset is structurally impossible there (task #7751 (A)).
+func hasStateChangingTools(toolDefs []OpenAIToolDef) bool {
+	for _, t := range toolDefs {
+		switch t.Function.Name {
+		case "bash", "write_file", "edit_file":
+			return true
+		}
+	}
+	return false
+}
+
 func isFutureIntention(content string) bool {
 	s := strings.TrimSpace(content)
 	if s == "" {
 		return false
 	}
-	if futureIntentionEnglish.MatchString(s) {
+	// English: only the last two sentences (task #7751 (D)). Full-text
+	// contains-match was the main false-positive source for well-written reports.
+	if futureIntentionEnglish.MatchString(lastSentences(s, 2)) {
 		return true
 	}
 	// Korean: only the final clause matters — strip trailing punctuation/quotes
@@ -362,6 +422,8 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	} else {
 		toolDefs = toolRegistry.OpenAIToolDefs()
 	}
+	// Future-intention guard only arms when a reset path exists (task #7751 (A)).
+	writeToolsAllowed := hasStateChangingTools(toolDefs)
 
 	var (
 		totalPromptTokens     int64
@@ -774,13 +836,17 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		}
 		consecutiveEmpty = 0
 
-		// ── Mitigation ①: Future-intention nudge (task #6290 / #6294) ──
+		// ── Mitigation ①: Future-intention nudge (task #6290 / #6294 / #7751) ──
 		// If there are no tool calls AND the content ends with a future-action
 		// declaration ("다시 빌드해보겠습니다", "let me now ~"), do NOT treat it as a
 		// completion. Nudge the model to actually do it — but only up to
 		// maxFutureIntentionNudges times, after which the task is reported
 		// incomplete rather than nudged forever (prevents the #6294 token loop).
-		if isFutureIntention(msg.Content) {
+		//
+		// #7751 gates (A)+(C): skip when state-changing tools are unavailable
+		// (reset impossible), and skip when bash/write_file/edit_file already
+		// ran this session ("일 다 하고 말투만 미래형" is not false-completion).
+		if writeToolsAllowed && !bashCalled && !codeModified && isFutureIntention(msg.Content) {
 			futureIntentionNudges++
 			if futureIntentionNudges > maxFutureIntentionNudges {
 				emitOutput(opts.OnOutput, "⚠️ [미래형 선언 반복]: 선언만 반복하고 실제 실행이 없어 작업을 미완료로 종료합니다.")
@@ -793,17 +859,14 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					CostUSD:          totalCostUSD,
 				}, nil
 			}
-			emitOutput(opts.OnOutput, "⚠️ [미래형 선언 감지]: 선언한 작업을 실제 도구 호출로 완료해주세요.")
+			emitOutput(opts.OnOutput, "⚠️ [미래형 선언 감지]: 미실행 선언이 감지되어 실행 또는 해명을 요청합니다.")
 			messages = append(messages, ChatMessage{
 				Role:    ChatRoleAssistant,
 				Content: msg.Content,
 			})
 			messages = append(messages, ChatMessage{
-				Role: ChatRoleUser,
-				Content: systemReminder(
-					"위에서 선언한 작업을 실제로 도구 호출(bash, write_file 등)로 완료해주세요. " +
-						"단순히 '하겠습니다'라고 말하는 대신, 실제 파일 수정이나 빌드 실행을 해주세요.",
-				),
+				Role:    ChatRoleUser,
+				Content: systemReminder(futureIntentionNudgeBody),
 			})
 			continue
 		}

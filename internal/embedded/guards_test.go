@@ -151,6 +151,10 @@ func TestIsFutureIntention(t *testing.T) {
 		// English non-intention (suggestion to the user, not first person).
 		{"you can run", "You can run npm test to verify the change.", false},
 		{"english past tense", "I implemented the fix and the build passed.", false},
+		// #7751 (D): mid-report future phrasing outside the last 2 sentences
+		// must not trip; end-scoped future still must.
+		{"mid-report next I'll outside last two", "Next, I'll also consider docs later. We fixed the bug. All tests passed.", false},
+		{"ends with next I'll after report", "Analysis is done.\nNext, I'll implement the fix.", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -158,6 +162,54 @@ func TestIsFutureIntention(t *testing.T) {
 				t.Errorf("isFutureIntention(%q) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestLastSentences(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		n    int
+		want string
+	}{
+		{"empty", "", 2, ""},
+		{"n zero returns all", "a. b.", 0, "a. b."},
+		{"fewer than n", "One sentence only.", 2, "One sentence only."},
+		{"last two of three", "First. Second. Third.", 2, "Second. Third."},
+		{"last one", "First. Second. Third.", 1, "Third."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := lastSentences(tc.in, tc.n); got != tc.want {
+				t.Errorf("lastSentences(%q, %d) = %q, want %q", tc.in, tc.n, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHasStateChangingTools(t *testing.T) {
+	if hasStateChangingTools(nil) {
+		t.Error("nil toolDefs should be false")
+	}
+	readonly := []OpenAIToolDef{
+		{Type: "function", Function: OpenAIFunction{Name: "read_file"}},
+		{Type: "function", Function: OpenAIFunction{Name: "grep"}},
+	}
+	if hasStateChangingTools(readonly) {
+		t.Error("read-only tools should not arm the guard")
+	}
+	withBash := []OpenAIToolDef{
+		{Type: "function", Function: OpenAIFunction{Name: "read_file"}},
+		{Type: "function", Function: OpenAIFunction{Name: "bash"}},
+	}
+	if !hasStateChangingTools(withBash) {
+		t.Error("bash should arm the guard")
+	}
+	withWrite := []OpenAIToolDef{
+		{Type: "function", Function: OpenAIFunction{Name: "write_file"}},
+	}
+	if !hasStateChangingTools(withWrite) {
+		t.Error("write_file should arm the guard")
 	}
 }
 

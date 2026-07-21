@@ -670,19 +670,15 @@ func TestEmptyResponseNudgeSystemReminder(t *testing.T) {
 	}
 }
 
-// TestFutureIntentionNudgeSystemReminder verifies the future-intention guard
-// injects a wrapped nudge while still recovering when the model acts.
-func TestFutureIntentionNudgeSystemReminder(t *testing.T) {
-	r1 := buildSSELines(nil, "이제 설정을 수정하겠습니다.", "stop")
-	r2 := buildSSELines(nil, "설정을 수정했고 검증을 마쳤습니다.", "stop")
-
-	var bodies []string
+// multiRoundSSEServer serves successive SSE rounds and records request bodies.
+func multiRoundSSEServer(t *testing.T, rounds [][]string) (srv *httptest.Server, bodies *[]string) {
+	t.Helper()
+	var recorded []string
 	var count atomic.Int64
-	rounds := [][]string{r1, r2}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		idx := int(count.Add(1)) - 1
 		raw, _ := io.ReadAll(r.Body)
-		bodies = append(bodies, string(raw))
+		recorded = append(recorded, string(raw))
 		if idx >= len(rounds) {
 			http.Error(w, "no more rounds", http.StatusInternalServerError)
 			return
@@ -698,6 +694,17 @@ func TestFutureIntentionNudgeSystemReminder(t *testing.T) {
 			}
 		}
 	}))
+	return srv, &recorded
+}
+
+// TestFutureIntentionNudgeSystemReminder verifies the future-intention guard
+// injects a wrapped nudge (with escape hatch, no tool names) while still
+// recovering when the model restates a completion (task #7751 (B)).
+func TestFutureIntentionNudgeSystemReminder(t *testing.T) {
+	r1 := buildSSELines(nil, "이제 설정을 수정하겠습니다.", "stop")
+	r2 := buildSSELines(nil, "설정을 수정했고 검증을 마쳤습니다.", "stop")
+
+	srv, bodies := multiRoundSSEServer(t, [][]string{r1, r2})
 	defer srv.Close()
 
 	result, err := Run(context.Background(), ExecuteOptions{
@@ -713,21 +720,112 @@ func TestFutureIntentionNudgeSystemReminder(t *testing.T) {
 	if result.Incomplete {
 		t.Fatalf("Incomplete: %s", result.IncompleteReason)
 	}
-	if len(bodies) < 2 {
-		t.Fatalf("expected >=2 requests, got %d", len(bodies))
+	if len(*bodies) < 2 {
+		t.Fatalf("expected >=2 requests, got %d", len(*bodies))
 	}
-	users := lastUserContents(t, bodies[1])
+	users := lastUserContents(t, (*bodies)[1])
 	found := false
 	for _, c := range users {
 		if strings.HasPrefix(c, "<system-reminder>") &&
-			strings.Contains(c, "도구 호출") &&
+			strings.Contains(c, "최종 보고") &&
+			strings.Contains(c, "분석·권고") &&
+			!strings.Contains(c, "write_file") &&
+			!strings.Contains(c, "bash") &&
 			strings.HasSuffix(c, "</system-reminder>") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("future-intention nudge not wrapped; user msgs=%q", users)
+		t.Errorf("future-intention nudge not wrapped with escape hatch; user msgs=%q", users)
+	}
+}
+
+// TestFutureIntentionSkipsWhenNoWriteTools is #7751 (A): read-only toolDefs
+// must not arm the future-intention guard (reset is impossible).
+func TestFutureIntentionSkipsWhenNoWriteTools(t *testing.T) {
+	r1 := buildSSELines(nil, "이제 설정을 수정하겠습니다.", "stop")
+	srv, bodies := multiRoundSSEServer(t, [][]string{r1})
+	defer srv.Close()
+
+	readonly := []OpenAIToolDef{
+		{Type: "function", Function: OpenAIFunction{Name: "read_file", Description: "read", Parameters: map[string]interface{}{"type": "object"}}},
+	}
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL,
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "설정을 분석해주세요.",
+		Tools:         readonly,
+		MaxIterations: 3,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("read-only run must complete despite future phrasing; incomplete=%s", result.IncompleteReason)
+	}
+	if len(*bodies) != 1 {
+		t.Fatalf("expected single request (no nudge round), got %d", len(*bodies))
+	}
+}
+
+// TestFutureIntentionPassesAfterStateChange is #7751 (C): after a state-changing
+// tool already ran, a polite future-form closing sentence must not fail/nudge.
+func TestFutureIntentionPassesAfterStateChange(t *testing.T) {
+	dir := t.TempDir()
+	r1 := buildSSELines([]toolCallSpec{
+		{id: "call_w", name: "write_file", args: `{"path":"cfg.txt","content":"ok"}`},
+	}, "", "")
+	// Past-tense body + trailing future-form that used to false-positive.
+	r2 := buildSSELines(nil, "설정을 수정했습니다. 추가로 정리해보겠습니다.", "stop")
+	srv, bodies := multiRoundSSEServer(t, [][]string{r1, r2})
+	defer srv.Close()
+
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL,
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "설정을 고쳐주세요.",
+		ProjectPath:   dir,
+		MaxIterations: 4,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("after write_file, future-form close must pass; incomplete=%s", result.IncompleteReason)
+	}
+	// write round + final content = 2; no third nudge request.
+	if len(*bodies) != 2 {
+		t.Fatalf("expected 2 requests (tool + final), got %d", len(*bodies))
+	}
+}
+
+// TestFutureIntentionStillFiresWithoutTools is #6294 regression: future
+// declaration with no state-changing tools used must still nudge (weak-model path).
+func TestFutureIntentionStillFiresWithoutTools(t *testing.T) {
+	r1 := buildSSELines(nil, "빌드 에러를 수정했습니다. 다시 빌드해보겠습니다.", "stop")
+	r2 := buildSSELines(nil, "빌드 에러를 수정했습니다. 다시 빌드해보겠습니다.", "stop")
+	r3 := buildSSELines(nil, "빌드 에러를 수정했습니다. 다시 빌드해보겠습니다.", "stop")
+	srv, _ := multiRoundSSEServer(t, [][]string{r1, r2, r3})
+	defer srv.Close()
+
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL,
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "빌드 에러를 고쳐주세요.",
+		MaxIterations: 6,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if !result.Incomplete {
+		t.Fatal("expected incomplete after repeated future declarations without tools")
+	}
+	if !strings.Contains(result.IncompleteReason, "future actions") {
+		t.Errorf("IncompleteReason = %q, want future-actions reason", result.IncompleteReason)
 	}
 }
 
