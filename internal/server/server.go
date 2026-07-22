@@ -813,7 +813,7 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			systemPrompt += "제약:\n"
 			systemPrompt += "- 서브에이전트는 읽기 전용입니다 (write_file/edit_file/bash 사용 불가).\n"
 			systemPrompt += "- 서브에이전트는 자식을 spawn할 수 없습니다 (깊이 1).\n"
-			systemPrompt += "- 최대 4개까지 동시 실행 가능합니다.\n"
+			systemPrompt += "- 최대 8개까지 동시 실행 가능합니다 (엔드포인트 max_concurrent / llama --parallel 슬롯 이내).\n"
 			systemPrompt += "- 태스크당 최대 3회까지 호출할 수 있습니다.\n"
 			systemPrompt += "- 결과는 개별적으로 잘릴 수 있습니다.\n"
 		}

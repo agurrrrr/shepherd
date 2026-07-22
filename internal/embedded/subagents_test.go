@@ -178,27 +178,92 @@ func TestSpawnSubagents_EndpointIDDescriptionIncludesHint(t *testing.T) {
 	}
 }
 
-// TestSpawnSubagents_MaxFourAgents verifies the max-4 limit.
-func TestSpawnSubagents_MaxFourAgents(t *testing.T) {
+// TestSpawnSubagents_MaxEightAgents verifies the max-8 limit (#7763).
+func TestSpawnSubagents_MaxEightAgents(t *testing.T) {
 	spawner := func(ctx context.Context, name, prompt, endpointID string, maxIter int, onOutput func(string)) (*SubagentResult, error) {
 		return &SubagentResult{Content: "ok"}, nil
 	}
 
 	tr := &ToolRegistry{subagentSpawner: spawner}
 
-	args := map[string]interface{}{
-		"subagents": []interface{}{
-			map[string]interface{}{"name": "a", "prompt": "x"},
-			map[string]interface{}{"name": "b", "prompt": "x"},
-			map[string]interface{}{"name": "c", "prompt": "x"},
-			map[string]interface{}{"name": "d", "prompt": "x"},
-			map[string]interface{}{"name": "e", "prompt": "x"},
-		},
+	// Exactly 8 must succeed.
+	list8 := make([]interface{}, 8)
+	for i := 0; i < 8; i++ {
+		list8[i] = map[string]interface{}{"name": fmt.Sprintf("a%d", i), "prompt": "x"}
+	}
+	if _, err := executeSpawnSubagents(context.Background(), tr, map[string]interface{}{"subagents": list8}, func(s string) {}); err != nil {
+		t.Fatalf("expected 8 sub-agents to be allowed, got: %v", err)
 	}
 
-	_, err := executeSpawnSubagents(context.Background(), tr, args, func(s string) {})
-	if err == nil {
-		t.Fatal("expected error for 5 sub-agents (max is 4)")
+	// 9 must fail.
+	list9 := make([]interface{}, 9)
+	for i := 0; i < 9; i++ {
+		list9[i] = map[string]interface{}{"name": fmt.Sprintf("b%d", i), "prompt": "x"}
+	}
+	tr2 := &ToolRegistry{subagentSpawner: spawner}
+	if _, err := executeSpawnSubagents(context.Background(), tr2, map[string]interface{}{"subagents": list9}, func(s string) {}); err == nil {
+		t.Fatal("expected error for 9 sub-agents (max is 8)")
+	}
+}
+
+// TestSpawnSubagents_EightConcurrent verifies all 8 sub-agents overlap in time
+// (true fan-out, not serial). Peak in-flight count must reach 8.
+func TestSpawnSubagents_EightConcurrent(t *testing.T) {
+	var current, peak int32
+	started := make(chan struct{}, 8)
+	release := make(chan struct{})
+
+	spawner := func(ctx context.Context, name, prompt, endpointID string, maxIter int, onOutput func(string)) (*SubagentResult, error) {
+		n := atomic.AddInt32(&current, 1)
+		for {
+			p := atomic.LoadInt32(&peak)
+			if n <= p || atomic.CompareAndSwapInt32(&peak, p, n) {
+				break
+			}
+		}
+		started <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			atomic.AddInt32(&current, -1)
+			return nil, ctx.Err()
+		}
+		atomic.AddInt32(&current, -1)
+		return &SubagentResult{Content: name + " done"}, nil
+	}
+
+	tr := &ToolRegistry{subagentSpawner: spawner}
+	list := make([]interface{}, 8)
+	for i := 0; i < 8; i++ {
+		list[i] = map[string]interface{}{"name": fmt.Sprintf("w%d", i), "prompt": "work"}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := executeSpawnSubagents(context.Background(), tr, map[string]interface{}{"subagents": list}, func(s string) {})
+		done <- err
+	}()
+
+	// Wait until all 8 have entered the spawner (or timeout).
+	for i := 0; i < 8; i++ {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d/8 sub-agents started within 5s (not concurrent?)", i)
+		}
+	}
+	if got := atomic.LoadInt32(&peak); got != 8 {
+		t.Fatalf("expected peak concurrency 8, got %d", got)
+	}
+	close(release)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("executeSpawnSubagents failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("executeSpawnSubagents did not finish")
 	}
 }
 

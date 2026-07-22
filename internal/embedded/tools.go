@@ -102,6 +102,12 @@ type ToolRegistry struct {
 // runaway cost (#7463 review: README guard).
 const maxSpawnsPerTask = 3
 
+// maxSubagents is the per-call concurrent sub-agent cap.
+// Originally 4 (#7461 C2); raised to 8 so an endpoint with max_concurrent=8
+// (e.g. agents-a1-4b / llama-server --parallel 8) can be fully utilized in
+// one spawn_subagents call (#7763 concurrency test).
+const maxSubagents = 8
+
 // pendingImage is an image loaded by read_file, awaiting injection into the
 // chat history as a multimodal message part.
 type pendingImage struct {
@@ -408,8 +414,8 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 					"properties": map[string]interface{}{
 						"subagents": map[string]interface{}{
 							"type":        "array",
-							"description": "List of sub-agents to spawn (max 4)",
-							"maxItems":    4,
+							"description": "List of sub-agents to spawn (max 8; match endpoint max_concurrent / llama --parallel)",
+							"maxItems":    maxSubagents,
 							"items": map[string]interface{}{
 								"type": "object",
 								"properties": map[string]interface{}{
@@ -1578,7 +1584,8 @@ func executeSpawnSubagents(ctx context.Context, tr *ToolRegistry, args map[strin
 		return nil, fmt.Errorf("'subagents' array is empty")
 	}
 
-	const maxSubagents = 4 // #7461 C2: README 기준 4개
+	// maxSubagents raised 4→8 (#7763) so callers can fill an endpoint with
+	// max_concurrent=8 (e.g. agents-a1-4b llama-server --parallel 8).
 	if len(list) > maxSubagents {
 		return nil, fmt.Errorf("too many sub-agents (%d); maximum is %d", len(list), maxSubagents)
 	}

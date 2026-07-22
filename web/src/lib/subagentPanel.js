@@ -61,7 +61,7 @@ export function appendSlotLine(existing, text) {
  *
  * This is a pure function — each call creates fresh state, so there is no
  * accumulation bug (#7465 Critical #2 does not apply). The O(n²) re-parse
- * cost on each SSE chunk is acceptable for Phase 1 (max 4 agents).
+ * cost on each SSE chunk is acceptable for Phase 1 (max 8 agents).
  *
  * @param {string[]} lines
  * @returns {{
