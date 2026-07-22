@@ -243,7 +243,7 @@ func Update(projectName string, id int, in UpdateInput) (*ent.Issue, error) {
 	}
 
 	if in.Title == nil && in.Type == nil && in.Body == nil && in.Goal == nil && in.Status == nil {
-		return nil, fmt.Errorf("nothing to update: provide at least one of --title, --type, --body, --goal, --status")
+		return nil, fmt.Errorf("nothing to update: provide at least one of title, type, body, goal, status")
 	}
 
 	ctx := context.Background()
