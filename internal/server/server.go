@@ -675,13 +675,14 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		// applied inside wrapSubagentOnOutput (tasks #7562/#7564, MAGI #7209).
 		subOutMu := &sync.Mutex{}
 		subagentSpawner := func(ctx context.Context, name, subPrompt, endpointID string, maxIter int, onOutput func(string)) (*embedded.SubagentResult, error) {
-			// Resolve endpoint — empty endpointID means use the parent's endpoint.
-			// Non-empty: exact id, or unique label/model (#7728–#7730 agents
-			// often paste label/systemd unit names instead of embedded id).
+			// Resolve endpoint — empty endpointID means use the parent's endpoint
+			// (parent is already running this task; Subagent flag not required).
+			// Non-empty: only Enabled && Subagent endpoints resolve (exact id,
+			// or unique label/model among subagent-capable endpoints).
 			var subEp *config.EmbeddedEndpoint
 			var subEpErr error // local err to avoid shadowing parent scope's err
 			if endpointID != "" {
-				subEp, subEpErr = config.ResolveEmbeddedEndpoint(endpointID)
+				subEp, subEpErr = config.ResolveSubagentEndpoint(endpointID)
 			} else {
 				subEp = ep
 			}
@@ -689,9 +690,9 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 				return nil, fmt.Errorf("subagent endpoint %q: %w", endpointID, subEpErr)
 			}
 			if subEp == nil {
-				// Include available ids so the parent agent can retry with a
-				// valid endpoint_id instead of inventing service/port names.
-				return nil, fmt.Errorf("%s", config.FormatUnknownEndpointError(endpointID))
+				// Include subagent-capable ids so the parent can retry with a
+				// valid endpoint_id (not systemd/port; not subagent:false).
+				return nil, fmt.Errorf("%s", config.FormatUnknownSubagentEndpointError(endpointID))
 			}
 
 			// Build read-only tool set for the sub-agent.
@@ -778,10 +779,11 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 
 		toolRegistry.SetSubagentSpawner(subagentSpawner)
 
-		// Inject available endpoint IDs into the tool schema *before*
+		// Inject subagent-capable endpoint IDs into the tool schema *before*
 		// OpenAIToolDefs so models see exact ids (task #7728/#7729/#7730:
 		// agents were inventing systemd unit names / guessing labels).
-		if ids, idErr := config.EnabledEndpointIDs(); idErr == nil && len(ids) > 0 {
+		// Only Enabled && Subagent endpoints are listed.
+		if ids, idErr := config.SubagentEndpointIDs(); idErr == nil && len(ids) > 0 {
 			toolRegistry.SetSubagentEndpointHint(strings.Join(ids, ", "))
 		}
 
@@ -795,16 +797,18 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		// always adding it in the prompt builder).
 		if toolRegistry.HasSubagentSpawner() {
 			systemPrompt += "\n\n## spawn_subagents — 병렬 서브에이전트 도구\n"
-			systemPrompt += "여러 읽기 전용 서브에이전트를 병렬로 실행할 수 있습니다. 각 서브에이전트는 독립된 컨텍스트에서 작동하며, 결과만 부모에게 반환합니다.\n\n"
+			systemPrompt += "여러 읽기 전용 서브에이전트를 병렬로 실행할 수 있습니다. 각 서브에이전트는 독립된 컨텍스트에서 작동하며, 결과만 부모에게 반환합니다.\n"
+			systemPrompt += "서브에이전트는 **embedded 프로바이더 엔드포인트만** 사용할 수 있습니다 (다른 프로바이더 불가).\n\n"
 			systemPrompt += "사용 예:\n"
 			systemPrompt += "- 여러 모델로 코드 리뷰 분산\n"
 			systemPrompt += "- 여러 디렉토리 동시 탐색\n"
 			systemPrompt += "- 여러 접근법으로 리서치 수행\n\n"
 			systemPrompt += "endpoint_id 선택 (중요):\n"
 			systemPrompt += "- endpoint_id는 `~/.shepherd/embedded.yaml`의 **id** 필드입니다. label/model/systemd 유닛/포트 번호가 아닙니다.\n"
+			systemPrompt += "- **subagent: true** 로 설정된 엔드포인트만 사용 가능합니다 (Settings → Embedded에서 토글).\n"
 			systemPrompt += "- 생략하면 부모 에이전트와 같은 엔드포인트를 사용합니다.\n"
-			systemPrompt += "- 가용 엔드포인트 목록 (id를 그대로 복사해 사용):\n"
-			systemPrompt += config.FormatEnabledEndpointCatalog() + "\n"
+			systemPrompt += "- 서브에이전트 가능 엔드포인트 목록 (id를 그대로 복사해 사용):\n"
+			systemPrompt += config.FormatSubagentEndpointCatalog() + "\n"
 			systemPrompt += "- 목록 재확인이 필요하면 셸에서 `shepherd endpoints list` 를 실행하세요 (API 키는 출력되지 않음).\n\n"
 			systemPrompt += "제약:\n"
 			systemPrompt += "- 서브에이전트는 읽기 전용입니다 (write_file/edit_file/bash 사용 불가).\n"

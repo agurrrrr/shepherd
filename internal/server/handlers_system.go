@@ -381,6 +381,7 @@ func (s *Server) handleGetEmbeddedEndpoints(c *fiber.Ctx) error {
 			"max_iterations": ep.MaxIterations,
 			"context_tokens": ep.ContextTokens,
 			"max_concurrent": ep.MaxConcurrent,
+			"subagent":       ep.Subagent,
 			"is_active":      ep.ID == activeID,
 		})
 	}
@@ -591,6 +592,7 @@ func embeddedEndpointFromJSON(body config.EmbeddedEndpointJSON) config.EmbeddedE
 		MaxIterations: body.MaxIterations,
 		ContextTokens: body.ContextTokens,
 		MaxConcurrent: body.MaxConcurrent,
+		Subagent:      body.Subagent,
 	}
 }
 

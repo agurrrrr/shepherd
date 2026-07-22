@@ -28,7 +28,8 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 
 	function openEditor(ep = null) {
 		if (ep) {
-			editing = { ...ep, _existing: true };
+			// Older API responses may omit subagent; default true (matches server BC migration).
+			editing = { ...ep, subagent: ep.subagent ?? true, _existing: true };
 		} else {
 			editing = {
 				id: '',
@@ -39,6 +40,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				enabled: true,
 				thinking: false,
 				vision: false,
+				subagent: true,
 				max_iterations: 40,
 				context_tokens: 32768,
 				max_concurrent: 0
@@ -62,6 +64,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			enabled: editing.enabled,
 			thinking: editing.thinking,
 			vision: editing.vision,
+			subagent: !!editing.subagent,
 			max_iterations: parseInt(editing.max_iterations) || 40,
 			context_tokens: parseInt(editing.context_tokens) || 32768,
 			max_concurrent: parseInt(editing.max_concurrent) || 0
@@ -170,6 +173,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 					<strong>{ep.label || ep.id}</strong>
 					{#if ep.is_active}<span class="badge badge-success">Active</span>{/if}
 					{#if !ep.enabled}<span class="badge badge-muted">Disabled</span>{/if}
+					{#if ep.enabled && ep.subagent}<span class="badge badge-subagent">Subagent</span>{/if}
 					<div class="embedded-actions">
 						<button class="btn btn-sm btn-outline" onclick={() => testEndpoint(ep)} disabled={testBusy[ep.id]}>
 							{testBusy[ep.id] ? '...' : 'Test'}
@@ -188,6 +192,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				<div class="embedded-detail"><span class="embedded-label">Max Concurrent:</span> {ep.max_concurrent || '∞'}</div>
 					<div class="embedded-detail"><span class="embedded-label">Thinking:</span> {ep.thinking ? 'On' : 'Off'}</div>
 					<div class="embedded-detail"><span class="embedded-label">Vision:</span> {ep.vision ? 'On' : 'Off'}</div>
+					<div class="embedded-detail"><span class="embedded-label">Subagent:</span> {ep.subagent ? 'On' : 'Off'}</div>
 				</div>
 			</div>
 		{/each}
@@ -247,6 +252,14 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				</label>
 			</div>
 			<p class="hint">모델이 이미지를 볼 수 있으면 켜세요. 켜면 작업 중 생성한 스크린샷도 read_file로 직접 봅니다.</p>
+			<div class="setting-row">
+				<label>Subagent</label>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={editing.subagent} />
+					<span>{editing.subagent ? 'On' : 'Off'}</span>
+				</label>
+			</div>
+			<p class="hint">켜면 <code>spawn_subagents</code>의 endpoint_id로 이 엔드포인트를 사용할 수 있습니다. 서브에이전트는 embedded 프로바이더만 지원합니다.</p>
 			<div class="setting-row">
 				<label>Enabled</label>
 				<label class="toggle">
@@ -407,6 +420,10 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	.badge-muted {
 		background: var(--bg-tertiary);
 		color: var(--text-secondary);
+	}
+	.badge-subagent {
+		background: color-mix(in srgb, var(--accent) 15%, transparent);
+		color: var(--accent);
 	}
 
 	.btn-sm {

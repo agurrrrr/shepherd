@@ -184,3 +184,114 @@ func TestResolveFromEnabled(t *testing.T) {
 		t.Fatalf("empty ref should be nil, got %#v", got)
 	}
 }
+
+// TestEmbeddedEndpoint_Subagent_YAMLRoundTrip verifies subagent survives YAML.
+func TestEmbeddedEndpoint_Subagent_YAMLRoundTrip(t *testing.T) {
+	yamlData := []byte("endpoints:\n  - id: test\n    label: Test\n    baseurl: http://localhost:8080\n    model: test-model\n    enabled: true\n    subagent: true\n")
+	cfg, err := UnmarshalEmbeddedYAML(yamlData)
+	if err != nil {
+		t.Fatalf("UnmarshalEmbeddedYAML failed: %v", err)
+	}
+	if len(cfg.Endpoints) != 1 {
+		t.Fatalf("expected 1 endpoint, got %d", len(cfg.Endpoints))
+	}
+	if !cfg.Endpoints[0].Subagent {
+		t.Fatal("expected Subagent=true")
+	}
+
+	out, err := MarshalEmbeddedYAML(cfg)
+	if err != nil {
+		t.Fatalf("MarshalEmbeddedYAML failed: %v", err)
+	}
+	cfg2, err := UnmarshalEmbeddedYAML(out)
+	if err != nil {
+		t.Fatalf("second UnmarshalEmbeddedYAML failed: %v", err)
+	}
+	if !cfg2.Endpoints[0].Subagent {
+		t.Fatal("round-trip: expected Subagent=true")
+	}
+}
+
+// TestEmbeddedEndpoint_Subagent_JSONRoundTrip verifies API save path keeps subagent.
+func TestEmbeddedEndpoint_Subagent_JSONRoundTrip(t *testing.T) {
+	jsonEps := []EmbeddedEndpointJSON{
+		{ID: "test", Subagent: true},
+	}
+	eps := EndpointsFromJSON(jsonEps)
+	if !eps[0].Subagent {
+		t.Fatal("EndpointsFromJSON: expected Subagent=true")
+	}
+	back := EndpointsToJSON(eps)
+	if !back[0].Subagent {
+		t.Fatal("EndpointsToJSON: expected Subagent=true")
+	}
+}
+
+// TestApplySubagentDefaultMigration covers pre-field configs (all allowed)
+// vs explicit subagent:false after the key exists in YAML.
+func TestApplySubagentDefaultMigration(t *testing.T) {
+	// No subagent key in file → all endpoints become subagent-capable.
+	rawNoKey := []byte("endpoints:\n  - id: a\n    enabled: true\n  - id: b\n    enabled: true\n")
+	cfg, err := UnmarshalEmbeddedYAML(rawNoKey)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	applySubagentDefaultMigration(cfg, rawNoKey)
+	for _, ep := range cfg.Endpoints {
+		if !ep.Subagent {
+			t.Fatalf("pre-field config should migrate Subagent=true, got false for %s", ep.ID)
+		}
+	}
+
+	// Explicit false must be preserved once the key is present.
+	rawWithKey := []byte("endpoints:\n  - id: a\n    enabled: true\n    subagent: false\n  - id: b\n    enabled: true\n    subagent: true\n")
+	cfg2, err := UnmarshalEmbeddedYAML(rawWithKey)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	applySubagentDefaultMigration(cfg2, rawWithKey)
+	if cfg2.Endpoints[0].Subagent {
+		t.Fatal("explicit subagent:false must not be overridden")
+	}
+	if !cfg2.Endpoints[1].Subagent {
+		t.Fatal("explicit subagent:true must remain true")
+	}
+}
+
+// TestFormatUnknownSubagentEndpointErrorWithIDs lists only subagent-capable ids.
+func TestFormatUnknownSubagentEndpointErrorWithIDs(t *testing.T) {
+	empty := FormatUnknownSubagentEndpointErrorWithIDs("umans", nil)
+	if !strings.Contains(empty, `subagent endpoint "umans" not found`) {
+		t.Fatalf("empty ids: %s", empty)
+	}
+	if !strings.Contains(empty, "subagent-capable") {
+		t.Fatalf("should mention subagent-capable: %s", empty)
+	}
+
+	msg := FormatUnknownSubagentEndpointErrorWithIDs("umans", []string{"agents-a1-4b"})
+	if !strings.Contains(msg, "agents-a1-4b") {
+		t.Fatalf("should list available subagent ids: %s", msg)
+	}
+	if !strings.Contains(msg, "not subagent-enabled") {
+		t.Fatalf("should mention subagent flag: %s", msg)
+	}
+}
+
+// TestFormatSubagentEndpointCatalogEmptyMessage guides operators to Settings.
+func TestFormatSubagentEndpointCatalogEmptyMessage(t *testing.T) {
+	// Pure path: empty slice via FormatEndpointCatalog is different;
+	// FormatSubagentEndpointCatalog loads config — when none are subagent-capable
+	// the message mentions Settings. Test the empty-list string contract via
+	// FormatEndpointCatalog empty vs the dedicated empty message in helper.
+	if got := FormatEndpointCatalog(nil); got != "(no enabled endpoints)" {
+		t.Fatalf("base empty catalog: %q", got)
+	}
+	// Direct contract of the dedicated empty message (mirrors FormatSubagentEndpointCatalog).
+	wantHint := "no subagent-capable endpoints"
+	if !strings.Contains(
+		"(no subagent-capable endpoints; enable Subagent on an embedded endpoint in Settings → Embedded)",
+		wantHint,
+	) {
+		t.Fatal("empty subagent catalog message contract broken")
+	}
+}

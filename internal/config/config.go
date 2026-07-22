@@ -520,7 +520,33 @@ func LoadEmbeddedConfig() (*EmbeddedConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse embedded config: %w", err)
 	}
+	// Older embedded.yaml files predate the subagent field. Bool zero-value
+	// would silently disable every endpoint for spawn_subagents; treat a file
+	// that never mentions the key as "all subagent-capable" (BC).
+	applySubagentDefaultMigration(cfg, data)
 	return cfg, nil
+}
+
+// applySubagentDefaultMigration sets Subagent=true on every endpoint when the
+// raw YAML never declares a "subagent" key. Once any save writes the field,
+// migration no longer applies and explicit false values are respected.
+func applySubagentDefaultMigration(cfg *EmbeddedConfig, raw []byte) {
+	if cfg == nil || len(cfg.Endpoints) == 0 {
+		return
+	}
+	if embeddedYAMLHasSubagentKey(raw) {
+		return
+	}
+	for i := range cfg.Endpoints {
+		cfg.Endpoints[i].Subagent = true
+	}
+}
+
+// embeddedYAMLHasSubagentKey reports whether raw YAML declares a subagent
+// field (with or without underscore). Case-insensitive; ignores values.
+func embeddedYAMLHasSubagentKey(raw []byte) bool {
+	lower := strings.ToLower(string(raw))
+	return strings.Contains(lower, "subagent:") || strings.Contains(lower, "subagent :")
 }
 
 // SaveEmbeddedConfig writes the embedded endpoint configuration to disk.
@@ -551,6 +577,12 @@ type EmbeddedEndpoint struct {
 	// MaxConcurrent limits simultaneous LLM calls per endpoint (0 = unlimited).
 	// Corresponds to llama.cpp --parallel slot count.
 	MaxConcurrent int `mapstructure:"max_concurrent"`
+	// Subagent controls whether spawn_subagents may target this endpoint.
+	// Only Enabled && Subagent endpoints appear in the subagent catalog and
+	// resolve for spawn_subagents endpoint_id. Parent tasks still use any
+	// enabled endpoint. Pre-field configs (YAML without "subagent:") are
+	// migrated to true on load for backward compatibility.
+	Subagent bool `mapstructure:"subagent"`
 }
 
 // EmbeddedConfig is the top-level config for embedded endpoints.
@@ -587,6 +619,7 @@ type EmbeddedEndpointJSON struct {
 	MaxIterations int    `json:"max_iterations"`
 	ContextTokens int    `json:"context_tokens"`
 	MaxConcurrent int    `json:"max_concurrent"`
+	Subagent      bool   `json:"subagent"`
 }
 
 // EndpointsToJSON converts embedded endpoints to JSON-friendly slice.
@@ -605,6 +638,7 @@ func EndpointsToJSON(endpoints []EmbeddedEndpoint) []EmbeddedEndpointJSON {
 			MaxIterations: ep.MaxIterations,
 			ContextTokens: ep.ContextTokens,
 			MaxConcurrent: ep.MaxConcurrent,
+			Subagent:      ep.Subagent,
 		}
 	}
 	return result
@@ -626,6 +660,7 @@ func EndpointsFromJSON(jsonEps []EmbeddedEndpointJSON) []EmbeddedEndpoint {
 			MaxIterations: ep.MaxIterations,
 			ContextTokens: ep.ContextTokens,
 			MaxConcurrent: ep.MaxConcurrent,
+			Subagent:      ep.Subagent,
 		}
 	}
 	return result
@@ -751,6 +786,54 @@ func EnabledEndpointIDs() ([]string, error) {
 	return ids, nil
 }
 
+// ListSubagentEndpoints returns enabled endpoints that allow spawn_subagents
+// targeting (Enabled && Subagent). Only embedded endpoints can be subagents;
+// this list is the sole catalog for endpoint_id selection.
+func ListSubagentEndpoints() ([]EmbeddedEndpoint, error) {
+	cfg, err := LoadEmbeddedConfig()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EmbeddedEndpoint, 0, len(cfg.Endpoints))
+	for _, ep := range cfg.Endpoints {
+		if ep.Enabled && ep.Subagent {
+			out = append(out, ep)
+		}
+	}
+	return out, nil
+}
+
+// SubagentEndpointIDs returns IDs of endpoints allowed as spawn_subagents targets.
+func SubagentEndpointIDs() ([]string, error) {
+	eps, err := ListSubagentEndpoints()
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(eps))
+	for _, ep := range eps {
+		ids = append(ids, ep.ID)
+	}
+	return ids, nil
+}
+
+// ResolveSubagentEndpoint resolves endpoint_id for spawn_subagents among
+// Enabled && Subagent endpoints only (same match order as ResolveEmbeddedEndpoint:
+// exact id → unique label → unique model).
+// Returns (nil, nil) when ref is empty or no unique match among subagent-capable
+// endpoints. An endpoint that exists but has subagent:false is treated as not found
+// for this path (agents should retry with a listed id).
+func ResolveSubagentEndpoint(ref string) (*EmbeddedEndpoint, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, nil
+	}
+	eps, err := ListSubagentEndpoints()
+	if err != nil {
+		return nil, err
+	}
+	return resolveFromEnabled(ref, eps), nil
+}
+
 // FormatEndpointCatalog formats endpoints for agent prompts / error messages.
 // It never includes API keys or base URLs (base URLs can leak LAN topology;
 // IDs/labels/models are enough for spawn_subagents endpoint_id selection).
@@ -779,10 +862,24 @@ func FormatEndpointCatalog(endpoints []EmbeddedEndpoint) string {
 
 // FormatEnabledEndpointCatalog loads enabled endpoints and formats them.
 // On load error it returns a short diagnostic string (never panics).
+// Prefer FormatSubagentEndpointCatalog for spawn_subagents prompts.
 func FormatEnabledEndpointCatalog() string {
 	eps, err := ListEnabledEndpoints()
 	if err != nil {
 		return fmt.Sprintf("(failed to load endpoints: %v)", err)
+	}
+	return FormatEndpointCatalog(eps)
+}
+
+// FormatSubagentEndpointCatalog loads subagent-capable endpoints and formats them.
+// On load error it returns a short diagnostic string (never panics).
+func FormatSubagentEndpointCatalog() string {
+	eps, err := ListSubagentEndpoints()
+	if err != nil {
+		return fmt.Sprintf("(failed to load endpoints: %v)", err)
+	}
+	if len(eps) == 0 {
+		return "(no subagent-capable endpoints; enable Subagent on an embedded endpoint in Settings → Embedded)"
 	}
 	return FormatEndpointCatalog(eps)
 }
@@ -806,6 +903,28 @@ func FormatUnknownEndpointErrorWithIDs(endpointID string, ids []string) string {
 			endpointID)
 	}
 	return fmt.Sprintf("embedded endpoint %q not found; available endpoint ids: %s (use exact id from shepherd endpoints list / embedded.yaml, not systemd unit/port; label/model accepted only when unique)",
+		endpointID, strings.Join(ids, ", "))
+}
+
+// FormatUnknownSubagentEndpointError builds a clear error when spawn_subagents
+// endpoint_id resolution fails among subagent-capable endpoints only.
+func FormatUnknownSubagentEndpointError(endpointID string) string {
+	ids, err := SubagentEndpointIDs()
+	if err != nil {
+		return FormatUnknownSubagentEndpointErrorWithIDs(endpointID, nil) +
+			fmt.Sprintf(" (could not list available: %v)", err)
+	}
+	return FormatUnknownSubagentEndpointErrorWithIDs(endpointID, ids)
+}
+
+// FormatUnknownSubagentEndpointErrorWithIDs is the pure form of
+// FormatUnknownSubagentEndpointError (testable without loading embedded.yaml).
+func FormatUnknownSubagentEndpointErrorWithIDs(endpointID string, ids []string) string {
+	if len(ids) == 0 {
+		return fmt.Sprintf("subagent endpoint %q not found (no subagent-capable endpoints; enable Subagent on an embedded endpoint in Settings → Embedded, then run: shepherd endpoints list)",
+			endpointID)
+	}
+	return fmt.Sprintf("subagent endpoint %q not found or not subagent-enabled; available subagent endpoint ids: %s (use exact id from shepherd endpoints list; only endpoints with subagent:true are allowed; label/model accepted only when unique)",
 		endpointID, strings.Join(ids, ", "))
 }
 

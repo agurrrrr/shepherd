@@ -129,7 +129,7 @@ var configSetCmd = &cobra.Command{
 var endpointsCmd = &cobra.Command{
 	Use:   "endpoints",
 	Short: "List embedded LLM endpoints",
-	Long:  "List endpoints from ~/.shepherd/embedded.yaml (id, label, model, enabled, max_concurrent). API keys are never printed. Use the id field as spawn_subagents endpoint_id.",
+	Long:  "List endpoints from ~/.shepherd/embedded.yaml (id, label, model, enabled, subagent, max_concurrent). API keys are never printed. Use the id field as spawn_subagents endpoint_id (only rows with SUBAGENT=true).",
 	Run: func(cmd *cobra.Command, args []string) {
 		printEndpointsList()
 	},
@@ -155,23 +155,29 @@ func printEndpointsList() {
 		fmt.Println("Add them via Web UI Settings → Embedded.")
 		return
 	}
-	fmt.Printf("%-22s %-22s %-28s %-8s %-6s %-8s %s\n",
-		"ID", "LABEL", "MODEL", "ENABLED", "ACTIVE", "MAXCONC", "BASE_URL")
+	fmt.Printf("%-22s %-22s %-28s %-8s %-8s %-6s %-8s %s\n",
+		"ID", "LABEL", "MODEL", "ENABLED", "SUBAGENT", "ACTIVE", "MAXCONC", "BASE_URL")
 	for _, ep := range cfg.Endpoints {
 		enabled := "false"
 		if ep.Enabled {
 			enabled = "true"
 		}
+		subagent := "false"
+		if ep.Subagent {
+			subagent = "true"
+		}
 		active := ""
 		if ep.ID == activeID {
 			active = "*"
 		}
-		fmt.Printf("%-22s %-22s %-28s %-8s %-6s %-8d %s\n",
-			ep.ID, ep.Label, ep.Model, enabled, active, ep.MaxConcurrent, ep.BaseURL)
+		fmt.Printf("%-22s %-22s %-28s %-8s %-8s %-6s %-8d %s\n",
+			ep.ID, ep.Label, ep.Model, enabled, subagent, active, ep.MaxConcurrent, ep.BaseURL)
 	}
 	fmt.Println()
-	fmt.Println("spawn_subagents endpoint_id: prefer the ID column. Unique label or model is also accepted;")
+	fmt.Println("spawn_subagents endpoint_id: prefer the ID column where ENABLED=true and SUBAGENT=true.")
+	fmt.Println("Unique label or model is also accepted among subagent-capable endpoints;")
 	fmt.Println("do not use systemd unit names or port numbers (those are not shepherd endpoints).")
+	fmt.Println("Only the embedded provider supports subagents; toggle Subagent per endpoint in Settings → Embedded.")
 	fmt.Printf("Config file: %s\n", config.EmbeddedConfigFile())
 }
 
