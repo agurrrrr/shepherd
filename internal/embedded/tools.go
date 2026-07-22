@@ -433,7 +433,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 									},
 									"max_iterations": map[string]interface{}{
 										"type":        "integer",
-										"description": "Max agent loop iterations for this sub-agent (default 15)",
+										"description": "Max agent loop iterations for this sub-agent. If omitted, uses the endpoint's max_iterations setting.",
 									},
 								},
 								"required": []string{"name", "prompt"},
@@ -1623,7 +1623,7 @@ func executeSpawnSubagents(ctx context.Context, tr *ToolRegistry, args map[strin
 		}
 		endpointID, _ := spec["endpoint_id"].(string)
 
-		maxIter := 15 // default
+		maxIter := 0 // 0 = use endpoint's max_iterations (resolved in server)
 		if mi, ok := spec["max_iterations"].(float64); ok && mi > 0 {
 			maxIter = int(mi)
 		}

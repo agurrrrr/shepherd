@@ -738,7 +738,7 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			}
 
 			if maxIter <= 0 {
-				maxIter = 15
+				maxIter = subEp.MaxIterations
 			}
 
 			// Prefix every complete body line with [SUB:name] via per-agent

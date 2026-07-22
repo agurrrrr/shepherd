@@ -324,7 +324,8 @@ func TestSpawnSubagents_MaxIterationsParameter(t *testing.T) {
 	}
 }
 
-// TestSpawnSubagents_DefaultMaxIterations verifies default max_iterations=15.
+// TestSpawnSubagents_DefaultMaxIterations verifies default max_iterations=0
+// (meaning: use endpoint's max_iterations, resolved in server).
 func TestSpawnSubagents_DefaultMaxIterations(t *testing.T) {
 	var receivedMaxIter int
 	spawner := func(ctx context.Context, name, prompt, endpointID string, maxIter int, onOutput func(string)) (*SubagentResult, error) {
@@ -341,8 +342,8 @@ func TestSpawnSubagents_DefaultMaxIterations(t *testing.T) {
 	}
 
 	executeSpawnSubagents(context.Background(), tr, args, func(s string) {})
-	if receivedMaxIter != 15 {
-		t.Fatalf("expected default maxIter=15, got %d", receivedMaxIter)
+	if receivedMaxIter != 0 {
+		t.Fatalf("expected default maxIter=0, got %d", receivedMaxIter)
 	}
 }
 
