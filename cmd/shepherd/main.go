@@ -4159,6 +4159,10 @@ func init() {
 	queueCmd.AddCommand(queueImportIssuesCmd)
 	rootCmd.AddCommand(queueCmd)
 
+	// Register issue command (create|list|show|update|delete|execute)
+	initIssueCmd()
+	rootCmd.AddCommand(issueCmd)
+
 	// Register status command
 	rootCmd.AddCommand(statusCmd)
 
