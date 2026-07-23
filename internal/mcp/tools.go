@@ -14,9 +14,12 @@ import (
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
 
-// registerTools registers all tool handlers
-// registerCoreTools registers task / status / skill tools that talk to the
-// shepherd database directly. Same in both daemon and stateless client modes.
+// registerCoreTools registers task / status / skill / wiki / issue handlers
+// that talk to the shepherd database in-process.
+//
+// Used by both NewServer (daemon) and NewClient (stdio child). NewClient then
+// overwrites DB-mutating tools via registerDBWriteForwarders so sandboxed
+// hosts do not open ~/.shepherd for write (see browser_proxy.go).
 func (s *Server) registerCoreTools() {
 	s.tools["task_start"] = handleTaskStart
 	s.tools["task_complete"] = handleTaskComplete
@@ -30,7 +33,8 @@ func (s *Server) registerCoreTools() {
 }
 
 // registerTools registers every tool in-process — daemon use only, since
-// browser handlers manage live chrome processes that must outlive the call.
+// browser handlers manage live chrome processes that must outlive the call
+// and DB-write tools must run where SQLite is writable.
 func (s *Server) registerTools() {
 	s.registerCoreTools()
 	if !s.minimal {

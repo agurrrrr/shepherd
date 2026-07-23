@@ -139,13 +139,17 @@ func NewServer(minimal bool) *Server {
 }
 
 // NewClient creates an MCP server intended to run as a stateless child of
-// `claude` (or another MCP host). Core tools (task_*, get_*, skill_load) run
-// in-process, but browser tools forward over HTTP to the running shepherd
-// daemon — so chrome sessions survive across the per-call lifetime of this
-// process.
+// `claude` / Grok / another MCP host. Read-oriented core tools (task_*,
+// get_*, skill_load, wiki_read_*, issue_list/get) run in-process.
+//
+// Tools that must not open ~/.shepherd for write from a short-lived or
+// sandboxed process forward over HTTP to the running shepherd daemon:
+//   - browser_*  — chrome sessions live in daemon memory
+//   - wiki_create / wiki_edit, issue_upsert / issue_execute — SQLite owner is
+//     the daemon (sandbox cannot write ~/.shepherd; task #7864 / #7865)
 //
 // If minimal is true, browser tools are not registered (the OpenCode/CLI
-// minimal contract is unchanged).
+// minimal contract is unchanged). DB-write forwarders are always registered.
 func NewClient(minimal bool) *Server {
 	s := &Server{
 		reader:  bufio.NewReader(os.Stdin),
@@ -154,6 +158,9 @@ func NewClient(minimal bool) *Server {
 		minimal: minimal,
 	}
 	s.registerCoreTools()
+	// Override write handlers installed by registerCoreTools so the client
+	// never mutates shepherd.db itself.
+	s.registerDBWriteForwarders()
 	if !minimal {
 		s.registerBrowserForwarders()
 	}

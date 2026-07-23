@@ -2630,9 +2630,11 @@ Configuration example (~/.claude/claude_desktop_config.json):
 
 		minimal, _ := cmd.Flags().GetBool("minimal")
 
-		// Stateless client mode: browser tools forward to the long-running
-		// shepherd daemon over a loopback HTTP endpoint, so chrome sessions
-		// survive across mcp child invocations.
+		// Stateless client mode: browser tools and DB-write tools (wiki_create/
+		// wiki_edit, issue_upsert/issue_execute) forward to the long-running
+		// shepherd daemon over a loopback HTTP endpoint — chrome sessions
+		// survive across mcp child invocations, and sandboxed hosts that
+		// cannot write ~/.shepherd still succeed (task #7865).
 		server := mcp.NewClient(minimal)
 		if err := server.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)

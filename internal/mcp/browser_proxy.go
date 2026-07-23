@@ -31,11 +31,35 @@ var browserToolNames = []string{
 	"browser_network_start", "browser_network_requests", "browser_network_request",
 }
 
+// dbWriteToolNames are MCP tools that mutate shepherd.db (and related files
+// under ~/.shepherd). In NewClient (stateless `shepherd mcp` child) these
+// forward to the daemon so a sandboxed host that cannot write ~/.shepherd
+// still succeeds, and so only the long-running daemon owns SQLite writes
+// (task #7864 / #7865 — readonly database under bwrap).
+//
+// Read tools (wiki_read_page, issue_list, get_history, …) stay in-process.
+var dbWriteToolNames = []string{
+	"wiki_create", "wiki_edit",
+	"issue_upsert", "issue_execute",
+}
+
 // registerBrowserForwarders attaches an HTTP-forwarder handler for every
 // browser tool. Each call hands off to /api/_internal/mcp/call on the running
 // daemon, where the real handler lives in long-running memory.
 func (s *Server) registerBrowserForwarders() {
 	for _, name := range browserToolNames {
+		n := name
+		s.tools[n] = func(args map[string]interface{}) (string, error) {
+			return forwardToDaemon(n, args)
+		}
+	}
+}
+
+// registerDBWriteForwarders overwrites in-process write handlers (installed by
+// registerCoreTools) with daemon forwarders. Call only from NewClient after
+// registerCoreTools. NewServer keeps the real handlers for ExecuteTool.
+func (s *Server) registerDBWriteForwarders() {
+	for _, name := range dbWriteToolNames {
 		n := name
 		s.tools[n] = func(args map[string]interface{}) (string, error) {
 			return forwardToDaemon(n, args)
@@ -49,7 +73,8 @@ func forwardToDaemon(toolName string, args map[string]interface{}) (string, erro
 	info, err := daemon.ReadRuntime()
 	if err != nil {
 		return "", fmt.Errorf(
-			"shepherd daemon is not running — start it with `shepherd serve` first (browser tools require a long-running session): %w",
+			"shepherd daemon is not running — start it with `shepherd serve` first (%s requires the daemon): %w",
+			toolName,
 			err,
 		)
 	}
@@ -69,8 +94,8 @@ func forwardToDaemon(toolName string, args map[string]interface{}) (string, erro
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-MCP-Token", info.MCPToken)
 
-	// Browser actions can be slow (page load + element wait). Timeout long
-	// enough for navigation but bounded so a hung daemon does not wedge MCP.
+	// Browser actions can be slow (page load + element wait). Wiki/issue writes
+	// are fast, but we use one timeout so a hung daemon does not wedge MCP.
 	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
