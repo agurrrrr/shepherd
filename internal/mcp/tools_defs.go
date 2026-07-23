@@ -1,9 +1,10 @@
 package mcp
 
-// ListCoreToolDefs returns the list of core tool definitions (task_*, get_*, skill_load).
+// ListCoreToolDefs returns the list of core tool definitions (task_*, get_*, skill_load, issue_*).
 // This is shared between handleToolsList() (MCP stdio) and the embedded provider.
+// Issue tools are folded here so stdio / embedded / MAGI enumerations all pick them up.
 func ListCoreToolDefs() []Tool {
-	return []Tool{
+	core := []Tool{
 		{
 			Name:        "task_start",
 			Description: "작업을 큐에 추가합니다. 추가된 작업은 해당 양이 idle 상태가 되면 자동으로 실행됩니다.",
@@ -85,4 +86,5 @@ func ListCoreToolDefs() []Tool {
 			},
 		},
 	}
+	return append(core, getIssueToolsList()...)
 }

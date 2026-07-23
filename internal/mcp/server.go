@@ -68,8 +68,9 @@ type InputSchema struct {
 }
 
 type Property struct {
-	Type        string `json:"type"`
-	Description string `json:"description"`
+	Type        string   `json:"type"`
+	Description string   `json:"description,omitempty"`
+	Enum        []string `json:"enum,omitempty"` // #7797: mode/status/type 환각 감소
 }
 
 type ToolsListResult struct {

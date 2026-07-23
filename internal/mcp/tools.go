@@ -26,6 +26,7 @@ func (s *Server) registerCoreTools() {
 	s.tools["get_status"] = handleGetStatus
 	s.tools["skill_load"] = handleSkillLoad
 	s.registerWikiTools()
+	s.registerIssueTools()
 }
 
 // registerTools registers every tool in-process — daemon use only, since
