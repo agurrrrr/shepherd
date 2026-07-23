@@ -74,7 +74,7 @@ Task → Orchestrator
 - **Tool policy (proposers)**:
   - **Allowed (read-only)**: `read_file`, `grep`, `glob`, history/wiki, read-only external MCP tools
   - **Allowed (browser)**: full browser automation (`browser_open`, `browser_click`, `browser_type`, …) with **per-proposer isolated sessions**
-  - **Blocked**: file writes, bash, and other mutating cluster/FS tools
+  - **Blocked**: file writes, bash, other mutating cluster/FS tools, and issue/wiki **write** MCP tools (`issue_upsert`, `issue_execute`, `wiki_create`, `wiki_edit`)
 - **Mode**: `advisory` (Phase 1) — best for high-stakes questions ("is this design sound?", "what's the root cause?"), not autonomous execution
 - Configure in the Web UI (**Settings → MAGI**); persisted under the `magi` section of `~/.shepherd/embedded.yaml`
 
@@ -219,7 +219,7 @@ Each project can keep a durable markdown wiki that agents read and update:
 
 - **Web UI**: Project → **Wiki** tab
 - **CLI**: `shepherd wiki list|create|edit|history …`
-- **MCP**: `wiki_read_page`, `wiki_search`, `wiki_list_pages`
+- **MCP**: `wiki_read_page`, `wiki_search`, `wiki_list_pages`, `wiki_create`, `wiki_edit`
 - **REST**: pages CRUD, version history, lint, and task ingest (see [REST API](#rest-api))
 - **Auto-ingest**: when `wiki_auto_ingest` is true, completed tasks can propose wiki updates (`wiki_max_context_pages`, `wiki_max_page_content_chars` cap injection size)
 
@@ -663,7 +663,7 @@ Run Shepherd as an MCP server for integration with Claude Desktop and other MCP 
 }
 ```
 
-**Available MCP tools:** `task_start`, `task_complete`, `task_error`, `get_history`, `get_status`, `get_task_detail`, `skill_load`, `wiki_read_page`, `wiki_search`, `wiki_list_pages`, and 30+ browser automation tools (`browser_session_start`, `browser_open`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_get_text`, …).
+**Available MCP tools:** `task_start`, `task_complete`, `task_error`, `get_history`, `get_status`, `get_task_detail`, `skill_load`, `wiki_read_page`, `wiki_search`, `wiki_list_pages`, `wiki_create`, `wiki_edit`, `issue_list`, `issue_get`, `issue_upsert`, `issue_execute`, and 30+ browser automation tools (`browser_session_start`, `browser_open`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_get_text`, …).
 
 ---
 
