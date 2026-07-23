@@ -231,11 +231,10 @@ func TestSpawnSubagents_BlockedInMagi(t *testing.T) {
 	}
 }
 
-// TestWriteToolsBlockedForProposer ensures issue write tools stay off the MAGI
+// TestWriteToolsBlockedForProposer ensures issue/wiki write tools stay off the MAGI
 // proposer surface (blocklist + default-deny).
 func TestWriteToolsBlockedForProposer(t *testing.T) {
-	// wiki_create/wiki_edit land in commit 2; include when present is fine for P0 issue commit.
-	blocked := []string{"issue_upsert", "issue_execute"}
+	blocked := []string{"issue_upsert", "issue_execute", "wiki_create", "wiki_edit"}
 	for _, name := range blocked {
 		if IsAllowedProposerTool(name) {
 			t.Errorf("write tool %q must NOT be allowed for MAGI proposer", name)

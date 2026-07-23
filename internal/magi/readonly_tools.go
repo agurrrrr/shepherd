@@ -102,11 +102,13 @@ var blockedShepherdMCPTools = map[string]bool{
 	"task_complete":   true,
 	"task_error":      true,
 	"spawn_subagents": true, // sub-agents cannot spawn children (depth 1)
-	// P0 write tools — keep parallel proposers from polluting issue state.
+	// P0 write tools — keep parallel proposers from polluting issue/wiki state.
 	// Already default-deny; listed for regression safety + intent documentation.
 	// issue_list/issue_get stay off allowlist and off this map (default-deny).
 	"issue_upsert":  true,
 	"issue_execute": true,
+	"wiki_create":   true,
+	"wiki_edit":     true,
 }
 
 // blockedBrowserTools is intentionally empty — all browser tools are allowed
