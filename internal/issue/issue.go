@@ -1,5 +1,7 @@
 // Package issue provides CRUD and execute operations for shepherd project issues.
 // Issues are the built-in tracker (design / feature / bug) linked to tasks via execute.
+// Parent/child hierarchy: children hold parent_id; executing a parent enqueues
+// incomplete children first (FIFO), then the parent itself.
 package issue
 
 import (
@@ -26,31 +28,35 @@ var (
 
 // CreateInput is the payload for creating an issue.
 type CreateInput struct {
-	Project string // project name (required)
-	Title   string // required
-	Type    string // design | feature | bug (default: feature)
-	Body    string // optional description
-	Goal    string // optional success criteria
+	Project  string // project name (required)
+	Title    string // required
+	Type     string // design | feature | bug (default: feature)
+	Body     string // optional description
+	Goal     string // optional success criteria
+	ParentID *int   // optional parent issue ID (same project)
 }
 
 // UpdateInput holds optional fields for partial update. Nil pointer = leave unchanged.
+// ParentID: nil = leave; pointer to 0 = clear parent; pointer to positive = set parent.
 type UpdateInput struct {
-	Title  *string
-	Type   *string
-	Body   *string
-	Goal   *string
-	Status *string
+	Title    *string
+	Type     *string
+	Body     *string
+	Goal     *string
+	Status   *string
+	ParentID *int
 }
 
 // ListFilter controls listing / filtering.
 type ListFilter struct {
-	Project string
-	Status  string // empty = all
-	Type    string // empty = all
-	Query   string // title substring
-	Page    int    // 1-based, default 1
-	Limit   int    // default 20, max 100
-	SortAsc bool   // default newest-first
+	Project  string
+	Status   string // empty = all
+	Type     string // empty = all
+	Query    string // title substring
+	ParentID *int   // nil = all; pointer to 0 = roots only; positive = children of that parent
+	Page     int    // 1-based, default 1
+	Limit    int    // default 20, max 100
+	SortAsc  bool   // default newest-first
 }
 
 // ListResult is a page of issues plus pagination metadata.
@@ -71,9 +77,13 @@ type ExecuteInput struct {
 	Model     string // optional per-task model override
 }
 
-// ExecuteResult is returned after enqueueing a task for an issue.
+// ExecuteResult is returned after enqueueing task(s) for an issue.
+// When the issue has incomplete children, those are enqueued first (FIFO),
+// then the parent. TaskID / IssueID refer to the primary (requested) issue.
 type ExecuteResult struct {
-	TaskID    int
+	TaskID    int   // primary issue's task (last enqueued when cascading)
+	TaskIDs   []int // all task IDs in enqueue order (children… then primary)
+	IssueIDs  []int // corresponding issue IDs in the same order
 	SheepName string
 	IssueID   int
 }
@@ -106,13 +116,23 @@ func Create(in CreateInput) (*ent.Issue, error) {
 		return nil, fmt.Errorf("failed to query project: %w", err)
 	}
 
-	issue, err := client.Issue.Create().
+	if in.ParentID != nil {
+		if err := validateParent(ctx, client, in.Project, *in.ParentID, 0); err != nil {
+			return nil, err
+		}
+	}
+
+	create := client.Issue.Create().
 		SetTitle(in.Title).
 		SetType(entIssue.Type(issueType)).
 		SetBody(in.Body).
 		SetGoal(in.Goal).
-		SetProject(project).
-		Save(ctx)
+		SetProject(project)
+	if in.ParentID != nil && *in.ParentID > 0 {
+		create = create.SetParentID(*in.ParentID)
+	}
+
+	issue, err := create.Save(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create issue: %w", err)
 	}
@@ -163,6 +183,13 @@ func List(f ListFilter) (*ListResult, error) {
 	if f.Query != "" {
 		query = query.Where(entIssue.TitleContains(f.Query))
 	}
+	if f.ParentID != nil {
+		if *f.ParentID == 0 {
+			query = query.Where(entIssue.ParentIDIsNil())
+		} else {
+			query = query.Where(entIssue.ParentIDEQ(*f.ParentID))
+		}
+	}
 
 	total, err := query.Clone().Count(ctx)
 	if err != nil {
@@ -205,7 +232,8 @@ func List(f ListFilter) (*ListResult, error) {
 	}, nil
 }
 
-// Get returns a single issue with linked tasks, scoped to project.
+// Get returns a single issue with linked tasks, parent, and children (oldest first),
+// scoped to project.
 func Get(projectName string, id int) (*ent.Issue, error) {
 	if strings.TrimSpace(projectName) == "" {
 		return nil, fmt.Errorf("project is required")
@@ -225,6 +253,11 @@ func Get(projectName string, id int) (*ent.Issue, error) {
 		WithTasks(func(tq *ent.TaskQuery) {
 			tq.Order(ent.Desc(entTask.FieldCreatedAt))
 		}).
+		WithParent().
+		WithChildren(func(cq *ent.IssueQuery) {
+			// Stable order for checklist + cascade enqueue (oldest first).
+			cq.Order(ent.Asc(entIssue.FieldID))
+		}).
 		Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
@@ -242,8 +275,8 @@ func Update(projectName string, id int, in UpdateInput) (*ent.Issue, error) {
 		return nil, err
 	}
 
-	if in.Title == nil && in.Type == nil && in.Body == nil && in.Goal == nil && in.Status == nil {
-		return nil, fmt.Errorf("nothing to update: provide at least one of title, type, body, goal, status")
+	if in.Title == nil && in.Type == nil && in.Body == nil && in.Goal == nil && in.Status == nil && in.ParentID == nil {
+		return nil, fmt.Errorf("nothing to update: provide at least one of title, type, body, goal, status, parent_id")
 	}
 
 	ctx := context.Background()
@@ -279,15 +312,27 @@ func Update(projectName string, id int, in UpdateInput) (*ent.Issue, error) {
 			}
 		}
 	}
+	if in.ParentID != nil {
+		if *in.ParentID <= 0 {
+			update = update.ClearParent()
+		} else {
+			if err := validateParent(ctx, client, projectName, *in.ParentID, id); err != nil {
+				return nil, err
+			}
+			update = update.SetParentID(*in.ParentID)
+		}
+	}
 
 	updated, err := update.Save(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update issue: %w", err)
 	}
-	return updated, nil
+	// Re-load with edges so callers (handlers) can render children/parent.
+	return Get(projectName, updated.ID)
 }
 
 // Delete removes an issue. Linked tasks are preserved (issue edge cleared).
+// Children are reparented to null (become roots) so they are not deleted.
 func Delete(projectName string, id int) error {
 	// Scope check
 	if _, err := Get(projectName, id); err != nil {
@@ -296,6 +341,12 @@ func Delete(projectName string, id int) error {
 
 	ctx := context.Background()
 	client := db.Client()
+
+	// Detach children first (FK would otherwise block or cascade depending on DB).
+	_, _ = client.Issue.Update().
+		Where(entIssue.ParentIDEQ(id)).
+		ClearParent().
+		Save(ctx)
 
 	tasks, _ := client.Task.Query().Where(entTask.HasIssueWith(entIssue.ID(id))).All(ctx)
 	for _, t := range tasks {
@@ -309,6 +360,8 @@ func Delete(projectName string, id int) error {
 }
 
 // Execute builds a prompt from the issue and enqueues a task for a sheep.
+// If the issue has incomplete children (status != done), those are enqueued first
+// in stable ID order, then the parent. All tasks are created in one call (FIFO).
 // Does not require a live daemon; the processor picks up pending tasks when running.
 func Execute(in ExecuteInput) (*ExecuteResult, error) {
 	iss, err := Get(in.Project, in.IssueID)
@@ -319,35 +372,73 @@ func Execute(in ExecuteInput) (*ExecuteResult, error) {
 	ctx := context.Background()
 	client := db.Client()
 
-	// Resolve sheep
-	var sheep *ent.Sheep
-	sheepName := in.SheepName
-	if sheepName != "" {
-		sheep, err = worker.Get(sheepName)
-		if err != nil {
-			return nil, fmt.Errorf("sheep not found: %w", err)
-		}
-	} else if iss.Edges.Project != nil && iss.Edges.Project.Edges.Sheep != nil {
-		sheep = iss.Edges.Project.Edges.Sheep
-		sheepName = sheep.Name
-	} else {
-		// Project edge may not load sheep; re-query project with sheep
-		proj, perr := client.Project.Query().
-			Where(entProject.Name(in.Project)).
-			WithSheep().
-			Only(ctx)
-		if perr == nil && proj.Edges.Sheep != nil {
-			sheep = proj.Edges.Sheep
-			sheepName = sheep.Name
-		} else {
-			return nil, fmt.Errorf("sheep is required: pass --sheep or assign a sheep to project %q", in.Project)
-		}
+	// Resolve sheep once for the whole cascade.
+	sheep, sheepName, err := resolveSheep(ctx, client, in, iss)
+	if err != nil {
+		return nil, err
 	}
-
 	if !config.IsProviderEnabled(string(sheep.Provider)) {
 		return nil, fmt.Errorf("provider %q is disabled in settings", sheep.Provider)
 	}
 
+	projectID, err := resolveProjectID(ctx, client, in.Project, iss)
+	if err != nil {
+		return nil, err
+	}
+
+	// Incomplete children first (status != done), oldest ID first — already ordered by Get.
+	var toEnqueue []*ent.Issue
+	for _, child := range iss.Edges.Children {
+		if child.Status != entIssue.StatusDone {
+			toEnqueue = append(toEnqueue, child)
+		}
+	}
+	// Parent last.
+	toEnqueue = append(toEnqueue, iss)
+
+	result := &ExecuteResult{
+		SheepName: sheepName,
+		IssueID:   iss.ID,
+		TaskIDs:   make([]int, 0, len(toEnqueue)),
+		IssueIDs:  make([]int, 0, len(toEnqueue)),
+	}
+
+	for _, target := range toEnqueue {
+		// Reload each child with edges needed for prompt (body/goal already on entity).
+		// Children from Edges.Children may lack Project; use cascade projectID/sheep.
+		taskID, err := enqueueOne(ctx, client, target, sheep, projectID, in.Model)
+		if err != nil {
+			return nil, fmt.Errorf("failed to enqueue issue #%d: %w", target.ID, err)
+		}
+		result.TaskIDs = append(result.TaskIDs, taskID)
+		result.IssueIDs = append(result.IssueIDs, target.ID)
+		if target.ID == iss.ID {
+			result.TaskID = taskID
+		}
+	}
+
+	return result, nil
+}
+
+// ChildrenChecklist returns a markdown checklist of direct children with status.
+// Empty string when there are no children.
+func ChildrenChecklist(iss *ent.Issue) string {
+	if iss == nil || len(iss.Edges.Children) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## 하위 이슈\n")
+	for _, c := range iss.Edges.Children {
+		mark := " "
+		if c.Status == entIssue.StatusDone {
+			mark = "x"
+		}
+		sb.WriteString(fmt.Sprintf("- [%s] #%d %s (%s)\n", mark, c.ID, c.Title, statusLabel(string(c.Status))))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func enqueueOne(ctx context.Context, client *ent.Client, iss *ent.Issue, sheep *ent.Sheep, projectID int, model string) (int, error) {
 	typeLabel := map[string]string{
 		"design":  "설계",
 		"feature": "기능",
@@ -357,49 +448,141 @@ func Execute(in ExecuteInput) (*ExecuteResult, error) {
 		typeLabel = string(iss.Type)
 	}
 
+	body := iss.Body
+	if checklist := ChildrenChecklist(iss); checklist != "" {
+		if body != "" {
+			body = body + "\n\n" + checklist
+		} else {
+			body = checklist
+		}
+	}
+
 	prompt := fmt.Sprintf(
 		"[이슈 #%d] %s (타입: %s)\n\n## 이슈 내용\n%s\n\n## 목표 (완료 기준)\n%s\n\n위 이슈를 해결하라. 목표 기준을 충족했는지 스스로 검증하고 결과를 보고하라.",
-		iss.ID, iss.Title, typeLabel, iss.Body, iss.Goal,
+		iss.ID, iss.Title, typeLabel, body, iss.Goal,
 	)
-
-	projectID := 0
-	if iss.Edges.Project != nil {
-		projectID = iss.Edges.Project.ID
-	} else {
-		proj, perr := client.Project.Query().Where(entProject.Name(in.Project)).Only(ctx)
-		if perr != nil {
-			return nil, fmt.Errorf("project not found: %w", perr)
-		}
-		projectID = proj.ID
-	}
 
 	t, err := queue.CreateTask(prompt, sheep.ID, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create task: %w", err)
+		return 0, fmt.Errorf("failed to create task: %w", err)
 	}
 
-	if in.Model != "" {
-		queue.SetTaskModel(t.ID, in.Model)
+	if model != "" {
+		queue.SetTaskModel(t.ID, model)
 	}
 
 	if _, err = client.Task.UpdateOneID(t.ID).SetIssue(iss).Save(ctx); err != nil {
-		return nil, fmt.Errorf("failed to link task to issue: %w", err)
+		return 0, fmt.Errorf("failed to link task to issue: %w", err)
 	}
 
 	now := time.Now()
-	upd := client.Issue.UpdateOne(iss).SetStatus(entIssue.StatusInProgress)
+	upd := client.Issue.UpdateOneID(iss.ID).SetStatus(entIssue.StatusInProgress)
+	// Prefer StartedAt from the entity if already loaded; otherwise set.
 	if iss.StartedAt == nil || iss.StartedAt.IsZero() {
 		upd = upd.SetStartedAt(now)
 	}
 	if _, err = upd.Save(ctx); err != nil {
-		return nil, fmt.Errorf("failed to update issue status: %w", err)
+		return 0, fmt.Errorf("failed to update issue status: %w", err)
 	}
 
-	return &ExecuteResult{
-		TaskID:    t.ID,
-		SheepName: sheepName,
-		IssueID:   iss.ID,
-	}, nil
+	return t.ID, nil
+}
+
+func resolveSheep(ctx context.Context, client *ent.Client, in ExecuteInput, iss *ent.Issue) (*ent.Sheep, string, error) {
+	var sheep *ent.Sheep
+	var err error
+	sheepName := in.SheepName
+	if sheepName != "" {
+		sheep, err = worker.Get(sheepName)
+		if err != nil {
+			return nil, "", fmt.Errorf("sheep not found: %w", err)
+		}
+		return sheep, sheepName, nil
+	}
+	if iss.Edges.Project != nil && iss.Edges.Project.Edges.Sheep != nil {
+		sheep = iss.Edges.Project.Edges.Sheep
+		return sheep, sheep.Name, nil
+	}
+	proj, perr := client.Project.Query().
+		Where(entProject.Name(in.Project)).
+		WithSheep().
+		Only(ctx)
+	if perr == nil && proj.Edges.Sheep != nil {
+		return proj.Edges.Sheep, proj.Edges.Sheep.Name, nil
+	}
+	return nil, "", fmt.Errorf("sheep is required: pass --sheep or assign a sheep to project %q", in.Project)
+}
+
+func resolveProjectID(ctx context.Context, client *ent.Client, projectName string, iss *ent.Issue) (int, error) {
+	if iss.Edges.Project != nil {
+		return iss.Edges.Project.ID, nil
+	}
+	proj, perr := client.Project.Query().Where(entProject.Name(projectName)).Only(ctx)
+	if perr != nil {
+		return 0, fmt.Errorf("project not found: %w", perr)
+	}
+	return proj.ID, nil
+}
+
+// validateParent ensures parentID exists in the same project and is not a cycle
+// (self or descendant of childID). childID is 0 when creating.
+func validateParent(ctx context.Context, client *ent.Client, projectName string, parentID, childID int) error {
+	if parentID <= 0 {
+		return fmt.Errorf("invalid parent_id")
+	}
+	if childID > 0 && parentID == childID {
+		return fmt.Errorf("invalid parent_id: issue cannot be its own parent")
+	}
+
+	parent, err := client.Issue.Query().
+		Where(entIssue.ID(parentID), entIssue.HasProjectWith(entProject.Name(projectName))).
+		Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return fmt.Errorf("parent issue #%d not found in project %q", parentID, projectName)
+		}
+		return fmt.Errorf("failed to query parent issue: %w", err)
+	}
+	_ = parent
+
+	// Walk ancestors of the proposed parent; if we hit childID, setting this
+	// parent would create a cycle.
+	if childID > 0 {
+		seen := map[int]bool{childID: true}
+		cur := parentID
+		for cur > 0 {
+			if seen[cur] {
+				return fmt.Errorf("invalid parent_id: would create a cycle")
+			}
+			seen[cur] = true
+			anc, aerr := client.Issue.Query().Where(entIssue.ID(cur)).Only(ctx)
+			if aerr != nil {
+				break
+			}
+			if anc.ParentID == nil {
+				break
+			}
+			cur = *anc.ParentID
+		}
+	}
+	return nil
+}
+
+func statusLabel(s string) string {
+	switch s {
+	case "todo":
+		return "작업전"
+	case "in_progress":
+		return "작업중"
+	case "testing":
+		return "테스트"
+	case "failed":
+		return "실패"
+	case "done":
+		return "성공"
+	default:
+		return s
+	}
 }
 
 func validateType(t string) error {

@@ -18,7 +18,7 @@
 
 	// Create form
 	let showCreate = $state(false);
-	let createForm = $state({ title: '', type: 'feature', body: '', goal: '' });
+	let createForm = $state({ title: '', type: 'feature', body: '', goal: '', parent_id: '' });
 
 	// Detail modal
 	let selectedIssue = $state(null);
@@ -31,7 +31,7 @@
 	const statusLabels = {
 		todo: '작업전',
 		in_progress: '작업중',
-		testng: '테스트',
+		testing: '테스트',
 		failed: '실패',
 		done: '성공'
 	};
@@ -39,7 +39,7 @@
 	const statusColors = {
 		todo: 'gray',
 		in_progress: 'blue',
-		testng: 'yellow',
+		testing: 'yellow',
 		failed: 'red',
 		done: 'green'
 	};
@@ -80,9 +80,19 @@
 	async function createIssue() {
 		if (!createForm.title.trim()) return;
 		try {
-			const res = await apiPost(`/api/projects/${encodeURIComponent(projectName)}/issues`, createForm);
+			const payload = {
+				title: createForm.title,
+				type: createForm.type,
+				body: createForm.body,
+				goal: createForm.goal
+			};
+			if (createForm.parent_id) {
+				const pid = parseInt(createForm.parent_id, 10);
+				if (!Number.isNaN(pid) && pid > 0) payload.parent_id = pid;
+			}
+			const res = await apiPost(`/api/projects/${encodeURIComponent(projectName)}/issues`, payload);
 			if (res.success) {
-				createForm = { title: '', type: 'feature', body: '', goal: '' };
+				createForm = { title: '', type: 'feature', body: '', goal: '', parent_id: '' };
 				showCreate = false;
 				page = 1;
 				await loadIssues();
@@ -93,15 +103,29 @@
 	}
 
 	async function executeIssue(issueId) {
-		if (!confirm('이 이슈를 수행하시겠습니까?')) return;
+		const hasChildren = selectedIssue?.id === issueId && selectedIssue?.children?.length > 0;
+		const incomplete = hasChildren
+			? selectedIssue.children.filter((c) => c.status !== 'done').length
+			: 0;
+		const msg =
+			incomplete > 0
+				? `미완료 하위 이슈 ${incomplete}개를 먼저 큐에 넣고, 마지막에 이 이슈를 수행합니다. 계속할까요?`
+				: '이 이슈를 수행하시겠습니까?';
+		if (!confirm(msg)) return;
 		try {
-			await apiPost(`/api/projects/${encodeURIComponent(projectName)}/issues/${issueId}/execute`, {});
+			const res = await apiPost(`/api/projects/${encodeURIComponent(projectName)}/issues/${issueId}/execute`, {});
+			if (res?.data?.task_ids?.length > 1) {
+				alert(
+					`작업 ${res.data.task_ids.length}개가 큐에 추가되었습니다.\n이슈: ${JSON.stringify(res.data.issue_ids)}\nTask: ${JSON.stringify(res.data.task_ids)}`
+				);
+			}
 			await loadIssues();
 			if (showingDetail && selectedIssue?.id === issueId) {
 				await loadIssueDetail(issueId);
 			}
 		} catch (e) {
 			console.error('Failed to execute issue:', e);
+			alert('수행 요청 실패: ' + (e?.message || e));
 		}
 	}
 
@@ -143,7 +167,19 @@
 
 	function openCreate() {
 		showCreate = true;
-		createForm = { title: '', type: 'feature', body: '', goal: '' };
+		createForm = { title: '', type: 'feature', body: '', goal: '', parent_id: '' };
+	}
+
+	/** Root-ish options for parent picker (current list page; best-effort). */
+	function parentOptions() {
+		return (issues || []).filter((i) => !i.parent_id);
+	}
+
+	function childDoneCount(issue) {
+		const kids = issue?.children || [];
+		if (!kids.length) return null;
+		const done = kids.filter((c) => c.status === 'done').length;
+		return { done, total: kids.length };
 	}
 
 	function closeCreate() {
@@ -257,6 +293,15 @@
 							<option value="bug">버그</option>
 						</select>
 					</div>
+					<div class="form-group">
+						<label>상위 이슈 (선택)</label>
+						<select bind:value={createForm.parent_id}>
+							<option value="">없음 (루트)</option>
+							{#each parentOptions() as p}
+								<option value={String(p.id)}>#{p.id} {p.title}</option>
+							{/each}
+						</select>
+					</div>
 				</div>
 				<div class="form-group">
 					<label>본문</label>
@@ -306,6 +351,14 @@
 				<div class="detail-status-bar">
 					<span class="status-label">상태:</span>
 					<span class="status-badge {selectedIssue.status}">{statusLabels[selectedIssue.status] || selectedIssue.status}</span>
+					{#if selectedIssue.parent_id}
+						<span class="detail-meta">
+							상위:
+							<button class="linkish" onclick={() => loadIssueDetail(selectedIssue.parent_id)}>
+								#{selectedIssue.parent_id}{selectedIssue.parent ? ` ${selectedIssue.parent.title}` : ''}
+							</button>
+						</span>
+					{/if}
 					{#if selectedIssue.started_at}
 						<span class="detail-meta">시작: {selectedIssue.started_at}</span>
 					{/if}
@@ -328,6 +381,34 @@
 						<div class="detail-content">{selectedIssue.body || '내용이 없습니다.'}</div>
 					{/if}
 				</div>
+
+				<!-- Children checklist (auto, live status — not stored in body) -->
+				{#if selectedIssue.children && selectedIssue.children.length > 0}
+				<div class="detail-section">
+					<h4>
+						하위 이슈
+						{#if childDoneCount(selectedIssue)}
+							<span class="child-progress">
+								({childDoneCount(selectedIssue).done}/{childDoneCount(selectedIssue).total} 완료)
+							</span>
+						{/if}
+					</h4>
+					<div class="children-list">
+						{#each selectedIssue.children as child}
+						<div class="child-row" class:child-done={child.status === 'done'}>
+							<span class="child-check" aria-hidden="true">
+								{child.status === 'done' ? '✅' : '⬜'}
+							</span>
+							<button class="child-link" onclick={() => loadIssueDetail(child.id)}>
+								#{child.id} {child.title}
+							</button>
+							<span class="status-badge {child.status}">{statusLabels[child.status] || child.status}</span>
+						</div>
+						{/each}
+					</div>
+					<p class="children-hint">▶ 수행 시 미완료 하위가 먼저 큐에 들어가고, 이 이슈가 마지막에 들어갑니다.</p>
+				</div>
+				{/if}
 
 				<!-- Goal -->
 				<div class="detail-section">
@@ -380,14 +461,18 @@
 	{:else}
 		<div class="issue-list">
 			{#each issues as issue}
-			<div class="issue-card" onclick={() => loadIssueDetail(issue.id)}>
+			<div class="issue-card" class:is-child={!!issue.parent_id} onclick={() => loadIssueDetail(issue.id)}>
 				<div class="issue-card-header">
 					<span class="type-icon">{typeIcons[issue.type] || '📋'}</span>
+					<span class="issue-id">#{issue.id}</span>
 					<span class="issue-title">{issue.title}</span>
 					<span class="status-badge {issue.status}">{statusLabels[issue.status] || issue.status}</span>
 				</div>
 				<div class="issue-card-footer">
 					<span class="issue-type-label">{typeLabels[issue.type] || issue.type}</span>
+					{#if issue.parent_id}
+						<span class="parent-tag">↳ 상위 #{issue.parent_id}</span>
+					{/if}
 					{#if issue.task_count > 0}
 						<span class="task-count">작업 {issue.task_count}개</span>
 					{/if}
@@ -485,9 +570,89 @@
 		font-size: 1.1rem;
 	}
 
+	.issue-id {
+		font-size: 0.8rem;
+		color: var(--text-muted, #a6adc8);
+		font-variant-numeric: tabular-nums;
+	}
+
 	.issue-title {
 		flex: 1;
 		font-weight: 500;
+	}
+
+	.issue-card.is-child {
+		margin-left: 0.75rem;
+		border-left: 3px solid var(--accent-color, #89b4fa);
+	}
+
+	.parent-tag {
+		font-size: 0.75rem;
+		color: var(--accent-color, #89b4fa);
+	}
+
+	/* Children checklist in detail */
+	.children-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.child-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.45rem 0.7rem;
+		background: var(--surface, #313244);
+		border-radius: 6px;
+		font-size: 0.85rem;
+	}
+
+	.child-row.child-done {
+		opacity: 0.75;
+	}
+
+	.child-check {
+		flex-shrink: 0;
+	}
+
+	.child-link {
+		flex: 1;
+		text-align: left;
+		background: none;
+		border: none;
+		color: var(--accent-color, #89b4fa);
+		cursor: pointer;
+		font-size: inherit;
+		padding: 0;
+		font-family: inherit;
+	}
+
+	.child-link:hover {
+		text-decoration: underline;
+	}
+
+	.child-progress {
+		font-weight: 400;
+		color: var(--text-muted, #a6adc8);
+		font-size: 0.8rem;
+	}
+
+	.children-hint {
+		margin: 0.6rem 0 0;
+		font-size: 0.78rem;
+		color: var(--text-muted, #a6adc8);
+	}
+
+	.linkish {
+		background: none;
+		border: none;
+		color: var(--accent-color, #89b4fa);
+		cursor: pointer;
+		font-size: inherit;
+		padding: 0;
+		font-family: inherit;
+		text-decoration: underline;
 	}
 
 	.issue-card-footer {

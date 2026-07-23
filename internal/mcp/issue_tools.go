@@ -18,7 +18,7 @@ func getIssueToolsList() []Tool {
 	return []Tool{
 		{
 			Name:        "issue_list",
-			Description: "List project issues with optional status/type/query filters. Returns a page of issues with linked task counts.",
+			Description: "List project issues with optional status/type/query/parent filters. Returns a page of issues with linked task counts.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -33,16 +33,17 @@ func getIssueToolsList() []Tool {
 						Enum:        []string{"design", "feature", "bug"},
 						Description: "Filter by type",
 					},
-					"query": {Type: "string", Description: "Title substring filter"},
-					"limit": {Type: "number", Description: "Page size (default 20, max 100)"},
-					"page":  {Type: "number", Description: "1-based page number (default 1)"},
+					"query":     {Type: "string", Description: "Title substring filter"},
+					"parent_id": {Type: "number", Description: "Filter by parent: 0=roots only, N=children of N"},
+					"limit":     {Type: "number", Description: "Page size (default 20, max 100)"},
+					"page":      {Type: "number", Description: "1-based page number (default 1)"},
 				},
 				Required: []string{"project_name"},
 			},
 		},
 		{
 			Name:        "issue_get",
-			Description: "Get one issue with body, goal, and linked tasks.",
+			Description: "Get one issue with body, goal, linked tasks, parent, and children (with live status checklist).",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -54,7 +55,8 @@ func getIssueToolsList() []Tool {
 		},
 		{
 			Name: "issue_upsert",
-			Description: "id 없으면 새 이슈 생성, id 있으면 해당 이슈 부분 수정. status는 수정 시에만 적용됨.",
+			Description: "id 없으면 새 이슈 생성, id 있으면 해당 이슈 부분 수정. status는 수정 시에만 적용됨. " +
+				"parent_id로 상위 이슈 연결(0이면 부모 해제).",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -66,8 +68,9 @@ func getIssueToolsList() []Tool {
 						Enum:        []string{"design", "feature", "bug"},
 						Description: "Issue type (default feature on create)",
 					},
-					"body": {Type: "string", Description: "Issue body / description"},
-					"goal": {Type: "string", Description: "Success criteria"},
+					"body":      {Type: "string", Description: "Issue body / description"},
+					"goal":      {Type: "string", Description: "Success criteria"},
+					"parent_id": {Type: "number", Description: "Parent issue ID (0 to clear on update)"},
 					"status": {
 						Type:        "string",
 						Enum:        []string{"todo", "in_progress", "testing", "failed", "done"},
@@ -81,6 +84,7 @@ func getIssueToolsList() []Tool {
 			Name: "issue_execute",
 			Description: "이슈를 작업으로 큐에 적재한다. 즉시 실행이 아니라 큐 적재다(task_start와 동일 계약). REST의 ProcessPendingNow와 다름. " +
 				"호출 시 이슈 status를 in_progress로 바꾼다. " +
+				"하위 이슈가 있고 미완료(status!=done)이면 미완료 하위부터 순차(FIFO) 적재한 뒤 상위 이슈를 마지막에 적재한다. " +
 				"이미 pending/running task가 연결된 이슈에 재호출하면 task가 추가로 큐에 쌓여 중복 적재될 수 있으니 주의.",
 			InputSchema: InputSchema{
 				Type: "object",
@@ -101,14 +105,19 @@ func handleIssueList(args map[string]interface{}) (string, error) {
 	if projectName == "" {
 		return "", fmt.Errorf("project_name is required")
 	}
-	res, err := issue.List(issue.ListFilter{
+	f := issue.ListFilter{
 		Project: projectName,
 		Status:  toString(args["status"]),
 		Type:    toString(args["type"]),
 		Query:   toString(args["query"]),
 		Page:    toInt(args["page"]),
 		Limit:   toInt(args["limit"]),
-	})
+	}
+	if v, ok := args["parent_id"]; ok && v != nil {
+		pid := toInt(v)
+		f.ParentID = &pid
+	}
+	res, err := issue.List(f)
 	if err != nil {
 		return "", err
 	}
@@ -119,8 +128,12 @@ func handleIssueList(args map[string]interface{}) (string, error) {
 	sb.WriteString(fmt.Sprintf("이슈 목록 %q (%d/%d, page %d/%d):\n\n",
 		projectName, len(res.Items), res.Total, res.Page, res.TotalPages))
 	for _, iss := range res.Items {
-		sb.WriteString(fmt.Sprintf("#%d [%s/%s] %s (task %d개)\n",
-			iss.ID, string(iss.Type), string(iss.Status), iss.Title, res.TaskCounts[iss.ID]))
+		parentNote := ""
+		if iss.ParentID != nil {
+			parentNote = fmt.Sprintf(" parent=#%d", *iss.ParentID)
+		}
+		sb.WriteString(fmt.Sprintf("#%d [%s/%s] %s (task %d개%s)\n",
+			iss.ID, string(iss.Type), string(iss.Status), iss.Title, res.TaskCounts[iss.ID], parentNote))
 	}
 	return sb.String(), nil
 }
@@ -138,8 +151,18 @@ func handleIssueGet(args map[string]interface{}) (string, error) {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("=== 이슈 #%d ===\n", iss.ID))
 	sb.WriteString(fmt.Sprintf("제목: %s\n타입: %s\n상태: %s\n", iss.Title, string(iss.Type), string(iss.Status)))
+	if iss.ParentID != nil {
+		parentTitle := ""
+		if iss.Edges.Parent != nil {
+			parentTitle = " — " + iss.Edges.Parent.Title
+		}
+		sb.WriteString(fmt.Sprintf("상위: #%d%s\n", *iss.ParentID, parentTitle))
+	}
 	if iss.Body != "" {
 		sb.WriteString(fmt.Sprintf("\n## 내용\n%s\n", iss.Body))
+	}
+	if checklist := issue.ChildrenChecklist(iss); checklist != "" {
+		sb.WriteString("\n" + checklist + "\n")
 	}
 	if iss.Goal != "" {
 		sb.WriteString(fmt.Sprintf("\n## 목표\n%s\n", iss.Goal))
@@ -166,17 +189,28 @@ func handleIssueUpsert(args map[string]interface{}) (string, error) {
 		if title == "" {
 			return "", fmt.Errorf("title is required when creating an issue (no id)")
 		}
-		iss, err := issue.Create(issue.CreateInput{
+		in := issue.CreateInput{
 			Project: projectName,
 			Title:   title,
 			Type:    toString(args["type"]),
 			Body:    toString(args["body"]),
 			Goal:    toString(args["goal"]),
-		})
+		}
+		if v, ok := args["parent_id"]; ok && v != nil {
+			pid := toInt(v)
+			if pid > 0 {
+				in.ParentID = &pid
+			}
+		}
+		iss, err := issue.Create(in)
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("이슈 #%d 생성됨: %s [%s]", iss.ID, iss.Title, string(iss.Type)), nil
+		parentNote := ""
+		if iss.ParentID != nil {
+			parentNote = fmt.Sprintf(" parent=#%d", *iss.ParentID)
+		}
+		return fmt.Sprintf("이슈 #%d 생성됨: %s [%s]%s", iss.ID, iss.Title, string(iss.Type), parentNote), nil
 	}
 
 	// id 있음 → 부분 수정 (제공된 필드만 포인터로)
@@ -201,6 +235,10 @@ func handleIssueUpsert(args map[string]interface{}) (string, error) {
 		s := toString(v)
 		in.Status = &s
 	}
+	if v, ok := args["parent_id"]; ok && v != nil {
+		pid := toInt(v)
+		in.ParentID = &pid
+	}
 	iss, err := issue.Update(projectName, id, in)
 	if err != nil {
 		return "", err
@@ -222,6 +260,11 @@ func handleIssueExecute(args map[string]interface{}) (string, error) {
 	})
 	if err != nil {
 		return "", err
+	}
+	if len(res.TaskIDs) > 1 {
+		return fmt.Sprintf(
+			"이슈 #%d 수행: 미완료 하위 포함 %d개 작업을 큐에 적재했습니다 (이슈 %v → task %v; 양: %s). 마지막이 상위 이슈. processor가 폴링으로 픽업합니다.",
+			res.IssueID, len(res.TaskIDs), res.IssueIDs, res.TaskIDs, res.SheepName), nil
 	}
 	// 계약: 큐 적재 + status→in_progress 부수효과 + 중복 적재 가능 (#7797)
 	return fmt.Sprintf(

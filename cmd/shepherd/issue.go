@@ -18,25 +18,28 @@ var (
 	issueJSON bool // global for issue command group
 
 	// create
-	issueCreateTitle string
-	issueCreateType  string
-	issueCreateBody  string
-	issueCreateGoal  string
+	issueCreateTitle    string
+	issueCreateType     string
+	issueCreateBody     string
+	issueCreateGoal     string
+	issueCreateParentID int // 0 = no parent
 
 	// list
-	issueListStatus string
-	issueListType   string
-	issueListQuery  string
-	issueListLimit  int
-	issueListPage   int
-	issueListAsc    bool
+	issueListStatus   string
+	issueListType     string
+	issueListQuery    string
+	issueListLimit    int
+	issueListPage     int
+	issueListAsc      bool
+	issueListParentID string // "" = all; "0" = roots; "N" = children of N
 
 	// update
-	issueUpdateTitle  string
-	issueUpdateType   string
-	issueUpdateBody   string
-	issueUpdateGoal   string
-	issueUpdateStatus string
+	issueUpdateTitle    string
+	issueUpdateType     string
+	issueUpdateBody     string
+	issueUpdateGoal     string
+	issueUpdateStatus   string
+	issueUpdateParentID string // "" = leave; "0" = clear; "N" = set
 
 	// delete
 	issueDeleteYes bool
@@ -52,14 +55,16 @@ var issueCmd = &cobra.Command{
 	Long: `Manage shepherd built-in issues for a project.
 
 Issues track work items (design, feature, bug) with status and optional goal.
-Use "execute" to enqueue a task that implements an issue.
+Parent/child: use --parent on create/update. Executing a parent enqueues incomplete
+children first (FIFO), then the parent.
 
 Typical LLM workflow:
   1. shepherd issue create <project> --title "..." --type bug --body "..." --goal "..."
-  2. shepherd issue list <project> --status todo --json
-  3. shepherd issue show <project> <id> --json
-  4. shepherd issue execute <project> <id>
-  5. shepherd issue update <project> <id> --status done
+  2. shepherd issue create <project> -t "sub" --parent 3
+  3. shepherd issue list <project> --status todo --json
+  4. shepherd issue show <project> <id> --json
+  5. shepherd issue execute <project> <id>
+  6. shepherd issue update <project> <id> --status done
 
 Types:    design | feature | bug
 Statuses: todo | in_progress | testing | failed | done
@@ -75,22 +80,28 @@ var issueCreateCmd = &cobra.Command{
 Examples:
   shepherd issue create shepherd --title "Add issue CLI" --type feature
   shepherd issue create shepherd -t "Login broken" --type bug --body "401 on refresh" --goal "Refresh works"
-  shepherd issue create shepherd -t "API design" --type design --json`,
+  shepherd issue create shepherd -t "API design" --type design --json
+  shepherd issue create urrrkk -t "[API-1] setup" --parent 3`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		projectName := args[0]
-		iss, err := issue.Create(issue.CreateInput{
+		in := issue.CreateInput{
 			Project: projectName,
 			Title:   issueCreateTitle,
 			Type:    issueCreateType,
 			Body:    issueCreateBody,
 			Goal:    issueCreateGoal,
-		})
+		}
+		if issueCreateParentID > 0 {
+			pid := issueCreateParentID
+			in.ParentID = &pid
+		}
+		iss, err := issue.Create(in)
 		if err != nil {
 			exitIssueErr(err)
 		}
 		if issueJSON {
-			printIssueJSON(map[string]interface{}{
+			m := map[string]interface{}{
 				"id":         iss.ID,
 				"project":    projectName,
 				"title":      iss.Title,
@@ -99,10 +110,18 @@ Examples:
 				"body":       iss.Body,
 				"goal":       iss.Goal,
 				"created_at": issue.FormatTime(iss.CreatedAt),
-			})
+			}
+			if iss.ParentID != nil {
+				m["parent_id"] = *iss.ParentID
+			}
+			printIssueJSON(m)
 			return
 		}
-		fmt.Printf("Created issue #%d [%s] %s (status: %s)\n", iss.ID, iss.Type, iss.Title, iss.Status)
+		parentNote := ""
+		if iss.ParentID != nil {
+			parentNote = fmt.Sprintf(" (parent: #%d)", *iss.ParentID)
+		}
+		fmt.Printf("Created issue #%d [%s] %s (status: %s)%s\n", iss.ID, iss.Type, iss.Title, iss.Status, parentNote)
 	},
 }
 
@@ -120,7 +139,7 @@ Examples:
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		projectName := args[0]
-		result, err := issue.List(issue.ListFilter{
+		f := issue.ListFilter{
 			Project: projectName,
 			Status:  issueListStatus,
 			Type:    issueListType,
@@ -128,7 +147,15 @@ Examples:
 			Page:    issueListPage,
 			Limit:   issueListLimit,
 			SortAsc: issueListAsc,
-		})
+		}
+		if issueListParentID != "" {
+			pid, err := strconv.Atoi(issueListParentID)
+			if err != nil {
+				exitIssueErr(fmt.Errorf("invalid --parent %q", issueListParentID))
+			}
+			f.ParentID = &pid
+		}
+		result, err := issue.List(f)
 		if err != nil {
 			exitIssueErr(err)
 		}
@@ -193,6 +220,13 @@ Examples:
 		fmt.Printf("  Project:  %s\n", projectName)
 		fmt.Printf("  Type:     %s\n", iss.Type)
 		fmt.Printf("  Status:   %s\n", iss.Status)
+		if iss.ParentID != nil {
+			title := ""
+			if iss.Edges.Parent != nil {
+				title = " — " + iss.Edges.Parent.Title
+			}
+			fmt.Printf("  Parent:   #%d%s\n", *iss.ParentID, title)
+		}
 		fmt.Printf("  Created:  %s\n", issue.FormatTime(iss.CreatedAt))
 		fmt.Printf("  Updated:  %s\n", issue.FormatTime(iss.UpdatedAt))
 		if s := issue.FormatTimePtr(iss.StartedAt); s != "" {
@@ -203,6 +237,9 @@ Examples:
 		}
 		if iss.Body != "" {
 			fmt.Printf("\n## Body\n%s\n", iss.Body)
+		}
+		if checklist := issue.ChildrenChecklist(iss); checklist != "" {
+			fmt.Printf("\n%s\n", checklist)
 		}
 		if iss.Goal != "" {
 			fmt.Printf("\n## Goal\n%s\n", iss.Goal)
@@ -264,6 +301,13 @@ Types:    design | feature | bug`,
 			s := issueUpdateStatus
 			in.Status = &s
 		}
+		if cmd.Flags().Changed("parent") {
+			pid, err := strconv.Atoi(issueUpdateParentID)
+			if err != nil {
+				exitIssueErr(fmt.Errorf("invalid --parent %q (use 0 to clear)", issueUpdateParentID))
+			}
+			in.ParentID = &pid
+		}
 
 		iss, err := issue.Update(projectName, id, in)
 		if err != nil {
@@ -271,16 +315,7 @@ Types:    design | feature | bug`,
 		}
 
 		if issueJSON {
-			printIssueJSON(map[string]interface{}{
-				"id":         iss.ID,
-				"project":    projectName,
-				"title":      iss.Title,
-				"type":       string(iss.Type),
-				"status":     string(iss.Status),
-				"body":       iss.Body,
-				"goal":       iss.Goal,
-				"updated_at": issue.FormatTime(iss.UpdatedAt),
-			})
+			printIssueJSON(issueDetailMap(iss, projectName))
 			return
 		}
 		fmt.Printf("Updated issue #%d [%s/%s] %s\n", iss.ID, iss.Type, iss.Status, iss.Title)
@@ -325,6 +360,9 @@ var issueExecuteCmd = &cobra.Command{
 	Short: "Enqueue a task to implement the issue",
 	Long: `Build a prompt from the issue and add a pending task for a sheep.
 
+If the issue has incomplete children (status != done), those are enqueued first
+in stable ID order, then the parent — all at once (FIFO queue).
+
 Sheep resolution order:
   1. --sheep <name> if provided
   2. Project-assigned sheep
@@ -354,6 +392,8 @@ Examples:
 		if issueJSON {
 			printIssueJSON(map[string]interface{}{
 				"task_id":    result.TaskID,
+				"task_ids":   result.TaskIDs,
+				"issue_ids":  result.IssueIDs,
 				"sheep_name": result.SheepName,
 				"issue_id":   result.IssueID,
 				"project":    projectName,
@@ -361,7 +401,12 @@ Examples:
 			})
 			return
 		}
-		fmt.Printf("Enqueued task #%d for issue #%d (sheep: %s)\n", result.TaskID, result.IssueID, result.SheepName)
+		if len(result.TaskIDs) > 1 {
+			fmt.Printf("Enqueued %d tasks (issues %v → tasks %v); primary issue #%d → task #%d (sheep: %s)\n",
+				len(result.TaskIDs), result.IssueIDs, result.TaskIDs, result.IssueID, result.TaskID, result.SheepName)
+		} else {
+			fmt.Printf("Enqueued task #%d for issue #%d (sheep: %s)\n", result.TaskID, result.IssueID, result.SheepName)
+		}
 		fmt.Println("Issue status set to in_progress. Task will run via the queue processor.")
 	},
 }
@@ -373,11 +418,13 @@ func initIssueCmd() {
 	issueCreateCmd.Flags().StringVar(&issueCreateType, "type", "feature", "Issue type: design | feature | bug")
 	issueCreateCmd.Flags().StringVarP(&issueCreateBody, "body", "b", "", "Issue description / body")
 	issueCreateCmd.Flags().StringVarP(&issueCreateGoal, "goal", "g", "", "Success criteria (goal)")
+	issueCreateCmd.Flags().IntVar(&issueCreateParentID, "parent", 0, "Parent issue ID (optional)")
 	_ = issueCreateCmd.MarkFlagRequired("title")
 
 	issueListCmd.Flags().StringVar(&issueListStatus, "status", "", "Filter by status: todo | in_progress | testing | failed | done")
 	issueListCmd.Flags().StringVar(&issueListType, "type", "", "Filter by type: design | feature | bug")
 	issueListCmd.Flags().StringVarP(&issueListQuery, "query", "q", "", "Filter title contains query")
+	issueListCmd.Flags().StringVar(&issueListParentID, "parent", "", "Filter by parent: 0=roots only, N=children of N")
 	issueListCmd.Flags().IntVarP(&issueListLimit, "limit", "n", 20, "Page size (max 100)")
 	issueListCmd.Flags().IntVar(&issueListPage, "page", 1, "Page number (1-based)")
 	issueListCmd.Flags().BoolVar(&issueListAsc, "asc", false, "Sort oldest first (default: newest first)")
@@ -387,6 +434,7 @@ func initIssueCmd() {
 	issueUpdateCmd.Flags().StringVarP(&issueUpdateBody, "body", "b", "", "New body (pass empty string to clear)")
 	issueUpdateCmd.Flags().StringVarP(&issueUpdateGoal, "goal", "g", "", "New goal (pass empty string to clear)")
 	issueUpdateCmd.Flags().StringVar(&issueUpdateStatus, "status", "", "New status: todo | in_progress | testing | failed | done")
+	issueUpdateCmd.Flags().StringVar(&issueUpdateParentID, "parent", "", "Parent issue ID (0 to clear)")
 
 	issueDeleteCmd.Flags().BoolVarP(&issueDeleteYes, "yes", "y", false, "Confirm deletion (required)")
 
@@ -434,6 +482,9 @@ func issueSummaryMap(iss *ent.Issue, project string, taskCount int) map[string]i
 		"created_at": issue.FormatTime(iss.CreatedAt),
 		"updated_at": issue.FormatTime(iss.UpdatedAt),
 	}
+	if iss.ParentID != nil {
+		m["parent_id"] = *iss.ParentID
+	}
 	if s := issue.FormatTimePtr(iss.StartedAt); s != "" {
 		m["started_at"] = s
 	}
@@ -459,6 +510,26 @@ func issueDetailMap(iss *ent.Issue, project string) map[string]interface{} {
 		tasks = append(tasks, tm)
 	}
 	m["tasks"] = tasks
+	if iss.Edges.Parent != nil {
+		m["parent"] = map[string]interface{}{
+			"id":     iss.Edges.Parent.ID,
+			"title":  iss.Edges.Parent.Title,
+			"status": string(iss.Edges.Parent.Status),
+		}
+	}
+	children := make([]map[string]interface{}, 0, len(iss.Edges.Children))
+	for _, c := range iss.Edges.Children {
+		children = append(children, map[string]interface{}{
+			"id":     c.ID,
+			"title":  c.Title,
+			"type":   string(c.Type),
+			"status": string(c.Status),
+		})
+	}
+	m["children"] = children
+	if checklist := issue.ChildrenChecklist(iss); checklist != "" {
+		m["children_checklist"] = checklist
+	}
 	return m
 }
 

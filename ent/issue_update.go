@@ -158,6 +158,26 @@ func (_u *IssueUpdate) ClearCompletedAt() *IssueUpdate {
 	return _u
 }
 
+// SetParentID sets the "parent_id" field.
+func (_u *IssueUpdate) SetParentID(v int) *IssueUpdate {
+	_u.mutation.SetParentID(v)
+	return _u
+}
+
+// SetNillableParentID sets the "parent_id" field if the given value is not nil.
+func (_u *IssueUpdate) SetNillableParentID(v *int) *IssueUpdate {
+	if v != nil {
+		_u.SetParentID(*v)
+	}
+	return _u
+}
+
+// ClearParentID clears the value of the "parent_id" field.
+func (_u *IssueUpdate) ClearParentID() *IssueUpdate {
+	_u.mutation.ClearParentID()
+	return _u
+}
+
 // SetProjectID sets the "project" edge to the Project entity by ID.
 func (_u *IssueUpdate) SetProjectID(id int) *IssueUpdate {
 	_u.mutation.SetProjectID(id)
@@ -182,6 +202,26 @@ func (_u *IssueUpdate) AddTasks(v ...*Task) *IssueUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.AddTaskIDs(ids...)
+}
+
+// SetParent sets the "parent" edge to the Issue entity.
+func (_u *IssueUpdate) SetParent(v *Issue) *IssueUpdate {
+	return _u.SetParentID(v.ID)
+}
+
+// AddChildIDs adds the "children" edge to the Issue entity by IDs.
+func (_u *IssueUpdate) AddChildIDs(ids ...int) *IssueUpdate {
+	_u.mutation.AddChildIDs(ids...)
+	return _u
+}
+
+// AddChildren adds the "children" edges to the Issue entity.
+func (_u *IssueUpdate) AddChildren(v ...*Issue) *IssueUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddChildIDs(ids...)
 }
 
 // Mutation returns the IssueMutation object of the builder.
@@ -214,6 +254,33 @@ func (_u *IssueUpdate) RemoveTasks(v ...*Task) *IssueUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTaskIDs(ids...)
+}
+
+// ClearParent clears the "parent" edge to the Issue entity.
+func (_u *IssueUpdate) ClearParent() *IssueUpdate {
+	_u.mutation.ClearParent()
+	return _u
+}
+
+// ClearChildren clears all "children" edges to the Issue entity.
+func (_u *IssueUpdate) ClearChildren() *IssueUpdate {
+	_u.mutation.ClearChildren()
+	return _u
+}
+
+// RemoveChildIDs removes the "children" edge to Issue entities by IDs.
+func (_u *IssueUpdate) RemoveChildIDs(ids ...int) *IssueUpdate {
+	_u.mutation.RemoveChildIDs(ids...)
+	return _u
+}
+
+// RemoveChildren removes "children" edges to Issue entities.
+func (_u *IssueUpdate) RemoveChildren(v ...*Issue) *IssueUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveChildIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -397,6 +464,80 @@ func (_u *IssueUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.ParentCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   issue.ParentTable,
+			Columns: []string{issue.ParentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ParentIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   issue.ParentTable,
+			Columns: []string{issue.ParentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ChildrenCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   issue.ChildrenTable,
+			Columns: []string{issue.ChildrenColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedChildrenIDs(); len(nodes) > 0 && !_u.mutation.ChildrenCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   issue.ChildrenTable,
+			Columns: []string{issue.ChildrenColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChildrenIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   issue.ChildrenTable,
+			Columns: []string{issue.ChildrenColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{issue.Label}
@@ -545,6 +686,26 @@ func (_u *IssueUpdateOne) ClearCompletedAt() *IssueUpdateOne {
 	return _u
 }
 
+// SetParentID sets the "parent_id" field.
+func (_u *IssueUpdateOne) SetParentID(v int) *IssueUpdateOne {
+	_u.mutation.SetParentID(v)
+	return _u
+}
+
+// SetNillableParentID sets the "parent_id" field if the given value is not nil.
+func (_u *IssueUpdateOne) SetNillableParentID(v *int) *IssueUpdateOne {
+	if v != nil {
+		_u.SetParentID(*v)
+	}
+	return _u
+}
+
+// ClearParentID clears the value of the "parent_id" field.
+func (_u *IssueUpdateOne) ClearParentID() *IssueUpdateOne {
+	_u.mutation.ClearParentID()
+	return _u
+}
+
 // SetProjectID sets the "project" edge to the Project entity by ID.
 func (_u *IssueUpdateOne) SetProjectID(id int) *IssueUpdateOne {
 	_u.mutation.SetProjectID(id)
@@ -569,6 +730,26 @@ func (_u *IssueUpdateOne) AddTasks(v ...*Task) *IssueUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.AddTaskIDs(ids...)
+}
+
+// SetParent sets the "parent" edge to the Issue entity.
+func (_u *IssueUpdateOne) SetParent(v *Issue) *IssueUpdateOne {
+	return _u.SetParentID(v.ID)
+}
+
+// AddChildIDs adds the "children" edge to the Issue entity by IDs.
+func (_u *IssueUpdateOne) AddChildIDs(ids ...int) *IssueUpdateOne {
+	_u.mutation.AddChildIDs(ids...)
+	return _u
+}
+
+// AddChildren adds the "children" edges to the Issue entity.
+func (_u *IssueUpdateOne) AddChildren(v ...*Issue) *IssueUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddChildIDs(ids...)
 }
 
 // Mutation returns the IssueMutation object of the builder.
@@ -601,6 +782,33 @@ func (_u *IssueUpdateOne) RemoveTasks(v ...*Task) *IssueUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTaskIDs(ids...)
+}
+
+// ClearParent clears the "parent" edge to the Issue entity.
+func (_u *IssueUpdateOne) ClearParent() *IssueUpdateOne {
+	_u.mutation.ClearParent()
+	return _u
+}
+
+// ClearChildren clears all "children" edges to the Issue entity.
+func (_u *IssueUpdateOne) ClearChildren() *IssueUpdateOne {
+	_u.mutation.ClearChildren()
+	return _u
+}
+
+// RemoveChildIDs removes the "children" edge to Issue entities by IDs.
+func (_u *IssueUpdateOne) RemoveChildIDs(ids ...int) *IssueUpdateOne {
+	_u.mutation.RemoveChildIDs(ids...)
+	return _u
+}
+
+// RemoveChildren removes "children" edges to Issue entities.
+func (_u *IssueUpdateOne) RemoveChildren(v ...*Issue) *IssueUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveChildIDs(ids...)
 }
 
 // Where appends a list predicates to the IssueUpdate builder.
@@ -807,6 +1015,80 @@ func (_u *IssueUpdateOne) sqlSave(ctx context.Context) (_node *Issue, err error)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(task.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ParentCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   issue.ParentTable,
+			Columns: []string{issue.ParentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ParentIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   issue.ParentTable,
+			Columns: []string{issue.ParentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ChildrenCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   issue.ChildrenTable,
+			Columns: []string{issue.ChildrenColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedChildrenIDs(); len(nodes) > 0 && !_u.mutation.ChildrenCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   issue.ChildrenTable,
+			Columns: []string{issue.ChildrenColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChildrenIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   issue.ChildrenTable,
+			Columns: []string{issue.ChildrenColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

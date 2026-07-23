@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/agurrrrr/shepherd/ent"
+	entIssue "github.com/agurrrrr/shepherd/ent/issue"
 )
 
 func TestCreateValidation(t *testing.T) {
@@ -72,5 +75,50 @@ func TestValidEnumsDocumented(t *testing.T) {
 	}
 	if len(ValidStatuses) != 5 {
 		t.Fatalf("statuses: %v", ValidStatuses)
+	}
+}
+
+func TestChildrenChecklist(t *testing.T) {
+	if ChildrenChecklist(nil) != "" {
+		t.Fatal("nil issue should yield empty checklist")
+	}
+	root := &ent.Issue{ID: 3, Title: "parent"}
+	if ChildrenChecklist(root) != "" {
+		t.Fatal("no children should yield empty")
+	}
+
+	root.Edges.Children = []*ent.Issue{
+		{ID: 5, Title: "[API-1] setup", Status: entIssue.StatusDone},
+		{ID: 6, Title: "[API-2] schema", Status: entIssue.StatusTodo},
+		{ID: 7, Title: "[API-3] auth", Status: entIssue.StatusInProgress},
+	}
+	got := ChildrenChecklist(root)
+	if !strings.Contains(got, "## 하위 이슈") {
+		t.Fatalf("missing header: %q", got)
+	}
+	if !strings.Contains(got, "- [x] #5 [API-1] setup (성공)") {
+		t.Fatalf("done child missing: %q", got)
+	}
+	if !strings.Contains(got, "- [ ] #6 [API-2] schema (작업전)") {
+		t.Fatalf("todo child missing: %q", got)
+	}
+	if !strings.Contains(got, "- [ ] #7 [API-3] auth (작업중)") {
+		t.Fatalf("in_progress child missing: %q", got)
+	}
+}
+
+func TestStatusLabel(t *testing.T) {
+	cases := map[string]string{
+		"todo":        "작업전",
+		"in_progress": "작업중",
+		"testing":     "테스트",
+		"failed":      "실패",
+		"done":        "성공",
+		"other":       "other",
+	}
+	for in, want := range cases {
+		if got := statusLabel(in); got != want {
+			t.Fatalf("statusLabel(%q)=%q want %q", in, got, want)
+		}
 	}
 }

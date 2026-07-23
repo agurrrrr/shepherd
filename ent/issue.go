@@ -36,6 +36,8 @@ type Issue struct {
 	StartedAt *time.Time `json:"started_at,omitempty"`
 	// 마감(성공/실패 확정) 시각
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	// 상위 이슈 ID (없으면 루트)
+	ParentID *int `json:"parent_id,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the IssueQuery when eager-loading is set.
 	Edges          IssueEdges `json:"edges"`
@@ -49,9 +51,13 @@ type IssueEdges struct {
 	Project *Project `json:"project,omitempty"`
 	// 이슈로 수행된 Task 목록
 	Tasks []*Task `json:"tasks,omitempty"`
+	// 상위 이슈 (없으면 루트)
+	Parent *Issue `json:"parent,omitempty"`
+	// Children holds the value of the children edge.
+	Children []*Issue `json:"children,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [4]bool
 }
 
 // ProjectOrErr returns the Project value or an error if the edge
@@ -74,12 +80,32 @@ func (e IssueEdges) TasksOrErr() ([]*Task, error) {
 	return nil, &NotLoadedError{edge: "tasks"}
 }
 
+// ParentOrErr returns the Parent value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e IssueEdges) ParentOrErr() (*Issue, error) {
+	if e.Parent != nil {
+		return e.Parent, nil
+	} else if e.loadedTypes[2] {
+		return nil, &NotFoundError{label: issue.Label}
+	}
+	return nil, &NotLoadedError{edge: "parent"}
+}
+
+// ChildrenOrErr returns the Children value or an error if the edge
+// was not loaded in eager-loading.
+func (e IssueEdges) ChildrenOrErr() ([]*Issue, error) {
+	if e.loadedTypes[3] {
+		return e.Children, nil
+	}
+	return nil, &NotLoadedError{edge: "children"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*Issue) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case issue.FieldID:
+		case issue.FieldID, issue.FieldParentID:
 			values[i] = new(sql.NullInt64)
 		case issue.FieldTitle, issue.FieldType, issue.FieldStatus, issue.FieldBody, issue.FieldGoal:
 			values[i] = new(sql.NullString)
@@ -164,6 +190,13 @@ func (_m *Issue) assignValues(columns []string, values []any) error {
 				_m.CompletedAt = new(time.Time)
 				*_m.CompletedAt = value.Time
 			}
+		case issue.FieldParentID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field parent_id", values[i])
+			} else if value.Valid {
+				_m.ParentID = new(int)
+				*_m.ParentID = int(value.Int64)
+			}
 		case issue.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field project_issues", value)
@@ -192,6 +225,16 @@ func (_m *Issue) QueryProject() *ProjectQuery {
 // QueryTasks queries the "tasks" edge of the Issue entity.
 func (_m *Issue) QueryTasks() *TaskQuery {
 	return NewIssueClient(_m.config).QueryTasks(_m)
+}
+
+// QueryParent queries the "parent" edge of the Issue entity.
+func (_m *Issue) QueryParent() *IssueQuery {
+	return NewIssueClient(_m.config).QueryParent(_m)
+}
+
+// QueryChildren queries the "children" edge of the Issue entity.
+func (_m *Issue) QueryChildren() *IssueQuery {
+	return NewIssueClient(_m.config).QueryChildren(_m)
 }
 
 // Update returns a builder for updating this Issue.
@@ -246,6 +289,11 @@ func (_m *Issue) String() string {
 	if v := _m.CompletedAt; v != nil {
 		builder.WriteString("completed_at=")
 		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	if v := _m.ParentID; v != nil {
+		builder.WriteString("parent_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteByte(')')
 	return builder.String()
