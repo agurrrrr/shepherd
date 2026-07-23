@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -389,12 +390,45 @@ func (p *Processor) checkAndExecutePendingTasks() {
 // executeTask executes a single task with rate limit retry and circuit breaker.
 // projectName is the project name stored in the Task (value specified by MCP).
 // Caller must ClaimDispatch(sheepName, taskID) and set sheep working before go.
+//
+// A panic inside a task goroutine must never take down the whole daemon
+// (tasks #7812/#7845/#7854: unrecovered panics kill every sheep). Recover,
+// mark the task failed, restore the sheep to idle, and keep the process alive.
 func (p *Processor) executeTask(sheepName, projectName string, taskID int, prompt string) {
 	// Drop ClaimDispatch placeholder if execute exits without registerRunningTask
 	// (early StartTask failure, or ExecuteInteractive error before process start).
 	// No-op once a real RunningTask (with Cancel/Cmd) replaced the placeholder
 	// and was unregistered normally.
 	defer worker.ReleaseDispatch(sheepName, taskID)
+
+	// Isolate task panics from the daemon process. Go kills the entire process
+	// on an unrecovered panic in any goroutine; without this, a nil-pointer or
+	// tool-path bug during one LLM task stops every other sheep.
+	defer func() {
+		if r := recover(); r != nil {
+			stack := string(debug.Stack())
+			errMsg := fmt.Sprintf("task panic (recovered, daemon kept alive): %v", r)
+			log.Printf("[processor] %s sheep=%s task=#%d\n%s", errMsg, sheepName, taskID, stack)
+
+			_ = worker.UpdateStatus(sheepName, sheep.StatusIdle)
+			if p.OnStatusChange != nil {
+				p.OnStatusChange(sheepName, "idle")
+			}
+			if p.OnTaskFail != nil {
+				p.OnTaskFail(taskID, sheepName, projectName, errMsg)
+			}
+			// Best-effort: FailTask if still running; ignore if already terminal.
+			_ = FailTask(taskID, errMsg)
+			// Surface a short stack in the live log so WebUI shows the failure.
+			if p.OnOutput != nil {
+				// Cap stack noise in the UI.
+				if len(stack) > 2000 {
+					stack = stack[:2000] + "\n…(truncated)"
+				}
+				p.OnOutput(sheepName, projectName, "⚠️ "+errMsg+"\n"+stack+"\n")
+			}
+		}
+	}()
 
 	// Change status: working (DB already claimed by dispatcher; notify SSE)
 	if p.OnStatusChange != nil {
@@ -582,14 +616,21 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 		p.OnStatusChange(sheepName, "idle")
 	}
 
-	// Complete task with cost and tokens
-	costUSD := float64(0)
-	var promptTokens, completionTokens int64
-	if result != nil {
-		costUSD = result.CostUSD
-		promptTokens = result.PromptTokens
-		completionTokens = result.CompletionTokens
+	// Complete task with cost and tokens. Guard nil result: a provider that
+	// returns (nil, nil) must not panic the goroutine (and used to kill the
+	// daemon when panic recovery was missing).
+	if result == nil {
+		errMsg := "provider returned nil result without error"
+		if p.OnTaskFail != nil {
+			p.OnTaskFail(taskID, sheepName, projectName, errMsg)
+		}
+		_ = FailTaskWithOutput(taskID, errMsg, outputLines)
+		return
 	}
+
+	costUSD := result.CostUSD
+	promptTokens := result.PromptTokens
+	completionTokens := result.CompletionTokens
 
 	if err := CompleteTaskWithTokens(taskID, result.Result, result.FilesModified, outputLines, costUSD, promptTokens, completionTokens); err != nil {
 		if p.OnTaskFail != nil {

@@ -3117,20 +3117,38 @@ func runServeForeground() {
 		}
 	}
 
-	// Start server in goroutine
+	// Start server in goroutine. Listen errors (and panics) are funnelled
+	// through listenErr so the main thread can shut down cleanly instead of
+	// hard os.Exit from a child goroutine (which skipped processor/sheep
+	// cleanup and looked like "daemon died" mid-task).
+	listenErr := make(chan error, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				listenErr <- fmt.Errorf("server panic: %v", r)
+			}
+		}()
 		if err := srv.Listen(addr); err != nil {
-			fmt.Fprintf(os.Stderr, "❌ Server error: %v\n", err)
-			os.Exit(1)
+			listenErr <- err
+			return
 		}
+		listenErr <- nil
 	}()
 
-	// Wait for signal
+	// Wait for signal or unexpected Listen failure.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, shutdownSignals()...)
-	sig := <-sigCh
-
-	fmt.Printf("\n🛑 Signal received (%v), shutting down...\n", sig)
+	var sig os.Signal
+	select {
+	case sig = <-sigCh:
+		fmt.Printf("\n🛑 Signal received (%v), shutting down...\n", sig)
+	case err := <-listenErr:
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "❌ Server error (graceful shutdown): %v\n", err)
+		} else {
+			fmt.Println("\n🛑 HTTP server stopped, shutting down...")
+		}
+	}
 
 	// Cleanup — kill child processes first so they don't outlive the daemon
 	// as orphans (long OpenCode runs survive their parent), then reconcile DB.

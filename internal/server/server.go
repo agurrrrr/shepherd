@@ -14,6 +14,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
+	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
 
 	"github.com/agurrrrr/shepherd/internal/config"
@@ -79,7 +80,12 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 		mcpInner:  mcpServer,
 	}
 
-	// Global middleware
+	// Global middleware — recover first so a single handler panic cannot
+	// kill the daemon process (API errors / nil deref in one route must not
+	// take down every sheep).
+	app.Use(fiberrecover.New(fiberrecover.Config{
+		EnableStackTrace: true,
+	}))
 	app.Use(CORSMiddleware(corsOrigin))
 
 	// Public routes (no auth required)
