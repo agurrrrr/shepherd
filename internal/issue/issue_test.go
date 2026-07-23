@@ -122,3 +122,10 @@ func TestStatusLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestCascadeEnqueueDelayPositive(t *testing.T) {
+	// Guard against accidental zero/negative that reintroduces cascade races.
+	if cascadeEnqueueDelay < time.Second {
+		t.Fatalf("cascadeEnqueueDelay=%v; want at least 1s to space bulk enqueue", cascadeEnqueueDelay)
+	}
+}

@@ -165,6 +165,39 @@ func IsTaskRunning(sheepName string) bool {
 	return ok
 }
 
+// ClaimDispatch reserves a sheep for an upcoming task before the execute
+// goroutine starts. Concurrent processor ticks / ProcessPendingNow calls can
+// otherwise both see the sheep idle and double-dispatch (observed: cascade
+// issue execute starting two children ~500ms apart on one sheep).
+// Returns false if the sheep is already claimed.
+func ClaimDispatch(sheepName string, taskID int) bool {
+	runningTasksMu.Lock()
+	defer runningTasksMu.Unlock()
+	if _, ok := runningTasks[sheepName]; ok {
+		return false
+	}
+	runningTasks[sheepName] = &RunningTask{
+		SheepName: sheepName,
+		TaskID:    taskID,
+	}
+	return true
+}
+
+// ReleaseDispatch clears a ClaimDispatch reservation when execute fails before
+// registerRunningTask replaces the placeholder (or when claim must be rolled back).
+// Only removes the entry when it still has the same taskID and no process yet.
+func ReleaseDispatch(sheepName string, taskID int) {
+	runningTasksMu.Lock()
+	defer runningTasksMu.Unlock()
+	t, ok := runningTasks[sheepName]
+	if !ok {
+		return
+	}
+	if t.TaskID == taskID && t.Cmd == nil && t.Cancel == nil {
+		delete(runningTasks, sheepName)
+	}
+}
+
 // registerRunningTask registers a running task and returns the registered
 // entry as an identity token. Pass that token to unregisterRunningTask so a
 // late-finishing task can only ever remove its OWN entry — never one that a
@@ -172,10 +205,17 @@ func IsTaskRunning(sheepName string) bool {
 func registerRunningTask(sheepName string, cancel context.CancelFunc, cmd *exec.Cmd) *RunningTask {
 	runningTasksMu.Lock()
 	defer runningTasksMu.Unlock()
+	// Preserve TaskID from ClaimDispatch when the processor reserved the sheep
+	// before the process handle existed.
+	prevID := 0
+	if prev, ok := runningTasks[sheepName]; ok {
+		prevID = prev.TaskID
+	}
 	rt := &RunningTask{
 		SheepName: sheepName,
 		Cancel:    cancel,
 		Cmd:       cmd,
+		TaskID:    prevID,
 	}
 	runningTasks[sheepName] = rt
 	return rt

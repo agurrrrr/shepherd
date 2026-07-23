@@ -85,7 +85,9 @@ func getIssueToolsList() []Tool {
 			Description: "이슈를 작업으로 큐에 적재한다. 즉시 실행이 아니라 큐 적재다(task_start와 동일 계약). REST의 ProcessPendingNow와 다름. " +
 				"호출 시 이슈 status를 in_progress로 바꾼다. " +
 				"하위 이슈가 있고 미완료(status!=done)이면 미완료 하위부터 순차(FIFO) 적재한 뒤 상위 이슈를 마지막에 적재한다. " +
-				"이미 pending/running task가 연결된 이슈에 재호출하면 task가 추가로 큐에 쌓여 중복 적재될 수 있으니 주의.",
+				"일괄 적재 시 작업 간 2초 딜레이를 둬 같은 양이 동시 디스패치되지 않게 한다. " +
+				"작업이 중단됐는데 이슈만 in_progress로 남은 경우 실행 전에 failed/testing으로 자동 보정한다. " +
+				"이미 pending/running task가 연결된 이슈는 건너뛴다(중복 적재 방지).",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{

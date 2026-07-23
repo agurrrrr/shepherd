@@ -100,7 +100,10 @@ type Processor struct {
 	interval time.Duration
 	stopCh   chan struct{}
 	running  bool
-	mu       sync.Mutex
+	mu       sync.Mutex // guards running flag / Start / Stop
+	// dispatchMu serializes checkAndExecutePendingTasks so concurrent
+	// ProcessPendingNow + ticker cannot double-dispatch the same sheep.
+	dispatchMu sync.Mutex
 
 	// Callbacks: called on task start/complete/fail/stop
 	OnTaskStart    func(taskID int, sheepName, projectName, prompt string)
@@ -245,7 +248,16 @@ func groupConcurrencyLimit(limits map[string]int, groupKey, provider string) int
 //  2. Per-group limit  — concurrency_limits[<provider+model group>], so e.g.
 //     local opencode can run sequentially (GPU protection) while cloud claude
 //     stays unlimited, without one starving the other.
+//
+// Concurrent ProcessPendingNow + ticker calls are serialized via p.mu so two
+// loops cannot both read the same sheep as idle before either claims it.
 func (p *Processor) checkAndExecutePendingTasks() {
+	// Serialize dispatch loops. ProcessPendingNow runs this in a goroutine and
+	// the ticker also calls it — without a lock both can pass the idle check
+	// for one sheep and start two tasks ~ms apart.
+	p.dispatchMu.Lock()
+	defer p.dispatchMu.Unlock()
+
 	maxConcurrent := config.GetInt("max_concurrent_tasks")
 	groupLimits := config.GetConcurrencyLimits()
 
@@ -356,6 +368,17 @@ func (p *Processor) checkAndExecutePendingTasks() {
 			projectName = task.Edges.Project.Name
 		}
 
+		// Claim in-memory + DB before launching the goroutine so a concurrent
+		// dispatch loop cannot also select this sheep.
+		if !worker.ClaimDispatch(s.Name, task.ID) {
+			continue
+		}
+		if err := worker.UpdateStatus(s.Name, sheep.StatusWorking); err != nil {
+			worker.ReleaseDispatch(s.Name, task.ID)
+			log.Printf("[processor] failed to claim sheep %s: %v", s.Name, err)
+			continue
+		}
+
 		// Execute task (in goroutine)
 		go p.executeTask(s.Name, projectName, task.ID, task.Prompt)
 		dispatched++
@@ -364,9 +387,16 @@ func (p *Processor) checkAndExecutePendingTasks() {
 }
 
 // executeTask executes a single task with rate limit retry and circuit breaker.
-// projectName is the project name stored in the Task (value specified by MCP)
+// projectName is the project name stored in the Task (value specified by MCP).
+// Caller must ClaimDispatch(sheepName, taskID) and set sheep working before go.
 func (p *Processor) executeTask(sheepName, projectName string, taskID int, prompt string) {
-	// Change status: working
+	// Drop ClaimDispatch placeholder if execute exits without registerRunningTask
+	// (early StartTask failure, or ExecuteInteractive error before process start).
+	// No-op once a real RunningTask (with Cancel/Cmd) replaced the placeholder
+	// and was unregistered normally.
+	defer worker.ReleaseDispatch(sheepName, taskID)
+
+	// Change status: working (DB already claimed by dispatcher; notify SSE)
 	if p.OnStatusChange != nil {
 		p.OnStatusChange(sheepName, "working")
 	}
@@ -378,7 +408,7 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 
 	// Start task
 	if err := StartTask(taskID); err != nil {
-		// Sheep never left idle; keep SSE status consistent with DB.
+		_ = worker.UpdateStatus(sheepName, sheep.StatusIdle)
 		if p.OnStatusChange != nil {
 			p.OnStatusChange(sheepName, "idle")
 		}
@@ -389,7 +419,8 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 		return
 	}
 
-	// Set TaskID on RunningTask (for saving output on interruption)
+	// TaskID already set by ClaimDispatch; keep SetRunningTaskID for paths that
+	// register after ClaimDispatch without a prior TaskID.
 	worker.SetRunningTaskID(sheepName, taskID)
 
 	// Output collection — capped at maxOutputLinesBytes to prevent unbounded

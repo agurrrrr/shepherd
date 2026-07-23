@@ -359,9 +359,16 @@ func Delete(projectName string, id int) error {
 	return nil
 }
 
+// cascadeEnqueueDelay spaces out bulk child/parent task creation so the
+// processor can claim the first task (and mark the sheep working) before the
+// next pending row appears. Without this, cascade enqueue + ProcessPendingNow
+// (or concurrent tickers) can double-dispatch the same sheep on two children.
+const cascadeEnqueueDelay = 2 * time.Second
+
 // Execute builds a prompt from the issue and enqueues a task for a sheep.
 // If the issue has incomplete children (status != done), those are enqueued first
-// in stable ID order, then the parent. All tasks are created in one call (FIFO).
+// in stable ID order, then the parent. Tasks are created with a short delay so
+// they start sequentially rather than racing on one sheep.
 // Does not require a live daemon; the processor picks up pending tasks when running.
 func Execute(in ExecuteInput) (*ExecuteResult, error) {
 	iss, err := Get(in.Project, in.IssueID)
@@ -386,6 +393,18 @@ func Execute(in ExecuteInput) (*ExecuteResult, error) {
 		return nil, err
 	}
 
+	// Cancel-all / daemon crash used to leave issues at in_progress while tasks
+	// were stopped/failed. Reconcile before cascade so re-execute is possible.
+	_ = reconcileStaleProgress(ctx, client, iss)
+	for _, child := range iss.Edges.Children {
+		_ = reconcileStaleProgress(ctx, client, child)
+	}
+	// Reload after reconcile so cascade filters see updated statuses.
+	iss, err = Get(in.Project, in.IssueID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Incomplete children first (status != done), oldest ID first — already ordered by Get.
 	var toEnqueue []*ent.Issue
 	for _, child := range iss.Edges.Children {
@@ -403,8 +422,21 @@ func Execute(in ExecuteInput) (*ExecuteResult, error) {
 		IssueIDs:  make([]int, 0, len(toEnqueue)),
 	}
 
+	enqueued := 0
 	for _, target := range toEnqueue {
-		// Reload each child with edges needed for prompt (body/goal already on entity).
+		// Skip issues that already have a live queue entry (avoid duplicate cascade).
+		active, aerr := hasActiveTask(ctx, client, target.ID)
+		if aerr != nil {
+			return nil, fmt.Errorf("failed to check active tasks for issue #%d: %w", target.ID, aerr)
+		}
+		if active {
+			continue
+		}
+
+		if enqueued > 0 {
+			time.Sleep(cascadeEnqueueDelay)
+		}
+
 		// Children from Edges.Children may lack Project; use cascade projectID/sheep.
 		taskID, err := enqueueOne(ctx, client, target, sheep, projectID, in.Model)
 		if err != nil {
@@ -415,9 +447,83 @@ func Execute(in ExecuteInput) (*ExecuteResult, error) {
 		if target.ID == iss.ID {
 			result.TaskID = taskID
 		}
+		enqueued++
+	}
+
+	if enqueued == 0 {
+		return nil, fmt.Errorf("no tasks enqueued: all target issues already have pending/running tasks")
 	}
 
 	return result, nil
+}
+
+// hasActiveTask reports whether the issue already has a pending or running task.
+func hasActiveTask(ctx context.Context, client *ent.Client, issueID int) (bool, error) {
+	n, err := client.Task.Query().
+		Where(
+			entTask.HasIssueWith(entIssue.ID(issueID)),
+			entTask.StatusIn(entTask.StatusPending, entTask.StatusRunning),
+		).
+		Count(ctx)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// reconcileStaleProgress fixes issues left at in_progress/testing after their
+// linked tasks were bulk-cancelled or recovered without status sync.
+// No-op when a pending/running task still exists, or status is terminal/todo.
+func reconcileStaleProgress(ctx context.Context, client *ent.Client, iss *ent.Issue) error {
+	if iss == nil {
+		return nil
+	}
+	switch iss.Status {
+	case entIssue.StatusInProgress, entIssue.StatusTesting:
+		// continue
+	default:
+		return nil
+	}
+
+	active, err := hasActiveTask(ctx, client, iss.ID)
+	if err != nil || active {
+		return err
+	}
+
+	// Latest linked task decides the repaired status.
+	latest, err := client.Task.Query().
+		Where(entTask.HasIssueWith(entIssue.ID(iss.ID))).
+		Order(ent.Desc(entTask.FieldCreatedAt)).
+		First(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			// No tasks at all — return to todo so execute can start clean.
+			_, uerr := client.Issue.UpdateOneID(iss.ID).
+				SetStatus(entIssue.StatusTodo).
+				ClearCompletedAt().
+				Save(ctx)
+			return uerr
+		}
+		return err
+	}
+
+	newStatus := entIssue.StatusFailed
+	switch latest.Status {
+	case entTask.StatusCompleted:
+		newStatus = entIssue.StatusTesting
+	case entTask.StatusFailed, entTask.StatusStopped:
+		newStatus = entIssue.StatusFailed
+	case entTask.StatusPending, entTask.StatusRunning:
+		// Race: task became active after hasActiveTask — leave issue alone.
+		return nil
+	}
+
+	upd := client.Issue.UpdateOneID(iss.ID).SetStatus(newStatus)
+	if newStatus == entIssue.StatusFailed {
+		upd = upd.SetCompletedAt(time.Now())
+	}
+	_, err = upd.Save(ctx)
+	return err
 }
 
 // ChildrenChecklist returns a markdown checklist of direct children with status.
@@ -476,7 +582,9 @@ func enqueueOne(ctx context.Context, client *ent.Client, iss *ent.Issue, sheep *
 	}
 
 	now := time.Now()
-	upd := client.Issue.UpdateOneID(iss.ID).SetStatus(entIssue.StatusInProgress)
+	upd := client.Issue.UpdateOneID(iss.ID).
+		SetStatus(entIssue.StatusInProgress).
+		ClearCompletedAt() // re-run after fail/stop must not look finalized
 	// Prefer StartedAt from the entity if already loaded; otherwise set.
 	if iss.StartedAt == nil || iss.StartedAt.IsZero() {
 		upd = upd.SetStartedAt(now)

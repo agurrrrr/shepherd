@@ -9,6 +9,7 @@ import (
 
 	"github.com/agurrrrr/shepherd/ent"
 	entIssue "github.com/agurrrrr/shepherd/ent/issue"
+	"github.com/agurrrrr/shepherd/ent/predicate"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/task"
@@ -530,6 +531,9 @@ func StatusToKorean(status task.Status) string {
 //     is the false-"interrupted" bug that corrupted the queue.
 //   - owner is this same process (graceful shutdown) or a dead/unknown PID →
 //     genuinely orphaned, recover it.
+//
+// Linked issues are moved to failed so they are not left stuck at in_progress
+// after a daemon crash (cascade cancel / restart path).
 func RecoverStuckTasks() (int, error) {
 	ctx := context.Background()
 	client := db.Client()
@@ -544,6 +548,7 @@ func RecoverStuckTasks() (int, error) {
 	}
 
 	runningCount := 0
+	var recoveredIDs []int
 	for _, t := range running {
 		// Skip tasks still owned by a live, different process.
 		if t.OwnerPid != 0 && t.OwnerPid != selfPID && daemon.IsPIDAlive(t.OwnerPid) {
@@ -557,8 +562,10 @@ func RecoverStuckTasks() (int, error) {
 		if err != nil {
 			return runningCount, fmt.Errorf("failed to recover task #%d: %w", t.ID, err)
 		}
+		recoveredIDs = append(recoveredIDs, t.ID)
 		runningCount++
 	}
+	syncIssuesFailedForTasks(recoveredIDs)
 
 	return runningCount, nil
 }
@@ -577,11 +584,19 @@ func CancelStalePendingTasks() (int, error) {
 	// created within the last 2 seconds are considered "current session".
 	cutoff := now.Add(-2 * time.Second)
 
+	ids, err := taskIDsWhere(ctx, client,
+		task.StatusEQ(task.StatusPending),
+		task.CreatedAtLT(cutoff),
+	)
+	if err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
 	count, err := client.Task.Update().
-		Where(
-			task.StatusEQ(task.StatusPending),
-			task.CreatedAtLT(cutoff),
-		).
+		Where(task.IDIn(ids...)).
 		SetStatus(task.StatusStopped).
 		SetError("cancelled: stale task from previous session").
 		SetCompletedAt(now).
@@ -589,6 +604,7 @@ func CancelStalePendingTasks() (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to cancel stale pending tasks: %w", err)
 	}
+	syncIssuesFailedForTasks(ids)
 
 	return count, nil
 }
@@ -598,8 +614,16 @@ func CancelPendingTasks() (int, error) {
 	ctx := context.Background()
 	client := db.Client()
 
+	ids, err := taskIDsWhere(ctx, client, task.StatusEQ(task.StatusPending))
+	if err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
 	count, err := client.Task.Update().
-		Where(task.StatusEQ(task.StatusPending)).
+		Where(task.IDIn(ids...)).
 		SetStatus(task.StatusStopped).
 		SetError("cancelled by user").
 		SetCompletedAt(time.Now()).
@@ -607,6 +631,7 @@ func CancelPendingTasks() (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to cancel pending tasks: %w", err)
 	}
+	syncIssuesFailedForTasks(ids)
 
 	return count, nil
 }
@@ -616,8 +641,16 @@ func CancelRunningTasks() (int, error) {
 	ctx := context.Background()
 	client := db.Client()
 
+	ids, err := taskIDsWhere(ctx, client, task.StatusEQ(task.StatusRunning))
+	if err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
 	count, err := client.Task.Update().
-		Where(task.StatusEQ(task.StatusRunning)).
+		Where(task.IDIn(ids...)).
 		SetStatus(task.StatusStopped).
 		SetError("cancelled by user").
 		SetCompletedAt(time.Now()).
@@ -625,8 +658,31 @@ func CancelRunningTasks() (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to cancel running tasks: %w", err)
 	}
+	syncIssuesFailedForTasks(ids)
 
 	return count, nil
+}
+
+// taskIDsWhere returns IDs of tasks matching the given predicates.
+func taskIDsWhere(ctx context.Context, client *ent.Client, preds ...predicate.Task) ([]int, error) {
+	rows, err := client.Task.Query().Where(preds...).Select(task.FieldID).All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query task ids: %w", err)
+	}
+	ids := make([]int, 0, len(rows))
+	for _, t := range rows {
+		ids = append(ids, t.ID)
+	}
+	return ids, nil
+}
+
+// syncIssuesFailedForTasks moves linked issues to failed after bulk task
+// cancel/recover. Bulk task updates skip StopTaskWithOutput/FailTask paths,
+// so without this issues stay stuck at in_progress and cannot be re-run cleanly.
+func syncIssuesFailedForTasks(taskIDs []int) {
+	for _, id := range taskIDs {
+		updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+	}
 }
 
 // GetProjectCostStats returns total cost for a project.

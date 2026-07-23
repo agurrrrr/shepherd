@@ -5,6 +5,45 @@ import (
 	"testing"
 )
 
+func TestClaimDispatch_PreventsDoubleClaim(t *testing.T) {
+	const name = "test-sheep-claim-dispatch"
+	unregisterRunningTask(name, runningTasks[name])
+	ReleaseDispatch(name, 1)
+
+	if !ClaimDispatch(name, 42) {
+		t.Fatal("first claim should succeed")
+	}
+	if !IsTaskRunning(name) {
+		t.Fatal("claim should mark task running")
+	}
+	if ClaimDispatch(name, 43) {
+		t.Fatal("second claim on same sheep must fail")
+	}
+	// Real process registration replaces placeholder and preserves task ID.
+	token := registerRunningTask(name, nil, exec.Command("true"))
+	if token.TaskID != 42 {
+		t.Fatalf("TaskID preserved from claim: got %d want 42", token.TaskID)
+	}
+	// ReleaseDispatch must not remove a registered process entry.
+	ReleaseDispatch(name, 42)
+	if !IsTaskRunning(name) {
+		t.Fatal("ReleaseDispatch must not clear registered process entry")
+	}
+	unregisterRunningTask(name, token)
+	if IsTaskRunning(name) {
+		t.Fatal("expected clean after unregister")
+	}
+
+	// Placeholder-only release.
+	if !ClaimDispatch(name, 99) {
+		t.Fatal("claim after clear should succeed")
+	}
+	ReleaseDispatch(name, 99)
+	if IsTaskRunning(name) {
+		t.Fatal("placeholder claim should release")
+	}
+}
+
 // TestUnregisterRunningTask_SelfGuard verifies the stop+restart race fix:
 // a late-finishing task must only ever remove its OWN registry entry, never a
 // newer task's that took over the same sheep name after a stop+restart.
