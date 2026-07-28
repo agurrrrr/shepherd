@@ -670,13 +670,30 @@ func (tr *ToolRegistry) safePath(p string) (string, error) {
 		cleaned = filepath.Join(tr.projectPath, cleaned)
 	}
 	// Ensure the path is within project directory.
-	// Use rel == ".." || strings.HasPrefix(rel, "../") to avoid false positives
-	// on legitimate filenames like "..foo" that happen to start with two dots.
 	rel, err := filepath.Rel(tr.projectPath, cleaned)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+	if err != nil || isEscapingRel(rel) {
 		return "", fmt.Errorf("path %q is outside project directory", p)
 	}
 	return cleaned, nil
+}
+
+// isEscapingRel reports whether a filepath.Rel result points outside the base
+// directory it was computed against.
+//
+// Backslashes are folded to "/" first because filepath.Rel returns `..\foo` on
+// Windows, which a bare `../` prefix check waves through. The replacement is
+// unconditional rather than filepath.ToSlash so the rule is identical on every
+// platform (ToSlash is a no-op on Linux, which would leave the Windows-shaped
+// case untested there). The cost is that a Linux file literally named `..\foo`
+// is rejected — a backslash in a filename is rare enough, and over-rejecting is
+// the safe direction for a mistake guard.
+//
+// The check is `rel == ".." || prefix "../"` rather than a plain `..` prefix so
+// legitimate filenames like "..foo" — which start with two dots but stay inside
+// the directory — are not false positives.
+func isEscapingRel(rel string) bool {
+	relSlash := strings.ReplaceAll(rel, `\`, "/")
+	return relSlash == ".." || strings.HasPrefix(relSlash, "../")
 }
 
 // defaultReadFileLines is the line window read_file returns when it is called

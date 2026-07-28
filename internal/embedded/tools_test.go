@@ -630,6 +630,38 @@ func TestSafePathDotDotFoo(t *testing.T) {
 	}
 }
 
+// isEscapingRel is tested directly because filepath.Rel only emits
+// backslash-separated results on Windows, so the `..\foo` case that used to
+// slip past the guard is unreachable through safePath on Linux. The helper
+// applies the same rule on every platform, so these cases hold everywhere.
+func TestIsEscapingRel(t *testing.T) {
+	tests := []struct {
+		rel  string
+		want bool
+	}{
+		// Windows-shaped results: filepath.Rel returns `..\foo` there.
+		{`..\foo`, true},
+		{`..\..\etc\passwd`, true},
+		{`..\`, true},
+		// POSIX-shaped results.
+		{"..", true},
+		{"../foo", true},
+		{"../../etc/passwd", true},
+		// Inside the project — must not be flagged.
+		{"..foo", false},
+		{`..foo\bar`, false},
+		{".", false},
+		{"sub/ok.go", false},
+		{`sub\ok.go`, false},
+		{"a/../b.go", false},
+	}
+	for _, tt := range tests {
+		if got := isEscapingRel(tt.rel); got != tt.want {
+			t.Errorf("isEscapingRel(%q) = %v, want %v", tt.rel, got, tt.want)
+		}
+	}
+}
+
 // ─────────────────────────────────────────────
 // B4: writefile empty content + editfile error message
 // ─────────────────────────────────────────────
