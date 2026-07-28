@@ -35,6 +35,15 @@ Thumbs.db
 # Local config (may contain API keys)
 # config.yaml is in ~/.shepherd/, not in repo
 
+# Secrets — never commit (open-source repo)
+.env
+.env.*
+secret.json
+secrets.yaml
+secrets.yml
+*.tfstate
+*.tfstate.backup
+
 # Database
 *.db
 *.db-journal

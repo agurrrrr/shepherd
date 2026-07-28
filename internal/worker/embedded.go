@@ -214,6 +214,14 @@ Wiki:
 - wiki_read_page: Read a wiki page (project_name, slug)
 - wiki_list_pages: List wiki pages for a project (project_name)
 - wiki_search: Search wiki pages by query (project_name, query)
+- wiki_create: Create a new wiki page (project_name, slug, title, content, [category], [tags])
+- wiki_edit: Partially edit a page — one mode per call (project_name, slug, mode=append|section|line|find_replace, ...)
+
+Issues:
+- issue_list: List issues (project_name, [status], [type], [query])
+- issue_get: Get one issue with linked tasks (project_name, id)
+- issue_upsert: Create (no id) or update (with id) an issue (project_name, [id], title, [type], [body], [goal], [status]). Mark status=done only after goals are met.
+- issue_execute: Queue a task for an issue — not immediate; also sets issue status to in_progress; re-calling may enqueue duplicates (project_name, id, [sheep_name], [model])
 
 Browser automation (PREFERRED over WebFetch for web tasks):
 - browser_session_start, browser_open, browser_get_text, browser_click, browser_type, ...

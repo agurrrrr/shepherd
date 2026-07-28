@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -37,12 +38,35 @@ type Client struct {
 }
 
 // NewClient creates a new client for the given endpoint.
+//
+// The HTTP client intentionally has no overall Timeout (streams can run for
+// tens of minutes). Dial/TLS and response-header bounds prevent a silent hang
+// from pinning a sheep forever when the gateway never answers; once headers
+// arrive, the stream idle-timeout + health-check path owns liveness.
 func NewClient(baseURL, apiKey, model string) *Client {
 	return &Client{
-		httpClient: &http.Client{},
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		apiKey:     apiKey,
-		model:      model,
+		httpClient: &http.Client{
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          32,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   15 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+				// Bound time-to-first-byte so a stuck gateway (no headers) fails
+				// as a retryable transport error instead of hanging the task
+				// until the outer task deadline. After headers, SSE idle logic
+				// takes over (#6955 B1).
+				ResponseHeaderTimeout: 10 * time.Minute,
+			},
+		},
+		baseURL: strings.TrimRight(baseURL, "/"),
+		apiKey:  apiKey,
+		model:   model,
 	}
 }
 
@@ -685,17 +709,26 @@ func (c *Client) AccumulateStreamProposer(ctx context.Context, req *ChatRequest,
 	return c.accumulateStreamWithRetry(ctx, req, proposerRetryConfig, onOutput, onToken)
 }
 
-// accumulateStreamWithRetry is the shared retry loop. The retry budget is
-// bounded by the smaller of rc.totalWaitLimit and the ctx deadline, so retries
-// never outlive the caller's own timeout (task #7077).
+// accumulateStreamWithRetry is the shared retry loop. The retry wait budget
+// (rc.totalWaitLimit) starts only after the first transient failure, so a long
+// first attempt (e.g. 15+ min prompt eval that ends in 504) does not consume
+// the entire reconnect budget and abort at "1/6 시도" with zero real retries
+// (#7828/#7845). The caller's ctx deadline still bounds every attempt.
 func (c *Client) accumulateStreamWithRetry(ctx context.Context, req *ChatRequest, rc retryConfig, onOutput func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
-	deadline := time.Now().Add(rc.totalWaitLimit)
-	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
-		deadline = dl
-	}
+	// Wait-budget deadline is zero until the first transient failure; then it
+	// is set to now+totalWaitLimit (capped by ctx deadline if any).
+	var waitDeadline time.Time
 
 	var lastErr error
 	for attempt := 0; attempt <= rc.maxRetries; attempt++ {
+		// Honour parent cancellation between attempts (and before the first).
+		if err := ctx.Err(); err != nil {
+			if lastErr != nil {
+				return nil, "", nil, fmt.Errorf("transient error after %d retries: %w", attempt, lastErr)
+			}
+			return nil, "", nil, err
+		}
+
 		msg, finishReason, usage, err := c.AccumulateStreamWithProgress(ctx, req, onOutput, onToken)
 		if err == nil {
 			return msg, finishReason, usage, nil
@@ -707,8 +740,18 @@ func (c *Client) accumulateStreamWithRetry(ctx context.Context, req *ChatRequest
 			return nil, "", nil, err
 		}
 
-		// Last attempt or deadline exceeded — give up.
-		if attempt == rc.maxRetries || !time.Now().Before(deadline) {
+		// Open the reconnect wait budget on the first transient failure only.
+		// First-attempt wall time is intentionally excluded so long successful
+		// prompt processing that later 504s still gets real retries.
+		if waitDeadline.IsZero() {
+			waitDeadline = time.Now().Add(rc.totalWaitLimit)
+			if dl, ok := ctx.Deadline(); ok && dl.Before(waitDeadline) {
+				waitDeadline = dl
+			}
+		}
+
+		// Last attempt or wait budget spent — give up.
+		if attempt == rc.maxRetries || !time.Now().Before(waitDeadline) {
 			if onOutput != nil {
 				onOutput(fmt.Sprintf("⚠️ LLM 서버 재연결 한계 초과 (%d/%d 시도). 작업을 중단합니다.",
 					attempt+1, rc.maxRetries+1))
@@ -738,7 +781,7 @@ func (c *Client) accumulateStreamWithRetry(ctx context.Context, req *ChatRequest
 			}
 		}
 
-		if !time.Now().Before(deadline) {
+		if !time.Now().Before(waitDeadline) {
 			if onOutput != nil {
 				onOutput("⚠️ LLM 서버 재연결 대기 시간 초과. 작업을 중단합니다.")
 			}

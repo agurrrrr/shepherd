@@ -140,6 +140,20 @@ func (_c *IssueCreate) SetNillableCompletedAt(v *time.Time) *IssueCreate {
 	return _c
 }
 
+// SetParentID sets the "parent_id" field.
+func (_c *IssueCreate) SetParentID(v int) *IssueCreate {
+	_c.mutation.SetParentID(v)
+	return _c
+}
+
+// SetNillableParentID sets the "parent_id" field if the given value is not nil.
+func (_c *IssueCreate) SetNillableParentID(v *int) *IssueCreate {
+	if v != nil {
+		_c.SetParentID(*v)
+	}
+	return _c
+}
+
 // SetProjectID sets the "project" edge to the Project entity by ID.
 func (_c *IssueCreate) SetProjectID(id int) *IssueCreate {
 	_c.mutation.SetProjectID(id)
@@ -164,6 +178,26 @@ func (_c *IssueCreate) AddTasks(v ...*Task) *IssueCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddTaskIDs(ids...)
+}
+
+// SetParent sets the "parent" edge to the Issue entity.
+func (_c *IssueCreate) SetParent(v *Issue) *IssueCreate {
+	return _c.SetParentID(v.ID)
+}
+
+// AddChildIDs adds the "children" edge to the Issue entity by IDs.
+func (_c *IssueCreate) AddChildIDs(ids ...int) *IssueCreate {
+	_c.mutation.AddChildIDs(ids...)
+	return _c
+}
+
+// AddChildren adds the "children" edges to the Issue entity.
+func (_c *IssueCreate) AddChildren(v ...*Issue) *IssueCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddChildIDs(ids...)
 }
 
 // Mutation returns the IssueMutation object of the builder.
@@ -342,6 +376,39 @@ func (_c *IssueCreate) createSpec() (*Issue, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(task.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ParentIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   issue.ParentTable,
+			Columns: []string{issue.ParentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.ParentID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ChildrenIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   issue.ChildrenTable,
+			Columns: []string{issue.ChildrenColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(issue.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

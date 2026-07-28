@@ -90,6 +90,11 @@ func CompletedAt(v time.Time) predicate.Issue {
 	return predicate.Issue(sql.FieldEQ(FieldCompletedAt, v))
 }
 
+// ParentID applies equality check predicate on the "parent_id" field. It's identical to ParentIDEQ.
+func ParentID(v int) predicate.Issue {
+	return predicate.Issue(sql.FieldEQ(FieldParentID, v))
+}
+
 // TitleEQ applies the EQ predicate on the "title" field.
 func TitleEQ(v string) predicate.Issue {
 	return predicate.Issue(sql.FieldEQ(FieldTitle, v))
@@ -525,6 +530,36 @@ func CompletedAtNotNil() predicate.Issue {
 	return predicate.Issue(sql.FieldNotNull(FieldCompletedAt))
 }
 
+// ParentIDEQ applies the EQ predicate on the "parent_id" field.
+func ParentIDEQ(v int) predicate.Issue {
+	return predicate.Issue(sql.FieldEQ(FieldParentID, v))
+}
+
+// ParentIDNEQ applies the NEQ predicate on the "parent_id" field.
+func ParentIDNEQ(v int) predicate.Issue {
+	return predicate.Issue(sql.FieldNEQ(FieldParentID, v))
+}
+
+// ParentIDIn applies the In predicate on the "parent_id" field.
+func ParentIDIn(vs ...int) predicate.Issue {
+	return predicate.Issue(sql.FieldIn(FieldParentID, vs...))
+}
+
+// ParentIDNotIn applies the NotIn predicate on the "parent_id" field.
+func ParentIDNotIn(vs ...int) predicate.Issue {
+	return predicate.Issue(sql.FieldNotIn(FieldParentID, vs...))
+}
+
+// ParentIDIsNil applies the IsNil predicate on the "parent_id" field.
+func ParentIDIsNil() predicate.Issue {
+	return predicate.Issue(sql.FieldIsNull(FieldParentID))
+}
+
+// ParentIDNotNil applies the NotNil predicate on the "parent_id" field.
+func ParentIDNotNil() predicate.Issue {
+	return predicate.Issue(sql.FieldNotNull(FieldParentID))
+}
+
 // HasProject applies the HasEdge predicate on the "project" edge.
 func HasProject() predicate.Issue {
 	return predicate.Issue(func(s *sql.Selector) {
@@ -563,6 +598,52 @@ func HasTasks() predicate.Issue {
 func HasTasksWith(preds ...predicate.Task) predicate.Issue {
 	return predicate.Issue(func(s *sql.Selector) {
 		step := newTasksStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasParent applies the HasEdge predicate on the "parent" edge.
+func HasParent() predicate.Issue {
+	return predicate.Issue(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, ParentTable, ParentColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasParentWith applies the HasEdge predicate on the "parent" edge with a given conditions (other predicates).
+func HasParentWith(preds ...predicate.Issue) predicate.Issue {
+	return predicate.Issue(func(s *sql.Selector) {
+		step := newParentStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasChildren applies the HasEdge predicate on the "children" edge.
+func HasChildren() predicate.Issue {
+	return predicate.Issue(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ChildrenTable, ChildrenColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasChildrenWith applies the HasEdge predicate on the "children" edge with a given conditions (other predicates).
+func HasChildrenWith(preds ...predicate.Issue) predicate.Issue {
+	return predicate.Issue(func(s *sql.Selector) {
+		step := newChildrenStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

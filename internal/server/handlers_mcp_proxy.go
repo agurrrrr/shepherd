@@ -7,8 +7,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// handleMCPProxy dispatches a browser-tool call forwarded from a stateless
-// `shepherd mcp` child. Authentication: shared X-MCP-Token from runtime.json
+// handleMCPProxy dispatches a tool call forwarded from a stateless
+// `shepherd mcp` child (browser_*, wiki_create/wiki_edit, issue_upsert/
+// issue_execute, …). Authentication: shared X-MCP-Token from runtime.json
 // (regenerated each daemon start), plus a defence-in-depth localhost check.
 func (s *Server) handleMCPProxy(c *fiber.Ctx) error {
 	// Loopback-only — token is the real check, but we refuse to even consider

@@ -21,10 +21,24 @@ func toString(v interface{}) string {
 	return ""
 }
 
+// toInt converts MCP number arguments (JSON numbers arrive as float64) to int.
+// Shared by issue/wiki handlers; return 0 for missing or non-numeric values.
+func toInt(v interface{}) int {
+	if f, ok := v.(float64); ok {
+		return int(f)
+	}
+	if i, ok := v.(int); ok {
+		return i
+	}
+	return 0
+}
+
 func (s *Server) registerWikiTools() {
 	s.tools["wiki_read_page"] = handleWikiReadPage
 	s.tools["wiki_list_pages"] = handleWikiListPages
 	s.tools["wiki_search"] = handleWikiSearch
+	s.tools["wiki_create"] = handleWikiCreate
+	s.tools["wiki_edit"] = handleWikiEdit
 }
 
 func getWikiToolsList() []Tool {
@@ -67,6 +81,53 @@ func getWikiToolsList() []Tool {
 					"case_insensitive": {Type: "boolean", Description: "Case insensitive search (default: true)"},
 				},
 				Required: []string{"project_name", "query"},
+			},
+		},
+		{
+			Name: "wiki_create",
+			Description: "새 페이지 생성 전용. 기존 slug 덮어쓰기 금지 — 기존 페이지 수정은 wiki_edit 사용. " +
+				"content는 비어 있으면 안 된다(마크다운 본문 필수).",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"project_name": {Type: "string", Description: "Project name"},
+					"slug":         {Type: "string", Description: "Wiki page slug (must be unique)"},
+					"title":        {Type: "string", Description: "Page title"},
+					"content":      {Type: "string", Description: "Markdown body (required, non-empty)"},
+					"category": {
+						Type:        "string",
+						Enum:        []string{"architecture", "patterns", "troubleshooting", "deployment", "lessons", "entity", "custom"},
+						Description: "Page category",
+					},
+					"tags": {Type: "string", Description: "Comma-separated tags"},
+				},
+				Required: []string{"project_name", "slug", "title", "content"},
+			},
+		},
+		{
+			Name: "wiki_edit",
+			Description: "한 호출에 모드 하나만. 대량 덮어쓰기 대신 append 우선 권장. " +
+				"mode=append→text; mode=section→section+line_text; mode=line→line_num+line_text; " +
+				"mode=find_replace→find+replace. 모드와 무관한 필드는 무시된다.",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"project_name": {Type: "string", Description: "Project name"},
+					"slug":         {Type: "string", Description: "Wiki page slug"},
+					"mode": {
+						Type:        "string",
+						Enum:        []string{"append", "section", "line", "find_replace"},
+						Description: "Edit mode (exactly one per call)",
+					},
+					"text":      {Type: "string", Description: "Text to append (mode=append)"},
+					"section":   {Type: "string", Description: "Section header name (mode=section)"},
+					"line_num":  {Type: "number", Description: "1-based line number (mode=line)"},
+					"line_text": {Type: "string", Description: "New line/section content (mode=section|line)"},
+					"find":      {Type: "string", Description: "Regex to find (mode=find_replace)"},
+					"replace":   {Type: "string", Description: "Replacement text (mode=find_replace)"},
+					"summary":   {Type: "string", Description: "Change summary for version history"},
+				},
+				Required: []string{"project_name", "slug", "mode"},
 			},
 		},
 	}
@@ -178,6 +239,69 @@ func handleWikiSearch(args map[string]interface{}) (string, error) {
 	}
 
 	return sb.String(), nil
+}
+
+func handleWikiCreate(args map[string]interface{}) (string, error) {
+	projectName := toString(args["project_name"])
+	slug := toString(args["slug"])
+	title := toString(args["title"])
+	content := toString(args["content"])
+	// MCP 의도적 강화: 하부 CreatePage는 빈 content 허용하지만 여기선 거부 (§3.5)
+	if projectName == "" || slug == "" || title == "" || content == "" {
+		return "", fmt.Errorf("project_name, slug, title, content are required")
+	}
+	var tags []string
+	if t := toString(args["tags"]); t != "" {
+		for _, x := range strings.Split(t, ",") {
+			if x = strings.TrimSpace(x); x != "" {
+				tags = append(tags, x)
+			}
+		}
+	}
+	page, err := wiki.CreatePage(projectName, slug, title, toString(args["category"]), content, tags)
+	if err != nil {
+		// 선택: 중복 slug 친절 래핑 (#7797)
+		if strings.Contains(err.Error(), "already exists") {
+			return "", fmt.Errorf("wiki page %q already exists — use wiki_edit to modify existing pages (no overwrite)", slug)
+		}
+		return "", err
+	}
+	return fmt.Sprintf("위키 페이지 생성됨: %s (slug: %s, category: %s)", page.Title, page.Slug, page.Category), nil
+}
+
+func handleWikiEdit(args map[string]interface{}) (string, error) {
+	projectName := toString(args["project_name"])
+	slug := toString(args["slug"])
+	mode := toString(args["mode"])
+	if projectName == "" || slug == "" || mode == "" {
+		return "", fmt.Errorf("project_name, slug, mode are required")
+	}
+
+	opts := &wiki.PartialEditOptions{
+		Summary: toString(args["summary"]),
+	}
+	// mode에 맞는 필드만 세팅 → validate()가 단일 모드 강제. 모드 무관 필드는 무시.
+	switch mode {
+	case "append":
+		opts.Append = toString(args["text"])
+	case "section":
+		opts.Section = toString(args["section"])
+		opts.LineText = toString(args["line_text"])
+	case "line":
+		opts.LineNum = toInt(args["line_num"])
+		opts.LineText = toString(args["line_text"])
+	case "find_replace":
+		opts.Find = toString(args["find"])
+		opts.Replace = toString(args["replace"])
+	default:
+		return "", fmt.Errorf("invalid mode %q: must be append|section|line|find_replace", mode)
+	}
+
+	page, err := wiki.PartiallyEditPage(projectName, slug, opts)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("위키 페이지 수정됨: %s (slug: %s, mode: %s)", page.Title, page.Slug, mode), nil
 }
 
 // ListWikiToolDefs returns the list of wiki tool definitions.

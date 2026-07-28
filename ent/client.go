@@ -576,6 +576,38 @@ func (c *IssueClient) QueryTasks(_m *Issue) *TaskQuery {
 	return query
 }
 
+// QueryParent queries the parent edge of a Issue.
+func (c *IssueClient) QueryParent(_m *Issue) *IssueQuery {
+	query := (&IssueClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(issue.Table, issue.FieldID, id),
+			sqlgraph.To(issue.Table, issue.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, issue.ParentTable, issue.ParentColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryChildren queries the children edge of a Issue.
+func (c *IssueClient) QueryChildren(_m *Issue) *IssueQuery {
+	query := (&IssueClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(issue.Table, issue.FieldID, id),
+			sqlgraph.To(issue.Table, issue.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, issue.ChildrenTable, issue.ChildrenColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *IssueClient) Hooks() []Hook {
 	return c.hooks.Issue

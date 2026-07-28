@@ -230,3 +230,25 @@ func TestSpawnSubagents_BlockedInMagi(t *testing.T) {
 		t.Fatal("write_file should be blocked for proposers")
 	}
 }
+
+// TestWriteToolsBlockedForProposer ensures issue/wiki write tools stay off the MAGI
+// proposer surface (blocklist + default-deny).
+func TestWriteToolsBlockedForProposer(t *testing.T) {
+	blocked := []string{"issue_upsert", "issue_execute", "wiki_create", "wiki_edit"}
+	for _, name := range blocked {
+		if IsAllowedProposerTool(name) {
+			t.Errorf("write tool %q must NOT be allowed for MAGI proposer", name)
+		}
+	}
+}
+
+// TestIssueReadToolsAlsoBlockedByDefault documents correction #2: suffix-style
+// names (issue_list) do not match prefix heuristics (list_), so default-deny.
+// Intentionally allow later only by adding to allowedShepherdMCPTools.
+func TestIssueReadToolsAlsoBlockedByDefault(t *testing.T) {
+	for _, name := range []string{"issue_list", "issue_get"} {
+		if IsAllowedProposerTool(name) {
+			t.Errorf("issue read tool %q unexpectedly allowed — allowlist 변경 시 이 테스트 갱신", name)
+		}
+	}
+}

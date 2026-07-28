@@ -44,6 +44,7 @@ var (
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "started_at", Type: field.TypeTime, Nullable: true},
 		{Name: "completed_at", Type: field.TypeTime, Nullable: true},
+		{Name: "parent_id", Type: field.TypeInt, Nullable: true},
 		{Name: "project_issues", Type: field.TypeInt},
 	}
 	// IssuesTable holds the schema information for the "issues" table.
@@ -53,8 +54,14 @@ var (
 		PrimaryKey: []*schema.Column{IssuesColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
-				Symbol:     "issues_projects_issues",
+				Symbol:     "issues_issues_children",
 				Columns:    []*schema.Column{IssuesColumns[10]},
+				RefColumns: []*schema.Column{IssuesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "issues_projects_issues",
+				Columns:    []*schema.Column{IssuesColumns[11]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -316,7 +323,8 @@ var (
 
 func init() {
 	BrowserSessionsTable.ForeignKeys[0].RefTable = SheepTable
-	IssuesTable.ForeignKeys[0].RefTable = ProjectsTable
+	IssuesTable.ForeignKeys[0].RefTable = IssuesTable
+	IssuesTable.ForeignKeys[1].RefTable = ProjectsTable
 	SchedulesTable.ForeignKeys[0].RefTable = ProjectsTable
 	SheepTable.ForeignKeys[0].RefTable = ProjectsTable
 	SkillsTable.ForeignKeys[0].RefTable = ProjectsTable

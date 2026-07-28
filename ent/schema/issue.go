@@ -47,6 +47,11 @@ func (Issue) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("마감(성공/실패 확정) 시각"),
+		// Explicit FK so APIs can read parent_id without edge load.
+		field.Int("parent_id").
+			Optional().
+			Nillable().
+			Comment("상위 이슈 ID (없으면 루트)"),
 	}
 }
 
@@ -59,5 +64,11 @@ func (Issue) Edges() []ent.Edge {
 			Required(),
 		edge.To("tasks", Task.Type).
 			Comment("이슈로 수행된 Task 목록"),
+		// Self-referential parent/children for epic → sub-issue hierarchy.
+		edge.To("children", Issue.Type).
+			From("parent").
+			Unique().
+			Field("parent_id").
+			Comment("상위 이슈 (없으면 루트)"),
 	}
 }

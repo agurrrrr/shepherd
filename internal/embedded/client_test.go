@@ -516,8 +516,10 @@ func TestIsTransientLLMError(t *testing.T) {
 		{"idle timeout", fmt.Errorf("stream idle timeout after 5m"), true},
 		{"HTTP 502", fmt.Errorf("API error 502: overloaded"), true},
 		{"HTTP 503", fmt.Errorf("API error 503: service unavailable"), true},
+		{"HTTP 504 gateway", fmt.Errorf("API error 504: <html><title>504 Gateway Time-out</title>"), true},
 		{"HTTP 529 overloaded", fmt.Errorf("API error 529: overloaded_error"), true},
 		{"context canceled", context.Canceled, false},
+		{"deadline exceeded", context.DeadlineExceeded, false},
 		{"HTTP 400", fmt.Errorf("API error 400: bad request"), false},
 		{"HTTP 401", fmt.Errorf("API error 401: unauthorized"), false},
 		{"HTTP 404", fmt.Errorf("API error 404: not found"), false},
@@ -646,6 +648,68 @@ func TestAccumulateStreamWithRetryFatalError(t *testing.T) {
 	}
 	if count := atomic.LoadInt32(&callCount); count != 1 {
 		t.Errorf("expected 1 call (no retry for fatal error), got %d", count)
+	}
+}
+
+// TestAccumulateStreamWithRetryBudgetExcludesFirstAttempt reproduces #7828/#7845:
+// a long first attempt that ends in 504 must not exhaust totalWaitLimit before
+// any real reconnect is attempted. Wait budget starts only after the first
+// transient failure.
+func TestAccumulateStreamWithRetryBudgetExcludesFirstAttempt(t *testing.T) {
+	var attempt int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		n := atomic.AddInt32(&attempt, 1)
+		if n == 1 {
+			// First attempt is deliberately slow (> totalWaitLimit) then 504 —
+			// old code would open the budget before this call and give up with
+			// "1/N 시도" and no real retry.
+			time.Sleep(250 * time.Millisecond)
+			w.WriteHeader(http.StatusGatewayTimeout)
+			_, _ = w.Write([]byte(`<html><title>504 Gateway Time-out</title></html>`))
+			return
+		}
+		// Second attempt succeeds.
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fl, _ := w.(http.Flusher)
+		lines := []string{
+			`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"recovered"}}]}`,
+			`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+			`data: [DONE]`,
+		}
+		for _, l := range lines {
+			_, _ = w.Write([]byte(l + "\n\n"))
+			if fl != nil {
+				fl.Flush()
+			}
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "", "test-model")
+	// totalWaitLimit shorter than first-attempt sleep — must still retry.
+	rc := retryConfig{
+		maxRetries:     2,
+		initialDelay:   10 * time.Millisecond,
+		maxDelay:       20 * time.Millisecond,
+		totalWaitLimit: 50 * time.Millisecond,
+	}
+	msg, finish, _, err := c.accumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, rc, nil, nil)
+	if err != nil {
+		t.Fatalf("expected retry after long first 504, got error: %v (attempts=%d)", err, atomic.LoadInt32(&attempt))
+	}
+	if finish != "stop" {
+		t.Fatalf("finish = %q, want stop", finish)
+	}
+	if msg.Content != "recovered" {
+		t.Errorf("content = %q, want recovered", msg.Content)
+	}
+	if n := atomic.LoadInt32(&attempt); n < 2 {
+		t.Errorf("expected at least 2 attempts, got %d", n)
 	}
 }
 

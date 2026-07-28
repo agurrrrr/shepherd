@@ -320,6 +320,14 @@ export default function (pi: ExtensionAPI) {
     { name: "wiki_read_page", desc: "Read a wiki page by project and slug", params: Type.Object({ project_name: Type.String({ description: "Project name" }), slug: Type.String({ description: "Page slug" }) }) },
     { name: "wiki_list_pages", desc: "List wiki pages for a project", params: Type.Object({ project_name: Type.String({ description: "Project name" }) }) },
     { name: "wiki_search", desc: "Search wiki pages by query", params: Type.Object({ project_name: Type.String({ description: "Project name" }), query: Type.String({ description: "Search query" }) }) },
+    // Wiki write
+    { name: "wiki_create", desc: "Create a new wiki page (do not overwrite existing slug)", params: Type.Object({ project_name: Type.String(), slug: Type.String(), title: Type.String(), content: Type.String(), category: Type.Optional(Type.String()), tags: Type.Optional(Type.String({ description: "comma-separated" })) }) },
+    { name: "wiki_edit", desc: "Partially edit a wiki page (one mode per call)", params: Type.Object({ project_name: Type.String(), slug: Type.String(), mode: Type.String({ description: "append|section|line|find_replace" }), text: Type.Optional(Type.String()), section: Type.Optional(Type.String()), line_num: Type.Optional(Type.Number()), line_text: Type.Optional(Type.String()), find: Type.Optional(Type.String()), replace: Type.Optional(Type.String()), summary: Type.Optional(Type.String()) }) },
+    // Issues
+    { name: "issue_list", desc: "List project issues (filter by status/type/query)", params: Type.Object({ project_name: Type.String({ description: "Project name" }), status: Type.Optional(Type.String({ description: "todo|in_progress|testing|failed|done" })), type: Type.Optional(Type.String({ description: "design|feature|bug" })), query: Type.Optional(Type.String({ description: "Title substring" })), limit: Type.Optional(Type.Number()), page: Type.Optional(Type.Number()) }) },
+    { name: "issue_get", desc: "Get one issue with linked tasks", params: Type.Object({ project_name: Type.String(), id: Type.Number() }) },
+    { name: "issue_upsert", desc: "Create (no id) or update (with id) an issue", params: Type.Object({ project_name: Type.String(), id: Type.Optional(Type.Number()), title: Type.Optional(Type.String()), type: Type.Optional(Type.String({ description: "design|feature|bug" })), body: Type.Optional(Type.String()), goal: Type.Optional(Type.String()), status: Type.Optional(Type.String({ description: "update only" })) }) },
+    { name: "issue_execute", desc: "Queue a task for an issue (not immediate; sets status in_progress; re-call may enqueue duplicates)", params: Type.Object({ project_name: Type.String(), id: Type.Number(), sheep_name: Type.Optional(Type.String()), model: Type.Optional(Type.String()) }) },
     // Browser automation
     { name: "browser_session_start", desc: "Start browser session", params: Type.Object({ ...sheep, headless: Type.Optional(Type.Boolean({ description: "Headless mode (default true)" })) }) },
     { name: "browser_session_stop", desc: "End browser session", params: Type.Object({ ...sheep }) },
@@ -418,12 +426,14 @@ export default function (pi: ExtensionAPI) {
     description:
       "On-demand gateway to Shepherd project management tools. " +
       "Actual Shepherd tools (task_start, task_complete, get_history, skill_load, " +
-      "wiki_read_page, wiki_search, browser_*, get_status, ...) stay hidden to " +
+      "wiki_read_page, wiki_search, wiki_create, wiki_edit, " +
+      "issue_list, issue_get, issue_upsert, issue_execute, " +
+      "browser_*, get_status, ...) stay hidden to " +
       "keep context lean. Call with action='expand' to load & activate them, " +
       "'collapse' to hide again, 'status' to inspect state.",
     promptSnippet: "Load/unload Shepherd tools on demand",
     promptGuidelines: [
-      "Call shepherd with action='expand' before doing any Shepherd work (task management, wiki, browser automation, skills). It reveals all Shepherd tools.",
+      "Call shepherd with action='expand' before doing any Shepherd work (task management, issues, wiki read/write, browser automation, skills). It reveals all Shepherd tools.",
       "Call shepherd with action='collapse' once Shepherd work is finished to keep the toolset and context lean.",
     ],
     parameters: Type.Object({
@@ -457,12 +467,13 @@ export default function (pi: ExtensionAPI) {
   const TASK_KW = /(task_start|task_complete|task_error|get_history|get_status|큐|작업\s*등록|작업\s*완료|프로젝트\s*히스토리)/i;
   const WIKI_KW = /(wiki_read|wiki_list|wiki_search|wiki|위키|문서)/i;
   const SKILL_KW = /(skill_load|skill|스킬)/i;
+  const ISSUE_KW = /(issue_|이슈|issue\s*list|issue\s*get|issue\s*upsert|issue\s*execute)/i;
 
   pi.on("input", async (event: any, ctx) => {
     if (expanded) return;
     const raw = (event?.text ?? "").toString();
     if (!raw) return;
-    if (BROWSER_KW.test(raw) || TASK_KW.test(raw) || WIKI_KW.test(raw) || SKILL_KW.test(raw)) {
+    if (BROWSER_KW.test(raw) || TASK_KW.test(raw) || WIKI_KW.test(raw) || SKILL_KW.test(raw) || ISSUE_KW.test(raw)) {
       try {
         const names = await expand();
         ctx?.ui?.notify?.("Shepherd auto-expanded (" + names.length + " tools)", "info");

@@ -165,6 +165,39 @@ func IsTaskRunning(sheepName string) bool {
 	return ok
 }
 
+// ClaimDispatch reserves a sheep for an upcoming task before the execute
+// goroutine starts. Concurrent processor ticks / ProcessPendingNow calls can
+// otherwise both see the sheep idle and double-dispatch (observed: cascade
+// issue execute starting two children ~500ms apart on one sheep).
+// Returns false if the sheep is already claimed.
+func ClaimDispatch(sheepName string, taskID int) bool {
+	runningTasksMu.Lock()
+	defer runningTasksMu.Unlock()
+	if _, ok := runningTasks[sheepName]; ok {
+		return false
+	}
+	runningTasks[sheepName] = &RunningTask{
+		SheepName: sheepName,
+		TaskID:    taskID,
+	}
+	return true
+}
+
+// ReleaseDispatch clears a ClaimDispatch reservation when execute fails before
+// registerRunningTask replaces the placeholder (or when claim must be rolled back).
+// Only removes the entry when it still has the same taskID and no process yet.
+func ReleaseDispatch(sheepName string, taskID int) {
+	runningTasksMu.Lock()
+	defer runningTasksMu.Unlock()
+	t, ok := runningTasks[sheepName]
+	if !ok {
+		return
+	}
+	if t.TaskID == taskID && t.Cmd == nil && t.Cancel == nil {
+		delete(runningTasks, sheepName)
+	}
+}
+
 // registerRunningTask registers a running task and returns the registered
 // entry as an identity token. Pass that token to unregisterRunningTask so a
 // late-finishing task can only ever remove its OWN entry — never one that a
@@ -172,10 +205,17 @@ func IsTaskRunning(sheepName string) bool {
 func registerRunningTask(sheepName string, cancel context.CancelFunc, cmd *exec.Cmd) *RunningTask {
 	runningTasksMu.Lock()
 	defer runningTasksMu.Unlock()
+	// Preserve TaskID from ClaimDispatch when the processor reserved the sheep
+	// before the process handle existed.
+	prevID := 0
+	if prev, ok := runningTasks[sheepName]; ok {
+		prevID = prev.TaskID
+	}
 	rt := &RunningTask{
 		SheepName: sheepName,
 		Cancel:    cancel,
 		Cmd:       cmd,
+		TaskID:    prevID,
 	}
 	runningTasks[sheepName] = rt
 	return rt
@@ -1098,7 +1138,8 @@ func buildPromptCompact(sheepName, prompt string) string {
 		sb.WriteString(`[Available Shepherd MCP Tools]
 Task management: task_complete (task_id, summary), task_error (task_id, error), get_history (project_name, limit), get_status
 Skills: skill_load (skill_name) - load full skill content when needed
-Wiki: wiki_read_page (project_name, slug), wiki_list_pages (project_name), wiki_search (project_name, query)
+Wiki: wiki_read_page, wiki_list_pages, wiki_search, wiki_create, wiki_edit (one mode per call: append|section|line|find_replace)
+Issues: issue_list, issue_get, issue_upsert, issue_execute (enqueue only; sets status in_progress)
 Browser automation: browser_session_start (sheep_name), browser_open, browser_click, browser_type, browser_get_text, browser_get_html, browser_screenshot, browser_session_stop
 For web tasks, use browser tools instead of WebFetch.
 
@@ -1155,7 +1196,9 @@ These tools are already registered via MCP; the full list and parameters live in
 - For web/browser tasks, prefer the browser_* tools over WebFetch. Every browser_* tool requires the sheep_name parameter.
 - Typical browser flow: browser_session_start -> browser_open -> browser_get_text / browser_click / browser_type -> browser_session_stop.
 - Use get_history for details of previous tasks, and skill_load to load a skill's full content when its summary isn't enough.
-- Use wiki_read_page / wiki_search to read project wiki knowledge.
+- Use wiki_read_page / wiki_search / wiki_list_pages to read project wiki knowledge.
+- To CREATE/UPDATE wiki pages: wiki_create / wiki_edit (no CLI needed). One mode per wiki_edit call; prefer append.
+- Issue management: issue_list / issue_get / issue_upsert / issue_execute. issue_execute enqueues a task and sets status to in_progress.
 
 `
 
@@ -1553,9 +1596,9 @@ func wikiPageScore(page *ent.WikiPage, keywords []string) int {
 }
 
 // getProjectWikiContext returns a formatted wiki context block for the sheep's
-// project. It always includes the page index and a read+write guide (read via
-// MCP, write via the `shepherd wiki` CLI), and inlines up to N relevant pages
-// selected by keyword matching against the prompt.
+// project. It always includes the page index and a read+write guide (both via
+// MCP: wiki_read_page / wiki_create / wiki_edit), and inlines up to N relevant
+// pages selected by keyword matching against the prompt.
 func getProjectWikiContext(sheepName, prompt string) string {
 	if sheepName == "" {
 		return ""
@@ -1639,16 +1682,16 @@ func getProjectWikiContext(sheepName, prompt string) string {
 		sb.WriteString("\n\n")
 	}
 
-	// READ access is via MCP; there is NO write MCP tool — creating/updating wiki
-	// pages must go through the `shepherd wiki` CLI (run it with the Bash tool).
+	// Read and write are both via MCP (wiki_create / wiki_edit); no CLI needed.
 	sb.WriteString("To READ wiki pages: MCP tools wiki_read_page (project_name, slug), wiki_search (project_name, query), wiki_list_pages (project_name).\n")
-	sb.WriteString(fmt.Sprintf("To CREATE/UPDATE wiki pages there is no MCP tool — run the `shepherd wiki` CLI via the Bash tool (project name: %q):\n", projectName))
-	sb.WriteString(fmt.Sprintf("- Create a page:        shepherd wiki create <slug> -p %q -t \"<title>\" -c \"<markdown content>\" [-C <category>] [-T tag1,tag2]\n", projectName))
-	sb.WriteString(fmt.Sprintf("- Append to a page:     shepherd wiki edit <slug> -p %q --append \"<markdown to append>\"\n", projectName))
-	sb.WriteString(fmt.Sprintf("- Replace a section:    shepherd wiki edit <slug> -p %q --section \"<header text>\" --line-text \"<new content>\"\n", projectName))
-	sb.WriteString(fmt.Sprintf("- Find & replace:       shepherd wiki edit <slug> -p %q --find \"<regex>\" --replace \"<text>\"\n", projectName))
-	sb.WriteString(fmt.Sprintf("- List pages / history: shepherd wiki list -p %q   |   shepherd wiki history <slug> -p %q\n", projectName, projectName))
-	sb.WriteString("When you learn something durable about this project (architecture decisions, gotchas, fixes, setup steps), record it in the wiki with the commands above so future tasks benefit.\n")
+	sb.WriteString("To CREATE/UPDATE wiki pages: use the MCP tools (no need for the shepherd CLI):\n")
+	sb.WriteString(fmt.Sprintf("- Create a page:      wiki_create (project_name=%q, slug, title, content, [category], [tags])\n", projectName))
+	sb.WriteString(fmt.Sprintf("- Append to a page:   wiki_edit (project_name=%q, slug, mode=\"append\", text)\n", projectName))
+	sb.WriteString(fmt.Sprintf("- Replace a section:  wiki_edit (project_name=%q, slug, mode=\"section\", section, line_text)\n", projectName))
+	sb.WriteString(fmt.Sprintf("- Find & replace:     wiki_edit (project_name=%q, slug, mode=\"find_replace\", find, replace)\n", projectName))
+	sb.WriteString("Use one edit mode per wiki_edit call. Prefer append over bulk overwrite.\n")
+	sb.WriteString("When you learn something durable about this project (architecture decisions, gotchas, fixes, setup steps), record it in the wiki with these tools so future tasks benefit.\n")
+	sb.WriteString("Issue management: issue_list / issue_get / issue_upsert / issue_execute MCP tools. issue_execute enqueues a task (not immediate) and sets issue status to in_progress.\n")
 	return sb.String()
 }
 
