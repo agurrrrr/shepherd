@@ -45,7 +45,7 @@ func ListCoreToolDefs() []Tool {
 		},
 		{
 			Name:        "get_history",
-			Description: "프로젝트 작업 히스토리를 조회합니다",
+			Description: "프로젝트의 끝난 작업(완료/실패/중단) 히스토리를 조회합니다. 진행 중(pending/running)인 작업은 포함되지 않습니다 — 지금 실행 중인 작업은 바로 당신 자신이므로, 진행 중 작업 확인이 필요하면 get_status를 쓰세요",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{

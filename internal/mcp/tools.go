@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/agurrrrr/shepherd/ent"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
@@ -193,12 +194,17 @@ func handleGetHistory(args map[string]interface{}) (string, error) {
 		limit = 10
 	}
 
-	tasks, err := queue.ListTasksByProject(projectName)
+	all, err := queue.ListTasksByProject(projectName)
 	if err != nil {
 		return "", err
 	}
 
+	tasks, inProgress := filterFinishedTasks(all)
+
 	if len(tasks) == 0 {
+		if inProgress > 0 {
+			return fmt.Sprintf("프로젝트 '%s'에 완료된 작업 기록이 없습니다 (진행 중 %d건은 제외 — get_status로 확인)", projectName, inProgress), nil
+		}
 		return fmt.Sprintf("프로젝트 '%s'에 작업 기록이 없습니다", projectName), nil
 	}
 
@@ -208,7 +214,7 @@ func handleGetHistory(args map[string]interface{}) (string, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("프로젝트 '%s' 히스토리 (최근 %d건):\n\n", projectName, len(tasks)))
+	sb.WriteString(fmt.Sprintf("프로젝트 '%s' 히스토리 (끝난 작업 최근 %d건 — 진행 중 작업은 제외):\n\n", projectName, len(tasks)))
 
 	for _, t := range tasks {
 		status := queue.StatusToKorean(t.Status)
@@ -227,6 +233,29 @@ func handleGetHistory(args map[string]interface{}) (string, error) {
 	}
 
 	return sb.String(), nil
+}
+
+// filterFinishedTasks drops pending/running tasks from a history listing and
+// returns the remaining finished ones plus the number dropped.
+//
+// A history query is almost always made by the currently running task itself,
+// so leaving that row in the listing makes the caller read its own task as a
+// separate in-flight job — weaker models then try to "continue" it or report
+// it as someone else's work. The prompt-injected [Recent Task History] block
+// (internal/worker/interactive.go) already filters to completed/failed for the
+// same reason; this keeps the tool consistent with it. Live state belongs to
+// get_status.
+func filterFinishedTasks(all []*ent.Task) ([]*ent.Task, int) {
+	finished := make([]*ent.Task, 0, len(all))
+	inProgress := 0
+	for _, t := range all {
+		if t.Status == task.StatusPending || t.Status == task.StatusRunning {
+			inProgress++
+			continue
+		}
+		finished = append(finished, t)
+	}
+	return finished, inProgress
 }
 
 func handleGetTaskDetail(args map[string]interface{}) (string, error) {
