@@ -341,7 +341,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 			Type: "function",
 			Function: OpenAIFunction{
 				Name:        "bash",
-				Description: "Execute a shell command in the project directory. Output is capped at 64KB.",
+				Description: bashToolDescription(),
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -1228,6 +1228,11 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 	if err != nil {
 		return "", err
 	}
+	// Frees invocation-owned resources (the temp .ps1 the PowerShell path uses
+	// for commands too long to encode on the command line). Deferred rather
+	// than tied to the error branch below so success, failure and timeout all
+	// clean up.
+	defer proc.close()
 	cmd := proc.cmd
 
 	var stdout, stderr bytes.Buffer

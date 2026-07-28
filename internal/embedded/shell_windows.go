@@ -65,12 +65,15 @@ func detectShell() (*resolvedShell, error) {
 // (Job Object / taskkill) replaces this cleanup in a follow-up step — the
 // shellProc wrapper exists so that swap does not touch call sites.
 func newShellProc(ctx context.Context, command, workdir string) (*shellProc, error) {
-	cmd, err := newShellCmd(ctx, command, workdir)
+	cmd, release, err := newShellCmd(ctx, command, workdir)
 	if err != nil {
 		return nil, err
 	}
 	return &shellProc{
 		cmd:     cmd,
 		cleanup: func() { killProcessGroup(cmd) },
+		// release deletes the temp .ps1 when the PowerShell path had to spill
+		// a long command to disk; shellProc.close runs it on every exit path.
+		release: release,
 	}, nil
 }

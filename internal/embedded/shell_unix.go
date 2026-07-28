@@ -30,12 +30,13 @@ func detectShell() (*resolvedShell, error) {
 // group (setupProcessGroup), so a single signal to the negative PID reaps
 // children the shell spawned.
 func newShellProc(ctx context.Context, command, workdir string) (*shellProc, error) {
-	cmd, err := newShellCmd(ctx, command, workdir)
+	cmd, release, err := newShellCmd(ctx, command, workdir)
 	if err != nil {
 		return nil, err
 	}
 	return &shellProc{
 		cmd:     cmd,
 		cleanup: func() { killProcessGroup(cmd) },
+		release: release,
 	}, nil
 }

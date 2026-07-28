@@ -62,22 +62,43 @@ func TestShellKindFor(t *testing.T) {
 	}
 }
 
-func TestShellArgs(t *testing.T) {
-	cases := []struct {
-		kind shellKind
-		want []string
-	}{
-		{shellKindBash, []string{"-c", "ls -la"}},
-		{shellKindSh, []string{"-c", "ls -la"}},
+func TestShellInvocationPOSIX(t *testing.T) {
+	cases := []shellKind{
+		shellKindBash,
+		shellKindSh,
 		// Unrecognized shells fall back to the POSIX convention.
-		{shellKindUnknown, []string{"-c", "ls -la"}},
-		{shellKindPwsh, []string{"-NoProfile", "-NonInteractive", "-Command", "ls -la"}},
-		{shellKindPowerShell, []string{"-NoProfile", "-NonInteractive", "-Command", "ls -la"}},
+		shellKindUnknown,
 	}
-	for _, c := range cases {
-		sh := &resolvedShell{kind: c.kind}
-		if got := sh.args("ls -la"); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("kind %q args = %q, want %q", c.kind, got, c.want)
+	want := []string{"-c", "ls -la"}
+	for _, kind := range cases {
+		sh := &resolvedShell{kind: kind}
+		got, release, err := sh.invocation("ls -la")
+		if err != nil {
+			t.Fatalf("kind %q invocation: %v", kind, err)
+		}
+		if release != nil {
+			t.Errorf("kind %q allocated a release func; POSIX shells own nothing", kind)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("kind %q args = %q, want %q", kind, got, want)
+		}
+	}
+}
+
+// Both PowerShell dialects route through the encoded-command path.
+func TestShellInvocationPowerShell(t *testing.T) {
+	for _, kind := range []shellKind{shellKindPwsh, shellKindPowerShell} {
+		sh := &resolvedShell{kind: kind}
+		got, release, err := sh.invocation("ls -la")
+		if err != nil {
+			t.Fatalf("kind %q invocation: %v", kind, err)
+		}
+		if release != nil {
+			t.Errorf("kind %q spilled to a temp file for a short command", kind)
+		}
+		want := []string{"-NoProfile", "-NonInteractive", "-EncodedCommand", encodeUTF16LEBase64(psScript("ls -la"))}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("kind %q args = %q, want %q", kind, got, want)
 		}
 	}
 }
@@ -209,9 +230,12 @@ func TestNewShellCmdUsesResolvedShell(t *testing.T) {
 	stubLookPath(t, map[string]string{"bash": "/usr/bin/bash"})
 	setShellConfig(t, "")
 
-	cmd, err := newShellCmd(t.Context(), "echo hi", "/tmp")
+	cmd, release, err := newShellCmd(t.Context(), "echo hi", "/tmp")
 	if err != nil {
 		t.Fatalf("newShellCmd: %v", err)
+	}
+	if release != nil {
+		t.Error("bash invocation should own no resources")
 	}
 	if cmd.Dir != "/tmp" {
 		t.Errorf("Dir = %q, want /tmp", cmd.Dir)

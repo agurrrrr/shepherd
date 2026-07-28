@@ -58,18 +58,27 @@ type resolvedShell struct {
 // in which case argv falls back to the POSIX `-c` convention.
 func (s *resolvedShell) unknown() bool { return s.kind == shellKindUnknown }
 
-// args builds the argv (excluding argv[0]) that hands command to the shell.
-func (s *resolvedShell) args(command string) []string {
+// invocation builds the argv (excluding argv[0]) that hands command to the
+// shell, plus a release func for anything the invocation had to allocate
+// (nil when there is nothing to free).
+//
+// The release func must run on every exit path, not just the error one — see
+// shellProc.close.
+func (s *resolvedShell) invocation(command string) (args []string, release func(), err error) {
 	switch s.kind {
 	case shellKindPwsh, shellKindPowerShell:
-		// Placeholder wiring so the Windows path is exercisable end to end.
-		// The real PowerShell invocation (-EncodedCommand plus the
-		// error-handling preamble) is a separate step; -Command mangles
-		// quoting and does not propagate native exit codes reliably.
-		return []string{"-NoProfile", "-NonInteractive", "-Command", command}
+		// -EncodedCommand plus an error/exit preamble; see shell_powershell.go
+		// for why -Command is not usable here.
+		return psInvocation(command)
 	default:
-		return []string{"-c", command}
+		return []string{"-c", command}, nil, nil
 	}
+}
+
+// isPowerShell reports whether commands run through a PowerShell dialect,
+// which changes the syntax the model has to write.
+func (s *resolvedShell) isPowerShell() bool {
+	return s.kind == shellKindPwsh || s.kind == shellKindPowerShell
 }
 
 // shellKindFor classifies a shell executable by basename, ignoring a Windows
@@ -175,12 +184,34 @@ func resolveShellOverride(override string) (*resolvedShell, error) {
 	return &resolvedShell{path: path, kind: shellKindFor(path)}, nil
 }
 
+// bashToolDescription is the description advertised for the bash tool.
+//
+// The tool name stays "bash" everywhere (loop.go gates on `case "bash"`), so
+// when the resolved shell is PowerShell the only way the model learns it is
+// not writing POSIX is this line. A fuller Windows-aware prompt is a separate
+// step; without at least this much, the PowerShell path works while every
+// command the agent writes still fails.
+func bashToolDescription() string {
+	const base = "Execute a shell command in the project directory. Output is capped at 64KB."
+	if sh, err := resolveShell(); err == nil && sh.isPowerShell() {
+		return base + " Shell is PowerShell: use ';' instead of '&&' (Windows PowerShell 5.1 has no '&&'), and Windows-style paths."
+	}
+	return base
+}
+
 // shellProc wraps the shell process so that platform-specific cleanup
 // (process-group kill on Unix, taskkill/Job Object on Windows) can be swapped
 // without changing call sites.
+//
+// The two teardown paths are deliberately distinct. cleanup kills the process
+// tree and only makes sense when the command did *not* finish on its own;
+// release frees resources the invocation allocated (the temp .ps1 that the
+// PowerShell path spills long commands into) and must run whatever happened.
 type shellProc struct {
 	cmd     *exec.Cmd
 	cleanup func() // nil means nothing to do
+	release func() // nil means nothing to free
+	closed  sync.Once
 }
 
 // kill tears down the shell and, where the platform supports it, its children.
@@ -190,12 +221,23 @@ func (p *shellProc) kill() {
 	}
 }
 
-// newShellCmd resolves the shell and builds the *exec.Cmd for command.
-// Platform files wrap this in newShellProc to attach their cleanup strategy.
-func newShellCmd(ctx context.Context, command, workdir string) (*exec.Cmd, error) {
+// close frees the invocation's resources. It is idempotent and belongs in a
+// defer at the call site so success, failure and timeout all reach it — a
+// leaked temp script is invisible until the temp directory fills up.
+func (p *shellProc) close() {
+	if p == nil || p.release == nil {
+		return
+	}
+	p.closed.Do(p.release)
+}
+
+// newShellCmd resolves the shell and builds the *exec.Cmd for command, along
+// with the invocation's release func (see shellProc.close). Platform files
+// wrap this in newShellProc to attach their cleanup strategy.
+func newShellCmd(ctx context.Context, command, workdir string) (*exec.Cmd, func(), error) {
 	sh, err := resolveShell()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if sh.unknown() {
 		// Not fatal: `-c` is the common convention and the user asked for
@@ -204,8 +246,13 @@ func newShellCmd(ctx context.Context, command, workdir string) (*exec.Cmd, error
 		fmt.Fprintf(os.Stderr, "shepherd: unrecognized shell %q — invoking it with the POSIX \"-c <command>\" convention\n", sh.path)
 	}
 
-	cmd := exec.CommandContext(ctx, sh.path, sh.args(command)...)
+	args, release, err := sh.invocation(command)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cmd := exec.CommandContext(ctx, sh.path, args...)
 	cmd.Dir = workdir
 	setupProcessGroup(cmd)
-	return cmd, nil
+	return cmd, release, nil
 }
