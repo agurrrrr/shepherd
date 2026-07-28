@@ -1219,12 +1219,16 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(timeoutCtx, "bash", "-c", command)
-	cmd.Dir = tr.projectPath
-
-	// Create a new process group so that on cancel/timeout we can kill the
-	// entire process tree (bash + all children) rather than just the bash shell.
-	setupProcessGroup(cmd)
+	// Shell selection is platform-specific (see shell.go and shell_{unix,windows}.go):
+	// bash on Unix, Git Bash / PowerShell on Windows, overridable via
+	// SHEPHERD_SHELL or the "shell" config key. newShellProc also puts the
+	// shell in its own process group where the platform supports it, so a
+	// cancel/timeout can take down the whole tree rather than just the shell.
+	proc, err := newShellProc(timeoutCtx, command, tr.projectPath)
+	if err != nil {
+		return "", err
+	}
+	cmd := proc.cmd
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -1245,9 +1249,9 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 		}
 
 		// Kill the entire process group on any error (especially ctx cancel or
-		// timeout). exec.CommandContext kills the bash process itself, but child
+		// timeout). exec.CommandContext kills the shell process itself, but child
 		// processes may survive as orphans. Killing the group ensures cleanup.
-		killProcessGroup(cmd)
+		proc.kill()
 
 		return tr.capOutput(output), nil
 	}

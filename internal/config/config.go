@@ -22,6 +22,7 @@ type Config struct {
 	MaxConcurrentTasks int    `mapstructure:"max_concurrent_tasks"`
 	DBPath             string `mapstructure:"db_path"`
 	LogLevel           string `mapstructure:"log_level"`
+	Shell              string `mapstructure:"shell"`
 }
 
 var (
@@ -49,6 +50,12 @@ func Init() error {
 	viper.SetDefault("language", "ko")
 	viper.SetDefault("default_provider", "claude")
 	viper.SetDefault("workspace_path", "")
+
+	// shell: 임베디드 프로바이더의 bash 도구가 명령을 실행할 셸 실행 파일.
+	// 빈 값이면 OS별 자동 탐지 (Unix: bash → sh, Windows: Git Bash → pwsh →
+	// powershell). 자동 탐지가 빗나갔을 때의 탈출구이므로 값은 실행 파일
+	// 경로/이름 하나만 받는다 — 인자("-c" 등)는 셸 종류를 보고 자동으로 붙인다.
+	viper.SetDefault("shell", "")
 
 	// provider_enabled_*: 프로바이더 사용유무. false면 프로젝트 화면의 provider
 	// 선택지에서 숨겨지고, 해당 프로바이더로의 작업 실행이 차단된다. 기본 모두 켜짐.
@@ -358,6 +365,24 @@ const DefaultSheepMemoryPrompt = `[양 개인 기억 — Sheep Personal Memory]
    ` + "```" + `
 ` + "`MEMORY.md`" + ` 는 인덱스만 — 길어지면 200줄 안에서 유지한다.
 `
+
+// GetShell returns the shell executable that the embedded provider's bash tool
+// should run commands with, or "" to let the platform auto-detect one.
+//
+// It checks: 1) SHEPHERD_SHELL env var, 2) config "shell". Unlike the CLI
+// binary getters below there is no PATH lookup or candidate list here — shell
+// discovery is OS-specific and lives in internal/embedded (shell_unix.go /
+// shell_windows.go). This is only the user's override.
+//
+// The value is a single executable path or name ("bash", "pwsh",
+// `C:\Program Files\Git\bin\bash.exe`); arguments are appended by the caller
+// based on the shell's dialect, so a value like "pwsh -NoProfile" is rejected.
+func GetShell() string {
+	if s := os.Getenv("SHEPHERD_SHELL"); s != "" {
+		return s
+	}
+	return viper.GetString("shell")
+}
 
 // GetOpenCodeBinary returns the path to the opencode binary.
 // It checks: 1) OPENCODE_PATH env var, 2) config "opencode_path", 3) PATH lookup, 4) common locations.
