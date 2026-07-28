@@ -1275,9 +1275,20 @@ func truncateToolResult(s, toolName string) string {
 // tool-call signature differs from the call that was just truncated — re-running
 // the SAME call would only reproduce the same truncated prefix and re-arm the
 // repeated-call stuck guard (task #6309).
+//
+// The bash branch follows the resolved shell dialect (not GOOS): PowerShell has
+// no head/tail/sed and no /tmp, so a POSIX-only hint would just produce another
+// failed tool call. Git Bash on Windows keeps the POSIX wording.
 func truncationHint(toolName string) string {
 	switch toolName {
 	case "bash":
+		if ShellUsesPowerShell() {
+			return "Only the first part of the output is shown. To see the rest, re-run the " +
+				"command narrowing its output — pipe through `Select-Object -First N` / " +
+				"`Select-Object -Skip N` or `Get-Content -TotalCount N`, or Select-String " +
+				"for what you need — or redirect it to a file (`cmd > $env:TEMP\\out.txt`) and " +
+				"open that file with read_file, which pages large files."
+		}
 		return "Only the first part of the output is shown. To see the rest, re-run the " +
 			"command narrowing its output — pipe through head/tail or `sed -n 'START,ENDp'`, " +
 			"or grep for what you need — or redirect it to a file (`cmd > /tmp/out.txt`) and " +

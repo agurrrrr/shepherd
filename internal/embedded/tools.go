@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/text/encoding/korean"
 )
 
 const maxOutputBytes = 64 * 1024 // 64KB output cap for bash
@@ -1240,17 +1242,20 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		output := stderr.String()
+		// decodeShellOutput: UTF-8 first; CP949 only when UTF-8 is invalid
+		// (Korean Windows native tools). See decodeShellOutput.
+		errText := decodeShellOutput(stderr.Bytes())
+		output := errText
 		if timeoutCtx.Err() != nil {
 			output = fmt.Sprintf("command timed out after %ds", timeout)
 		} else if exitErr, ok := err.(*exec.ExitError); ok {
-			output = fmt.Sprintf("exit %d: %s", exitErr.ExitCode(), strings.TrimSpace(stderr.String()))
+			output = fmt.Sprintf("exit %d: %s", exitErr.ExitCode(), strings.TrimSpace(errText))
 		} else {
 			output = fmt.Sprintf("error: %s", err)
 		}
 		// Still return stdout if available
 		if stdout.Len() > 0 {
-			output = stdout.String() + "\n" + output
+			output = decodeShellOutput(stdout.Bytes()) + "\n" + output
 		}
 
 		// Safety-net tree kill. On cancel/timeout, cmd.Cancel already ran the
@@ -1264,7 +1269,7 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 
 	// Success: process already reaped by Run. release (temp .ps1 etc.) is
 	// handled by the deferred proc.close() above — do not skip it on success.
-	return tr.capOutput(stdout.String()), nil
+	return tr.capOutput(decodeShellOutput(stdout.Bytes())), nil
 }
 
 func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{}) (string, error) {
@@ -1315,11 +1320,10 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 	}
 
 	var results []string
-	fileFilter, err := regexp.Compile("^" + strings.ReplaceAll(filepath.Clean(globPattern), "**/", ".*") + "$")
-	if globPattern == "" || err != nil {
-		// No glob filter or invalid pattern — match all files
-		fileFilter = regexp.MustCompile(".*")
-	}
+	// Glob filter: normalize separators with ToSlash so Windows Clean turning
+	// "**/*.go" into "**\*.go" does not break the "**/"" → ".*" substitution
+	// (and quietly fall back to matching every file). See compileGlobFilter.
+	fileFilter := compileGlobFilter(globPattern)
 
 	err = filepath.WalkDir(tr.projectPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -1335,7 +1339,13 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 			}
 			return nil
 		}
-		if !fileFilter.MatchString(filepath.Base(path)) {
+		relPath, _ := filepath.Rel(tr.projectPath, path)
+		// Match against a slash-normalized relative path AND the basename so
+		// both `*.go` and `internal/**/*_test.go` work. Paths from WalkDir use
+		// the OS separator; the filter was compiled against ToSlash form.
+		relSlash := filepath.ToSlash(relPath)
+		base := filepath.Base(path)
+		if !fileFilter.MatchString(relSlash) && !fileFilter.MatchString(base) {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -1346,10 +1356,10 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 		if isBinary(data) {
 			return nil
 		}
-		relPath, _ := filepath.Rel(tr.projectPath, path)
 		lines := strings.Split(string(data), "\n")
 		for i, line := range lines {
 			if re.MatchString(line) {
+				// Report OS-native relative path (same as before) for display.
 				results = append(results, fmt.Sprintf("%s:%d:%s", relPath, i+1, line))
 			}
 		}
@@ -1386,6 +1396,73 @@ func isExcludedGrepDir(name string) bool {
 		return true
 	}
 	return false
+}
+
+// compileGlobFilter turns a shell-style glob into a regexp used by the Go
+// grep fallback when ripgrep is not installed.
+//
+// Critical Windows detail: filepath.Clean("**/*.go") becomes `**\*.go` on
+// Windows, so a naive strings.ReplaceAll(..., "**/", ".*") never matches the
+// separator and the compile fails — the old code then silently fell back to
+// `.*` (search every file). Always ToSlash after Clean before interpreting
+// glob metacharacters.
+//
+// Supported metacharacters: `*` (within a path segment), `**` (across
+// segments), `?` (single non-slash char). Everything else is QuoteMeta'd so
+// dots in `*.go` are literal.
+//
+// Empty or uncompileable patterns match everything (same as the previous
+// "no filter" fallback).
+func compileGlobFilter(globPattern string) *regexp.Regexp {
+	if strings.TrimSpace(globPattern) == "" {
+		return regexp.MustCompile(`.*`)
+	}
+	// Accept `\` as a separator even on Unix hosts: Windows Clean turns
+	// "**/*.go" into "**\*.go", and models may send backslash patterns
+	// regardless of the daemon OS. Normalize before Clean so `**/` detection
+	// is OS-independent; then ToSlash for good measure.
+	normalized := strings.ReplaceAll(globPattern, `\`, `/`)
+	p := filepath.ToSlash(filepath.Clean(normalized))
+	re, err := globToRegexp(p)
+	if err != nil {
+		return regexp.MustCompile(`.*`)
+	}
+	return re
+}
+
+// globToRegexp converts a slash-normalized glob pattern to an anchored regexp.
+// pattern must already use '/' as the separator (see compileGlobFilter).
+func globToRegexp(pattern string) (*regexp.Regexp, error) {
+	var b strings.Builder
+	b.WriteByte('^')
+	for i := 0; i < len(pattern); {
+		c := pattern[i]
+		switch {
+		case c == '*' && i+1 < len(pattern) && pattern[i+1] == '*':
+			// ** or **/
+			if i+2 < len(pattern) && pattern[i+2] == '/' {
+				// **/ → optional path prefix ending in /
+				b.WriteString(`(?:.*/)?`)
+				i += 3
+			} else {
+				// trailing or mid-pattern ** without slash
+				b.WriteString(`.*`)
+				i += 2
+			}
+		case c == '*':
+			// single-segment wildcard
+			b.WriteString(`[^/]*`)
+			i++
+		case c == '?':
+			b.WriteString(`[^/]`)
+			i++
+		default:
+			b.WriteString(regexp.QuoteMeta(string(c)))
+			i++
+		}
+	}
+	b.WriteByte('$')
+	return regexp.Compile(b.String())
 }
 
 // filterBinaryLines drops lines that look like binary/non-text data from grep
@@ -1575,9 +1652,57 @@ func (tr *ToolRegistry) capOutput(s string) string {
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
+	narrow := "head/tail/grep"
+	if ShellUsesPowerShell() {
+		narrow = "Select-Object/Select-String"
+	}
 	return s[:cut] + fmt.Sprintf(
 		"\n\n... [output truncated at %d of %d bytes — narrow the command's output "+
-			"(head/tail/grep) or redirect it to a file and read it with read_file]", cut, len(s))
+			"(%s) or redirect it to a file and read it with read_file]", cut, len(s), narrow)
+}
+
+// decodeShellOutput converts shell stdout/stderr bytes to a Go string.
+//
+// Prefer UTF-8 (Go toolchain and most modern tools already emit it). Only when
+// the bytes are not valid UTF-8 do we try CP949/EUC-KR — Korean Windows win32
+// native tools still use the system ANSI code page. Global/guessed decoding is
+// deliberately avoided: mis-decoding would corrupt secret redaction and binary
+// detection. NUL-containing (binary) buffers are left untouched.
+func decodeShellOutput(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	if utf8.Valid(b) {
+		return string(b)
+	}
+	// Binary payloads (NUL) are not text encodings — leave as-is.
+	if bytes.IndexByte(b, 0) != -1 {
+		return string(b)
+	}
+	if s, ok := tryDecodeEUCKR(b); ok {
+		return s
+	}
+	return string(b)
+}
+
+// tryDecodeEUCKR decodes b as EUC-KR/CP949 only when the entire buffer is a
+// well-formed sequence. x/text's Decoder replaces invalid bytes with U+FFFD
+// instead of erroring, so we round-trip through the encoder and require a
+// byte-exact match — partial garbage must not be silently "decoded".
+func tryDecodeEUCKR(b []byte) (string, bool) {
+	decoded, err := korean.EUCKR.NewDecoder().Bytes(b)
+	if err != nil || !utf8.Valid(decoded) {
+		return "", false
+	}
+	// Reject replacement-char fallout from undecodable input.
+	if bytes.ContainsRune(decoded, '\uFFFD') {
+		return "", false
+	}
+	encoded, err := korean.EUCKR.NewEncoder().Bytes(decoded)
+	if err != nil || !bytes.Equal(encoded, b) {
+		return "", false
+	}
+	return string(decoded), true
 }
 
 // executeSpawnSubagents runs multiple read-only sub-agents in parallel.

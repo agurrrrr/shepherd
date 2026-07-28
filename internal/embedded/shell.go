@@ -81,6 +81,18 @@ func (s *resolvedShell) isPowerShell() bool {
 	return s.kind == shellKindPwsh || s.kind == shellKindPowerShell
 }
 
+// ShellUsesPowerShell reports whether the bash tool currently runs through a
+// PowerShell dialect (pwsh or Windows PowerShell 5.1).
+//
+// Branch system prompts and recovery hints on this, not runtime.GOOS: Git Bash
+// on Windows is still a POSIX dialect, which is why auto-detect prefers it.
+// Callers that only have GOOS will mis-prompt Git Bash agents with PowerShell
+// syntax (and the reverse when someone forces SHEPHERD_SHELL=pwsh on Unix).
+func ShellUsesPowerShell() bool {
+	sh, err := resolveShell()
+	return err == nil && sh.isPowerShell()
+}
+
 // shellKindFor classifies a shell executable by basename, ignoring a Windows
 // extension and case (PowerShell.EXE, /usr/bin/bash, C:\...\bash.exe → bash).
 func shellKindFor(path string) shellKind {
