@@ -254,5 +254,20 @@ func newShellCmd(ctx context.Context, command, workdir string) (*exec.Cmd, func(
 	cmd := exec.CommandContext(ctx, sh.path, args...)
 	cmd.Dir = workdir
 	setupProcessGroup(cmd)
+
+	// CommandContext's default Cancel is Process.Kill, which only terminates
+	// the shell. On cancel/timeout we need the whole tree (Unix process group,
+	// Windows taskkill /T). Override Cancel so the primary kill path is ours;
+	// execBash still calls proc.kill() after Run as an idempotent safety net
+	// for the non-cancel error path. Dual kill is harmless — both platforms'
+	// killProcessGroup tolerate an already-dead PID.
+	//
+	// P2 (Windows Job Object): when setupProcessGroup assigns the shell to a
+	// job with KILL_ON_JOB_CLOSE, cleanup can close the job handle instead of
+	// shelling out to taskkill; Cancel would keep calling the same cleanup.
+	cmd.Cancel = func() error {
+		killProcessGroup(cmd)
+		return nil
+	}
 	return cmd, release, nil
 }

@@ -1253,14 +1253,17 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 			output = stdout.String() + "\n" + output
 		}
 
-		// Kill the entire process group on any error (especially ctx cancel or
-		// timeout). exec.CommandContext kills the shell process itself, but child
-		// processes may survive as orphans. Killing the group ensures cleanup.
+		// Safety-net tree kill. On cancel/timeout, cmd.Cancel already ran the
+		// same killProcessGroup (wired in newShellCmd) so this is a no-op.
+		// On a plain non-zero exit it reaps any children the shell left behind.
+		// Dual kill is intentional and idempotent — see killProcessGroup.
 		proc.kill()
 
 		return tr.capOutput(output), nil
 	}
 
+	// Success: process already reaped by Run. release (temp .ps1 etc.) is
+	// handled by the deferred proc.close() above — do not skip it on success.
 	return tr.capOutput(stdout.String()), nil
 }
 

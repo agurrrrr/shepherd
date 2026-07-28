@@ -60,10 +60,13 @@ func detectShell() (*resolvedShell, error) {
 
 // newShellProc prepares the shell command plus its cleanup.
 //
-// Windows has no process groups, so killProcessGroup only terminates the shell
-// itself and children it spawned survive as orphans. Whole-tree termination
-// (Job Object / taskkill) replaces this cleanup in a follow-up step — the
-// shellProc wrapper exists so that swap does not touch call sites.
+// Windows has no process groups. killProcessGroup uses taskkill /T /F (with
+// Process.Kill fallback) so children do not survive cancel/timeout as orphans.
+// cmd.Cancel is wired in newShellCmd to the same cleanup so CommandContext
+// cancel and the post-Run safety net share one path.
+//
+// P2: Job Object (KILL_ON_JOB_CLOSE) would replace the taskkill body inside
+// killProcessGroup / setupProcessGroup; this shellProc shape stays put.
 func newShellProc(ctx context.Context, command, workdir string) (*shellProc, error) {
 	cmd, release, err := newShellCmd(ctx, command, workdir)
 	if err != nil {
