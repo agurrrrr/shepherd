@@ -785,6 +785,18 @@ func TestMatchGlob(t *testing.T) {
 		// Exact file match
 		{"go.mod", "go.mod", true},
 		{"go.sum", "go.mod", false},
+
+		// Windows-shaped input: filepath.Rel hands in `\` separators, and a
+		// pattern may arrive with them too. Both sides fold to "/" so these
+		// behave identically on Linux and Windows — the cases that made the
+		// Windows CI job fail while Linux passed.
+		{`src\main.go`, "*.go", false},
+		{`src\main.go`, "src/**/*.go", true},
+		{`src\internal\helper.go`, "src/**/*.go", true},
+		{"src/main.go", `src\**\*.go`, true},
+		{`src\main.go`, `src\**\*.go`, true},
+		{`other\main.go`, "src/**/*.go", false},
+		{`src\foo.go`, "src/**", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.pattern+" vs "+tt.path, func(t *testing.T) {

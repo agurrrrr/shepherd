@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	slashpath "path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -1558,10 +1559,21 @@ func (tr *ToolRegistry) execGlob(ctx context.Context, args map[string]interface{
 // matchGlob matches a relative file path against a glob pattern that may contain **
 // for recursive directory matching. For example: "**/*.go" matches "foo/bar.go",
 // "src/**/*.go" matches "src/main.go" and "src/internal/helper.go".
-func matchGlob(path, pattern string) bool {
+//
+// Both sides are folded to "/" first, unconditionally rather than via
+// filepath.ToSlash, so the pattern language is identical on every platform (same
+// reasoning as isEscapingRel). Two Windows-only bugs come out of skipping this:
+// filepath.Rel hands in `src\main.go`, which no `/`-shaped pattern can match, and
+// filepath.Match's `*` does not stop at `/` when the OS separator is `\`, so
+// "*.go" matched "src/main.go". path.Match is used for the simple case for the
+// same reason — it is separator-fixed at "/" on all platforms.
+func matchGlob(filePath, globPattern string) bool {
+	path := strings.ReplaceAll(filePath, `\`, "/")
+	pattern := strings.ReplaceAll(globPattern, `\`, "/")
+
 	if !strings.Contains(pattern, "**") {
-		// Simple glob — use filepath.Match directly
-		matched, _ := filepath.Match(pattern, path)
+		// Simple glob — one directory level, so slashpath.Match's `/`-aware `*` is enough.
+		matched, _ := slashpath.Match(pattern, path)
 		return matched
 	}
 
@@ -1583,10 +1595,6 @@ func matchGlob(path, pattern string) bool {
 			// If followed by /, it matches zero or more dir levels
 			if i < len(pattern) && pattern[i] == '/' {
 				reStr += ".*" // **/ matches any depth including zero (handled by optional groups)
-				i++
-				continue
-			} else if i < len(pattern) && pattern[i] == '\\' {
-				reStr += ".*"
 				i++
 				continue
 			} else {
@@ -1616,8 +1624,8 @@ func matchGlob(path, pattern string) bool {
 
 	re, err := regexp.Compile(reStr)
 	if err != nil {
-		// Fallback to filepath.Match on compile error
-		matched, _ := filepath.Match(pattern, path)
+		// Fallback to a plain glob match on compile error
+		matched, _ := slashpath.Match(pattern, path)
 		return matched
 	}
 
