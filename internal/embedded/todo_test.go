@@ -278,7 +278,7 @@ func TestTodoGateNudgeBoundThenIncomplete(t *testing.T) {
 	defer srv.Close()
 
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:         srv.URL,
+		BaseURL:         srv.URL + "/chat/completions",
 		Model:           "qwen3-test",
 		SystemPrompt:    "test",
 		UserPrompt:      "multi-step work",
@@ -346,7 +346,7 @@ func TestTodoGateAllowsCompletionWhenTodosDone(t *testing.T) {
 	defer srv.Close()
 
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:         srv.URL,
+		BaseURL:         srv.URL + "/chat/completions",
 		Model:           "qwen3-test",
 		SystemPrompt:    "test",
 		UserPrompt:      "finish work",
@@ -389,7 +389,7 @@ func TestTodoGateOffNoEffectEvenWithIncompleteState(t *testing.T) {
 	defer srv.Close()
 
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:         srv.URL,
+		BaseURL:         srv.URL + "/chat/completions",
 		Model:           "qwen3-test",
 		SystemPrompt:    "test",
 		UserPrompt:      "simple task",
@@ -424,7 +424,7 @@ func TestTodoGateEmptyStateNoFire(t *testing.T) {
 	defer srv.Close()
 
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:         srv.URL,
+		BaseURL:         srv.URL + "/chat/completions",
 		Model:           "qwen3-test",
 		SystemPrompt:    "test",
 		UserPrompt:      "quick question",

@@ -190,7 +190,7 @@ func TestLoopSimpleToolCall(t *testing.T) {
 
 	var outputs []string
 	opts := ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-test",
 		SystemPrompt:  "You are a helpful assistant.",
 		UserPrompt:    "List the current directory.",
@@ -253,7 +253,7 @@ func TestLoopTruncatedWriteFileRefused(t *testing.T) {
 	defer srv.Close()
 
 	opts := ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-27b-test",
 		SystemPrompt:  "You are an agent.",
 		UserPrompt:    "Write out.go",
@@ -319,7 +319,7 @@ func TestLoopTruncatedArgsRecovery(t *testing.T) {
 	defer srv.Close()
 
 	opts := ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-27b-test",
 		SystemPrompt:  "You are an agent.",
 		UserPrompt:    "Run a curl command.",
@@ -386,7 +386,7 @@ func TestLoopMalformedArgsDoNotCrashNextRequest(t *testing.T) {
 	defer srv.Close()
 
 	opts := ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-27b-test",
 		SystemPrompt:  "Agent.",
 		UserPrompt:    "Run a command.",
@@ -658,7 +658,7 @@ func TestEmptyResponseNudgeSystemReminder(t *testing.T) {
 	defer srv.Close()
 
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-test",
 		SystemPrompt:  "You are a helpful assistant.",
 		UserPrompt:    "간단한 작업을 해주세요.",
@@ -731,7 +731,7 @@ func TestFutureIntentionNudgeSystemReminder(t *testing.T) {
 	defer srv.Close()
 
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-test",
 		SystemPrompt:  "You are a helpful assistant.",
 		UserPrompt:    "설정을 고쳐주세요.",
@@ -775,7 +775,7 @@ func TestFutureIntentionSkipsWhenNoWriteTools(t *testing.T) {
 		{Type: "function", Function: OpenAIFunction{Name: "read_file", Description: "read", Parameters: map[string]interface{}{"type": "object"}}},
 	}
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-test",
 		SystemPrompt:  "You are a helpful assistant.",
 		UserPrompt:    "설정을 분석해주세요.",
@@ -806,7 +806,7 @@ func TestFutureIntentionPassesAfterStateChange(t *testing.T) {
 	defer srv.Close()
 
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-test",
 		SystemPrompt:  "You are a helpful assistant.",
 		UserPrompt:    "설정을 고쳐주세요.",
@@ -835,7 +835,7 @@ func TestFutureIntentionStillFiresWithoutTools(t *testing.T) {
 	defer srv.Close()
 
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-test",
 		SystemPrompt:  "You are a helpful assistant.",
 		UserPrompt:    "빌드 에러를 고쳐주세요.",
@@ -919,7 +919,7 @@ func TestBuildGateNudgeRecovery(t *testing.T) {
 
 	var outputs []string
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-test",
 		SystemPrompt:  "You are a helpful assistant.",
 		UserPrompt:    "접근성 설정 문제를 해결해줘.",
@@ -958,7 +958,7 @@ func TestBuildGateNudgeExhaustion(t *testing.T) {
 	defer srv.Close()
 
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-test",
 		SystemPrompt:  "You are a helpful assistant.",
 		UserPrompt:    "접근성 설정 문제를 해결해줘.",
@@ -987,7 +987,7 @@ func TestBuildGateRequiredPathStrict(t *testing.T) {
 
 	var outputs []string
 	result, err := Run(context.Background(), ExecuteOptions{
-		BaseURL:       srv.URL,
+		BaseURL:       srv.URL + "/chat/completions",
 		Model:         "qwen3-test",
 		SystemPrompt:  "You are a helpful assistant.",
 		UserPrompt:    "버그를 고친 다음 go build ./... 로 검증해줘.",

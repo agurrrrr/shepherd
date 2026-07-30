@@ -28,9 +28,14 @@ var errRepetitionDetected = errors.New("degenerate repetition detected")
 // Client communicates with an OpenAI-compatible LLM API.
 type Client struct {
 	httpClient *http.Client
-	baseURL    string
-	apiKey     string
-	model      string
+	// chatURL is the exact URL every chat request is POSTed to. It comes from
+	// the endpoint config verbatim (see ResolveChatURL).
+	chatURL string
+	// modelsURL is the sibling "/models" URL used for health checks, or "" when
+	// the endpoint does not follow the OpenAI layout (see HealthCheck).
+	modelsURL string
+	apiKey    string
+	model     string
 	// semaphore limits concurrent LLM calls to the same endpoint. nil means
 	// unlimited. Acquired in AccumulateStreamWithProgress (the single gate
 	// for all streaming LLM calls) and released on completion.
@@ -39,11 +44,15 @@ type Client struct {
 
 // NewClient creates a new client for the given endpoint.
 //
+// endpointURL is the configured chat-completions URL and is used as-is; only
+// legacy OpenAI-base shapes are expanded (see ResolveChatURL).
+//
 // The HTTP client intentionally has no overall Timeout (streams can run for
 // tens of minutes). Dial/TLS and response-header bounds prevent a silent hang
 // from pinning a sheep forever when the gateway never answers; once headers
 // arrive, the stream idle-timeout + health-check path owns liveness.
-func NewClient(baseURL, apiKey, model string) *Client {
+func NewClient(endpointURL, apiKey, model string) *Client {
+	chatURL := ResolveChatURL(endpointURL)
 	return &Client{
 		httpClient: &http.Client{
 			Transport: &http.Transport{
@@ -64,9 +73,10 @@ func NewClient(baseURL, apiKey, model string) *Client {
 				ResponseHeaderTimeout: 10 * time.Minute,
 			},
 		},
-		baseURL: strings.TrimRight(baseURL, "/"),
-		apiKey:  apiKey,
-		model:   model,
+		chatURL:   chatURL,
+		modelsURL: ResolveModelsURL(chatURL),
+		apiKey:    apiKey,
+		model:     model,
 	}
 }
 
@@ -100,7 +110,7 @@ func (c *Client) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.chatURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -157,7 +167,7 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	httpReq, err := http.NewRequestWithContext(streamCtx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(streamCtx, "POST", c.chatURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -629,15 +639,27 @@ func isTransientLLMError(err error) bool {
 	return false
 }
 
-// HealthCheck pings the /models endpoint to verify the server is alive and
-// ready to accept requests. Returns nil if the server responds within the
-// timeout. Used by AccumulateStreamWithRetry to wait for server recovery
-// before retrying after a transient error.
+// HealthCheck pings the endpoint to verify the server is alive and ready to
+// accept requests. Returns nil if the server responds within the timeout. Used
+// by AccumulateStreamWithRetry to wait for server recovery before retrying
+// after a transient error.
+//
+// For OpenAI-layout endpoints it GETs the sibling /models and requires 2xx.
+// For endpoints with a custom path there is no /models to ask, so it GETs the
+// chat URL itself and treats any answer below 500 as alive — a POST-only route
+// replying 404/405/401 still proves the server is back, while 5xx does not.
 func (c *Client) HealthCheck(ctx context.Context, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/models", nil)
+	probeURL := c.modelsURL
+	strict := true
+	if probeURL == "" {
+		probeURL = c.chatURL
+		strict = false
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", probeURL, nil)
 	if err != nil {
 		return err
 	}
@@ -650,7 +672,11 @@ func (c *Client) HealthCheck(ctx context.Context, timeout time.Duration) error {
 		return err
 	}
 	resp.Body.Close()
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	if strict {
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return nil
+		}
+	} else if resp.StatusCode < 500 {
 		return nil
 	}
 	return fmt.Errorf("health check: HTTP %d", resp.StatusCode)
@@ -792,7 +818,7 @@ func (c *Client) accumulateStreamWithRetry(ctx context.Context, req *ChatRequest
 	return nil, "", nil, lastErr
 }
 
-// waitForRecovery polls the /models endpoint until it succeeds or ctx expires.
+// waitForRecovery polls the health-check endpoint until it succeeds or ctx expires.
 // Returns nil if the server recovered, an error otherwise.
 func (c *Client) waitForRecovery(ctx context.Context) error {
 	ticker := time.NewTicker(3 * time.Second)
