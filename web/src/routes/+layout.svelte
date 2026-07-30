@@ -42,6 +42,9 @@
 		failed: $systemStatus?.tasks?.failed ?? 0
 	});
 
+	// Projects flagged hidden are left out of the sidebar (still reachable via /projects)
+	let visibleProjects = $derived(($projects || []).filter(p => !p.hidden));
+
 	// Helper: get sheep status for a project
 	function getSheepStatus(projectName) {
 		const sheepList = $sheep || [];
@@ -151,7 +154,7 @@
 								<Icon name="settings" size={14} />
 								<span>Manage</span>
 							</a>
-							{#each $projects as p}
+							{#each visibleProjects as p}
 								<a href="/projects/{encodeURIComponent(p.name)}" class="nav-sub-item"
 									class:active={decodeURIComponent($page.url.pathname) === `/projects/${p.name}`}
 									onclick={(e) => e.stopPropagation()}>
@@ -159,7 +162,7 @@
 									<span class="nav-sub-label" title={p.name}>{p.name}</span>
 								</a>
 							{/each}
-							{#if $projects.length === 0}
+							{#if visibleProjects.length === 0}
 								<span class="nav-sub-empty">No projects</span>
 							{/if}
 						</div>

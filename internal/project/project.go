@@ -210,6 +210,25 @@ func Get(name string) (*ent.Project, error) {
 	return p, nil
 }
 
+// SetHidden marks a project as hidden or visible. Hidden projects stay fully
+// functional — they are only left out of the sidebar listing.
+func SetHidden(name string, hidden bool) error {
+	ctx := context.Background()
+
+	n, err := db.Client().Project.Update().
+		Where(entProject.Name(name)).
+		SetHidden(hidden).
+		Save(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update project: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("project '%s' not found", name)
+	}
+
+	return nil
+}
+
 // AssignSheep assigns a sheep to a project.
 // If the sheep is already assigned to another project, returns an error.
 func AssignSheep(projectName, sheepName string) error {

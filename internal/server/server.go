@@ -159,6 +159,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/projects", s.handleListProjects)
 	api.Post("/projects", s.handleCreateProject)
 	api.Get("/projects/:name", s.handleGetProject)
+	api.Patch("/projects/:name", s.handleUpdateProject)
 	api.Delete("/projects/:name", s.handleDeleteProject)
 	api.Post("/projects/:name/assign", s.handleAssignSheep)
 	api.Get("/projects/:name/docs", s.handleListDocs)

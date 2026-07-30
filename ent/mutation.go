@@ -2866,6 +2866,7 @@ type ProjectMutation struct {
 	description          *string
 	repo_url             *string
 	mcp_servers          *map[string]interface{}
+	hidden               *bool
 	created_at           *time.Time
 	updated_at           *time.Time
 	clearedFields        map[string]struct{}
@@ -3209,6 +3210,42 @@ func (m *ProjectMutation) McpServersCleared() bool {
 func (m *ProjectMutation) ResetMcpServers() {
 	m.mcp_servers = nil
 	delete(m.clearedFields, project.FieldMcpServers)
+}
+
+// SetHidden sets the "hidden" field.
+func (m *ProjectMutation) SetHidden(b bool) {
+	m.hidden = &b
+}
+
+// Hidden returns the value of the "hidden" field in the mutation.
+func (m *ProjectMutation) Hidden() (r bool, exists bool) {
+	v := m.hidden
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldHidden returns the old "hidden" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldHidden(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldHidden is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldHidden requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldHidden: %w", err)
+	}
+	return oldValue.Hidden, nil
+}
+
+// ResetHidden resets all changes to the "hidden" field.
+func (m *ProjectMutation) ResetHidden() {
+	m.hidden = nil
 }
 
 // SetCreatedAt sets the "created_at" field.
@@ -3680,7 +3717,7 @@ func (m *ProjectMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ProjectMutation) Fields() []string {
-	fields := make([]string, 0, 7)
+	fields := make([]string, 0, 8)
 	if m.name != nil {
 		fields = append(fields, project.FieldName)
 	}
@@ -3695,6 +3732,9 @@ func (m *ProjectMutation) Fields() []string {
 	}
 	if m.mcp_servers != nil {
 		fields = append(fields, project.FieldMcpServers)
+	}
+	if m.hidden != nil {
+		fields = append(fields, project.FieldHidden)
 	}
 	if m.created_at != nil {
 		fields = append(fields, project.FieldCreatedAt)
@@ -3720,6 +3760,8 @@ func (m *ProjectMutation) Field(name string) (ent.Value, bool) {
 		return m.RepoURL()
 	case project.FieldMcpServers:
 		return m.McpServers()
+	case project.FieldHidden:
+		return m.Hidden()
 	case project.FieldCreatedAt:
 		return m.CreatedAt()
 	case project.FieldUpdatedAt:
@@ -3743,6 +3785,8 @@ func (m *ProjectMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldRepoURL(ctx)
 	case project.FieldMcpServers:
 		return m.OldMcpServers(ctx)
+	case project.FieldHidden:
+		return m.OldHidden(ctx)
 	case project.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	case project.FieldUpdatedAt:
@@ -3790,6 +3834,13 @@ func (m *ProjectMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetMcpServers(v)
+		return nil
+	case project.FieldHidden:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetHidden(v)
 		return nil
 	case project.FieldCreatedAt:
 		v, ok := value.(time.Time)
@@ -3889,6 +3940,9 @@ func (m *ProjectMutation) ResetField(name string) error {
 		return nil
 	case project.FieldMcpServers:
 		m.ResetMcpServers()
+		return nil
+	case project.FieldHidden:
+		m.ResetHidden()
 		return nil
 	case project.FieldCreatedAt:
 		m.ResetCreatedAt()

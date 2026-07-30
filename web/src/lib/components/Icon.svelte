@@ -21,7 +21,9 @@
 		'pause-circle': '<circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/>',
 		'stop-circle': '<circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/>',
 		'refresh-cw': '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>',
-		sheep: '<path d="M12 3c2.5 0 4.5 2 4.5 4.5S14.5 12 12 12"/><line x1="12" y1="12" x2="12" y2="22"/>'
+		sheep: '<path d="M12 3c2.5 0 4.5 2 4.5 4.5S14.5 12 12 12"/><line x1="12" y1="12" x2="12" y2="22"/>',
+		eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+		'eye-off': '<path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c6.5 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3.5 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="2" y1="2" x2="22" y2="22"/>'
 	};
 
 	let { name = 'circle', size = 16, stroke = 2, label = '', class: klass = '' } = $props();

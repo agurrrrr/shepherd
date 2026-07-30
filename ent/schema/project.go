@@ -32,6 +32,9 @@ func (Project) Fields() []ent.Field {
 		field.JSON("mcp_servers", map[string]interface{}{}).
 			Optional().
 			Comment("프로젝트별 MCP 서버 활성화 설정: {server_name: {enabled: bool}}"),
+		field.Bool("hidden").
+			Default(false).
+			Comment("숨김 처리 여부 — 사이드바 목록에서 제외된다 (프로젝트 자체는 그대로 동작)"),
 		field.Time("created_at").
 			Default(time.Now).
 			Immutable(),
