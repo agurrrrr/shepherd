@@ -48,6 +48,14 @@
 		return `${hh}:${mm}:${ss}`;
 	}
 
+	// Split "provider/model..." so the provider prefix can be muted in the UI.
+	function splitModelKey(key) {
+		const k = String(key || '');
+		const i = k.indexOf('/');
+		if (i <= 0) return { prefix: '', rest: k };
+		return { prefix: k.slice(0, i), rest: k.slice(i + 1) };
+	}
+
 	onMount(async () => {
 		await refreshData();
 		loaded = true;
@@ -225,6 +233,53 @@
 						icon="sheep"
 						title="No activity in this window"
 						description="Try a wider window or kick off a task above."
+					/>
+				</div>
+			{/if}
+		</section>
+
+		<!-- By Model: completed count + tokens + duration (shares activityWindow) -->
+		{@const byModel = dashboard.by_model?.[activityWindow] || { items: [], total_completed: 0, total_tokens: 0, total_duration_sec: 0 }}
+		{@const byModelMaxTokens = byModel.items.reduce((m, it) => Math.max(m, it.total_tokens || 0), 0)}
+		<section class="activity-section model-section">
+			<div class="activity-head">
+				<SectionHeader
+					title="By Model"
+					subtitle={`${byModel.total_completed || 0} completed · ${fmtTokens(byModel.total_tokens)} · ${fmtDuration(byModel.total_duration_sec)}`}
+				/>
+				<Tabs
+					tabs={activityTabs}
+					value={activityWindow}
+					onChange={(v) => (activityWindow = v)}
+					ariaLabel="By Model window"
+				/>
+			</div>
+			{#if byModel.items.length > 0}
+				<div class="activity-list card">
+					{#each byModel.items as it (it.key)}
+						{@const ratio = byModelMaxTokens > 0 ? (it.total_tokens / byModelMaxTokens) : 0}
+						{@const parts = splitModelKey(it.key)}
+						<div class="model-row">
+							<span class="activity-bar" style="--ratio: {ratio}"></span>
+							<span class="model-name" class:unknown={it.key === '(unknown)'}>
+								{#if parts.prefix}
+									<span class="model-prefix">{parts.prefix}/</span><span class="model-rest">{parts.rest}</span>
+								{:else}
+									{it.key}
+								{/if}
+							</span>
+							<span class="model-completed">{it.completed}</span>
+							<span class="model-tokens">{fmtTokens(it.total_tokens)}</span>
+							<span class="model-duration">{fmtDuration(it.duration_sec)}</span>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<div class="card">
+					<EmptyState
+						icon="sheep"
+						title="No completed tasks in this window"
+						description="Widen the window or wait for a task to finish."
 					/>
 				</div>
 			{/if}
@@ -508,6 +563,73 @@
 		text-align: right;
 	}
 
+	/* By Model — 4-column grid: name | completed | tokens | duration */
+	.model-row {
+		position: relative;
+		display: grid;
+		grid-template-columns: 1fr auto auto auto;
+		align-items: center;
+		gap: var(--space-3);
+		padding: 8px 12px;
+		border-radius: var(--radius-sm);
+		isolation: isolate;
+	}
+
+	.model-name {
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: var(--font-mono);
+	}
+
+	.model-name.unknown {
+		font-style: italic;
+		color: var(--text-secondary);
+		font-family: inherit;
+	}
+
+	.model-prefix {
+		color: var(--text-tertiary);
+		font-weight: var(--fw-regular);
+	}
+
+	.model-rest {
+		color: var(--text-primary);
+	}
+
+	.model-completed {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--text-secondary);
+		min-width: 48px;
+		text-align: right;
+	}
+
+	.model-completed::after {
+		content: ' done';
+		color: var(--text-tertiary);
+	}
+
+	.model-tokens {
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-semibold);
+		color: var(--accent);
+		min-width: 72px;
+		text-align: right;
+	}
+
+	.model-duration {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--text-secondary);
+		min-width: 64px;
+		text-align: right;
+	}
+
 	/* Live working sheep grid (inside live-section hero) */
 	.sheep-grid {
 		display: grid;
@@ -653,6 +775,11 @@
 			gap: var(--space-2);
 		}
 
+		.model-row {
+			padding: 8px 10px;
+			gap: var(--space-2);
+		}
+
 		.sheep-grid {
 			grid-template-columns: 1fr;
 		}
@@ -735,6 +862,28 @@
 
 		.activity-cost {
 			font-size: var(--fs-xs);
+			min-width: 56px;
+		}
+
+		.model-row {
+			padding: 6px 8px;
+			gap: 6px;
+		}
+
+		.model-name {
+			font-size: var(--fs-xs);
+		}
+
+		.model-completed {
+			min-width: 40px;
+		}
+
+		.model-tokens {
+			font-size: var(--fs-xs);
+			min-width: 56px;
+		}
+
+		.model-duration {
 			min-width: 56px;
 		}
 

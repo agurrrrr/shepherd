@@ -14,10 +14,18 @@ func setupProcessGroup(cmd *exec.Cmd) {
 }
 
 // killProcessGroup kills the entire process group. On Unix this sends SIGKILL
-// to the negative PID (process group). Returns true if there was a process to kill.
+// to the negative PID (process group).
+//
+// Wait is intentionally omitted: cmd.Run() already reaped the process.
+// A second Wait here always returns an error and is dead code.
+//
+// Idempotent: safe to call from both cmd.Cancel (context cancel/timeout) and
+// the post-Run safety net in execBash. SIGKILL on an already-dead group is a
+// no-op at the kernel level.
 func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil {
-		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		cmd.Process.Wait() // avoid zombie
+	if cmd != nil && cmd.Process != nil {
+		// Negative PID = process group. Do not change this signal path —
+		// regressions here leave orphaned children after every timeout.
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 }

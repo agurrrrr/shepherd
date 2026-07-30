@@ -483,6 +483,9 @@ func TestTruncateToolResultActionableHint(t *testing.T) {
 
 	// bash: must point at a recovery path (read_file via redirect) AND suggest
 	// narrowing the output — both change the next tool-call signature.
+	// Dialect follows the resolved shell (not GOOS): force POSIX so the
+	// head/sed/tmp wording is stable regardless of the host's default shell.
+	setShellConfig(t, "/bin/bash")
 	bashOut := truncateToolResult(big, "bash")
 	for _, want := range []string{"truncated", "read_file", "head"} {
 		if !strings.Contains(bashOut, want) {
@@ -503,6 +506,26 @@ func TestTruncateToolResultActionableHint(t *testing.T) {
 	// The total character count is reported so the model can gauge how much is hidden.
 	if !strings.Contains(bashOut, fmt.Sprintf("of %d chars", len([]rune(big)))) {
 		t.Errorf("truncation notice should report the total char count; tail=%q", bashOut[len(bashOut)-220:])
+	}
+}
+
+// PowerShell dialect: head/sed//tmp would just produce another failed call.
+func TestTruncateToolResultPowerShellHint(t *testing.T) {
+	setShellConfig(t, `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`)
+	if !ShellUsesPowerShell() {
+		t.Fatal("expected ShellUsesPowerShell after powershell override")
+	}
+	big := strings.Repeat("x", maxToolResultChars+1000)
+	out := truncateToolResult(big, "bash")
+	for _, want := range []string{"truncated", "read_file", "Select-Object", "$env:TEMP"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("PowerShell bash hint missing %q; tail=%q", want, out[len(out)-280:])
+		}
+	}
+	for _, ban := range []string{"head/tail", "/tmp/out", "sed -n"} {
+		if strings.Contains(out, ban) {
+			t.Errorf("PowerShell bash hint must not mention POSIX %q; tail=%q", ban, out[len(out)-280:])
+		}
 	}
 }
 

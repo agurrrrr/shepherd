@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	slashpath "path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -14,6 +15,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/text/encoding/korean"
 )
 
 const maxOutputBytes = 64 * 1024 // 64KB output cap for bash
@@ -341,7 +344,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 			Type: "function",
 			Function: OpenAIFunction{
 				Name:        "bash",
-				Description: "Execute a shell command in the project directory. Output is capped at 64KB.",
+				Description: bashToolDescription(),
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -670,13 +673,30 @@ func (tr *ToolRegistry) safePath(p string) (string, error) {
 		cleaned = filepath.Join(tr.projectPath, cleaned)
 	}
 	// Ensure the path is within project directory.
-	// Use rel == ".." || strings.HasPrefix(rel, "../") to avoid false positives
-	// on legitimate filenames like "..foo" that happen to start with two dots.
 	rel, err := filepath.Rel(tr.projectPath, cleaned)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+	if err != nil || isEscapingRel(rel) {
 		return "", fmt.Errorf("path %q is outside project directory", p)
 	}
 	return cleaned, nil
+}
+
+// isEscapingRel reports whether a filepath.Rel result points outside the base
+// directory it was computed against.
+//
+// Backslashes are folded to "/" first because filepath.Rel returns `..\foo` on
+// Windows, which a bare `../` prefix check waves through. The replacement is
+// unconditional rather than filepath.ToSlash so the rule is identical on every
+// platform (ToSlash is a no-op on Linux, which would leave the Windows-shaped
+// case untested there). The cost is that a Linux file literally named `..\foo`
+// is rejected — a backslash in a filename is rare enough, and over-rejecting is
+// the safe direction for a mistake guard.
+//
+// The check is `rel == ".." || prefix "../"` rather than a plain `..` prefix so
+// legitimate filenames like "..foo" — which start with two dots but stay inside
+// the directory — are not false positives.
+func isEscapingRel(rel string) bool {
+	relSlash := strings.ReplaceAll(rel, `\`, "/")
+	return relSlash == ".." || strings.HasPrefix(relSlash, "../")
 }
 
 // defaultReadFileLines is the line window read_file returns when it is called
@@ -1202,40 +1222,55 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(timeoutCtx, "bash", "-c", command)
-	cmd.Dir = tr.projectPath
-
-	// Create a new process group so that on cancel/timeout we can kill the
-	// entire process tree (bash + all children) rather than just the bash shell.
-	setupProcessGroup(cmd)
+	// Shell selection is platform-specific (see shell.go and shell_{unix,windows}.go):
+	// bash on Unix, Git Bash / PowerShell on Windows, overridable via
+	// SHEPHERD_SHELL or the "shell" config key. newShellProc also puts the
+	// shell in its own process group where the platform supports it, so a
+	// cancel/timeout can take down the whole tree rather than just the shell.
+	proc, err := newShellProc(timeoutCtx, command, tr.projectPath)
+	if err != nil {
+		return "", err
+	}
+	// Frees invocation-owned resources (the temp .ps1 the PowerShell path uses
+	// for commands too long to encode on the command line). Deferred rather
+	// than tied to the error branch below so success, failure and timeout all
+	// clean up.
+	defer proc.close()
+	cmd := proc.cmd
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		output := stderr.String()
+		// decodeShellOutput: UTF-8 first; CP949 only when UTF-8 is invalid
+		// (Korean Windows native tools). See decodeShellOutput.
+		errText := decodeShellOutput(stderr.Bytes())
+		output := errText
 		if timeoutCtx.Err() != nil {
 			output = fmt.Sprintf("command timed out after %ds", timeout)
 		} else if exitErr, ok := err.(*exec.ExitError); ok {
-			output = fmt.Sprintf("exit %d: %s", exitErr.ExitCode(), strings.TrimSpace(stderr.String()))
+			output = fmt.Sprintf("exit %d: %s", exitErr.ExitCode(), strings.TrimSpace(errText))
 		} else {
 			output = fmt.Sprintf("error: %s", err)
 		}
 		// Still return stdout if available
 		if stdout.Len() > 0 {
-			output = stdout.String() + "\n" + output
+			output = decodeShellOutput(stdout.Bytes()) + "\n" + output
 		}
 
-		// Kill the entire process group on any error (especially ctx cancel or
-		// timeout). exec.CommandContext kills the bash process itself, but child
-		// processes may survive as orphans. Killing the group ensures cleanup.
-		killProcessGroup(cmd)
+		// Safety-net tree kill. On cancel/timeout, cmd.Cancel already ran the
+		// same killProcessGroup (wired in newShellCmd) so this is a no-op.
+		// On a plain non-zero exit it reaps any children the shell left behind.
+		// Dual kill is intentional and idempotent — see killProcessGroup.
+		proc.kill()
 
 		return tr.capOutput(output), nil
 	}
 
-	return tr.capOutput(stdout.String()), nil
+	// Success: process already reaped by Run. release (temp .ps1 etc.) is
+	// handled by the deferred proc.close() above — do not skip it on success.
+	return tr.capOutput(decodeShellOutput(stdout.Bytes())), nil
 }
 
 func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{}) (string, error) {
@@ -1286,11 +1321,10 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 	}
 
 	var results []string
-	fileFilter, err := regexp.Compile("^" + strings.ReplaceAll(filepath.Clean(globPattern), "**/", ".*") + "$")
-	if globPattern == "" || err != nil {
-		// No glob filter or invalid pattern — match all files
-		fileFilter = regexp.MustCompile(".*")
-	}
+	// Glob filter: normalize separators with ToSlash so Windows Clean turning
+	// "**/*.go" into "**\*.go" does not break the "**/"" → ".*" substitution
+	// (and quietly fall back to matching every file). See compileGlobFilter.
+	fileFilter := compileGlobFilter(globPattern)
 
 	err = filepath.WalkDir(tr.projectPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -1306,7 +1340,13 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 			}
 			return nil
 		}
-		if !fileFilter.MatchString(filepath.Base(path)) {
+		relPath, _ := filepath.Rel(tr.projectPath, path)
+		// Match against a slash-normalized relative path AND the basename so
+		// both `*.go` and `internal/**/*_test.go` work. Paths from WalkDir use
+		// the OS separator; the filter was compiled against ToSlash form.
+		relSlash := filepath.ToSlash(relPath)
+		base := filepath.Base(path)
+		if !fileFilter.MatchString(relSlash) && !fileFilter.MatchString(base) {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -1317,10 +1357,10 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 		if isBinary(data) {
 			return nil
 		}
-		relPath, _ := filepath.Rel(tr.projectPath, path)
 		lines := strings.Split(string(data), "\n")
 		for i, line := range lines {
 			if re.MatchString(line) {
+				// Report OS-native relative path (same as before) for display.
 				results = append(results, fmt.Sprintf("%s:%d:%s", relPath, i+1, line))
 			}
 		}
@@ -1357,6 +1397,73 @@ func isExcludedGrepDir(name string) bool {
 		return true
 	}
 	return false
+}
+
+// compileGlobFilter turns a shell-style glob into a regexp used by the Go
+// grep fallback when ripgrep is not installed.
+//
+// Critical Windows detail: filepath.Clean("**/*.go") becomes `**\*.go` on
+// Windows, so a naive strings.ReplaceAll(..., "**/", ".*") never matches the
+// separator and the compile fails — the old code then silently fell back to
+// `.*` (search every file). Always ToSlash after Clean before interpreting
+// glob metacharacters.
+//
+// Supported metacharacters: `*` (within a path segment), `**` (across
+// segments), `?` (single non-slash char). Everything else is QuoteMeta'd so
+// dots in `*.go` are literal.
+//
+// Empty or uncompileable patterns match everything (same as the previous
+// "no filter" fallback).
+func compileGlobFilter(globPattern string) *regexp.Regexp {
+	if strings.TrimSpace(globPattern) == "" {
+		return regexp.MustCompile(`.*`)
+	}
+	// Accept `\` as a separator even on Unix hosts: Windows Clean turns
+	// "**/*.go" into "**\*.go", and models may send backslash patterns
+	// regardless of the daemon OS. Normalize before Clean so `**/` detection
+	// is OS-independent; then ToSlash for good measure.
+	normalized := strings.ReplaceAll(globPattern, `\`, `/`)
+	p := filepath.ToSlash(filepath.Clean(normalized))
+	re, err := globToRegexp(p)
+	if err != nil {
+		return regexp.MustCompile(`.*`)
+	}
+	return re
+}
+
+// globToRegexp converts a slash-normalized glob pattern to an anchored regexp.
+// pattern must already use '/' as the separator (see compileGlobFilter).
+func globToRegexp(pattern string) (*regexp.Regexp, error) {
+	var b strings.Builder
+	b.WriteByte('^')
+	for i := 0; i < len(pattern); {
+		c := pattern[i]
+		switch {
+		case c == '*' && i+1 < len(pattern) && pattern[i+1] == '*':
+			// ** or **/
+			if i+2 < len(pattern) && pattern[i+2] == '/' {
+				// **/ → optional path prefix ending in /
+				b.WriteString(`(?:.*/)?`)
+				i += 3
+			} else {
+				// trailing or mid-pattern ** without slash
+				b.WriteString(`.*`)
+				i += 2
+			}
+		case c == '*':
+			// single-segment wildcard
+			b.WriteString(`[^/]*`)
+			i++
+		case c == '?':
+			b.WriteString(`[^/]`)
+			i++
+		default:
+			b.WriteString(regexp.QuoteMeta(string(c)))
+			i++
+		}
+	}
+	b.WriteByte('$')
+	return regexp.Compile(b.String())
 }
 
 // filterBinaryLines drops lines that look like binary/non-text data from grep
@@ -1452,10 +1559,21 @@ func (tr *ToolRegistry) execGlob(ctx context.Context, args map[string]interface{
 // matchGlob matches a relative file path against a glob pattern that may contain **
 // for recursive directory matching. For example: "**/*.go" matches "foo/bar.go",
 // "src/**/*.go" matches "src/main.go" and "src/internal/helper.go".
-func matchGlob(path, pattern string) bool {
+//
+// Both sides are folded to "/" first, unconditionally rather than via
+// filepath.ToSlash, so the pattern language is identical on every platform (same
+// reasoning as isEscapingRel). Two Windows-only bugs come out of skipping this:
+// filepath.Rel hands in `src\main.go`, which no `/`-shaped pattern can match, and
+// filepath.Match's `*` does not stop at `/` when the OS separator is `\`, so
+// "*.go" matched "src/main.go". path.Match is used for the simple case for the
+// same reason — it is separator-fixed at "/" on all platforms.
+func matchGlob(filePath, globPattern string) bool {
+	path := strings.ReplaceAll(filePath, `\`, "/")
+	pattern := strings.ReplaceAll(globPattern, `\`, "/")
+
 	if !strings.Contains(pattern, "**") {
-		// Simple glob — use filepath.Match directly
-		matched, _ := filepath.Match(pattern, path)
+		// Simple glob — one directory level, so slashpath.Match's `/`-aware `*` is enough.
+		matched, _ := slashpath.Match(pattern, path)
 		return matched
 	}
 
@@ -1477,10 +1595,6 @@ func matchGlob(path, pattern string) bool {
 			// If followed by /, it matches zero or more dir levels
 			if i < len(pattern) && pattern[i] == '/' {
 				reStr += ".*" // **/ matches any depth including zero (handled by optional groups)
-				i++
-				continue
-			} else if i < len(pattern) && pattern[i] == '\\' {
-				reStr += ".*"
 				i++
 				continue
 			} else {
@@ -1510,8 +1624,8 @@ func matchGlob(path, pattern string) bool {
 
 	re, err := regexp.Compile(reStr)
 	if err != nil {
-		// Fallback to filepath.Match on compile error
-		matched, _ := filepath.Match(pattern, path)
+		// Fallback to a plain glob match on compile error
+		matched, _ := slashpath.Match(pattern, path)
 		return matched
 	}
 
@@ -1546,9 +1660,57 @@ func (tr *ToolRegistry) capOutput(s string) string {
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
+	narrow := "head/tail/grep"
+	if ShellUsesPowerShell() {
+		narrow = "Select-Object/Select-String"
+	}
 	return s[:cut] + fmt.Sprintf(
 		"\n\n... [output truncated at %d of %d bytes — narrow the command's output "+
-			"(head/tail/grep) or redirect it to a file and read it with read_file]", cut, len(s))
+			"(%s) or redirect it to a file and read it with read_file]", cut, len(s), narrow)
+}
+
+// decodeShellOutput converts shell stdout/stderr bytes to a Go string.
+//
+// Prefer UTF-8 (Go toolchain and most modern tools already emit it). Only when
+// the bytes are not valid UTF-8 do we try CP949/EUC-KR — Korean Windows win32
+// native tools still use the system ANSI code page. Global/guessed decoding is
+// deliberately avoided: mis-decoding would corrupt secret redaction and binary
+// detection. NUL-containing (binary) buffers are left untouched.
+func decodeShellOutput(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	if utf8.Valid(b) {
+		return string(b)
+	}
+	// Binary payloads (NUL) are not text encodings — leave as-is.
+	if bytes.IndexByte(b, 0) != -1 {
+		return string(b)
+	}
+	if s, ok := tryDecodeEUCKR(b); ok {
+		return s
+	}
+	return string(b)
+}
+
+// tryDecodeEUCKR decodes b as EUC-KR/CP949 only when the entire buffer is a
+// well-formed sequence. x/text's Decoder replaces invalid bytes with U+FFFD
+// instead of erroring, so we round-trip through the encoder and require a
+// byte-exact match — partial garbage must not be silently "decoded".
+func tryDecodeEUCKR(b []byte) (string, bool) {
+	decoded, err := korean.EUCKR.NewDecoder().Bytes(b)
+	if err != nil || !utf8.Valid(decoded) {
+		return "", false
+	}
+	// Reject replacement-char fallout from undecodable input.
+	if bytes.ContainsRune(decoded, '\uFFFD') {
+		return "", false
+	}
+	encoded, err := korean.EUCKR.NewEncoder().Bytes(decoded)
+	if err != nil || !bytes.Equal(encoded, b) {
+		return "", false
+	}
+	return string(decoded), true
 }
 
 // executeSpawnSubagents runs multiple read-only sub-agents in parallel.

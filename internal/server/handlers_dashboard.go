@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -71,6 +72,136 @@ func projectActivity(ctx context.Context, client *ent.Client, since time.Time) (
 	})
 
 	return activityWindow{Items: out, Total: len(tasks), TotalCost: totalCost}, nil
+}
+
+// modelStatItem aggregates completed-task stats for one statsKey bucket.
+type modelStatItem struct {
+	Key              string `json:"key"`
+	Provider         string `json:"provider"`
+	Completed        int    `json:"completed"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+	TotalTokens      int64  `json:"total_tokens"`
+	DurationSec      int64  `json:"duration_sec"`
+}
+
+// modelStatWindow is the per-key breakdown plus window totals for header chips.
+type modelStatWindow struct {
+	Items            []modelStatItem `json:"items"`
+	TotalCompleted   int             `json:"total_completed"`
+	TotalTokens      int64           `json:"total_tokens"`
+	TotalDurationSec int64           `json:"total_duration_sec"`
+}
+
+// statsKey returns the dashboard aggregation key for a sheep provider + task model.
+//
+// Keying rules (intentionally different from queue groupKey):
+//   - claude / grok / magi → provider only (task.model ignored; may be polluted with endpoint ids)
+//   - auto → claude (same fold as groupKey)
+//   - opencode / pi / embedded → "provider/model", or just provider when model is empty
+//   - empty provider → "(unknown)"
+func statsKey(provider, model string) string {
+	p := strings.ToLower(strings.TrimSpace(provider))
+	m := strings.TrimSpace(model)
+	switch p {
+	case "":
+		return "(unknown)"
+	case "claude", "grok", "magi":
+		return p
+	case "auto":
+		return "claude"
+	case "opencode", "pi", "embedded":
+		if m == "" {
+			return p
+		}
+		return p + "/" + m
+	default:
+		// Future providers: prefer provider/model when model is present.
+		if m == "" {
+			return p
+		}
+		return p + "/" + m
+	}
+}
+
+// statsProvider normalizes the display provider for a stats row.
+func statsProvider(provider string) string {
+	p := strings.ToLower(strings.TrimSpace(provider))
+	switch p {
+	case "":
+		return "(unknown)"
+	case "auto":
+		return "claude"
+	default:
+		return p
+	}
+}
+
+// modelActivity loads tasks created since `since` and aggregates completed-only
+// stats by statsKey (provider/model rules above).
+func modelActivity(ctx context.Context, client *ent.Client, since time.Time) (modelStatWindow, error) {
+	tasks, err := client.Task.Query().
+		Where(entTask.CreatedAtGTE(since)).
+		WithSheep().
+		All(ctx)
+	if err != nil {
+		return modelStatWindow{}, err
+	}
+	return modelActivityFrom(tasks), nil
+}
+
+// modelActivityFrom aggregates completed tasks by statsKey. Extracted so unit
+// tests can exercise the pure fold without a live DB.
+func modelActivityFrom(tasks []*ent.Task) modelStatWindow {
+	agg := map[string]*modelStatItem{}
+	for _, t := range tasks {
+		if t.Status != entTask.StatusCompleted {
+			continue
+		}
+		provider := ""
+		if t.Edges.Sheep != nil {
+			provider = string(t.Edges.Sheep.Provider)
+		}
+		key := statsKey(provider, t.Model)
+		if agg[key] == nil {
+			agg[key] = &modelStatItem{
+				Key:      key,
+				Provider: statsProvider(provider),
+			}
+		}
+		item := agg[key]
+		item.Completed++
+		item.PromptTokens += t.PromptTokens
+		item.CompletionTokens += t.CompletionTokens
+		item.TotalTokens += t.PromptTokens + t.CompletionTokens
+		item.DurationSec += taskDurationSec(t)
+	}
+
+	out := make([]modelStatItem, 0, len(agg))
+	var totalCompleted int
+	var totalTokens, totalDuration int64
+	for _, v := range agg {
+		out = append(out, *v)
+		totalCompleted += v.Completed
+		totalTokens += v.TotalTokens
+		totalDuration += v.DurationSec
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Completed != out[j].Completed {
+			return out[i].Completed > out[j].Completed
+		}
+		if out[i].TotalTokens != out[j].TotalTokens {
+			return out[i].TotalTokens > out[j].TotalTokens
+		}
+		return out[i].Key < out[j].Key
+	})
+
+	return modelStatWindow{
+		Items:            out,
+		TotalCompleted:   totalCompleted,
+		TotalTokens:      totalTokens,
+		TotalDurationSec: totalDuration,
+	}
 }
 
 // GET /api/dashboard
@@ -187,6 +318,11 @@ func (s *Server) handleDashboard(c *fiber.Ctx) error {
 	act1d, _ := projectActivity(ctx, client, now.Add(-24*time.Hour))
 	act7d, _ := projectActivity(ctx, client, now.Add(-7*24*time.Hour))
 
+	// 7. By-model windows: completed count + tokens + duration, same time windows.
+	byModel5h, _ := modelActivity(ctx, client, now.Add(-5*time.Hour))
+	byModel1d, _ := modelActivity(ctx, client, now.Add(-24*time.Hour))
+	byModel7d, _ := modelActivity(ctx, client, now.Add(-7*24*time.Hour))
+
 	// Sheep counts
 	working := 0
 	idle := 0
@@ -228,6 +364,11 @@ func (s *Server) handleDashboard(c *fiber.Ctx) error {
 			"5h": act5h,
 			"1d": act1d,
 			"7d": act7d,
+		},
+		"by_model": map[string]interface{}{
+			"5h": byModel5h,
+			"1d": byModel1d,
+			"7d": byModel7d,
 		},
 	})
 }

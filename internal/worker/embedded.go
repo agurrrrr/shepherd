@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/embedded"
 )
 
 // embeddedExecFunc is the signature for the embedded execution function.
@@ -77,12 +78,11 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 	// the model has no way to know the absolute path unless we state it explicitly.
 	// Without this, the model guesses paths like ~/.shepherd/projects/<name>/ and
 	// fails with "No such file or directory".
+	//
+	// Dialect notes (PowerShell vs POSIX) come from the resolved shell, not GOOS:
+	// Git Bash on Windows keeps the Unix wording on purpose.
 	if projectPath != "" {
-		sections = append(sections, fmt.Sprintf(
-			"[작업 환경]\n현재 작업 디렉토리(프로젝트 루트): %s\n"+
-				"- bash 명령, 파일 읽기/쓰기, glob/grep 도구는 모두 이 디렉토리를 기준으로 실행된다.\n"+
-				"- 파일 경로는 이 디렉토리 기준 상대경로를 사용하라. 다른 경로(예: ~/.shepherd/projects/...)를 추측하지 마라.",
-			projectPath))
+		sections = append(sections, embeddedWorkdirSection(projectPath, true /* agent */))
 	}
 
 	// read_file line prefixes — primary cause of edit_file match failures on local
@@ -133,15 +133,87 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 	return joinSections(sections)
 }
 
+// shellDialect holds the few prompt phrases that depend on the resolved shell.
+// Branch on the actual shell dialect (PowerShell vs POSIX), not runtime.GOOS —
+// Git Bash on Windows is POSIX and must keep the Unix wording (that is why
+// Windows auto-detect prefers Git Bash over PowerShell).
+type shellDialect struct {
+	// powerShell is true when the bash tool runs via pwsh/powershell.
+	powerShell bool
+}
+
+func currentShellDialect() shellDialect {
+	return shellDialect{powerShell: embedded.ShellUsesPowerShell()}
+}
+
+// fileReadBanTools are the shell builtins the model must NOT use for file I/O
+// (read_file/edit_file/write_file are the only allowed path).
+func (d shellDialect) fileReadBanTools() string {
+	if d.powerShell {
+		return "Get-Content/Select-String/Select-Object"
+	}
+	return "cat/sed/head/awk"
+}
+
+// workdirToolLine is the bullet under [작업 환경] about the bash tool root.
+func (d shellDialect) workdirToolLine() string {
+	// Tool name stays "bash" on every platform (loop.go gates on case "bash").
+	if d.powerShell {
+		return "- bash 도구(실제 셸: PowerShell), 파일 읽기/쓰기, glob/grep 도구는 모두 이 디렉토리를 기준으로 실행된다."
+	}
+	return "- bash 명령, 파일 읽기/쓰기, glob/grep 도구는 모두 이 디렉토리를 기준으로 실행된다."
+}
+
+// pathStyleHint tells the model how to write paths for the active dialect.
+func (d shellDialect) pathStyleHint(guessExtra bool) string {
+	if d.powerShell {
+		base := "- 파일 경로는 이 디렉토리 기준 상대경로를 사용하라. Windows 경로(백슬래시 또는 드라이브 문자, 예: C:\\proj\\file.go)를 이해한다."
+		if guessExtra {
+			return base + " 다른 경로(예: $HOME\\.shepherd\\projects\\...)를 추측하지 마라."
+		}
+		return base
+	}
+	base := "- 파일 경로는 이 디렉토리 기준 상대경로를 사용하라."
+	if guessExtra {
+		return base + " 다른 경로(예: ~/.shepherd/projects/...)를 추측하지 마라."
+	}
+	return base
+}
+
+// shellChainHint warns about && on Windows PowerShell 5.1 (pwsh 7+ has it,
+// but agents still write 5.1-hostile chains out of POSIX habit).
+func (d shellDialect) shellChainHint() string {
+	if !d.powerShell {
+		return ""
+	}
+	return "- bash 도구의 실제 셸은 PowerShell이다. Windows PowerShell 5.1은 `&&`를 지원하지 않는다 — " +
+		"`cd x && go build` 대신 `;` 로 잇거나 `if ($LASTEXITCODE -eq 0) { ... }` 를 써라 (pwsh 7+만 `&&` 가능).\n"
+}
+
+// embeddedWorkdirSection is the shared [작업 환경] block for embedded and MAGI.
+// agent=true adds the "don't guess ~/.shepherd/..." warning used by the coding agent.
+func embeddedWorkdirSection(projectPath string, agent bool) string {
+	d := currentShellDialect()
+	return fmt.Sprintf(
+		"[작업 환경]\n현재 작업 디렉토리(프로젝트 루트): %s\n%s\n%s",
+		projectPath, d.workdirToolLine(), d.pathStyleHint(agent))
+}
+
 // embeddedBehaviorDiscipline is the short fixed conduct block for the embedded
 // coding agent. Intentionally brief to limit context cost on local models.
+// Shell-dialect-dependent bits (file-read ban tools, && warning, verify line)
+// are filled from currentShellDialect so we do not maintain two full copies.
 func embeddedBehaviorDiscipline() string {
-	return "[행동 규율]\n" +
-		"- 파일 읽기/수정은 read_file, edit_file, write_file 도구만 사용한다. bash로 cat/sed/head/awk 등으로 파일을 읽거나 편집하지 마라.\n" +
+	d := currentShellDialect()
+	s := "[행동 규율]\n" +
+		"- 파일 읽기/수정은 read_file, edit_file, write_file 도구만 사용한다. bash로 " +
+		d.fileReadBanTools() + " 등으로 파일을 읽거나 편집하지 마라.\n" +
+		d.shellChainHint() +
 		"- 미래형으로 \"하겠습니다\"만 서술하고 멈추지 마라. 지금 도구를 호출하라.\n" +
 		"- 파괴적·공유 상태 변경(삭제, force push, 원격 푸시 등) 전에는 확인·보고하라.\n" +
 		"- 코드 수정 후 완료 선언 전에 bash로 빌드/테스트를 검증하라.\n" +
 		"- `<system-reminder>...</system-reminder>`로 감싼 내용은 사용자가 직접 한 말이 아니라 시스템 자동 안내다."
+	return s
 }
 
 // BuildSystemPromptForMagi builds the base system prompt for MAGI proposers.
@@ -166,11 +238,8 @@ func BuildSystemPromptForMagi(sheepName, projectPath, mcpGuide string) string {
 			"- 도구를 사용해 코드와 상태를 직접 확인한 후, 확인된 사실에 기반하여 답변하라.")
 
 	if projectPath != "" {
-		sections = append(sections, fmt.Sprintf(
-			"[작업 환경]\n현재 작업 디렉토리(프로젝트 루트): %s\n"+
-				"- bash 명령, 파일 읽기/쓰기, glob/grep 도구는 모두 이 디렉토리를 기준으로 실행된다.\n"+
-				"- 파일 경로는 이 디렉토리 기준 상대경로를 사용하라.",
-			projectPath))
+		// Same dialect rule as the coding agent: shell kind, not GOOS.
+		sections = append(sections, embeddedWorkdirSection(projectPath, false /* agent */))
 	}
 
 	// Available tools guide — use project-specific guide if provided
