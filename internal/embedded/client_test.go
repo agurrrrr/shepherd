@@ -42,7 +42,7 @@ func TestAccumulateStreamToolCallByIndex(t *testing.T) {
 	srv := sseServer(t, lines)
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	msg, finish, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
 	if err != nil {
 		t.Fatalf("AccumulateStream error: %v", err)
@@ -81,7 +81,7 @@ func TestAccumulateStreamMultipleToolCalls(t *testing.T) {
 	srv := sseServer(t, lines)
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	msg, finish, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
 	if err != nil {
 		t.Fatalf("AccumulateStream error: %v", err)
@@ -123,7 +123,7 @@ func TestAccumulateStreamArgsWithEscapedQuotes(t *testing.T) {
 	srv := sseServer(t, lines)
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	msg, _, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
 	if err != nil {
 		t.Fatalf("AccumulateStream error: %v", err)
@@ -163,7 +163,7 @@ func TestAccumulateStreamTruncatedArgs(t *testing.T) {
 	srv := sseServer(t, lines)
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	msg, finish, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
 	if err != nil {
 		t.Fatalf("AccumulateStream error: %v", err)
@@ -206,7 +206,7 @@ func TestAccumulateStreamQwen3ThinkingContent(t *testing.T) {
 	srv := sseServer(t, lines)
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	msg, finish, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
 	if err != nil {
 		t.Fatalf("AccumulateStream error: %v", err)
@@ -233,7 +233,7 @@ func TestAccumulateStreamContent(t *testing.T) {
 	srv := sseServer(t, lines)
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	msg, finish, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
 	if err != nil {
 		t.Fatalf("AccumulateStream error: %v", err)
@@ -302,7 +302,7 @@ func TestAccumulateStreamNoTrailingBlankLine(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	msg, finish, usage, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
 	if err != nil {
 		t.Fatalf("AccumulateStream error: %v", err)
@@ -344,7 +344,7 @@ func TestAccumulateStreamNoTrailingBlankLineWithToolCalls(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	msg, finish, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
 	if err != nil {
 		t.Fatalf("AccumulateStream error: %v", err)
@@ -371,7 +371,7 @@ func TestAccumulateStreamOnlyDataNoBlankLine(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	msg, finish, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
 	if err != nil {
 		t.Fatalf("AccumulateStream error: %v", err)
@@ -408,7 +408,7 @@ func TestChatStreamIdleTimeout(t *testing.T) {
 		srv.Close()
 	}()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 
 	// Use a context with a short deadline so we don't wait 5 minutes in the test.
 	// The parent context cancellation should propagate through and we should get
@@ -437,7 +437,7 @@ func TestChatStreamNormalCompletion(t *testing.T) {
 	srv := sseServer(t, lines)
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	var events []*StreamEvent
 	err := c.ChatStream(context.Background(), &ChatRequest{Model: "test-model"}, func(event *StreamEvent) error {
 		events = append(events, event)
@@ -477,7 +477,7 @@ func TestChatStreamIdleTimeoutErrorMessage(t *testing.T) {
 		srv.Close()
 	}()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
@@ -579,7 +579,7 @@ func TestAccumulateStreamWithRetry(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	msg, finish, _, err := c.AccumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, nil, nil)
 	if err != nil {
 		t.Fatalf("AccumulateStreamWithRetry error: %v", err)
@@ -616,7 +616,7 @@ func TestAccumulateStreamWithRetryContextCancel(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -638,7 +638,7 @@ func TestAccumulateStreamWithRetryFatalError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	_, _, _, err := c.AccumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, nil, nil)
 	if err == nil {
 		t.Fatal("expected error from HTTP 400, got nil")
@@ -690,7 +690,7 @@ func TestAccumulateStreamWithRetryBudgetExcludesFirstAttempt(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	// totalWaitLimit shorter than first-attempt sleep — must still retry.
 	rc := retryConfig{
 		maxRetries:     2,
@@ -799,7 +799,7 @@ func TestHealthCheck(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	if err := c.HealthCheck(context.Background(), 5*time.Second); err != nil {
 		t.Errorf("HealthCheck failed: %v", err)
 	}
@@ -812,7 +812,7 @@ func TestHealthCheckUnreachable(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	err := c.HealthCheck(context.Background(), 5*time.Second)
 	if err == nil {
 		t.Error("HealthCheck should fail when server returns 503")

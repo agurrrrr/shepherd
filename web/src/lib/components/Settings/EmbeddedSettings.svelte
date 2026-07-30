@@ -34,7 +34,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			editing = {
 				id: '',
 				label: '',
-				base_url: 'http://127.0.0.1:8080/v1',
+				base_url: 'http://127.0.0.1:8080/v1/chat/completions',
 				api_key: '',
 				model: '',
 				enabled: true,
@@ -213,9 +213,10 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				<input class="input" type="text" bind:value={editing.label} placeholder="Qwen3 27B" />
 			</div>
 			<div class="setting-row">
-				<label>Base URL</label>
-				<input class="input" type="text" bind:value={editing.base_url} placeholder="http://127.0.0.1:8080/v1" />
+				<label>Endpoint URL</label>
+				<input class="input" type="text" bind:value={editing.base_url} placeholder="http://127.0.0.1:8080/v1/chat/completions" />
 			</div>
+			<p class="hint">호출할 전체 URL을 그대로 적으세요. 뒤에 경로를 덧붙이지 않으므로 OpenAI 형식이 아닌 게이트웨이도 쓸 수 있습니다. 기존 설정처럼 <code>/v1</code>로 끝나면 <code>/chat/completions</code>를 붙여 호환 처리합니다.</p>
 			<div class="setting-row">
 				<label>API Key</label>
 				<input class="input" type="password" bind:value={editing.api_key} placeholder="Leave empty for local servers" />

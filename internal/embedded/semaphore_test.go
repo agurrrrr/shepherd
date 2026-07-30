@@ -49,7 +49,7 @@ func TestSemaphore_GatingBlocksAndReleases(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	c.SetSemaphore(sem)
 
 	// Launch 3 concurrent calls; only 1 should be in flight at a time.
@@ -87,7 +87,7 @@ func TestSemaphore_NilNoBlocking(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "", "test-model")
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
 	// No SetSemaphore call — semaphore stays nil (unlimited).
 
 	var wg sync.WaitGroup

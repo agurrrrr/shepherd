@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
 	"time"
 
 	"github.com/agurrrrr/shepherd/internal/llmslots"
@@ -14,8 +11,12 @@ import (
 
 // Endpoint represents a configured LLM endpoint (OpenAI-compatible).
 type Endpoint struct {
-	ID      string `mapstructure:"id"`
-	Label   string `mapstructure:"label"`
+	ID    string `mapstructure:"id"`
+	Label string `mapstructure:"label"`
+	// BaseURL is the full chat-completions URL (e.g.
+	// "http://127.0.0.1:8080/v1/chat/completions"). It is requested verbatim,
+	// so gateways that don't follow the OpenAI path layout work too; a legacy
+	// value ending in "/v1" is still expanded (see ResolveChatURL).
 	BaseURL string `mapstructure:"base_url"`
 	APIKey  string `mapstructure:"api_key"`
 	Model   string `mapstructure:"model"`
@@ -241,7 +242,7 @@ type SubagentSpawner func(ctx context.Context, name, prompt, endpointID string, 
 type ExecuteOptions struct {
 	SheepName     string
 	ProjectPath   string
-	BaseURL       string // OpenAI-compatible base URL (with /v1 suffix)
+	BaseURL       string // Full chat-completions URL, called verbatim (ResolveChatURL)
 	APIKey        string // API key (empty allowed for local servers)
 	Model         string // Model name
 	SystemPrompt  string
@@ -408,10 +409,8 @@ func ValidateEndpoint(ep *Endpoint) error {
 	if ep.Model == "" {
 		return fmt.Errorf("endpoint %s: model is required", ep.ID)
 	}
-	// Ensure base_url ends with /v1 for consistency
-	if !strings.HasSuffix(strings.ToLower(ep.BaseURL), "/v1") {
-		ep.BaseURL = strings.TrimRight(ep.BaseURL, "/") + "/v1"
-	}
+	// base_url is not rewritten: it is the full chat-completions URL and is
+	// called verbatim (see ResolveChatURL for the legacy-shape exception).
 	if ep.MaxIterations <= 0 {
 		ep.MaxIterations = DefaultMaxIterations
 	}
@@ -421,26 +420,13 @@ func ValidateEndpoint(ep *Endpoint) error {
 	return nil
 }
 
-// TestConnection checks if an endpoint is reachable by listing available models.
+// TestConnection checks if an endpoint is reachable. OpenAI-layout endpoints
+// are probed via their /models listing; endpoints with a custom path are probed
+// on the configured URL itself (see Client.HealthCheck). The API key is sent, so
+// authenticated gateways don't report a false failure.
 func TestConnection(ctx context.Context, ep *Endpoint) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	// Use a simple HTTP GET to check connectivity
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	resp, err := client.Get(ep.BaseURL + "/models")
-	if err != nil {
+	if err := NewClient(ep.BaseURL, ep.APIKey, ep.Model).HealthCheck(ctx, 5*time.Second); err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
-	}
-
 	return nil
 }

@@ -365,13 +365,9 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	}
 	messages = append(messages, userMsg)
 
-	// Ensure base_url has /v1 suffix
-	baseURL := opts.BaseURL
-	if !strings.HasSuffix(strings.ToLower(baseURL), "/v1") {
-		baseURL = strings.TrimRight(baseURL, "/") + "/v1"
-	}
-
-	client := NewClient(baseURL, opts.APIKey, opts.Model)
+	// The configured URL is used as-is; NewClient only expands legacy
+	// OpenAI-base shapes (see ResolveChatURL).
+	client := NewClient(opts.BaseURL, opts.APIKey, opts.Model)
 	// Set endpoint concurrency limiter (#7461: LLM call-level gating).
 	// nil = unlimited (max_concurrent=0). The semaphore is acquired in
 	// AccumulateStreamWithProgress before each streaming LLM call and released
