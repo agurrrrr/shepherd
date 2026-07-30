@@ -205,6 +205,14 @@ func TestHasStateChangingTools(t *testing.T) {
 	if !hasStateChangingTools(withBash) {
 		t.Error("bash should arm the guard")
 	}
+	// Shell aliases (advertised "shell" on PowerShell) must also arm the guard —
+	// otherwise build verification / future-intention stall never resets.
+	withShell := []OpenAIToolDef{
+		{Type: "function", Function: OpenAIFunction{Name: "shell"}},
+	}
+	if !hasStateChangingTools(withShell) {
+		t.Error("shell alias should arm the guard")
+	}
 	withWrite := []OpenAIToolDef{
 		{Type: "function", Function: OpenAIFunction{Name: "write_file"}},
 	}

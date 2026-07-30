@@ -261,16 +261,51 @@ func TestBashToolDescriptionMentionsPowerShell(t *testing.T) {
 	setShellConfig(t, "pwsh")
 
 	desc := bashToolDescription()
-	if !strings.Contains(desc, "PowerShell") {
-		t.Errorf("PowerShell shell got no dialect hint: %q", desc)
+	for _, want := range []string{"PowerShell", "';'", "MUST call", "grep"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("PowerShell bash description missing %q: %q", want, desc)
+		}
 	}
-	if !strings.Contains(desc, "';'") {
-		t.Errorf("description does not mention the ';' separator: %q", desc)
+	shellDesc := shellToolDescription()
+	if !strings.Contains(shellDesc, "PowerShell") {
+		t.Errorf("shell tool description missing PowerShell: %q", shellDesc)
 	}
 
 	setShellConfig(t, "bash")
 	stubLookPath(t, map[string]string{"bash": "/usr/bin/bash"})
 	if desc := bashToolDescription(); strings.Contains(desc, "PowerShell") {
 		t.Errorf("bash shell got a PowerShell hint: %q", desc)
+	}
+}
+
+func TestIsShellTool(t *testing.T) {
+	for _, name := range []string{"bash", "shell", "powershell", "pwsh"} {
+		if !IsShellTool(name) {
+			t.Errorf("IsShellTool(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"read_file", "grep", "Bash", ""} {
+		if IsShellTool(name) {
+			t.Errorf("IsShellTool(%q) = true, want false", name)
+		}
+	}
+}
+
+func TestShellCommandFromArgs(t *testing.T) {
+	cases := []struct {
+		args map[string]interface{}
+		want string
+	}{
+		{map[string]interface{}{"command": "Get-ChildItem"}, "Get-ChildItem"},
+		{map[string]interface{}{"cmd": "dir"}, "dir"},
+		{map[string]interface{}{"script": "Write-Host hi"}, "Write-Host hi"},
+		{map[string]interface{}{"code": "1+1"}, "1+1"},
+		{map[string]interface{}{"command": "  ", "cmd": "fallback"}, "fallback"},
+		{map[string]interface{}{}, ""},
+	}
+	for _, c := range cases {
+		if got := shellCommandFromArgs(c.args); got != c.want {
+			t.Errorf("shellCommandFromArgs(%v) = %q, want %q", c.args, got, c.want)
+		}
 	}
 }

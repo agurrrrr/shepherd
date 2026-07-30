@@ -262,11 +262,16 @@ func NewToolRegistry(projectPath, sheepName string, mcpDefs []MCPToolDef, mcpDis
 }
 
 // registerNativeTools registers the core coding tools (read, write, edit, bash, grep, glob).
+// Shell aliases (shell/powershell/pwsh) share execBash so invented names from
+// local models still run; progress gates use IsShellTool (see shell.go).
 func (tr *ToolRegistry) registerNativeTools() {
 	tr.nativeTools["read_file"] = tr.readfile
 	tr.nativeTools["write_file"] = tr.writefile
 	tr.nativeTools["edit_file"] = tr.editfile
 	tr.nativeTools["bash"] = tr.execBash
+	for _, alias := range shellToolAliases {
+		tr.nativeTools[alias] = tr.execBash
+	}
 	tr.nativeTools["grep"] = tr.execGrep
 	tr.nativeTools["glob"] = tr.execGlob
 }
@@ -348,7 +353,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"command": map[string]interface{}{"type": "string", "description": "Shell command to execute"},
+						"command": map[string]interface{}{"type": "string", "description": "Shell command to execute (aliases: cmd, script)"},
 						"timeout": map[string]interface{}{"type": "number", "description": "Timeout in seconds (optional, default 120)"},
 					},
 					"required": []string{"command"},
@@ -359,12 +364,13 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 			Type: "function",
 			Function: OpenAIFunction{
 				Name:        "grep",
-				Description: "Search for a pattern in files using ripgrep. Falls back to Go regex if ripgrep is not available.",
+				Description: "Search for a pattern in project files (native tool — does not need the shell). " +
+					"Uses ripgrep when available, otherwise a pure-Go walk. Prefer this over shell find/rg/Select-String for code search.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"pattern": map[string]interface{}{"type": "string", "description": "Pattern to search for"},
-						"glob":    map[string]interface{}{"type": "string", "description": "Glob pattern to filter files (optional)"},
+						"glob":    map[string]interface{}{"type": "string", "description": "Glob pattern to filter files (optional, e.g. **/*.go)"},
 					},
 					"required": []string{"pattern"},
 				},
@@ -374,16 +380,37 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 			Type: "function",
 			Function: OpenAIFunction{
 				Name:        "glob",
-				Description: "Find files matching a glob pattern in the project directory.",
+				Description: "Find files matching a glob pattern in the project directory (native tool — does not need the shell). " +
+					"Prefer this over shell Get-ChildItem -Recurse / find for listing paths.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"pattern": map[string]interface{}{"type": "string", "description": "Glob pattern (e.g., **/*.go)"},
+						"pattern": map[string]interface{}{"type": "string", "description": "Glob pattern (e.g., **/*.go). Forward slashes work on Windows too."},
 					},
 					"required": []string{"pattern"},
 				},
 			},
 		},
+	}
+	// When PowerShell backs the shell tool, also advertise "shell" so models that
+	// refuse a tool named "bash" still see a PowerShell-aligned entry. Same
+	// handler; silent aliases powershell/pwsh stay dispatch-only.
+	if ShellUsesPowerShell() {
+		nativeDefs = append(nativeDefs, OpenAIToolDef{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name:        "shell",
+				Description: shellToolDescription(),
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"command": map[string]interface{}{"type": "string", "description": "PowerShell command to execute (aliases: cmd, script)"},
+						"timeout": map[string]interface{}{"type": "number", "description": "Timeout in seconds (optional, default 120)"},
+					},
+					"required": []string{"command"},
+				},
+			},
+		})
 	}
 	defs = append(defs, nativeDefs...)
 
@@ -561,6 +588,11 @@ func (tr *ToolRegistry) Dispatch(ctx context.Context, name string, args map[stri
 		return tr.bufferMCPImages(name, mcpResult, images), nil
 	}
 
+	// Local models invent shell names after "use PowerShell" — point them back.
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "shell") || lower == "pwsh" || lower == "cmd" || lower == "powershell.exe" {
+		return "", fmt.Errorf("unknown tool: %s — use the bash or shell tool (both run the host shell; on this host PowerShell may back them). Args: {\"command\":\"...\"}", name)
+	}
 	return "", fmt.Errorf("unknown tool: %s", name)
 }
 
@@ -1206,9 +1238,9 @@ func editSnippet(newContent string, startPos int, inserted string, contextLines 
 }
 
 func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{}) (string, error) {
-	command, _ := args["command"].(string)
+	command := shellCommandFromArgs(args)
 	if command == "" {
-		return "", fmt.Errorf("command is required")
+		return "", fmt.Errorf("command is required (also accepts cmd/script aliases)")
 	}
 
 	timeout := 120 // default 2 minutes
@@ -1264,6 +1296,12 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 		// On a plain non-zero exit it reaps any children the shell left behind.
 		// Dual kill is intentional and idempotent — see killProcessGroup.
 		proc.kill()
+
+		// Point POSIX-habit failures at PowerShell + native grep/glob so the
+		// model does not refuse the tool or invent a separate pwsh tool.
+		if ShellUsesPowerShell() {
+			output += powerShellDialectHint()
+		}
 
 		return tr.capOutput(output), nil
 	}

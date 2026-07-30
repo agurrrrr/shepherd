@@ -12,13 +12,15 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 )
 
-// Shell resolution for the "bash" tool.
+// Shell resolution for the shell tool (schema name "bash", plus aliases).
 //
-// The tool is named "bash" on every platform and stays that way: loop.go keys
-// its build-verification gate and future-intention stall counter off
-// `case "bash"`, so an alias would silently break those. What varies per OS is
-// only *which* shell binary backs the tool and how a command string is handed
-// to it — that lives here plus shell_unix.go / shell_windows.go.
+// The primary OpenAI tool name stays "bash" because many local models are
+// trained to emit that name. On PowerShell hosts the tool *runs* PowerShell;
+// loop.go gates (build verification, future-intention stall) use IsShellTool
+// so silent aliases (shell/powershell/pwsh) still count as state-changing.
+// What varies per OS is only *which* shell binary backs the tool and how a
+// command string is handed to it — that lives here plus shell_unix.go /
+// shell_windows.go.
 //
 // Priority: SHEPHERD_SHELL / config "shell" (see config.GetShell) beats
 // auto-detection, which is defined per platform in detectShell().
@@ -196,19 +198,80 @@ func resolveShellOverride(override string) (*resolvedShell, error) {
 	return &resolvedShell{path: path, kind: shellKindFor(path)}, nil
 }
 
-// bashToolDescription is the description advertised for the bash tool.
+// shellToolNames are accepted names for the shell execution tool.
 //
-// The tool name stays "bash" everywhere (loop.go gates on `case "bash"`), so
-// when the resolved shell is PowerShell the only way the model learns it is
-// not writing POSIX is this line. A fuller Windows-aware prompt is a separate
-// step; without at least this much, the PowerShell path works while every
-// command the agent writes still fails.
+// "bash" is the schema-primary name (model training + historical). The rest
+// are silent dispatch aliases so a local model that invents shell/powershell/
+// pwsh after the user says "use PowerShell" still hits the same handler.
+// Gates and progress tracking must use IsShellTool, not a bare string match.
+var shellToolNames = map[string]bool{
+	"bash":       true,
+	"shell":      true,
+	"powershell": true,
+	"pwsh":       true,
+}
+
+// IsShellTool reports whether name is the shell execution tool (primary or alias).
+func IsShellTool(name string) bool {
+	return shellToolNames[name]
+}
+
+// shellToolAliases lists non-primary names registered on the dispatch map.
+// They are not all advertised in the OpenAI tool list (that would bloat the
+// schema); "shell" is additionally advertised when PowerShell is active so
+// models that refuse a tool literally named "bash" still have a callable entry.
+var shellToolAliases = []string{"shell", "powershell", "pwsh"}
+
+// bashToolDescription is the description advertised for the primary "bash" tool.
+//
+// When the resolved shell is PowerShell the name "bash" is misleading and local
+// models often refuse the tool ("instructions say PowerShell only, but the only
+// shell tool is bash"). The description must resolve that contradiction: call
+// this tool, write PowerShell syntax, do not invent a separate powershell tool.
 func bashToolDescription() string {
 	const base = "Execute a shell command in the project directory. Output is capped at 64KB."
 	if sh, err := resolveShell(); err == nil && sh.isPowerShell() {
-		return base + " Shell is PowerShell: use ';' instead of '&&' (Windows PowerShell 5.1 has no '&&'), and Windows-style paths."
+		return base +
+			" IMPORTANT: despite the historical tool name \"bash\", this tool runs PowerShell " +
+			"(pwsh or Windows PowerShell). You MUST call this tool (or \"shell\") for any shell " +
+			"work — do not refuse it because the name says bash, and do not invent a separate " +
+			"pwsh/powershell tool. Write PowerShell syntax in the command argument " +
+			"(Get-ChildItem, Select-String, Get-Content; use ';' not '&&' on Windows PowerShell 5.1). " +
+			"For file search prefer the native grep/glob tools instead of shell find/rg."
 	}
-	return base
+	return base + " Prefer the native grep/glob tools for searching files instead of shell find/grep."
+}
+
+// shellToolDescription is the description for the extra "shell" tool entry
+// advertised only when PowerShell backs the tool. Same handler as "bash".
+func shellToolDescription() string {
+	return "Execute a PowerShell command in the project directory (same backend as the bash tool). " +
+		"Output is capped at 64KB. Write PowerShell syntax: Get-ChildItem, Select-String, " +
+		"Get-Content; use ';' instead of '&&' on Windows PowerShell 5.1. " +
+		"For file search prefer native grep/glob tools."
+}
+
+// shellCommandFromArgs pulls the command string from tool args, accepting
+// common aliases local models invent (cmd/script) when they forget "command".
+func shellCommandFromArgs(args map[string]interface{}) string {
+	for _, key := range []string{"command", "cmd", "script", "code"} {
+		if s, ok := args[key].(string); ok {
+			if t := strings.TrimSpace(s); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
+}
+
+// powerShellDialectHint is appended to failed shell results when the backend
+// is PowerShell, so a POSIX-habit command failure points the model at the
+// right next step instead of retrying the same Unix command.
+func powerShellDialectHint() string {
+	return "\n\n[hint] This tool runs PowerShell, not Unix bash. " +
+		"Use PowerShell cmdlets (Get-ChildItem, Select-String, Get-Content) and ';' for chaining. " +
+		"For search/list files prefer the native grep and glob tools. " +
+		"Call the tool named bash or shell — both execute PowerShell here."
 }
 
 // shellProc wraps the shell process so that platform-specific cleanup
