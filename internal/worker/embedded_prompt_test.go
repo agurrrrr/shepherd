@@ -46,8 +46,9 @@ func TestEmbeddedBehaviorDiscipline(t *testing.T) {
 			t.Errorf("discipline block missing %q; got %q", want, d)
 		}
 	}
-	// Keep it short — local context is expensive.
-	if len(d) > 800 {
+	// Keep it short — local context is expensive. PowerShell dialect adds a few
+	// lines (name-vs-engine note, grep/glob preference); POSIX stays smaller.
+	if len(d) > 1200 {
 		t.Errorf("discipline block too long (%d bytes); keep concise", len(d))
 	}
 }
@@ -66,6 +67,11 @@ func TestEmbeddedBehaviorDisciplinePowerShell(t *testing.T) {
 		"&&",
 		"$LASTEXITCODE",
 		"read_file",
+		// Local models refuse a tool named "bash" when told "PowerShell only" —
+		// the prompt must resolve that name-vs-engine contradiction.
+		"거부하지",
+		"grep",
+		"glob",
 	} {
 		if !strings.Contains(d, want) {
 			t.Errorf("PowerShell discipline missing %q; got %q", want, d)
@@ -75,6 +81,9 @@ func TestEmbeddedBehaviorDisciplinePowerShell(t *testing.T) {
 		if strings.Contains(d, ban) {
 			t.Errorf("PowerShell discipline must not keep POSIX ban list %q", ban)
 		}
+	}
+	if len(d) > 1400 {
+		t.Errorf("PowerShell discipline too long (%d bytes)", len(d))
 	}
 }
 

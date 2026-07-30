@@ -220,8 +220,8 @@ func lastSentences(s string, n int) string {
 // not arm the guard — reset is structurally impossible there (task #7751 (A)).
 func hasStateChangingTools(toolDefs []OpenAIToolDef) bool {
 	for _, t := range toolDefs {
-		switch t.Function.Name {
-		case "bash", "write_file", "edit_file":
+		name := t.Function.Name
+		if IsShellTool(name) || name == "write_file" || name == "edit_file" {
 			return true
 		}
 	}
@@ -457,16 +457,18 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	)
 
 	// markToolUsed records state-changing tool activity for the false-completion
-	// guards. Only bash/write_file/edit_file count: they represent real progress,
-	// so they clear the future-intention stall counter. read_file (mere inspection)
-	// intentionally does NOT reset it, so a "read then re-declare" ping-pong still
-	// hits the nudge cap and is reported incomplete.
+	// guards. Only shell (bash/shell/powershell/pwsh)/write_file/edit_file count:
+	// they represent real progress, so they clear the future-intention stall
+	// counter. read_file (mere inspection) intentionally does NOT reset it, so a
+	// "read then re-declare" ping-pong still hits the nudge cap and is reported
+	// incomplete. Shell aliases must go through IsShellTool or bashCalled never
+	// sets and the build-verification gate false-fails.
 	markToolUsed := func(name string) {
-		switch name {
-		case "bash":
+		switch {
+		case IsShellTool(name):
 			bashCalled = true
 			futureIntentionNudges = 0
-		case "write_file", "edit_file":
+		case name == "write_file" || name == "edit_file":
 			codeModified = true
 			futureIntentionNudges = 0
 		}
@@ -1276,8 +1278,8 @@ func truncateToolResult(s, toolName string) string {
 // no head/tail/sed and no /tmp, so a POSIX-only hint would just produce another
 // failed tool call. Git Bash on Windows keeps the POSIX wording.
 func truncationHint(toolName string) string {
-	switch toolName {
-	case "bash":
+	switch {
+	case IsShellTool(toolName):
 		if ShellUsesPowerShell() {
 			return "Only the first part of the output is shown. To see the rest, re-run the " +
 				"command narrowing its output — pipe through `Select-Object -First N` / " +
@@ -1289,12 +1291,12 @@ func truncationHint(toolName string) string {
 			"command narrowing its output — pipe through head/tail or `sed -n 'START,ENDp'`, " +
 			"or grep for what you need — or redirect it to a file (`cmd > /tmp/out.txt`) and " +
 			"open that file with read_file, which pages large files."
-	case "grep":
+	case toolName == "grep":
 		return "Only the first matches are shown. Narrow the search to surface the relevant " +
 			"ones — tighten the pattern or pass a glob filter."
-	case "glob":
+	case toolName == "glob":
 		return "Too many matches. Narrow the glob pattern to surface the relevant paths."
-	case "read_file":
+	case toolName == "read_file":
 		// read_file self-pages and should not reach here; if it ever does, point at
 		// its own paging mechanism rather than a generic message.
 		return "Call read_file again with a higher offset to continue paging through the file."

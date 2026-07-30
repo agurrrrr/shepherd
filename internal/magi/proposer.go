@@ -177,14 +177,16 @@ var callEndpoint = func(
 		// knows about MCP tools for WantsSheepName checks.
 		var mcpDefs []embedded.MCPToolDef
 		for _, td := range tools {
-			if td.Function.Name != "read_file" && td.Function.Name != "grep" && td.Function.Name != "glob" &&
-				td.Function.Name != "write_file" && td.Function.Name != "edit_file" && td.Function.Name != "bash" {
-				mcpDefs = append(mcpDefs, embedded.MCPToolDef{
-					Name:        td.Function.Name,
-					Description: td.Function.Description,
-					Parameters:  td.Function.Parameters,
-				})
+			name := td.Function.Name
+			if name == "read_file" || name == "grep" || name == "glob" ||
+				name == "write_file" || name == "edit_file" || embedded.IsShellTool(name) {
+				continue
 			}
+			mcpDefs = append(mcpDefs, embedded.MCPToolDef{
+				Name:        td.Function.Name,
+				Description: td.Function.Description,
+				Parameters:  td.Function.Parameters,
+			})
 		}
 		toolRegistry = embedded.NewToolRegistry(projectPath, sheepName, mcpDefs, dispatch)
 	}

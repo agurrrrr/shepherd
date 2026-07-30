@@ -15,7 +15,8 @@ import (
 func TestIsParallelSafeTool(t *testing.T) {
 	safe := []string{"read_file", "grep", "glob"}
 	unsafe := []string{
-		"write_file", "edit_file", "bash", "spawn_subagents", "todo_write",
+		"write_file", "edit_file", "bash", "shell", "powershell", "pwsh",
+		"spawn_subagents", "todo_write",
 		"browser_open", "browser_click", "get_history", "mobile_take_screenshot",
 		"unknown_mcp_tool", "",
 	}

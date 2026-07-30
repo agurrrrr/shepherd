@@ -157,9 +157,9 @@ func (d shellDialect) fileReadBanTools() string {
 
 // workdirToolLine is the bullet under [작업 환경] about the bash tool root.
 func (d shellDialect) workdirToolLine() string {
-	// Tool name stays "bash" on every platform (loop.go gates on case "bash").
+	// Primary schema name stays "bash"; on PowerShell "shell" is also advertised.
 	if d.powerShell {
-		return "- bash 도구(실제 셸: PowerShell), 파일 읽기/쓰기, glob/grep 도구는 모두 이 디렉토리를 기준으로 실행된다."
+		return "- 셸 도구 이름은 bash 또는 shell 이다(둘 다 동일, 실제 엔진: PowerShell). 파일 읽기/쓰기, 네이티브 glob/grep 도 모두 이 디렉토리 기준이다."
 	}
 	return "- bash 명령, 파일 읽기/쓰기, glob/grep 도구는 모두 이 디렉토리를 기준으로 실행된다."
 }
@@ -186,8 +186,11 @@ func (d shellDialect) shellChainHint() string {
 	if !d.powerShell {
 		return ""
 	}
-	return "- bash 도구의 실제 셸은 PowerShell이다. Windows PowerShell 5.1은 `&&`를 지원하지 않는다 — " +
-		"`cd x && go build` 대신 `;` 로 잇거나 `if ($LASTEXITCODE -eq 0) { ... }` 를 써라 (pwsh 7+만 `&&` 가능).\n"
+	return "- 셸 도구(bash 또는 shell)의 실제 엔진은 PowerShell이다. Windows PowerShell 5.1은 `&&`를 지원하지 않는다 — " +
+		"`cd x && go build` 대신 `;` 로 잇거나 `if ($LASTEXITCODE -eq 0) { ... }` 를 써라 (pwsh 7+만 `&&` 가능).\n" +
+		"- 도구 이름이 bash여도 PowerShell 명령을 넣는 것이 맞다. \"bash 금지/파워셸만\" 지시가 있어도 " +
+		"셸 도구 호출을 거부하지 마라 — 그 지시는 Unix bash 문법(cat/sed/find)을 쓰지 말라는 뜻이다.\n" +
+		"- 파일 검색·나열은 네이티브 grep/glob 도구를 써라. 셸 안에서 find/rg/Get-ChildItem -Recurse 로 대체하지 마라.\n"
 }
 
 // embeddedWorkdirSection is the shared [작업 환경] block for embedded and MAGI.
@@ -205,13 +208,17 @@ func embeddedWorkdirSection(projectPath string, agent bool) string {
 // are filled from currentShellDialect so we do not maintain two full copies.
 func embeddedBehaviorDiscipline() string {
 	d := currentShellDialect()
+	verifyTool := "bash"
+	if d.powerShell {
+		verifyTool = "bash 또는 shell"
+	}
 	s := "[행동 규율]\n" +
-		"- 파일 읽기/수정은 read_file, edit_file, write_file 도구만 사용한다. bash로 " +
+		"- 파일 읽기/수정은 read_file, edit_file, write_file 도구만 사용한다. 셸로 " +
 		d.fileReadBanTools() + " 등으로 파일을 읽거나 편집하지 마라.\n" +
 		d.shellChainHint() +
 		"- 미래형으로 \"하겠습니다\"만 서술하고 멈추지 마라. 지금 도구를 호출하라.\n" +
 		"- 파괴적·공유 상태 변경(삭제, force push, 원격 푸시 등) 전에는 확인·보고하라.\n" +
-		"- 코드 수정 후 완료 선언 전에 bash로 빌드/테스트를 검증하라.\n" +
+		"- 코드 수정 후 완료 선언 전에 " + verifyTool + "로 빌드/테스트를 검증하라.\n" +
 		"- `<system-reminder>...</system-reminder>`로 감싼 내용은 사용자가 직접 한 말이 아니라 시스템 자동 안내다."
 	return s
 }
@@ -234,7 +241,7 @@ func BuildSystemPromptForMagi(sheepName, projectPath, mcpGuide string) string {
 	sections = append(sections,
 		"[심의 환경 — 읽기 전용 도구]\n"+
 			"- 이 심의에서 너는 읽기 전용 도구를 사용할 수 있다. 파일 읽기(read_file, grep, glob), 작업 히스토리 조회(get_history, get_task_detail), 위키 조회, 외부 MCP 조회 도구를 사용해 코드와 상태를 직접 확인하라.\n"+
-			"- 쓰기 도구(write_file, edit_file, bash, task_start 등)는 사용할 수 없다. 쓰기 도구 호출 시도는 답변을 무효화한다.\n"+
+			"- 쓰기 도구(write_file, edit_file, bash/shell, task_start 등)는 사용할 수 없다. 쓰기 도구 호출 시도는 답변을 무효화한다.\n"+
 			"- 도구를 사용해 코드와 상태를 직접 확인한 후, 확인된 사실에 기반하여 답변하라.")
 
 	if projectPath != "" {

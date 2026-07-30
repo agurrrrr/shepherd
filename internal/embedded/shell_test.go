@@ -245,3 +245,52 @@ func TestNewShellCmdUsesResolvedShell(t *testing.T) {
 		t.Errorf("Args = %q, want %q", cmd.Args, want)
 	}
 }
+
+func TestShellToolAliasesRegistered(t *testing.T) {
+	tr := NewToolRegistry(t.TempDir(), "test", nil, nil)
+	for _, name := range []string{"bash", "shell", "powershell", "pwsh"} {
+		if _, ok := tr.nativeTools[name]; !ok {
+			t.Errorf("native tool %q not registered", name)
+		}
+	}
+}
+
+func TestOpenAIToolDefsAdvertisesShellOnPowerShell(t *testing.T) {
+	setShellConfig(t, "pwsh")
+	stubLookPath(t, map[string]string{"pwsh": "/opt/pwsh"})
+	if !ShellUsesPowerShell() {
+		t.Fatal("expected PowerShell dialect")
+	}
+	tr := NewToolRegistry(t.TempDir(), "test", nil, nil)
+	defs := tr.OpenAIToolDefs()
+	var hasBash, hasShell bool
+	for _, d := range defs {
+		switch d.Function.Name {
+		case "bash":
+			hasBash = true
+			if !strings.Contains(d.Function.Description, "PowerShell") {
+				t.Errorf("bash description on PowerShell missing dialect: %q", d.Function.Description)
+			}
+		case "shell":
+			hasShell = true
+		}
+	}
+	if !hasBash {
+		t.Error("bash tool must still be advertised")
+	}
+	if !hasShell {
+		t.Error("shell tool must be advertised when PowerShell backs the tool")
+	}
+
+	// POSIX host: only bash, not shell.
+	setShellConfig(t, "bash")
+	stubLookPath(t, map[string]string{"bash": "/usr/bin/bash"})
+	// resolveShellOverride caches nothing for overrides, but ShellUsesPowerShell
+	// re-resolves each time via config — still clear lookPath.
+	tr2 := NewToolRegistry(t.TempDir(), "test", nil, nil)
+	for _, d := range tr2.OpenAIToolDefs() {
+		if d.Function.Name == "shell" {
+			t.Error("shell must not be advertised when backend is bash")
+		}
+	}
+}
