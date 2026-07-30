@@ -220,6 +220,35 @@ M1(Git Bash) 참고: `bash -c 'exit 3'` 형태가 non-zero로 보이는지만 �
 
 - CLI 프로바이더 interactive / ConPTY (`internal/worker/pty_windows.go` → 현재 streaming 폴백)
 - Windows Job Object 전환 (taskkill 대체)
-- 툴 이름 별칭 `shell`/`powershell` (의도적 미도입 — `loop.go` 가드)
+- ~~툴 이름 별칭 `shell`/`powershell`~~ → **2026-07-30 도입** (`fix/embedded-powershell-tool-ux`, `c5b7c51`). `IsShellTool` + 디스패치 별칭 + PowerShell일 때 `shell` 스키마 노출. 아래 §12.
 - cmd.exe 자동 폴백 (의도적 미도입)
 - `internal/names`, `internal/wiki` 기존 깨진 테스트 수리 (1/6에서 Windows CI에서 패키지 제외만 함)
+
+---
+
+## 12. 로컬 LLM 셸 툴 이름 모순 (2026-07-30 / #7952)
+
+### 증상 (실사용)
+PowerShell-only Windows + 로컬 모델:
+1. `read_file` / `edit_file` / `write_file` 만 정상
+2. 셸 호출 거부 또는 실패 — 모델 멘트 예:  
+   *"bash 사용 금지·파워셸만 인데, 쓸 수 있는 셸 도구는 bash 뿐입니다"*
+3. 사용자가 `pwsh` 쓰라고 해도 스키마에 해당 툴이 없어 실패
+
+실행 경로(EncodedCommand 등)는 1~5/6에서 들어갔고, 남은 건 **스키마 이름·프롬프트·별칭** 쪽 UX.
+
+### 수정 요약
+| 항목 | 내용 |
+|------|------|
+| `IsShellTool` | `bash`/`shell`/`powershell`/`pwsh` — loop 가드·truncation·MAGI 필터 |
+| 디스패치 | 네 이름 모두 `execBash` |
+| 스키마 | PowerShell 백엔드일 때 `shell` 추가 advertise (bash 유지) |
+| 인자 | `command` + `cmd`/`script`/`code` |
+| 프롬프트 | 이름≠엔진, 호출 거부 금지, 네이티브 grep/glob 우선 |
+| 실패 힌트 | PowerShell 실패 시 방언 안내 |
+
+### 실기기 추가 확인 (권장)
+1. PowerShell-only 환경에서 로컬 모델이 **bash 또는 shell** 로 `Get-ChildItem` 성공
+2. 같은 턴에서 **grep / glob 네이티브** 호출 (셸 find/rg 우회 안 함)
+3. 모델이 `pwsh` 툴을 발명해도 별칭으로 실행되거나 actionable 에러
+4. 빌드 검증 게이트: shell 별칭만 써도 `bashCalled` 로 인정
