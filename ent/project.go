@@ -29,6 +29,8 @@ type Project struct {
 	RepoURL string `json:"repo_url,omitempty"`
 	// 프로젝트별 MCP 서버 활성화 설정: {server_name: {enabled: bool}}
 	McpServers map[string]interface{} `json:"mcp_servers,omitempty"`
+	// 숨김 처리 여부 — 사이드바 목록에서 제외된다 (프로젝트 자체는 그대로 동작)
+	Hidden bool `json:"hidden,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
@@ -132,6 +134,8 @@ func (*Project) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case project.FieldMcpServers:
 			values[i] = new([]byte)
+		case project.FieldHidden:
+			values[i] = new(sql.NullBool)
 		case project.FieldID:
 			values[i] = new(sql.NullInt64)
 		case project.FieldName, project.FieldPath, project.FieldDescription, project.FieldRepoURL:
@@ -190,6 +194,12 @@ func (_m *Project) assignValues(columns []string, values []any) error {
 				if err := json.Unmarshal(*value, &_m.McpServers); err != nil {
 					return fmt.Errorf("unmarshal field mcp_servers: %w", err)
 				}
+			}
+		case project.FieldHidden:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field hidden", values[i])
+			} else if value.Valid {
+				_m.Hidden = value.Bool
 			}
 		case project.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -288,6 +298,9 @@ func (_m *Project) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("mcp_servers=")
 	builder.WriteString(fmt.Sprintf("%v", _m.McpServers))
+	builder.WriteString(", ")
+	builder.WriteString("hidden=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Hidden))
 	builder.WriteString(", ")
 	builder.WriteString("created_at=")
 	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))

@@ -1,8 +1,9 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
-	import { apiGet, apiPost, apiDelete } from '$lib/api.js';
-	import { sheep } from '$lib/stores.js';
+	import { apiGet, apiPost, apiPatch, apiDelete } from '$lib/api.js';
+	import { sheep, projects as projectsStore } from '$lib/stores.js';
 	import { onSSE } from '$lib/sse.js';
+	import Icon from '$lib/components/Icon.svelte';
 
 	let projects = [];
 	let loaded = false;
@@ -25,7 +26,11 @@
 			apiGet('/api/projects'),
 			apiGet('/api/sheep')
 		]);
-		if (projRes?.data) projects = projRes.data;
+		if (projRes?.data) {
+			projects = projRes.data;
+			// Keep the sidebar in sync — it renders from this store.
+			projectsStore.set(projRes.data);
+		}
 		if (sheepRes?.data) sheep.set(sheepRes.data);
 		loaded = true;
 	}
@@ -57,6 +62,11 @@
 			await loadProjects();
 		}
 		adding = false;
+	}
+
+	async function toggleHidden(name, hidden) {
+		await apiPatch(`/api/projects/${encodeURIComponent(name)}`, { hidden });
+		await loadProjects();
 	}
 
 	async function removeProject(name) {
@@ -110,17 +120,29 @@
 		<div class="project-grid">
 			{#each projects as p}
 				{@const status = getSheepStatus(p.name)}
-				<a href="/projects/{encodeURIComponent(p.name)}" class="project-card card" class:working={status === 'working'}>
+				<a href="/projects/{encodeURIComponent(p.name)}" class="project-card card" class:working={status === 'working'} class:hidden-project={p.hidden}>
 					<div class="card-top">
 						<div class="card-name-row">
 							<span class="status-dot {status}"></span>
 							<span class="project-name">{p.name}</span>
+							{#if p.hidden}
+								<span class="hidden-tag">hidden</span>
+							{/if}
 						</div>
-						<button
-							class="btn-remove"
-							title="Remove"
-							onclick={(e) => { e.preventDefault(); e.stopPropagation(); removeProject(p.name); }}
-						>&times;</button>
+						<div class="card-actions">
+							<button
+								class="btn-icon"
+								class:pinned={p.hidden}
+								title={p.hidden ? 'Show in sidebar' : 'Hide from sidebar'}
+								aria-label={p.hidden ? 'Show in sidebar' : 'Hide from sidebar'}
+								onclick={(e) => { e.preventDefault(); e.stopPropagation(); toggleHidden(p.name, !p.hidden); }}
+							><Icon name={p.hidden ? 'eye-off' : 'eye'} size={15} /></button>
+							<button
+								class="btn-remove"
+								title="Remove"
+								onclick={(e) => { e.preventDefault(); e.stopPropagation(); removeProject(p.name); }}
+							>&times;</button>
+						</div>
 					</div>
 					{#if p.sheep}
 						<span class="sheep-tag">{p.sheep}</span>
@@ -256,7 +278,14 @@
 		50% { opacity: 0.4; }
 	}
 
-	.btn-remove {
+	.card-actions {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+	}
+
+	.btn-remove,
+	.btn-icon {
 		background: none;
 		border: none;
 		color: var(--text-secondary);
@@ -267,12 +296,45 @@
 		transition: opacity 0.15s, color 0.15s;
 	}
 
-	.project-card:hover .btn-remove {
+	.btn-icon {
+		display: flex;
+		align-items: center;
+	}
+
+	.project-card:hover .btn-remove,
+	.project-card:hover .btn-icon {
 		opacity: 1;
+	}
+
+	/* Hidden projects keep the toggle visible so it can be undone at a glance. */
+	.btn-icon.pinned {
+		opacity: 1;
+		color: var(--accent);
 	}
 
 	.btn-remove:hover {
 		color: var(--danger);
+	}
+
+	.btn-icon:hover {
+		color: var(--accent);
+	}
+
+	.hidden-project {
+		opacity: 0.55;
+	}
+
+	.hidden-project:hover {
+		opacity: 1;
+	}
+
+	.hidden-tag {
+		font-size: 10px;
+		font-family: var(--font-mono);
+		color: var(--text-secondary);
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		padding: 1px 6px;
 	}
 
 	.sheep-tag {
@@ -319,7 +381,8 @@
 			grid-template-columns: 1fr;
 		}
 
-		.btn-remove {
+		.btn-remove,
+		.btn-icon {
 			opacity: 1;
 		}
 	}

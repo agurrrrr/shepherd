@@ -89,12 +89,16 @@ func init() {
 	projectDescPath := projectFields[1].Descriptor()
 	// project.PathValidator is a validator for the "path" field. It is called by the builders before save.
 	project.PathValidator = projectDescPath.Validators[0].(func(string) error)
+	// projectDescHidden is the schema descriptor for hidden field.
+	projectDescHidden := projectFields[5].Descriptor()
+	// project.DefaultHidden holds the default value on creation for the hidden field.
+	project.DefaultHidden = projectDescHidden.Default.(bool)
 	// projectDescCreatedAt is the schema descriptor for created_at field.
-	projectDescCreatedAt := projectFields[5].Descriptor()
+	projectDescCreatedAt := projectFields[6].Descriptor()
 	// project.DefaultCreatedAt holds the default value on creation for the created_at field.
 	project.DefaultCreatedAt = projectDescCreatedAt.Default.(func() time.Time)
 	// projectDescUpdatedAt is the schema descriptor for updated_at field.
-	projectDescUpdatedAt := projectFields[6].Descriptor()
+	projectDescUpdatedAt := projectFields[7].Descriptor()
 	// project.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	project.DefaultUpdatedAt = projectDescUpdatedAt.Default.(func() time.Time)
 	// project.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.

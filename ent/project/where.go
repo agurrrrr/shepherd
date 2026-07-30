@@ -75,6 +75,11 @@ func RepoURL(v string) predicate.Project {
 	return predicate.Project(sql.FieldEQ(FieldRepoURL, v))
 }
 
+// Hidden applies equality check predicate on the "hidden" field. It's identical to HiddenEQ.
+func Hidden(v bool) predicate.Project {
+	return predicate.Project(sql.FieldEQ(FieldHidden, v))
+}
+
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.Project {
 	return predicate.Project(sql.FieldEQ(FieldCreatedAt, v))
@@ -373,6 +378,16 @@ func McpServersIsNil() predicate.Project {
 // McpServersNotNil applies the NotNil predicate on the "mcp_servers" field.
 func McpServersNotNil() predicate.Project {
 	return predicate.Project(sql.FieldNotNull(FieldMcpServers))
+}
+
+// HiddenEQ applies the EQ predicate on the "hidden" field.
+func HiddenEQ(v bool) predicate.Project {
+	return predicate.Project(sql.FieldEQ(FieldHidden, v))
+}
+
+// HiddenNEQ applies the NEQ predicate on the "hidden" field.
+func HiddenNEQ(v bool) predicate.Project {
+	return predicate.Project(sql.FieldNEQ(FieldHidden, v))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.

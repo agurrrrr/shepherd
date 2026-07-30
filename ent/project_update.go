@@ -115,6 +115,20 @@ func (_u *ProjectUpdate) ClearMcpServers() *ProjectUpdate {
 	return _u
 }
 
+// SetHidden sets the "hidden" field.
+func (_u *ProjectUpdate) SetHidden(v bool) *ProjectUpdate {
+	_u.mutation.SetHidden(v)
+	return _u
+}
+
+// SetNillableHidden sets the "hidden" field if the given value is not nil.
+func (_u *ProjectUpdate) SetNillableHidden(v *bool) *ProjectUpdate {
+	if v != nil {
+		_u.SetHidden(*v)
+	}
+	return _u
+}
+
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *ProjectUpdate) SetUpdatedAt(v time.Time) *ProjectUpdate {
 	_u.mutation.SetUpdatedAt(v)
@@ -453,6 +467,9 @@ func (_u *ProjectUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.McpServersCleared() {
 		_spec.ClearField(project.FieldMcpServers, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Hidden(); ok {
+		_spec.SetField(project.FieldHidden, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(project.FieldUpdatedAt, field.TypeTime, value)
@@ -856,6 +873,20 @@ func (_u *ProjectUpdateOne) ClearMcpServers() *ProjectUpdateOne {
 	return _u
 }
 
+// SetHidden sets the "hidden" field.
+func (_u *ProjectUpdateOne) SetHidden(v bool) *ProjectUpdateOne {
+	_u.mutation.SetHidden(v)
+	return _u
+}
+
+// SetNillableHidden sets the "hidden" field if the given value is not nil.
+func (_u *ProjectUpdateOne) SetNillableHidden(v *bool) *ProjectUpdateOne {
+	if v != nil {
+		_u.SetHidden(*v)
+	}
+	return _u
+}
+
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *ProjectUpdateOne) SetUpdatedAt(v time.Time) *ProjectUpdateOne {
 	_u.mutation.SetUpdatedAt(v)
@@ -1224,6 +1255,9 @@ func (_u *ProjectUpdateOne) sqlSave(ctx context.Context) (_node *Project, err er
 	}
 	if _u.mutation.McpServersCleared() {
 		_spec.ClearField(project.FieldMcpServers, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Hidden(); ok {
+		_spec.SetField(project.FieldHidden, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(project.FieldUpdatedAt, field.TypeTime, value)

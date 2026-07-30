@@ -34,6 +34,7 @@ func (s *Server) handleListProjects(c *fiber.Ctx) error {
 		Description string `json:"description,omitempty"`
 		Sheep       string `json:"sheep,omitempty"`
 		RepoURL     string `json:"repo_url,omitempty"`
+		Hidden      bool   `json:"hidden"`
 	}
 
 	var result []projectItem
@@ -43,6 +44,7 @@ func (s *Server) handleListProjects(c *fiber.Ctx) error {
 			Path:        p.Path,
 			Description: p.Description,
 			RepoURL:     repoURLFor(p),
+			Hidden:      p.Hidden,
 		}
 		if p.Edges.Sheep != nil {
 			item.Sheep = p.Edges.Sheep.Name
@@ -101,6 +103,7 @@ func (s *Server) handleGetProject(c *fiber.Ctx) error {
 		"name":        p.Name,
 		"path":        p.Path,
 		"description": p.Description,
+		"hidden":      p.Hidden,
 	}
 	if repoURL := repoURLFor(p); repoURL != "" {
 		result["repo_url"] = repoURL
@@ -110,6 +113,27 @@ func (s *Server) handleGetProject(c *fiber.Ctx) error {
 	}
 
 	return success(c, result)
+}
+
+// PATCH /api/projects/:name  body: {"hidden": true}
+func (s *Server) handleUpdateProject(c *fiber.Ctx) error {
+	name := paramDecoded(c, "name")
+
+	var body struct {
+		Hidden *bool `json:"hidden"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	if body.Hidden == nil {
+		return fail(c, fiber.StatusBadRequest, "nothing to update")
+	}
+
+	if err := project.SetHidden(name, *body.Hidden); err != nil {
+		return fail(c, fiber.StatusNotFound, err.Error())
+	}
+
+	return success(c, map[string]interface{}{"name": name, "hidden": *body.Hidden})
 }
 
 // DELETE /api/projects/:name

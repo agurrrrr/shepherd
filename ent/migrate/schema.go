@@ -89,6 +89,7 @@ var (
 		{Name: "description", Type: field.TypeString, Nullable: true},
 		{Name: "repo_url", Type: field.TypeString, Nullable: true},
 		{Name: "mcp_servers", Type: field.TypeJSON, Nullable: true},
+		{Name: "hidden", Type: field.TypeBool, Default: false},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 	}

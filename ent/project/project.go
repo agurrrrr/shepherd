@@ -24,6 +24,8 @@ const (
 	FieldRepoURL = "repo_url"
 	// FieldMcpServers holds the string denoting the mcp_servers field in the database.
 	FieldMcpServers = "mcp_servers"
+	// FieldHidden holds the string denoting the hidden field in the database.
+	FieldHidden = "hidden"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
@@ -103,6 +105,7 @@ var Columns = []string{
 	FieldDescription,
 	FieldRepoURL,
 	FieldMcpServers,
+	FieldHidden,
 	FieldCreatedAt,
 	FieldUpdatedAt,
 }
@@ -122,6 +125,8 @@ var (
 	NameValidator func(string) error
 	// PathValidator is a validator for the "path" field. It is called by the builders before save.
 	PathValidator func(string) error
+	// DefaultHidden holds the default value on creation for the "hidden" field.
+	DefaultHidden bool
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
@@ -156,6 +161,11 @@ func ByDescription(opts ...sql.OrderTermOption) OrderOption {
 // ByRepoURL orders the results by the repo_url field.
 func ByRepoURL(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRepoURL, opts...).ToFunc()
+}
+
+// ByHidden orders the results by the hidden field.
+func ByHidden(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldHidden, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

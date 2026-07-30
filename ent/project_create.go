@@ -73,6 +73,20 @@ func (_c *ProjectCreate) SetMcpServers(v map[string]interface{}) *ProjectCreate 
 	return _c
 }
 
+// SetHidden sets the "hidden" field.
+func (_c *ProjectCreate) SetHidden(v bool) *ProjectCreate {
+	_c.mutation.SetHidden(v)
+	return _c
+}
+
+// SetNillableHidden sets the "hidden" field if the given value is not nil.
+func (_c *ProjectCreate) SetNillableHidden(v *bool) *ProjectCreate {
+	if v != nil {
+		_c.SetHidden(*v)
+	}
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *ProjectCreate) SetCreatedAt(v time.Time) *ProjectCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -245,6 +259,10 @@ func (_c *ProjectCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *ProjectCreate) defaults() {
+	if _, ok := _c.mutation.Hidden(); !ok {
+		v := project.DefaultHidden
+		_c.mutation.SetHidden(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := project.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -272,6 +290,9 @@ func (_c *ProjectCreate) check() error {
 		if err := project.PathValidator(v); err != nil {
 			return &ValidationError{Name: "path", err: fmt.Errorf(`ent: validator failed for field "Project.path": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.Hidden(); !ok {
+		return &ValidationError{Name: "hidden", err: errors.New(`ent: missing required field "Project.hidden"`)}
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Project.created_at"`)}
@@ -324,6 +345,10 @@ func (_c *ProjectCreate) createSpec() (*Project, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.McpServers(); ok {
 		_spec.SetField(project.FieldMcpServers, field.TypeJSON, value)
 		_node.McpServers = value
+	}
+	if value, ok := _c.mutation.Hidden(); ok {
+		_spec.SetField(project.FieldHidden, field.TypeBool, value)
+		_node.Hidden = value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(project.FieldCreatedAt, field.TypeTime, value)
