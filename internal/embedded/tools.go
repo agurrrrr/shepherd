@@ -365,7 +365,8 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 			Function: OpenAIFunction{
 				Name:        "grep",
 				Description: "Search for a pattern in project files (native tool — does not need the shell). " +
-					"Uses ripgrep when available, otherwise a pure-Go walk. Prefer this over shell find/rg/Select-String for code search.",
+					"Uses ripgrep when available, otherwise a pure-Go walk. Prefer this over shell find/rg/Select-String for code search. " +
+					"Hidden directories (starting with '.', e.g. .temp, .git) are excluded by default.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -381,7 +382,8 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 			Function: OpenAIFunction{
 				Name:        "glob",
 				Description: "Find files matching a glob pattern in the project directory (native tool — does not need the shell). " +
-					"Prefer this over shell Get-ChildItem -Recurse / find for listing paths.",
+					"Prefer this over shell Get-ChildItem -Recurse / find for listing paths. " +
+					"Hidden directories (starting with '.', e.g. .temp, .git) are excluded by default.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{

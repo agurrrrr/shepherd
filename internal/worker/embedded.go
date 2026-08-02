@@ -301,7 +301,10 @@ Issues:
 
 Browser automation (PREFERRED over WebFetch for web tasks):
 - browser_session_start, browser_open, browser_get_text, browser_click, browser_type, ...
-- All browser tools require sheep_name parameter.`
+- All browser tools require sheep_name parameter.
+
+Native tools (grep/glob):
+- Hidden directories (starting with '.', e.g. .temp, .git) are excluded by default from grep and glob results.`
 }
 
 func joinSections(sections []string) string {
