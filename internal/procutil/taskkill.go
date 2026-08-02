@@ -1,4 +1,4 @@
-package embedded
+package procutil
 
 import (
 	"errors"
@@ -6,12 +6,12 @@ import (
 	"strings"
 )
 
-// taskkillAlreadyGone reports whether taskkill failed only because the process
+// TaskkillAlreadyGone reports whether taskkill failed only because the process
 // (tree) was already gone. Common cases: exit 128, "not found" in the message.
 //
 // Lives in a non-tagged file so the classification logic is unit-tested on
-// Unix CI as well as Windows; only killTreeWithTaskkill is Windows-only.
-func taskkillAlreadyGone(err error, out []byte) bool {
+// Unix CI as well as Windows; only KillTree is Windows-only.
+func TaskkillAlreadyGone(err error, out []byte) bool {
 	msg := strings.ToLower(string(out))
 	if strings.Contains(msg, "not found") {
 		return true
@@ -23,8 +23,8 @@ func taskkillAlreadyGone(err error, out []byte) bool {
 	return false
 }
 
-// isExecNotFound reports a missing binary (taskkill not on PATH).
-func isExecNotFound(err error) bool {
+// IsExecNotFound reports a missing binary (taskkill not on PATH).
+func IsExecNotFound(err error) bool {
 	if err == nil {
 		return false
 	}

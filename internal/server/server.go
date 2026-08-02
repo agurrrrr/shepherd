@@ -98,6 +98,13 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	// chrome processes survive past the per-call lifetime of the child.
 	app.Post("/api/_internal/mcp/call", s.handleMCPProxy)
 
+	// Internal graceful shutdown — same X-MCP-Token auth + loopback check as
+	// the MCP proxy. On Windows there is no portable way to deliver SIGTERM to
+	// another process, so `shepherd stop` asks the daemon to shut itself down
+	// over this endpoint instead of TerminateProcess (which skipped every
+	// cleanup: CancelAllRunningTasks, stuck-task recovery, DB close).
+	app.Post("/api/_internal/shutdown", s.handleInternalShutdown)
+
 	// Authenticated routes
 	jwtSecret := config.GetString("auth_jwt_secret")
 	api := app.Group("/api", AuthMiddleware(jwtSecret))

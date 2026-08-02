@@ -1728,7 +1728,127 @@ func decodeShellOutput(b []byte) string {
 	if s, ok := tryDecodeEUCKR(b); ok {
 		return s
 	}
+	// Mixed-encoding fallback: Korean Windows native tools (tasklist, ipconfig,
+	// netstat) and PowerShell pipelines often interleave CP949 text with UTF-8
+	// fragments, so the strict whole-buffer round-trip above fails and the
+	// entire output would be returned as raw mojibake bytes. Split the buffer
+	// into UTF-8-valid segments and CP949-decodable segments, decoding each
+	// CP949 segment independently. Undecodable bytes pass through unchanged.
+	if s, ok := decodeMixedEUCKR(b); ok {
+		return s
+	}
 	return string(b)
+}
+
+// decodeMixedEUCKR handles buffers where valid UTF-8 text and CP949/EUC-KR
+// bytes are interleaved (Korean Windows native tool output piped through
+// PowerShell). The buffer is walked left to right with a 2-byte lookahead:
+//
+//   - A byte < 0x80 is plain ASCII — pass through.
+//   - A byte ≥ 0x80 that starts a valid multi-byte UTF-8 sequence — pass through.
+//   - A byte ≥ 0x80 that is NOT valid UTF-8 is a candidate CP949 lead byte:
+//     try to decode the longest CP949 run from here. Only commit when the run
+//     round-trips exactly and contains at least one Hangul syllable — without
+//     the Hangul requirement, Latin-1 noise could be silently "decoded" into
+//     wrong Korean characters.
+//
+// The Hangul requirement and the exact round-trip together keep this from
+// corrupting buffers that are merely "invalid UTF-8" for non-Korean reasons.
+//
+// Returns ok=false when nothing was decoded (no CP949 segment found), so the
+// caller can distinguish "nothing to do" from a real decode.
+func decodeMixedEUCKR(b []byte) (string, bool) {
+	var out strings.Builder
+	out.Grow(len(b))
+	decodedAny := false
+	i := 0
+	for i < len(b) {
+		c := b[i]
+		// 1) ASCII fast path.
+		if c < 0x80 {
+			out.WriteByte(c)
+			i++
+			continue
+		}
+		// 2) Valid multi-byte UTF-8 sequence — pass through unchanged.
+		if r, size := utf8.DecodeRune(b[i:]); r != utf8.RuneError && size > 1 {
+			out.Write(b[i : i+size])
+			i += size
+			continue
+		}
+		// 3) Invalid UTF-8 lead byte — try a CP949 run.
+		if s, size, ok := decodeCP949Run(b[i:]); ok {
+			out.WriteString(s)
+			i += size
+			decodedAny = true
+			continue
+		}
+		// Undecodable byte — pass through as-is.
+		out.WriteByte(c)
+		i++
+	}
+	if !decodedAny {
+		return "", false
+	}
+	return out.String(), true
+}
+
+// decodeCP949Run decodes the longest CP949/EUC-KR run starting at b[0] (which
+// is a lead byte ≥ 0x80 that failed UTF-8 decoding). It returns the decoded
+// string, the number of input bytes consumed, and ok=true only when the run
+// round-trips exactly and contains at least one Hangul syllable.
+func decodeCP949Run(b []byte) (string, int, bool) {
+	// EUC-KR/CP949 is a 2-byte encoding for non-ASCII: lead 0x81–0xFE, trail
+	// 0x41–0xFE. Consume well-formed 2-byte pairs; allow ASCII bytes between
+	// pairs (spaces/digits/punctuation). We must consume at least one non-ASCII
+	// pair, otherwise pure-ASCII or Latin-1 noise would "decode" vacuously.
+	end := 0
+	sawPair := false
+	for end < len(b) {
+		c := b[end]
+		if c < 0x80 {
+			// ASCII byte inside a CP949 stream — only meaningful once we've
+			// started consuming pairs; consume and continue.
+			end++
+			continue
+		}
+		if r, size := utf8.DecodeRune(b[end:]); r != utf8.RuneError && size > 1 {
+			break // genuine UTF-8 — CP949 run ends here
+		}
+		// Non-ASCII, non-UTF-8: must be a CP949 pair. Lead 0x81-0xFE + trail
+		// 0x41-0xFE (trail excludes 0x00-0x40).
+		if c < 0x81 || c > 0xFE || end+1 >= len(b) {
+			break
+		}
+		t := b[end+1]
+		if t < 0x41 || t > 0xFE {
+			break
+		}
+		end += 2
+		sawPair = true
+	}
+	if !sawPair {
+		return "", 0, false
+	}
+	seg := b[:end]
+	decoded, ok := tryDecodeEUCKR(seg)
+	if !ok || !containsHangul(decoded) {
+		return "", 0, false
+	}
+	return decoded, end, true
+}
+
+// containsHangul reports whether s contains at least one Hangul syllable
+// (U+AC00–U+D7A3) or Hangul jamo (U+1100–U+11FF, U+3130–U+318F).
+func containsHangul(s string) bool {
+	for _, r := range s {
+		if (r >= 0xAC00 && r <= 0xD7A3) ||
+			(r >= 0x1100 && r <= 0x11FF) ||
+			(r >= 0x3130 && r <= 0x318F) {
+			return true
+		}
+	}
+	return false
 }
 
 // tryDecodeEUCKR decodes b as EUC-KR/CP949 only when the entire buffer is a

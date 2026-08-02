@@ -361,6 +361,46 @@ func (s *Server) handleRestart(c *fiber.Ctx) error {
 	return err
 }
 
+// POST /api/_internal/shutdown
+//
+// Graceful daemon shutdown for `shepherd stop`. Authentication mirrors the
+// MCP proxy (X-MCP-Token from runtime.json + loopback-only) so the endpoint
+// cannot be triggered remotely, and responds before tearing down so the CLI
+// gets a clean HTTP 200 instead of a reset connection.
+//
+// The handler closes SSE clients (unblocks Shutdown), shuts down the HTTP
+// listener, then sends os.Interrupt to its own process so runServeForeground
+// runs the exact same cleanup path as a console Ctrl+C: CancelAllRunningTasks,
+// stuck sheep/task recovery, PID/runtime file removal, db.Close.
+func (s *Server) handleInternalShutdown(c *fiber.Ctx) error {
+	if !isLoopback(c.IP()) {
+		return fail(c, fiber.StatusForbidden, "internal API allowed from loopback only")
+	}
+	if s.mcpToken == "" {
+		return fail(c, fiber.StatusServiceUnavailable, "internal shutdown not configured")
+	}
+	if c.Get("X-MCP-Token") != s.mcpToken {
+		return fail(c, fiber.StatusUnauthorized, "invalid mcp token")
+	}
+
+	respErr := success(c, map[string]interface{}{"shutting_down": true})
+
+	go func() {
+		// Give the HTTP response time to flush before tearing down listeners.
+		time.Sleep(300 * time.Millisecond)
+		// Close all SSE connections first so app.Shutdown() does not block on
+		// long-lived streams, then release the port.
+		s.hub.CloseAll()
+		_ = s.app.Shutdown()
+		// Trigger the foreground loop's graceful path (same as Ctrl+C).
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Signal(os.Interrupt)
+		}
+	}()
+
+	return respErr
+}
+
 // GET /api/config/embedded
 // Returns all embedded endpoints from embedded.yaml.
 func (s *Server) handleGetEmbeddedEndpoints(c *fiber.Ctx) error {

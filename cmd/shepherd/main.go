@@ -2964,8 +2964,20 @@ Use --daemon / -d to run in background.`,
 		if serveDaemon {
 			exe, _ := os.Executable()
 			child := exec.Command(exe, "serve-foreground")
-			child.Stdout = nil
-			child.Stderr = nil
+			// Redirect daemon stdout/stderr to a log file. Previously these
+			// were nil, so the daemon's output (including the "server error"
+			// and panic messages from runServeForeground) went nowhere and a
+			// dead daemon left no trace (windows_tool_bugs B4). Append mode
+			// keeps history across restarts.
+			if logFile, logErr := openDaemonLogFile(); logErr == nil {
+				defer logFile.Close()
+				child.Stdout = logFile
+				child.Stderr = logFile
+			} else {
+				fmt.Fprintf(os.Stderr, "⚠️  Cannot open daemon log file (%v); daemon output will be lost\n", logErr)
+				child.Stdout = nil
+				child.Stderr = nil
+			}
 			child.Stdin = nil
 			detachProcess(child)
 			envutil.SetCleanEnv(child)
@@ -2977,7 +2989,7 @@ Use --daemon / -d to run in background.`,
 				fmt.Fprintf(os.Stderr, "❌ Failed to start daemon: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Printf("🐑 Shepherd daemon started (PID: %d)\n", child.Process.Pid)
+			fmt.Printf("🐑 Shepherd daemon started (PID: %d, log: %s)\n", child.Process.Pid, daemonLogPath())
 			return
 		}
 
@@ -2992,6 +3004,25 @@ var serveForegroundCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		runServeForeground()
 	},
+}
+
+// daemonLogPath returns the log file the background daemon writes to.
+// Lives next to the other daemon state files (PID, runtime.json) under the
+// config dir so `shepherd serve -d` can tell the user exactly where to look
+// when the daemon dies silently.
+func daemonLogPath() string {
+	return filepath.Join(config.GetConfigDir(), "logs", "daemon.log")
+}
+
+// openDaemonLogFile opens (creating if needed) the daemon log file in append
+// mode. The parent process keeps the handle only until child.Start; the child
+// inherits the file descriptor as its stdout/stderr.
+func openDaemonLogFile() (*os.File, error) {
+	path := daemonLogPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 }
 
 func runServeForeground() {
@@ -3168,6 +3199,14 @@ func runServeForeground() {
 
 	srv.Shutdown()
 	db.Close()
+
+	// os.Exit skips deferred calls, so run the state-file cleanup explicitly
+	// here. RemoveRuntime in particular is how `shepherd stop` (and external
+	// observers) detect that the graceful path actually ran — the HTTP
+	// shutdown endpoint resolves through runtime.json, so leaving it behind
+	// after a graceful stop would look identical to a hard-killed daemon.
+	daemon.RemovePID()
+	daemon.RemoveRuntime()
 	os.Exit(0)
 }
 
