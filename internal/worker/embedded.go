@@ -216,7 +216,7 @@ func embeddedBehaviorDiscipline() string {
 		"- 파일 읽기/수정은 read_file, edit_file, write_file 도구만 사용한다. 셸로 " +
 		d.fileReadBanTools() + " 등으로 파일을 읽거나 편집하지 마라.\n" +
 		d.shellChainHint() +
-		"- 미래형으로 \"하겠습니다\"만 서술하고 멈추지 마라. 지금 도구를 호출하라.\n" +
+		"- 코드/시스템 변경 작업이면 미래형 \"하겠습니다\"만 서술하지 말고 지금 도구를 호출하라. 조언·분석 질문이면 도구 없이 답하되 '추가 실행이 필요 없는 분석·권고'임을 명시하라.\n" +
 		"- 파괴적·공유 상태 변경(삭제, force push, 원격 푸시 등) 전에는 확인·보고하라.\n" +
 		"- 코드 수정 후 완료 선언 전에 " + verifyTool + "로 빌드/테스트를 검증하라.\n" +
 		"- `<system-reminder>...</system-reminder>`로 감싼 내용은 사용자가 직접 한 말이 아니라 시스템 자동 안내다."

@@ -51,8 +51,15 @@ const maxFutureIntentionNudges = 2
 // than being forced into a no-op tool call. Tool names are intentionally
 // omitted — naming bash/write_file biased models toward unnecessary writes
 // (task #7751 (B)).
+//
+// Task #8004: the escape hatch now names an explicit phrase the model can
+// copy ("이 답변은 분석·권고이며 추가 실행이 필요 없습니다") — task #8003
+// showed the abstract "그렇게 명시하고" wording left the model unable to find
+// the exit, so it repeated the same future-form ending until forced
+// incomplete. The phrase is detected by claimsAdvisoryCompletion.
 const futureIntentionNudgeBody = "위에서 선언한 작업이 아직 남아 있다면 지금 실행해주세요. " +
-	"이미 완료했거나 이 답변이 실행이 아닌 분석·권고라면, 그렇게 명시하고 최종 보고를 다시 작성해주세요."
+	"이 답변이 도구 실행이 아닌 조언·안내·분석·권고라면, '이 답변은 분석·권고이며 추가 실행이 필요 없습니다'라고 " +
+	"명시한 뒤 최종 답변을 다시 작성해주세요. 도구 호출이 필요한 작업이라면 지금 바로 호출해주세요."
 
 // maxPauseSummaryNudges bounds how many times the pause-summary guard (task
 // #6690) nudges a model that voluntarily writes a "paused, continue later"
@@ -244,6 +251,81 @@ func isFutureIntention(content string) bool {
 		return true
 	}
 	return false
+}
+
+// advisoryQuestionSignals match prompts that read as pure advisory/how-to
+// questions (task #8004, P0-1). Such prompts need no bash/write_file execution
+// to answer, so the future-intention guard must not demand one.
+var advisoryQuestionSignals = regexp.MustCompile(
+	`\?|？|없을까|없나요|있을까|있나요|방법|어떻게|어찌|왜|무엇|뭔가요|뭔지|알려|how to|how do|how can|is there a way|what is|what's|why does|why is`)
+
+// advisoryActionSignals match prompts that contain a strong execution
+// directive. Their presence overrides advisoryQuestionSignals — "어떻게 고쳐?"
+// is a question but clearly demands a code change, so the guard stays armed.
+var advisoryActionSignals = regexp.MustCompile(
+	`(?i)고쳐|수정해|구현해|적용해|실행해|설치해|배포해|커밋해|푸시해|머지해|작성해|만들어|추가해|삭제해|변경해|반영해|재시작해|기록해|정리해|빌드해|테스트해|fix|implement|apply|deploy|commit|push|merge|create|delete|update|modify|refactor|install|run the|build the|write the`)
+
+// isAdvisoryPrompt reports whether the user prompt reads as a pure
+// advisory/Q&A request (task #8004, P0-1). Heuristic: contains a question
+// signal AND no strong execution directive. When true, the future-intention
+// guard does not arm UNLESS the model itself starts using state-changing
+// tools (bash/write_file) — once it does, the work has become an execution
+// and the strict guard applies (prevents #6294 regression through the
+// advisory loophole).
+func isAdvisoryPrompt(prompt string) bool {
+	s := strings.TrimSpace(prompt)
+	if s == "" {
+		return false
+	}
+	if advisoryActionSignals.MatchString(s) {
+		return false
+	}
+	return advisoryQuestionSignals.MatchString(s)
+}
+
+// advisoryCompletionSignals match an explicit statement that the answer is
+// advisory/analysis and no further execution is needed (task #8004, P0-2).
+// The nudge body tells the model to use exactly this phrasing.
+var advisoryCompletionSignals = regexp.MustCompile(
+	`추가\s*실행이\s*필요\s*없|실행이\s*아닌\s*(안내|분석|권고|조언)|(분석|권고|조언|안내)(이|입니다|이며)|분석·권고|advisory (answer|only)|no (further )?(execution|tool calls?) (is )?(needed|required)`)
+
+// minAdvisoryCompletionRunes is the minimum body length for the advisory
+// escape hatch. A bare "분석입니다" one-liner must not bypass the guard — the
+// model must have actually produced the substantive answer it was nudged for.
+const minAdvisoryCompletionRunes = 200
+
+// claimsAdvisoryCompletion reports whether the message explicitly declares
+// itself an advisory/analysis answer with a substantive body (task #8004,
+// P0-2). This is the codified escape hatch: the future-intention nudge tells
+// the model to state this, and when it does (with a real answer attached) the
+// loop accepts the completion even if the closing sentence uses volitional
+// endings — advisory answers naturally end with "해 보세요/드리겠습니다".
+func claimsAdvisoryCompletion(content string) bool {
+	s := strings.TrimSpace(content)
+	if len([]rune(s)) < minAdvisoryCompletionRunes {
+		return false
+	}
+	return advisoryCompletionSignals.MatchString(s)
+}
+
+// advisoryCompletedAtTurnN reports whether the advisory escape hatch applies
+// (task #8004, P0-2): the message explicitly declares itself an advisory
+// answer with a substantive body, AND at least one nudge already fired. The
+// nudge-first requirement exists because the model only learns the exact
+// phrase from the nudge body — a first-turn future intention without it still
+// gets nudged, keeping the #6294 defense intact.
+func advisoryCompletedAtTurnN(nudges int, content string) bool {
+	return nudges > 0 && claimsAdvisoryCompletion(content)
+}
+
+// futureIntentionGuardArmed is the pure decision behind mitigation ①'s fire
+// condition, extracted for table-driven testing (task #8004, P2-7).
+func futureIntentionGuardArmed(writeToolsAllowed, advisoryPrompt, bashCalled, codeModified, anyToolCalled bool, nudges int, content string) bool {
+	return writeToolsAllowed &&
+		!advisoryPrompt &&
+		!advisoryCompletedAtTurnN(nudges, content) &&
+		!bashCalled && !codeModified && !anyToolCalled &&
+		isFutureIntention(content)
 }
 
 // pauseSummaryPattern matches the high-signal cues of a "paused mid-work,
@@ -444,6 +526,19 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		bashCalled            bool
 		codeModified          bool
 		futureIntentionNudges int
+		// anyToolCalled tracks whether ANY tool ran this session (task #8004,
+		// P1-4). A model that gathered information via read/get_history and then
+		// answered is making progress even without state-changing calls — the
+		// future-intention guard must not treat it as "did nothing". It is a
+		// gate CONDITION only: it deliberately does NOT reset the nudge counter
+		// (read-then-redeclare ping-pong must still hit the cap; the stuck
+		// guard #6145 and total turn bound defend separately).
+		anyToolCalled bool
+		// advisoryPrompt records whether the user prompt reads as a pure
+		// advisory/Q&A request (task #8004, P0-1). When true the future-
+		// intention guard does not arm — unless the model itself starts using
+		// state-changing tools, which upgrades the session to strict mode.
+		advisoryPrompt bool
 		// buildGateNudges counts build-verification-gate nudges on the heuristic
 		// buildClaimed path, so that recovery loop is bounded (task #7000).
 		buildGateNudges int
@@ -456,20 +551,33 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		todoGateNudges int
 	)
 
-	// markToolUsed records state-changing tool activity for the false-completion
-	// guards. Only shell (bash/shell/powershell/pwsh)/write_file/edit_file count:
-	// they represent real progress, so they clear the future-intention stall
-	// counter. read_file (mere inspection) intentionally does NOT reset it, so a
-	// "read then re-declare" ping-pong still hits the nudge cap and is reported
-	// incomplete. Shell aliases must go through IsShellTool or bashCalled never
-	// sets and the build-verification gate false-fails.
+	// Task #8004 (P0-1): advisory/Q&A prompts need no execution to answer, so
+	// the future-intention guard starts disarmed for them. It re-arms the
+	// moment the model uses a state-changing tool (see markToolUsed), because
+	// from that point the session is an execution and #6294-style false
+	// completion must be caught again.
+	advisoryPrompt = isAdvisoryPrompt(opts.UserPrompt)
+
+	// markToolUsed records tool activity for the false-completion
+	// guards. Shell (bash/shell/powershell/pwsh)/write_file/edit_file represent
+	// state-changing progress, so they clear the future-intention stall
+	// counter and disarm the advisory exemption (a model that started writing
+	// must also finish verifying). Any tool call sets anyToolCalled, which
+	// gates the guard's "did nothing" premise — but read-only calls
+	// intentionally do NOT reset the counter, so a "read then re-declare"
+	// ping-pong still hits the nudge cap and is reported incomplete. Shell
+	// aliases must go through IsShellTool or bashCalled never sets and the
+	// build-verification gate false-fails.
 	markToolUsed := func(name string) {
+		anyToolCalled = true
 		switch {
 		case IsShellTool(name):
 			bashCalled = true
+			advisoryPrompt = false
 			futureIntentionNudges = 0
 		case name == "write_file" || name == "edit_file":
 			codeModified = true
+			advisoryPrompt = false
 			futureIntentionNudges = 0
 		}
 	}
@@ -834,7 +942,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		}
 		consecutiveEmpty = 0
 
-		// ── Mitigation ①: Future-intention nudge (task #6290 / #6294 / #7751) ──
+		// ── Mitigation ①: Future-intention nudge (task #6290 / #6294 / #7751 / #8004) ──
 		// If there are no tool calls AND the content ends with a future-action
 		// declaration ("다시 빌드해보겠습니다", "let me now ~"), do NOT treat it as a
 		// completion. Nudge the model to actually do it — but only up to
@@ -844,7 +952,17 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// #7751 gates (A)+(C): skip when state-changing tools are unavailable
 		// (reset impossible), and skip when bash/write_file/edit_file already
 		// ran this session ("일 다 하고 말투만 미래형" is not false-completion).
-		if writeToolsAllowed && !bashCalled && !codeModified && isFutureIntention(msg.Content) {
+		//
+		// #8004 gates: (P0-1) skip for pure advisory/Q&A prompts while no
+		// state-changing tool has run (bash/write re-arms strict mode);
+		// (P1-4) skip when ANY tool already ran — the model gathered info and
+		// answered, so the "did nothing" premise is false; (P0-2) the codified
+		// escape hatch — an explicit "분석·권고이며 추가 실행이 필요 없습니다"
+		// declaration with a substantive body completes even with a volitional
+		// ending. The escape hatch requires at least one nudge first: the model
+		// only learns the phrase from the nudge body, so a first-turn future
+		// intention without it still gets nudged (keeps #6294 defense).
+		if futureIntentionGuardArmed(writeToolsAllowed, advisoryPrompt, bashCalled, codeModified, anyToolCalled, futureIntentionNudges, msg.Content) {
 			futureIntentionNudges++
 			if futureIntentionNudges > maxFutureIntentionNudges {
 				emitOutput(opts.OnOutput, "⚠️ [미래형 선언 반복]: 선언만 반복하고 실제 실행이 없어 작업을 미완료로 종료합니다.")

@@ -221,6 +221,135 @@ func TestHasStateChangingTools(t *testing.T) {
 	}
 }
 
+func TestIsAdvisoryPrompt(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"empty", "", false},
+		// Task #8003: the exact false-positive prompt — pure LVM how-to
+		// question with a full tool set, failed by the future-intention guard.
+		{"8003 LVM how-to", "리눅스 (cachyos) 설치중인데 이전 우분투 볼륨 그룹 있는데 삭제가 gui로 안되네? 방법 없을까?", true},
+		{"english how-to", "How do I resize an LVM volume without losing data?", true},
+		{"korean 알려줘", "이 에러가 왜 나는지 알려줘", true},
+		{"korean 방법 질문", "shepherd에서 위키 페이지 만드는 방법이 뭐야?", true},
+		// Question + execution directive → NOT advisory (guard stays armed).
+		{"question with fix directive", "이 버그 어떻게 고쳐?", false},
+		{"question with implement", "이거 왜 안돼? 수정해줘", false},
+		{"english question with fix", "Why does the build fail? Fix it.", false},
+		// Pure execution directives without question signals → not advisory.
+		{"plain directive", "8004 합의 내용 확인해서 적용해줘", false},
+		{"plain english directive", "implement the feature and commit", false},
+		// Plain statements without question or directive → not advisory
+		// (guard keeps its old behavior for ambiguous prompts).
+		{"plain statement", "빌드가 실패하고 있음", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isAdvisoryPrompt(tc.in); got != tc.want {
+				t.Errorf("isAdvisoryPrompt(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestClaimsAdvisoryCompletion(t *testing.T) {
+	longBody := strings.Repeat("LVM 볼륨 그룹 삭제는 vgchange -an으로 비활성화한 뒤 lvremove, vgremove, pvremove 순서로 진행하면 됩니다. ", 3)
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"empty", "", false},
+		// The exact nudge-prescribed phrase with a substantive body.
+		{"explicit phrase + body", longBody + "\n이 답변은 분석·권고이며 추가 실행이 필요 없습니다.", true},
+		{"분석·권고 mid-text + body", "이 답변은 실행이 아닌 분석·권고입니다.\n" + longBody, true},
+		// Substantive body without the declaration → no escape hatch.
+		{"body only, no declaration", longBody, false},
+		// Declaration but trivially short body → no escape hatch (a bare
+		// "분석입니다" one-liner must not bypass the guard).
+		{"declaration only, short", "이 답변은 분석·권고이며 추가 실행이 필요 없습니다.", false},
+		// English equivalent.
+		{"english advisory", "This is an advisory answer and no further execution is needed. " + strings.Repeat("Run vgchange -an first, then lvremove the logical volumes. ", 4), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := claimsAdvisoryCompletion(tc.in); got != tc.want {
+				t.Errorf("claimsAdvisoryCompletion(%q) = %v, want %v", tc.in[:min(40, len(tc.in))], got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFutureIntentionGuardArmed pins the task #8004 regression scenarios
+// (P2-7) against the guard's pure fire-condition:
+//
+//	① #8003-style advisory Q&A + full tool set + long advisory answer with a
+//	  volitional ending → guard must NOT fire (completes).
+//	② #6294-style "다시 빌드해보겠습니다" loop with no tool use → guard MUST
+//	  fire (stays incomplete).
+//	③ write_file ran, then "추가로 정리하겠습니다" → guard must NOT fire
+//	  (#7751 (C): state-changing tools already ran).
+func TestFutureIntentionGuardArmed(t *testing.T) {
+	advisoryBody := strings.Repeat("LVM 볼륨 그룹은 vgchange -an으로 비활성화하고 lvremove로 논리 볼륨을 지운 뒤 vgremove로 그룹을 제거합니다. ", 3)
+	futureEnding := "다음 단계를 진행하겠습니다."
+	cases := []struct {
+		name              string
+		writeToolsAllowed bool
+		advisoryPrompt    bool
+		bashCalled        bool
+		codeModified      bool
+		anyToolCalled     bool
+		nudges            int
+		content           string
+		want              bool
+	}{
+		// ①-a: advisory prompt, no tools at all, volitional ending → no fire.
+		{"8003 advisory prompt, no tools", true, true, false, false, false, 0, advisoryBody + futureEnding, false},
+		// ①-b: advisory prompt, but the model DID gather info via a read-only
+		// tool (get_history) before answering → anyToolCalled also blocks.
+		{"8003 advisory prompt, read-only tool used", true, true, false, false, true, 0, advisoryBody + futureEnding, false},
+		// ①-c: advisory prompt, but the model started writing files → strict
+		// mode (advisoryPrompt flipped false by markToolUsed). codeModified is
+		// then true, so the #7751 (C) gate still suppresses the guard here —
+		// the strict mode matters for the case where the model declares MORE
+		// work before having written anything (bash/code flags still false).
+		{"advisory prompt, write already done", true, false, false, true, true, 0, futureEnding, false},
+		// ①-c2: advisory prompt upgraded to strict, model declares work but
+		// has NOT run any tool yet → guard fires (#6294 defense intact).
+		{"advisory prompt upgraded, no tools, declares", true, false, false, false, false, 0, "다시 빌드해보겠습니다.", true},
+		// ①-d: non-advisory prompt, but model used read-only tools then
+		// answered with a volitional ending → anyToolCalled blocks the guard
+		// (the "did nothing" premise is false).
+		{"non-advisory, read-only tool used, future ending", true, false, false, false, true, 0, advisoryBody + futureEnding, false},
+		// ②: #6294 token loop — execution directive prompt, NO tool use at
+		// all, repeated future declarations → must keep firing.
+		{"6294 rebuild loop, no tools", true, false, false, false, false, 0, "빌드 에러를 수정했습니다. 다시 빌드해보겠습니다.", true},
+		{"6294 rebuild loop, after one nudge still declaring", true, false, false, false, false, 1, "다시 빌드해보겠습니다.", true},
+		// Escape hatch: after a nudge, model restates with the prescribed
+		// phrase + substantive body → guard disarms even though the closing
+		// line is volitional.
+		{"escape hatch after nudge", true, false, false, false, false, 1, advisoryBody + "\n이 답변은 분석·권고이며 추가 실행이 필요 없습니다. 궁금한 점 있으면 알려주시겠습니다", false},
+		// Escape hatch must NOT open on the very first turn (nudges=0): the
+		// phrase is taught by the nudge, so pre-nudge it proves nothing.
+		{"escape hatch phrase before any nudge", true, false, false, false, false, 0, advisoryBody + "\n이 답변은 분석·권고이며 추가 실행이 필요 없습니다. 확인하겠습니다", true},
+		// ③: #7751 (C) — write_file ran, closing line still volitional → no
+		// fire ("일 다 하고 말투만 미래형").
+		{"7751 C: write done then volitional closing", true, false, false, true, true, 0, "요청하신 파일을 작성했습니다. 추가로 정리하겠습니다.", false},
+		// Read-only executions never arm the guard at all (#7751 (A)).
+		{"read-only tool set", false, false, false, false, false, 0, "다음을 확인하겠습니다.", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := futureIntentionGuardArmed(tc.writeToolsAllowed, tc.advisoryPrompt, tc.bashCalled, tc.codeModified, tc.anyToolCalled, tc.nudges, tc.content)
+			if got != tc.want {
+				t.Errorf("futureIntentionGuardArmed() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestIsPauseSummary(t *testing.T) {
 	cases := []struct {
 		name string

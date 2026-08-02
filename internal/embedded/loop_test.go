@@ -723,6 +723,9 @@ func multiRoundSSEServer(t *testing.T, rounds [][]string) (srv *httptest.Server,
 // TestFutureIntentionNudgeSystemReminder verifies the future-intention guard
 // injects a wrapped nudge (with escape hatch, no tool names) while still
 // recovering when the model restates a completion (task #7751 (B)).
+// Task #8004 (P0-3): the nudge now names the exact escape phrase
+// ("이 답변은 분석·권고이며 추가 실행이 필요 없습니다") — the abstract
+// "그렇게 명시하고" wording left models unable to find the exit (#8003).
 func TestFutureIntentionNudgeSystemReminder(t *testing.T) {
 	r1 := buildSSELines(nil, "이제 설정을 수정하겠습니다.", "stop")
 	r2 := buildSSELines(nil, "설정을 수정했고 검증을 마쳤습니다.", "stop")
@@ -750,7 +753,7 @@ func TestFutureIntentionNudgeSystemReminder(t *testing.T) {
 	found := false
 	for _, c := range users {
 		if strings.HasPrefix(c, "<system-reminder>") &&
-			strings.Contains(c, "최종 보고") &&
+			strings.Contains(c, "추가 실행이 필요 없습니다") &&
 			strings.Contains(c, "분석·권고") &&
 			!strings.Contains(c, "write_file") &&
 			!strings.Contains(c, "bash") &&
@@ -849,6 +852,76 @@ func TestFutureIntentionStillFiresWithoutTools(t *testing.T) {
 	}
 	if !strings.Contains(result.IncompleteReason, "future actions") {
 		t.Errorf("IncompleteReason = %q, want future-actions reason", result.IncompleteReason)
+	}
+}
+
+// TestFutureIntentionSkippedForAdvisoryPrompt is the task #8004 (P0-1)
+// regression for #8003: a pure advisory/how-to question must complete even
+// though the long advisory answer closes with a polite volitional ending and
+// no state-changing tool ever ran. The guard starts disarmed for such
+// prompts.
+func TestFutureIntentionSkippedForAdvisoryPrompt(t *testing.T) {
+	// Single-round answer: long LVM how-to body + volitional closing — the
+	// exact shape that failed #8003 with "future actions" incomplete.
+	advisory := "이전 Ubuntu 볼륨 그룹은 설치기에서 지울 수 없으므로 쉘에서 직접 정리해야 합니다. " +
+		"1. Ctrl+Alt+F2로 TTY로 전환합니다. 2. sudo vgs로 볼륨 그룹 이름을 확인합니다. " +
+		"3. sudo vgchange -an ubuntu-vg로 비활성화합니다. 4. sudo lvremove -f ubuntu-vg로 논리 볼륨을 지웁니다. " +
+		"5. sudo vgremove -f ubuntu-vg로 그룹을 제거하고 sudo pvremove /dev/sda3으로 물리 볼륨도 정리합니다. " +
+		"6. 필요하면 sudo wipefs -a /dev/sda3으로 서명을 지운 뒤 Calamares를 다시 시작하시면 됩니다. " +
+		"궁금한 점 있으면 더 안내해드리겠습니다."
+	r1 := buildSSELines(nil, advisory, "stop")
+	srv, bodies := multiRoundSSEServer(t, [][]string{r1})
+	defer srv.Close()
+
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL + "/chat/completions",
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "리눅스 (cachyos) 설치중인데 이전 우분투 볼륨 그룹 있는데 삭제가 gui로 안되네? 방법 없을까?",
+		MaxIterations: 4,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("advisory Q&A must complete despite volitional close; incomplete=%s", result.IncompleteReason)
+	}
+	// Exactly one request — no nudge round may fire.
+	if len(*bodies) != 1 {
+		t.Fatalf("expected a single request (no nudge), got %d", len(*bodies))
+	}
+}
+
+// TestFutureIntentionAdvisoryEscapeHatch is the task #8004 (P0-2) codified
+// escape hatch: after one nudge, the model restates with the prescribed
+// declaration + substantive body → completes even with a volitional close.
+func TestFutureIntentionAdvisoryEscapeHatch(t *testing.T) {
+	r1 := buildSSELines(nil, "이제 설정 변경 방법을 안내해드리겠습니다.", "stop")
+	advisory := "이 답변은 분석·권고이며 추가 실행이 필요 없습니다. " +
+		"설정 파일에서 interval 값을 30으로 변경한 뒤 shepherd restart를 실행하시면 됩니다. " +
+		"interval은 폴링 주기(초)를 의미하며, 너무 낮추면 API 레이트 리밋에 걸릴 수 있으니 10 이상을 권장합니다. " +
+		"변경 후 로그에서 'config reloaded' 메시지가 보이면 정상 반영된 것입니다. " +
+		"추가로 궁금한 점 있으시면 알려주시겠습니다."
+	r2 := buildSSELines(nil, advisory, "stop")
+	srv, bodies := multiRoundSSEServer(t, [][]string{r1, r2})
+	defer srv.Close()
+
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL + "/chat/completions",
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "설정 파일에서 폴링 주기 변경 방법을 정리해 문서에 반영해주세요.",
+		MaxIterations: 5,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("escape-hatch restatement must complete; incomplete=%s", result.IncompleteReason)
+	}
+	// nudge round + restated advisory answer = 2 requests; no third.
+	if len(*bodies) != 2 {
+		t.Fatalf("expected 2 requests (nudge + restated), got %d", len(*bodies))
 	}
 }
 
