@@ -10,6 +10,7 @@ import (
 func TestDetectShellUnixPrefersBash(t *testing.T) {
 	stubLookPath(t, map[string]string{
 		"bash": "/usr/bin/bash",
+		"zsh":  "/usr/bin/zsh",
 		"sh":   "/bin/sh",
 	})
 
@@ -19,6 +20,23 @@ func TestDetectShellUnixPrefersBash(t *testing.T) {
 	}
 	if sh.path != "/usr/bin/bash" || sh.kind != shellKindBash {
 		t.Fatalf("got %+v, want /usr/bin/bash (bash)", sh)
+	}
+}
+
+// A zsh-only system (no bash) must resolve to zsh, classified as sh so it
+// still runs with POSIX `-c`.
+func TestDetectShellUnixFallsBackToZsh(t *testing.T) {
+	stubLookPath(t, map[string]string{
+		"zsh": "/usr/bin/zsh",
+		"sh":  "/bin/sh",
+	})
+
+	sh, err := detectShell()
+	if err != nil {
+		t.Fatalf("detectShell: %v", err)
+	}
+	if sh.path != "/usr/bin/zsh" || sh.kind != shellKindSh {
+		t.Fatalf("got %+v, want /usr/bin/zsh (sh kind)", sh)
 	}
 }
 

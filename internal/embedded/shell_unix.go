@@ -9,11 +9,13 @@ import (
 
 // unixShellCandidates is the auto-detection order when no shell override is
 // set. bash first keeps behavior identical to the previous hard-coded
-// `exec.Command("bash", "-c", ...)`; sh exists only for the rare minimal image
-// that ships no bash.
-var unixShellCandidates = []string{"bash", "sh"}
+// `exec.Command("bash", "-c", ...)`. zsh is preferred over sh: systems where
+// zsh is the login shell usually ship a richer zsh than a bare-bones sh
+// (often dash), and zsh handles POSIX `-c` just as well. sh is the final
+// fallback for the rare minimal image that ships neither.
+var unixShellCandidates = []string{"bash", "zsh", "sh"}
 
-// detectShell finds a shell on PATH, preferring bash.
+// detectShell finds a shell on PATH, preferring bash, then zsh, then sh.
 func detectShell() (*resolvedShell, error) {
 	for _, name := range unixShellCandidates {
 		if path, err := lookPath(name); err == nil {
@@ -21,7 +23,7 @@ func detectShell() (*resolvedShell, error) {
 		}
 	}
 	return nil, fmt.Errorf(
-		"no supported shell found: install bash (or sh), or set the %q config key / SHEPHERD_SHELL to a shell executable path",
+		"no supported shell found: install bash, zsh, or sh, or set the %q config key / SHEPHERD_SHELL to a shell executable path",
 		"shell")
 }
 
