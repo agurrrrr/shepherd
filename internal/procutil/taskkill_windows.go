@@ -39,6 +39,9 @@ func KillTree(pid int) bool {
 
 	// Direct exec — never re-enter any shell resolution path just to run taskkill.
 	c := exec.CommandContext(ctx, "taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
+	// taskkill is a console app; without CREATE_NO_WINDOW the console-less
+	// daemon makes Windows pop a visible cmd window on every kill.
+	HideWindow(c)
 	out, err := c.CombinedOutput()
 	if err == nil {
 		return true

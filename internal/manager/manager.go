@@ -12,10 +12,10 @@ import (
 	"github.com/agurrrrr/shepherd/ent"
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/procutil"
 	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
-
 
 const (
 	// AnalysisTimeout is the timeout for task analysis
@@ -162,6 +162,7 @@ func runWithClaude(prompt, schema string, timeout time.Duration) (*claudeOutput,
 		"--json-schema", schema,
 	)
 	cmd.Stdin = strings.NewReader(prompt)
+	procutil.HideWindow(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -201,6 +202,7 @@ You MUST output only JSON matching the schema below. No other text, only JSON:
 	args = append(args, enhancedPrompt)
 
 	cmd := exec.CommandContext(ctx, config.GetOpenCodeBinary(), args...)
+	procutil.HideWindow(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -432,7 +434,6 @@ func runAnalysisCLI(cli, prompt string) (*claudeOutput, error) {
 	}
 	return runWithClaude(prompt, decisionSchema, AnalysisTimeout)
 }
-
 
 // validateDecision validates that the decision references existing entities.
 func validateDecision(d *Decision, projects []*ent.Project, sheepList []*ent.Sheep) error {

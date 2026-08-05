@@ -8,7 +8,11 @@ import (
 	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
-// setupProcessGroup is a no-op on Windows because Setpgid is not available.
+// setupProcessGroup suppresses the console window Windows would otherwise
+// auto-create for every shell child of the console-less daemon
+// (DETACHED_PROCESS). Without it each bash/pwsh command pops a visible cmd
+// window that steals focus — the regression reported after 5e6ed3e B4
+// detached the daemon from any console.
 //
 // P2 (Job Object, not this step): CREATE_SUSPENDED → AssignProcessToJobObject
 // with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE → ResumeThread. That would live here
@@ -16,6 +20,7 @@ import (
 // shellProc wrapper is already in place so the call site need not change again.
 func setupProcessGroup(cmd *exec.Cmd) {
 	// Windows does not support Unix process groups.
+	procutil.HideWindow(cmd)
 }
 
 // killProcessGroup terminates the shell and its descendants on Windows.

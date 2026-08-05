@@ -11,11 +11,20 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/agurrrrr/shepherd/internal/procutil"
 	"github.com/agurrrrr/shepherd/internal/project"
 )
 
 // gitCmdTimeout caps long-running git operations (push, fetch).
 const gitCmdTimeout = 60 * time.Second
+
+// newGitCmd builds `git args...` with the console window suppressed so the
+// console-less daemon does not pop a cmd window per request on Windows.
+func newGitCmd(args ...string) *exec.Cmd {
+	cmd := exec.Command("git", args...)
+	procutil.HideWindow(cmd)
+	return cmd
+}
 
 // runGitWithTimeout runs `git -C path args...` with a context deadline and
 // returns combined stdout+stderr. The caller is responsible for checking err.
@@ -23,7 +32,9 @@ func runGitWithTimeout(p string, args []string, timeout time.Duration) ([]byte, 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	full := append([]string{"-C", p}, args...)
-	return exec.CommandContext(ctx, "git", full...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, "git", full...)
+	procutil.HideWindow(cmd)
+	return cmd.CombinedOutput()
 }
 
 // validateGitRef validates a git ref name (branch, tag).
@@ -125,7 +136,7 @@ func (s *Server) handleGitLog(c *fiber.Ctx) error {
 		}
 	}
 
-	cmd := exec.Command("git", args...)
+	cmd := newGitCmd(args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return fail(c, fiber.StatusInternalServerError, "git log failed: "+err.Error())
@@ -170,7 +181,7 @@ func (s *Server) handleGitLog(c *fiber.Ctx) error {
 	}
 
 	// Get total commit count
-	countCmd := exec.Command("git", "-C", p.Path, "rev-list", "--count", "--all")
+	countCmd := newGitCmd("-C", p.Path, "rev-list", "--count", "--all")
 	countOut, _ := countCmd.Output()
 	total, _ := strconv.Atoi(strings.TrimSpace(string(countOut)))
 
@@ -196,7 +207,7 @@ func (s *Server) handleGitBranches(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusNotFound, "project not found")
 	}
 
-	cmd := exec.Command("git", "-C", p.Path, "branch", "-a",
+	cmd := newGitCmd("-C", p.Path, "branch", "-a",
 		"--format=%(refname:short)|%(objectname:short)|%(HEAD)")
 	out, err := cmd.Output()
 	if err != nil {
@@ -239,7 +250,7 @@ func (s *Server) handleGitCommitDetail(c *fiber.Ctx) error {
 
 	// Get commit metadata using NUL byte separator (%x00) to avoid issues
 	// with pipe characters or newlines in commit messages
-	cmd := exec.Command("git", "-C", p.Path, "log", "-1",
+	cmd := newGitCmd("-C", p.Path, "log", "-1",
 		"--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%b%x00%P%x00%D",
 		hash)
 	out, err := cmd.Output()
@@ -282,7 +293,7 @@ func (s *Server) handleGitCommitDetail(c *fiber.Ctx) error {
 		Deletions int    `json:"deletions"`
 	}
 
-	statCmd := exec.Command("git", "-C", p.Path, "diff-tree",
+	statCmd := newGitCmd("-C", p.Path, "diff-tree",
 		"--no-commit-id", "--numstat", "-r", hash)
 	statOut, _ := statCmd.Output()
 
@@ -346,7 +357,7 @@ func (s *Server) handleGitChanges(c *fiber.Ctx) error {
 
 	// Use porcelain v2 with branch info — gives us branch name, upstream,
 	// ahead/behind, and per-file XY status in a single call.
-	out, err := exec.Command("git", "-C", p.Path, "status",
+	out, err := newGitCmd("-C", p.Path, "status",
 		"--porcelain=v2", "--branch", "-z").Output()
 	if err != nil {
 		return fail(c, fiber.StatusInternalServerError, "git status failed")
@@ -469,10 +480,10 @@ func (s *Server) handleGitCommit(c *fiber.Ctx) error {
 	}
 
 	var body struct {
-		Message string `json:"message"`
-		Signoff bool   `json:"signoff,omitempty"`
-		Amend   bool   `json:"amend,omitempty"`
-		AllowEmpty bool `json:"allow_empty,omitempty"`
+		Message    string `json:"message"`
+		Signoff    bool   `json:"signoff,omitempty"`
+		Amend      bool   `json:"amend,omitempty"`
+		AllowEmpty bool   `json:"allow_empty,omitempty"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -499,6 +510,7 @@ func (s *Server) handleGitCommit(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
+	procutil.HideWindow(cmd)
 	cmd.Stdin = strings.NewReader(msg)
 	out, cmdErr := cmd.CombinedOutput()
 	if cmdErr != nil {
@@ -507,7 +519,7 @@ func (s *Server) handleGitCommit(c *fiber.Ctx) error {
 	}
 
 	// Best-effort: report the resulting commit hash.
-	hashOut, _ := exec.Command("git", "-C", p.Path, "rev-parse", "HEAD").Output()
+	hashOut, _ := newGitCmd("-C", p.Path, "rev-parse", "HEAD").Output()
 	return success(c, fiber.Map{
 		"hash":   strings.TrimSpace(string(hashOut)),
 		"output": string(out),
@@ -540,7 +552,7 @@ func (s *Server) handleGitPush(c *fiber.Ctx) error {
 
 	branch := body.Branch
 	if branch == "" {
-		bout, berr := exec.Command("git", "-C", p.Path,
+		bout, berr := newGitCmd("-C", p.Path,
 			"symbolic-ref", "--short", "HEAD").Output()
 		if berr != nil {
 			return fail(c, fiber.StatusBadRequest,
@@ -720,7 +732,7 @@ func (s *Server) handleGitCommitDiff(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusBadRequest, "invalid file path")
 	}
 
-	cmd := exec.Command("git", "-C", p.Path, "show",
+	cmd := newGitCmd("-C", p.Path, "show",
 		"--format=", "-p", "--unified=3",
 		hash, "--", filePath)
 	out, err := cmd.Output()

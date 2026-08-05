@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+
+	"github.com/agurrrrr/shepherd/internal/procutil"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +43,7 @@ func NewExternalMCPServer(serverInfo *ent.MCPServer) (*ExternalMCPServer, error)
 	}
 
 	cmd := exec.Command(command, args...)
+	procutil.HideWindow(cmd)
 
 	// Parse env
 	var envMap map[string]string

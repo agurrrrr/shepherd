@@ -17,6 +17,8 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/text/encoding/korean"
+
+	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
 const maxOutputBytes = 64 * 1024 // 64KB output cap for bash
@@ -363,7 +365,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 		{
 			Type: "function",
 			Function: OpenAIFunction{
-				Name:        "grep",
+				Name: "grep",
 				Description: "Search for a pattern in project files (native tool — does not need the shell). " +
 					"Uses ripgrep when available, otherwise a pure-Go walk. Prefer this over shell find/rg/Select-String for code search. " +
 					"Hidden directories (starting with '.', e.g. .temp, .git) are excluded by default.",
@@ -380,7 +382,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 		{
 			Type: "function",
 			Function: OpenAIFunction{
-				Name:        "glob",
+				Name: "glob",
 				Description: "Find files matching a glob pattern in the project directory (native tool — does not need the shell). " +
 					"Prefer this over shell Get-ChildItem -Recurse / find for listing paths. " +
 					"Hidden directories (starting with '.', e.g. .temp, .git) are excluded by default.",
@@ -1336,6 +1338,7 @@ func (tr *ToolRegistry) execGrep(ctx context.Context, args map[string]interface{
 
 	// Try ripgrep first
 	cmd := exec.CommandContext(ctx, "rg", rgArgs...)
+	procutil.HideWindow(cmd)
 	cmd.Dir = tr.projectPath
 
 	var stdout, stderr bytes.Buffer

@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
+
+	"github.com/agurrrrr/shepherd/internal/procutil"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -331,6 +333,7 @@ func DetectOpenCodeModel() string {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binary, "models")
+	procutil.HideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

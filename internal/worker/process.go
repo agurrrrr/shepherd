@@ -182,6 +182,7 @@ func executeClaudeCodeWithTimeout(projectPath, sessionID, prompt string, timeout
 	cmd.Dir = projectPath
 	cmd.Stdin = strings.NewReader(prompt)
 	envutil.SetCleanEnv(cmd)
+	setProcessGroup(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -16,6 +16,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/embedded"
 	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/llmslots"
+	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
 // minPerTurnFraction limits how much of the convergence reserve can be spent on
@@ -1217,6 +1218,7 @@ func callClaudeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPro
 	cmd.Dir = workDir
 	cmd.Stdin = strings.NewReader(systemPrompt + browserSessionDirective(sheepName) + "\n\n" + userPrompt)
 	envutil.SetCleanEnv(cmd)
+	procutil.HideWindow(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1263,6 +1265,7 @@ func callOpenCodeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userP
 	cmd.Dir = workDir
 	cmd.Stdin = strings.NewReader(systemPrompt + browserSessionDirective(sheepName) + "\n\n" + userPrompt)
 	envutil.SetCleanEnv(cmd)
+	procutil.HideWindow(cmd)
 	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
 
 	stdout, err := cmd.StdoutPipe()
@@ -1322,6 +1325,7 @@ func callGrokCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPromp
 	cmd.Dir = workDir
 	cmd.Stdin = strings.NewReader("")
 	envutil.SetCleanEnv(cmd)
+	procutil.HideWindow(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

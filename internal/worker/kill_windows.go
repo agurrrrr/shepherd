@@ -8,8 +8,13 @@ import (
 	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
-// setProcessGroup is a no-op on Windows.
-func setProcessGroup(cmd *exec.Cmd) {}
+// setProcessGroup suppresses the console window Windows would auto-create
+// for each CLI child (claude, opencode, pi, grok) of the console-less
+// daemon. Without it every worker task pops a visible cmd window that
+// steals focus (regression after 5e6ed3e B4 detached the daemon).
+func setProcessGroup(cmd *exec.Cmd) {
+	procutil.HideWindow(cmd)
+}
 
 // killProcessGroup kills the process and its whole tree on Windows.
 //

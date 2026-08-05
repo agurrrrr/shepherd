@@ -12,6 +12,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/embedded"
 	"github.com/agurrrrr/shepherd/internal/envutil"
+	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
 // AggregatorSpec selects the judging backend (resolved by the wiring layer).
@@ -75,6 +76,7 @@ func aggregatorClaudeCLI(ctx context.Context, spec AggregatorSpec, systemPrompt,
 	cmd.Dir = spec.WorkDir
 	cmd.Stdin = strings.NewReader(systemPrompt + "\n\n" + userPrompt)
 	envutil.SetCleanEnv(cmd)
+	procutil.HideWindow(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -115,6 +117,7 @@ func aggregatorOpenCodeCLI(ctx context.Context, spec AggregatorSpec, systemPromp
 	cmd.Dir = spec.WorkDir
 	cmd.Stdin = strings.NewReader(systemPrompt + "\n\n" + userPrompt)
 	envutil.SetCleanEnv(cmd)
+	procutil.HideWindow(cmd)
 	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
 
 	var stdout, stderr bytes.Buffer
@@ -167,6 +170,7 @@ func aggregatorGrokCLI(ctx context.Context, spec AggregatorSpec, systemPrompt, u
 	cmd.Dir = spec.WorkDir
 	cmd.Stdin = strings.NewReader("")
 	envutil.SetCleanEnv(cmd)
+	procutil.HideWindow(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
