@@ -145,9 +145,25 @@ func shellKindFor(path string) shellKind {
 		// md.exe is a marker shell: it is not exec'd itself. Commands are
 		// routed through cmd.exe with `/c <command>`.
 		return shellKindCmd
+	case "cmd":
+		// A real cmd.exe override. It is exec'd directly (unlike the md.exe
+		// marker) and commands are handed to it with `/c <command>`.
+		return shellKindCmd
 	default:
 		return shellKindUnknown
 	}
+}
+
+// isCmdMarker reports whether path names the md.exe marker shell, which must
+// not be exec'd itself — the command is routed through cmd.exe instead. It
+// distinguishes the marker from a real cmd.exe override, which is exec'd
+// directly.
+func isCmdMarker(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	if i := strings.LastIndexAny(base, `/\`); i >= 0 {
+		base = base[i+1:]
+	}
+	return strings.TrimSuffix(base, ".exe") == "md"
 }
 
 // Auto-detection result cache. Detection walks PATH and (on Windows) the
@@ -352,10 +368,11 @@ func newShellCmd(ctx context.Context, command, workdir string) (*exec.Cmd, func(
 		return nil, nil, err
 	}
 
-	// For shellKindCmd the configured path is md.exe, a marker that must not be
-	// exec'd itself — the command runs through cmd.exe instead.
+	// For the md.exe marker the configured path must not be exec'd itself —
+	// the command runs through cmd.exe instead. A real cmd.exe override is
+	// exec'd directly.
 	execPath := sh.path
-	if sh.kind == shellKindCmd {
+	if sh.kind == shellKindCmd && isCmdMarker(sh.path) {
 		execPath = "cmd.exe"
 	}
 

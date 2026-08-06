@@ -53,7 +53,7 @@ func TestShellKindFor(t *testing.T) {
 		{"pwsh", shellKindPwsh},
 		{`C:\Program Files\PowerShell\7\pwsh.exe`, shellKindPwsh},
 		{`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE`, shellKindPowerShell},
-		{`C:\Windows\System32\cmd.exe`, shellKindUnknown},
+		{`C:\Windows\System32\cmd.exe`, shellKindCmd},
 		{`C:\Users\me\md.exe`, shellKindCmd},
 		{`md.exe`, shellKindCmd},
 		{"/usr/bin/fish", shellKindUnknown},
@@ -119,6 +119,25 @@ func TestNewShellCmdRunsCmdExeForMdShell(t *testing.T) {
 		t.Error("cmd invocation should own no resources")
 	}
 	want := []string{"cmd.exe", "/c", "dir"}
+	if !reflect.DeepEqual(cmd.Args, want) {
+		t.Errorf("Args = %q, want %q", cmd.Args, want)
+	}
+}
+
+// A real cmd.exe override is exec'd directly (not routed through a marker) and
+// commands are handed to it with `/c <command>`.
+func TestNewShellCmdExecsRealCmdExe(t *testing.T) {
+	setShellConfig(t, `C:\Windows\System32\cmd.exe`)
+	stubLookPath(t, nil) // path used verbatim, no PATH lookup
+
+	cmd, release, err := newShellCmd(t.Context(), "dir", "/tmp")
+	if err != nil {
+		t.Fatalf("newShellCmd: %v", err)
+	}
+	if release != nil {
+		t.Error("cmd invocation should own no resources")
+	}
+	want := []string{`C:\Windows\System32\cmd.exe`, "/c", "dir"}
 	if !reflect.DeepEqual(cmd.Args, want) {
 		t.Errorf("Args = %q, want %q", cmd.Args, want)
 	}
