@@ -53,6 +53,9 @@ func TestShellKindFor(t *testing.T) {
 		{"pwsh", shellKindPwsh},
 		{`C:\Program Files\PowerShell\7\pwsh.exe`, shellKindPwsh},
 		{`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE`, shellKindPowerShell},
+		{`C:\Windows\System32\cmd.exe`, shellKindUnknown},
+		{`C:\Users\me\md.exe`, shellKindCmd},
+		{`md.exe`, shellKindCmd},
 		{"/usr/bin/fish", shellKindUnknown},
 	}
 	for _, c := range cases {
@@ -82,6 +85,42 @@ func TestShellInvocationPOSIX(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("kind %q args = %q, want %q", kind, got, want)
 		}
+	}
+}
+
+// A shell configured as md.exe (the marker) must invoke through cmd.exe with
+// `/c <command>` — not exec md.exe itself.
+func TestShellInvocationCmd(t *testing.T) {
+	sh := &resolvedShell{kind: shellKindCmd}
+	got, release, err := sh.invocation("dir")
+	if err != nil {
+		t.Fatalf("cmd invocation: %v", err)
+	}
+	if release != nil {
+		t.Errorf("cmd invocation allocated a release func; cmd owns nothing")
+	}
+	want := []string{"/c", "dir"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("cmd args = %q, want %q", got, want)
+	}
+}
+
+// When the configured shell path ends in md.exe the command must be exec'd
+// through cmd.exe with `/c`, never through md.exe itself.
+func TestNewShellCmdRunsCmdExeForMdShell(t *testing.T) {
+	setShellConfig(t, `C:\Users\me\md.exe`)
+	stubLookPath(t, nil) // path used verbatim, no PATH lookup
+
+	cmd, release, err := newShellCmd(t.Context(), "dir", "/tmp")
+	if err != nil {
+		t.Fatalf("newShellCmd: %v", err)
+	}
+	if release != nil {
+		t.Error("cmd invocation should own no resources")
+	}
+	want := []string{"cmd.exe", "/c", "dir"}
+	if !reflect.DeepEqual(cmd.Args, want) {
+		t.Errorf("Args = %q, want %q", cmd.Args, want)
 	}
 }
 

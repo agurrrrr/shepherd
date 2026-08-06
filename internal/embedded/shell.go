@@ -35,6 +35,10 @@ const (
 	shellKindSh         shellKind = "sh"
 	shellKindPwsh       shellKind = "pwsh"
 	shellKindPowerShell shellKind = "powershell"
+	// shellKindCmd is used when the configured shell path ends in md.exe — a
+	// marker/alias that means "drive the command through cmd.exe" rather than
+	// exec'ing md.exe itself. The command is handed to cmd.exe as `/c <command>`.
+	shellKindCmd shellKind = "cmd"
 	// shellKindUnknown is used for shells we do not recognize by name. They
 	// are driven with the POSIX `-c <command>` convention, which is the only
 	// safe guess; resolvedShell.unknown() lets callers surface that guess.
@@ -86,6 +90,10 @@ func (s *resolvedShell) invocation(command string) (args []string, release func(
 		// -EncodedCommand plus an error/exit preamble; see shell_powershell.go
 		// for why -Command is not usable here.
 		return psInvocation(command)
+	case shellKindCmd:
+		// The configured shell is md.exe (a marker) — the command is driven
+		// through cmd.exe with `/c <command>`.
+		return []string{"/c", command}, nil, nil
 	default:
 		return []string{"-c", command}, nil, nil
 	}
@@ -133,6 +141,10 @@ func shellKindFor(path string) shellKind {
 		return shellKindPwsh
 	case "powershell":
 		return shellKindPowerShell
+	case "md":
+		// md.exe is a marker shell: it is not exec'd itself. Commands are
+		// routed through cmd.exe with `/c <command>`.
+		return shellKindCmd
 	default:
 		return shellKindUnknown
 	}
@@ -340,7 +352,14 @@ func newShellCmd(ctx context.Context, command, workdir string) (*exec.Cmd, func(
 		return nil, nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, sh.path, args...)
+	// For shellKindCmd the configured path is md.exe, a marker that must not be
+	// exec'd itself — the command runs through cmd.exe instead.
+	execPath := sh.path
+	if sh.kind == shellKindCmd {
+		execPath = "cmd.exe"
+	}
+
+	cmd := exec.CommandContext(ctx, execPath, args...)
 	cmd.Dir = workdir
 	setupProcessGroup(cmd)
 
