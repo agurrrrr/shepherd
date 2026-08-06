@@ -5,7 +5,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
 	import MCPServerManagement from './MCPServerManagement.svelte';
 
-	/** @type {{ embedded_active_id: string, custom_prompt_embedded: string }} */
+	/** @type {{ embedded_active_id: string, custom_prompt_embedded: string, shell: string }} */
 	export let configData;
 	/** @type {() => Promise<void>} */
 	export let reloadEndpoints;
@@ -154,6 +154,17 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		rows="4"
 		placeholder="임베디드 프로바이더 실행 시 추가로 전달할 지시문을 입력하세요."
 	></textarea>
+</div>
+
+<div class="setting-row column">
+	<label>Shell</label>
+	<input
+		class="input"
+		type="text"
+		bind:value={configData.shell}
+		placeholder="예: C:\Program Files\Git\bin\bash.exe, pwsh, /bin/zsh (비우면 자동 탐지)"
+	/>
+	<span class="hint">임베디드 프로바이더의 bash 도구가 명령을 실행할 셸을 명시합니다. 설정하면 시스템 자동 탐지를 건너뛰고 이 셸을 바로 사용합니다. 값은 실행 파일 경로/이름 하나만 — 인자(&quot;-c&quot; 등)는 셸 종류를 보고 자동으로 붙습니다.</span>
 </div>
 
 <div class="embedded-endpoints">

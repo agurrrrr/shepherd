@@ -157,7 +157,8 @@
 			discord_notify_on_complete: configData.discord_notify_on_complete,
 			discord_notify_on_fail: configData.discord_notify_on_fail,
 			embedded_active_id: configData.embedded_active_id || '',
-			custom_prompt_embedded: configData.custom_prompt_embedded || ''
+			custom_prompt_embedded: configData.custom_prompt_embedded || '',
+			shell: configData.shell || ''
 		});
 		if (res?.success) {
 			saveMsg = 'Saved';
