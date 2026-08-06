@@ -294,3 +294,27 @@ func TestOpenAIToolDefsAdvertisesShellOnPowerShell(t *testing.T) {
 		}
 	}
 }
+
+// TestIsWslBash guards the Windows auto-detect skip: the WSL shim
+// (C:\Windows\System32\bash.exe) must be recognized so detectShell falls
+// through to Git Bash / PowerShell instead of "finding" a bash that cannot see
+// the Windows working directory.
+func TestIsWslBash(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{`C:\Windows\System32\bash.exe`, true},
+		{`c:\windows\system32\BASH.EXE`, true},
+		{`C:/Windows/System32/bash.exe`, true},
+		{`C:\Program Files\Git\bin\bash.exe`, false},
+		{`C:\Program Files (x86)\Git\bin\bash.exe`, false},
+		{`/usr/bin/bash`, false},
+		{`C:\Windows\System32\wsl.exe`, false},
+	}
+	for _, c := range cases {
+		if got := isWslBash(c.path); got != c.want {
+			t.Errorf("isWslBash(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}

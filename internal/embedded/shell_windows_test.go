@@ -100,3 +100,39 @@ func TestDetectShellWindowsNeverFallsBackToCmd(t *testing.T) {
 		}
 	}
 }
+
+// WSL's System32\bash.exe is on PATH whenever WSL is installed. It launches a
+// Linux distro that cannot see the Windows working directory, so auto-detect
+// must skip it and fall through to Git Bash / PowerShell.
+func TestDetectShellWindowsSkipsWslBash(t *testing.T) {
+	stubLookPath(t, map[string]string{
+		"bash":     `C:\Windows\System32\bash.exe`,
+		"pwsh.exe": `C:\Program Files\PowerShell\7\pwsh.exe`,
+	})
+	stubStatShell(t, "")
+
+	sh, err := detectShell()
+	if err != nil {
+		t.Fatalf("detectShell: %v", err)
+	}
+	if sh.kind != shellKindPwsh {
+		t.Fatalf("got %+v, want pwsh (WSL bash skipped)", sh)
+	}
+}
+
+// When only the WSL shim provides "bash", auto-detect should still prefer a
+// real Git Bash at its conventional install path over PowerShell.
+func TestDetectShellWindowsWslBashThenGitBashFallback(t *testing.T) {
+	stubLookPath(t, map[string]string{
+		"bash": `C:\Windows\System32\bash.exe`,
+	})
+	stubStatShell(t, gitBashFallbacks[0])
+
+	sh, err := detectShell()
+	if err != nil {
+		t.Fatalf("detectShell: %v", err)
+	}
+	if sh.path != gitBashFallbacks[0] || sh.kind != shellKindBash {
+		t.Fatalf("got %+v, want Git Bash %q", sh, gitBashFallbacks[0])
+	}
+}

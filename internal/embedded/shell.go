@@ -48,6 +48,20 @@ var (
 	statShell = os.Stat
 )
 
+// isWslBash reports whether path is the Windows WSL shim
+// (C:\Windows\System32\bash.exe), which launches a Linux distro and therefore
+// sees a completely different filesystem than the Windows project path we pass
+// as the working directory. Such a bash cannot run Windows-path commands, so
+// auto-detection must skip it and fall through to Git Bash / PowerShell.
+//
+// It lives in the shared file (not shell_windows.go) purely so the path check
+// is unit-testable on any host.
+func isWslBash(path string) bool {
+	lower := strings.ToLower(filepath.Clean(path))
+	return strings.HasSuffix(lower, `system32\bash.exe`) ||
+		strings.HasSuffix(lower, `system32/bash.exe`)
+}
+
 // resolvedShell is a shell that discovery settled on.
 type resolvedShell struct {
 	// path is what gets exec'd — an absolute path when discovery found one,

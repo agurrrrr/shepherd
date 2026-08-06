@@ -37,10 +37,12 @@ var windowsShellCandidates = []string{"pwsh.exe", "powershell.exe"}
 // Caveat worth knowing when diagnosing a report: on a machine with WSL
 // enabled, PATH may hold C:\Windows\System32\bash.exe, which launches the
 // Linux distro and sees a completely different filesystem than the project
-// path we pass as the working directory. SHEPHERD_SHELL is the escape hatch
-// there — point it at Git's bash.exe.
+// path we pass as the working directory. That WSL shim is skipped by
+// isWslBash so it cannot shadow Git Bash / PowerShell — otherwise every bash
+// tool call would "find bash" and then fail on the Windows working directory.
+// SHEPHERD_SHELL remains the escape hatch when nothing on PATH suits.
 func detectShell() (*resolvedShell, error) {
-	if path, err := lookPath("bash"); err == nil {
+	if path, err := lookPath("bash"); err == nil && !isWslBash(path) {
 		return &resolvedShell{path: path, kind: shellKindFor(path)}, nil
 	}
 	for _, path := range gitBashFallbacks {
