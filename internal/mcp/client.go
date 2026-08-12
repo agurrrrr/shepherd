@@ -25,6 +25,15 @@ type ExternalMCPServer struct {
 	tools       []Tool
 	initialized bool
 	mu          sync.Mutex
+	// waitCh receives the result of cmd.Wait() exactly once, so the process
+	// is always reaped (no zombies) and callers can detect unexpected exits.
+	waitCh chan error
+	// dead is set to true once the process has exited (waitCh received).
+	dead bool
+	// closeOnce ensures Close is idempotent (no double-Wait blocking).
+	closeOnce sync.Once
+	// serverInfo is kept so a dead server can be respawned transparently.
+	serverInfo *ent.MCPServer
 }
 
 // NewExternalMCPServer spawns an external MCP server via stdio and initializes it.
@@ -78,11 +87,23 @@ func NewExternalMCPServer(serverInfo *ent.MCPServer) (*ExternalMCPServer, error)
 	}
 
 	s := &ExternalMCPServer{
-		name:   serverInfo.Name,
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: bufio.NewReader(stdout),
+		name:       serverInfo.Name,
+		cmd:        cmd,
+		stdin:      stdin,
+		stdout:     bufio.NewReader(stdout),
+		waitCh:     make(chan error, 1),
+		serverInfo: serverInfo,
 	}
+
+	// Reap the child process in the background so it never becomes a zombie,
+	// and mark the server as dead so GetOrCreate can respawn it.
+	go func() {
+		err := cmd.Wait()
+		s.mu.Lock()
+		s.dead = true
+		s.mu.Unlock()
+		s.waitCh <- err
+	}()
 
 	// Initialize the server
 	if err := s.initialize(); err != nil {
@@ -104,6 +125,23 @@ func (s *ExternalMCPServer) Tools() []Tool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.tools
+}
+
+// isAlive reports whether the server process is still running. It returns
+// false if the process has already exited (detected via the dead flag set by
+// the background Wait goroutine).
+func (s *ExternalMCPServer) isAlive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.dead
+}
+
+// respawnLocked restarts the server process if it has died. The caller must
+// hold no locks; the manager-level lock serializes respawns.
+func (s *ExternalMCPServer) respawnLocked() (*ExternalMCPServer, error) {
+	// Close the old connection (best-effort; process may already be dead).
+	_ = s.Close()
+	return NewExternalMCPServer(s.serverInfo)
 }
 
 // CallTool calls a tool on this external MCP server and returns the text result.
@@ -219,15 +257,26 @@ func renderToolResult(result CallToolResult) string {
 	return sb.String()
 }
 
-// Close terminates the external MCP server process.
+// Close terminates the external MCP server process. It is safe to call
+// multiple times (sync.Once ensures the kill-and-wait sequence runs at most
+// once, so there is no double-Wait blocking on waitCh).
 func (s *ExternalMCPServer) Close() error {
-	if s.stdin != nil {
-		s.stdin.Close()
-	}
-	if s.cmd != nil && s.cmd.Process != nil {
-		s.cmd.Process.Kill()
-		s.cmd.Wait()
-	}
+	s.closeOnce.Do(func() {
+		if s.stdin != nil {
+			s.stdin.Close()
+		}
+		if s.cmd != nil && s.cmd.Process != nil {
+			s.mu.Lock()
+			alreadyDead := s.dead
+			s.mu.Unlock()
+			if !alreadyDead {
+				s.cmd.Process.Kill()
+			}
+			// Wait for the background goroutine to reap the process (or confirm
+			// it already exited). This ensures we never leave a zombie.
+			<-s.waitCh
+		}
+	})
 	return nil
 }
 
@@ -359,13 +408,21 @@ func GetMCPManager() *MCPClientManager {
 }
 
 // GetOrCreate returns an existing server connection or creates a new one.
-// The serverInfo is used to spawn the process if not already connected.
+// If a cached server process has died (e.g. stdin EOF, crash, or external kill),
+// it is transparently respawned so callers never see a broken-pipe error from
+// a stale connection.
 func (m *MCPClientManager) GetOrCreate(serverInfo *ent.MCPServer) (*ExternalMCPServer, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if srv, ok := m.servers[serverInfo.Name]; ok {
-		return srv, nil
+		if srv.isAlive() {
+			return srv, nil
+		}
+		// Server process died — remove the stale entry and respawn below.
+		fmt.Printf("[mcp] server %q process exited, respawning\n", serverInfo.Name)
+		_ = srv.Close()
+		delete(m.servers, serverInfo.Name)
 	}
 
 	srv, err := NewExternalMCPServer(serverInfo)
