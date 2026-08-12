@@ -158,7 +158,7 @@ func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
 		pi = append(pi, option{ID: m.ID, Label: m.Label})
 	}
 
-	grok := []option{{ID: "", Label: "grok default (grok-4.5)"}}
+	grok := []option{{ID: "", Label: "grok default (grok-4.6)"}}
 	for _, m := range config.ListGrokModels() {
 		grok = append(grok, option{ID: m.ID, Label: m.Label})
 	}

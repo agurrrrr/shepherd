@@ -15,7 +15,8 @@ type GrokModelOption struct {
 // ListGrokModels returns the curated set of selectable grok models.
 func ListGrokModels() []GrokModelOption {
 	return []GrokModelOption{
-		{ID: "grok-4.5", Label: "grok-4.5 (default)"},
+		{ID: "grok-4.6", Label: "grok-4.6 (default)"},
+		{ID: "grok-4.5", Label: "grok-4.5"},
 		{ID: "grok-composer-2.5-fast", Label: "grok-composer-2.5-fast"},
 	}
 }

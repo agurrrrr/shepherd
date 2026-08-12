@@ -235,7 +235,7 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 
 // grokModelArgs returns ["-m", "<id>"] from the per-task override or the global
 // model_grok config. Returns nil when neither is set so grok falls back to its
-// own configured default model (grok-4.5).
+// own configured default model (grok-4.6).
 func grokModelArgs(modelOverride string) []string {
 	m := strings.TrimSpace(modelOverride)
 	if m == "" {
