@@ -476,10 +476,12 @@ func GetPiBinary() string {
 	return "pi" // fallback: hope it's in PATH
 }
 
-// GetGrokBinary returns the path to the grok binary or a wrapper script (e.g.
-// grok-safe). It checks: 1) GROK_PATH env var, 2) config "grok_path", 3) PATH
-// lookup, 4) common locations. Set grok_path in the config file or WebUI to
-// point at a wrapper like ~/.local/bin/grok-safe.
+// GetGrokBinary returns the path to the grok binary.
+// It checks: 1) GROK_PATH env var, 2) config "grok_path", 3) PATH
+// lookup, 4) common locations (~/.grok/bin/grok, ~/.local/bin/grok).
+// Leave grok_path empty to auto-detect. Point it at the real grok
+// binary only — interactive wrappers that wait for Enter leak into
+// live output and can stall headless runs.
 func GetGrokBinary() string {
 	// 1. Environment variable
 	if p := os.Getenv("GROK_PATH"); p != "" {

@@ -21,7 +21,7 @@
 <div class="setting-row">
 	<label>Grok Binary Path</label>
 	<input class="input" type="text" bind:value={configData.grok_path} placeholder="auto-detect" />
-	<span class="hint">grok 또는 래퍼 스크립트 경로 (예: <code>~/.local/bin/grok-safe</code>). 비워두면 자동 탐지.</span>
+	<span class="hint">실제 grok 바이너리 경로. 비워두면 PATH와 기본 설치 경로에서 자동 탐지. 엔터를 기다리는 래퍼는 쓰지 마세요.</span>
 </div>
 <div class="setting-row">
 	<label>Grok Model</label>

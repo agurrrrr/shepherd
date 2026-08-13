@@ -109,7 +109,13 @@ export function classifyLine(raw, prevType) {
 	// chunk; multi-line bodies use a 3-space indent on continuations
 	// (worker convention: ReplaceAll("\n", "\n   ")).
 	if (line.startsWith('💭 ') || line === '💭') return 'thinking';
-	if (prevType === 'thinking' && /^\s{3}\S/.test(line)) return 'thinking';
+	if (prevType === 'thinking') {
+		// 3-space continuation, including a leftover indent-only line from
+		// a thought "\n" token ("\n   "). Empty lines stay text so the
+		// thought→text "\n\n" separator still closes the thinking block.
+		const cont = line.replace(/[\r\n]+$/, '');
+		if (/^\s{3}\S/.test(cont) || /^\s{3}$/.test(cont)) return 'thinking';
+	}
 	// Only classify as 'result' when preceded by a tool call or another
 	// result line. Without this context check, indented markdown lines
 	// (sub-lists, blockquotes, etc.) are misclassified as tool output.

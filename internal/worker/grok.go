@@ -120,6 +120,13 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 				return
 			}
 			if section == "thought" {
+				// Whitespace-only thought flushes (a lone "\n" token becomes
+				// "\n   ") classify as text in the WebUI and close the
+				// thinking block — the blank line flashes then collapses,
+				// and the next thought restates the prompt as if looping.
+				if strings.TrimSpace(s) == "" {
+					return
+				}
 				s = tagThoughtChunk(s)
 			}
 			opts.OnOutput(s)
@@ -153,7 +160,7 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 					// line boundary is cheaper for storage + reload.
 					live.Write("\n💭 ")
 				}
-				live.Append(strings.ReplaceAll(ev.Data, "\n", "\n   "))
+				live.Append(indentThoughtData(ev.Data))
 			case "text":
 				if ev.Data == "" {
 					continue
@@ -245,6 +252,30 @@ func grokModelArgs(modelOverride string) []string {
 		return nil
 	}
 	return []string{"-m", m}
+}
+
+// indentThoughtData keeps thought newlines inside the thinking block.
+// A raw "\n" token used to become "\n   "; the empty/"   " line then
+// classified as text, so Enter appeared and vanished and the next
+// thought (often a restatement of the user prompt) leaked into the
+// answer stream. Drop blank lines; indent only non-empty ones.
+func indentThoughtData(data string) string {
+	if data == "" || !strings.Contains(data, "\n") {
+		return data
+	}
+	var b strings.Builder
+	first := true
+	for _, line := range strings.Split(data, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !first {
+			b.WriteString("\n   ")
+		}
+		b.WriteString(line)
+		first = false
+	}
+	return b.String()
 }
 
 // tagThoughtChunk ensures a flushed thought chunk is classifiable as thinking

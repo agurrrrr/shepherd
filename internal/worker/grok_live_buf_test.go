@@ -122,3 +122,67 @@ func TestTagThoughtChunk(t *testing.T) {
 		}
 	}
 }
+
+func TestIndentThoughtData_DropsBlankLines(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"no newline", "no newline"},
+		{"hello\nworld", "hello\n   world"},
+		{"\n", ""},
+		{"\n\n", ""},
+		{"hello\n\nworld", "hello\n   world"},
+		{"\nhello", "hello"},
+		{"hello\n", "hello"},
+		{"  \n\t\nkeep", "keep"},
+	}
+	for _, tc := range cases {
+		got := indentThoughtData(tc.in)
+		if got != tc.want {
+			t.Errorf("indentThoughtData(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// Thought "\n" tokens must not flush a whitespace-only line that the WebUI
+// would classify as text (task #8109: Enter flashes then the prompt loops).
+func TestGrokLiveBuf_ThoughtNewlineDoesNotLeakText(t *testing.T) {
+	var out []string
+	section := "thought"
+	buf := newGrokLiveBuf(func(s string) {
+		if strings.TrimSpace(s) == "" {
+			return
+		}
+		if section == "thought" {
+			s = tagThoughtChunk(s)
+		}
+		out = append(out, s)
+	})
+
+	buf.Write("\n💭 ")
+	for _, tok := range []string{"The user prompt", "\n", "is being restated", "\n\n", "again"} {
+		buf.Append(indentThoughtData(tok))
+	}
+	buf.Flush()
+
+	if len(out) == 0 {
+		t.Fatal("expected thought output")
+	}
+	combined := strings.Join(out, "")
+	if strings.Contains(combined, "\n\n") {
+		t.Errorf("blank lines leaked into thought stream: %#v", out)
+	}
+	for _, chunk := range out {
+		if strings.TrimSpace(chunk) == "" {
+			t.Errorf("whitespace-only chunk leaked: %q", chunk)
+		}
+		trimmed := strings.TrimLeft(chunk, "\n\r")
+		if !strings.HasPrefix(trimmed, "💭") && !strings.HasPrefix(trimmed, "   ") {
+			t.Errorf("chunk not classifiable as thinking: %q", chunk)
+		}
+	}
+	if !strings.Contains(combined, "The user prompt") || !strings.Contains(combined, "again") {
+		t.Errorf("lost thought text: %q", combined)
+	}
+}

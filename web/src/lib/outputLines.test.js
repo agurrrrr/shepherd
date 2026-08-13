@@ -96,6 +96,12 @@ describe('classifyLine', () => {
 	it('classifies 💭 lines as thinking, with 3-space continuations', () => {
 		assert.equal(classifyLine('💭 reasoning about the bug\n', null), 'thinking');
 		assert.equal(classifyLine('   more thought on next line\n', 'thinking'), 'thinking');
+		// Leftover indent-only line from a thought "\n" token (#8109).
+		assert.equal(classifyLine('   \n', 'thinking'), 'thinking');
+		assert.equal(classifyLine('   ', 'thinking'), 'thinking');
+		// Completely empty line stays text so thought→text "\n\n" still splits.
+		assert.equal(classifyLine('\n', 'thinking'), 'text');
+		assert.equal(classifyLine('', 'thinking'), 'text');
 		// 3-space indent after text is ordinary markdown, not thinking.
 		assert.equal(classifyLine('   indented list item\n', 'text'), 'text');
 	});
@@ -173,6 +179,23 @@ describe('groupLines', () => {
 			blocks[0].text,
 			'1. ✅ 인플레 자동 축소\n2. ✅ 스트릭+용서\n3. ✅ 시드 60'
 		);
+	});
+
+	it('keeps indent-only thought leftovers inside the thinking block (#8109)', () => {
+		const lines = [
+			'💭 The user wants grok-safe removed\n',
+			'   \n',
+			'   restating the prompt here\n',
+			'\n',
+			'설정을 정리했습니다.\n'
+		];
+		const blocks = groupLines(lines);
+		assert.equal(blocks.length, 2);
+		assert.equal(blocks[0].type, 'thinking');
+		assert.ok(blocks[0].text.includes('grok-safe removed'));
+		assert.ok(blocks[0].text.includes('restating the prompt'));
+		assert.equal(blocks[1].type, 'text');
+		assert.ok(blocks[1].text.includes('설정을 정리했습니다'));
 	});
 
 	it('groups 💭 reasoning into a thinking block separate from answer text', () => {
