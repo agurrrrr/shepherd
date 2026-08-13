@@ -136,3 +136,23 @@ func TestDetectShellWindowsWslBashThenGitBashFallback(t *testing.T) {
 		t.Fatalf("got %+v, want Git Bash %q", sh, gitBashFallbacks[0])
 	}
 }
+
+// CmdLine must be the literal `cmd.exe /c "<command>"`. If we left quoting
+// to Go's EscapeArg, wrapping quotes would become \" and inner double
+// quotes would not survive cmd.exe /C rule 2.
+func TestNewShellCmdSetsCmdLineForMdShell(t *testing.T) {
+	setShellConfig(t, `C:\Users\me\md.exe`)
+	stubLookPath(t, nil)
+
+	cmd, _, err := newShellCmd(t.Context(), `echo "hello"`, `C:\tmp`)
+	if err != nil {
+		t.Fatalf("newShellCmd: %v", err)
+	}
+	if cmd.SysProcAttr == nil || cmd.SysProcAttr.CmdLine == "" {
+		t.Fatal("expected SysProcAttr.CmdLine so Go EscapeArg does not rewrite quotes")
+	}
+	want := `cmd.exe /c "echo "hello""`
+	if cmd.SysProcAttr.CmdLine != want {
+		t.Errorf("CmdLine = %q, want %q", cmd.SysProcAttr.CmdLine, want)
+	}
+}

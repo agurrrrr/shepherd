@@ -4,6 +4,7 @@ package embedded
 
 import (
 	"os/exec"
+	"syscall"
 
 	"github.com/agurrrrr/shepherd/internal/procutil"
 )
@@ -21,6 +22,20 @@ import (
 func setupProcessGroup(cmd *exec.Cmd) {
 	// Windows does not support Unix process groups.
 	procutil.HideWindow(cmd)
+}
+
+// applyCmdCCommandLine sets SysProcAttr.CmdLine to
+// `<execPath> /c "<command>"` so cmd.exe sees wrapping quotes around the
+// command. HideWindow (setupProcessGroup) may already have allocated
+// SysProcAttr; merge, do not replace, or CREATE_NO_WINDOW is lost.
+func applyCmdCCommandLine(cmd *exec.Cmd, execPath, command string) {
+	if cmd == nil {
+		return
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CmdLine = windowsCmdCCommandLine(execPath, command)
 }
 
 // killProcessGroup terminates the shell and its descendants on Windows.

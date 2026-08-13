@@ -37,7 +37,9 @@ const (
 	shellKindPowerShell shellKind = "powershell"
 	// shellKindCmd is used when the configured shell path ends in md.exe — a
 	// marker/alias that means "drive the command through cmd.exe" rather than
-	// exec'ing md.exe itself. The command is handed to cmd.exe as `/c <command>`.
+	// exec'ing md.exe itself — or when the override is a real cmd.exe.
+	// The command is handed to cmd.exe as `/c "<command>"` (quotes required
+	// so the command itself may contain double quotes).
 	shellKindCmd shellKind = "cmd"
 	// shellKindUnknown is used for shells we do not recognize by name. They
 	// are driven with the POSIX `-c <command>` convention, which is the only
@@ -91,9 +93,12 @@ func (s *resolvedShell) invocation(command string) (args []string, release func(
 		// for why -Command is not usable here.
 		return psInvocation(command)
 	case shellKindCmd:
-		// The configured shell is md.exe (a marker) — the command is driven
-		// through cmd.exe with `/c <command>`.
-		return []string{"/c", command}, nil, nil
+		// `/c "<command>"` — the wrapping quotes let the command contain
+		// double quotes. cmd.exe /C rule 2 strips the first and last quote
+		// on the remainder, so `echo "hello"` arrives as echo "hello".
+		// Windows also sets SysProcAttr.CmdLine (applyCmdCCommandLine);
+		// Go's EscapeArg would otherwise turn those quotes into \".
+		return cmdCArgs(command), nil, nil
 	default:
 		return []string{"-c", command}, nil, nil
 	}
@@ -143,11 +148,11 @@ func shellKindFor(path string) shellKind {
 		return shellKindPowerShell
 	case "md":
 		// md.exe is a marker shell: it is not exec'd itself. Commands are
-		// routed through cmd.exe with `/c <command>`.
+		// routed through cmd.exe with `/c "<command>"`.
 		return shellKindCmd
 	case "cmd":
 		// A real cmd.exe override. It is exec'd directly (unlike the md.exe
-		// marker) and commands are handed to it with `/c <command>`.
+		// marker) and commands are handed to it with `/c "<command>"`.
 		return shellKindCmd
 	default:
 		return shellKindUnknown
@@ -164,6 +169,28 @@ func isCmdMarker(path string) bool {
 		base = base[i+1:]
 	}
 	return strings.TrimSuffix(base, ".exe") == "md"
+}
+
+// cmdCArgs is the argv suffix for cmd.exe: /c "<command>".
+// The wrapping quotes are required so the command itself may contain
+// double quotes. cmd.exe /C quote rule 2 then strips the first and last
+// quote on the remainder (see windowsCmdCCommandLine).
+func cmdCArgs(command string) []string {
+	return []string{"/c", `"` + command + `"`}
+}
+
+// windowsCmdCCommandLine is the CreateProcess command line for a cmd.exe
+// invocation. It must be used as SysProcAttr.CmdLine on Windows: Go's
+// EscapeArg would turn the wrapping quotes into \", which cmd.exe does
+// not treat as quotes, so inner double quotes would not survive.
+//
+// Result: <exe> /c "<command>"
+func windowsCmdCCommandLine(execPath, command string) string {
+	exe := execPath
+	if strings.ContainsAny(exe, " \t") && !strings.HasPrefix(exe, `"`) {
+		exe = `"` + exe + `"`
+	}
+	return exe + ` /c "` + command + `"`
 }
 
 // Auto-detection result cache. Detection walks PATH and (on Windows) the
@@ -379,6 +406,11 @@ func newShellCmd(ctx context.Context, command, workdir string) (*exec.Cmd, func(
 	cmd := exec.CommandContext(ctx, execPath, args...)
 	cmd.Dir = workdir
 	setupProcessGroup(cmd)
+	if sh.kind == shellKindCmd {
+		// Bypass Go's EscapeArg so the wrapping quotes around command
+		// reach cmd.exe intact. No-op on Unix (argv is enough for tests).
+		applyCmdCCommandLine(cmd, execPath, command)
+	}
 
 	// CommandContext's default Cancel is Process.Kill, which only terminates
 	// the shell. On cancel/timeout we need the whole tree (Unix process group,

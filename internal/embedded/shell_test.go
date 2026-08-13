@@ -89,7 +89,8 @@ func TestShellInvocationPOSIX(t *testing.T) {
 }
 
 // A shell configured as md.exe (the marker) must invoke through cmd.exe with
-// `/c <command>` — not exec md.exe itself.
+// `/c "<command>"` — not exec md.exe itself. The wrapping quotes are what
+// let the command contain double quotes.
 func TestShellInvocationCmd(t *testing.T) {
 	sh := &resolvedShell{kind: shellKindCmd}
 	got, release, err := sh.invocation("dir")
@@ -99,9 +100,37 @@ func TestShellInvocationCmd(t *testing.T) {
 	if release != nil {
 		t.Errorf("cmd invocation allocated a release func; cmd owns nothing")
 	}
-	want := []string{"/c", "dir"}
+	want := []string{"/c", `"dir"`}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("cmd args = %q, want %q", got, want)
+	}
+}
+
+func TestShellInvocationCmdQuotesInnerDoubleQuotes(t *testing.T) {
+	sh := &resolvedShell{kind: shellKindCmd}
+	got, _, err := sh.invocation(`echo "hello"`)
+	if err != nil {
+		t.Fatalf("cmd invocation: %v", err)
+	}
+	want := []string{"/c", `"echo "hello""`}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("cmd args = %q, want %q", got, want)
+	}
+}
+
+func TestWindowsCmdCCommandLine(t *testing.T) {
+	cases := []struct {
+		exe, command, want string
+	}{
+		{"cmd.exe", "dir", `cmd.exe /c "dir"`},
+		{"cmd.exe", `echo "hello"`, `cmd.exe /c "echo "hello""`},
+		{`C:\Windows\System32\cmd.exe`, `type "C:\Program Files\x.txt"`, `C:\Windows\System32\cmd.exe /c "type "C:\Program Files\x.txt""`},
+		{`C:\Program Files\foo\cmd.exe`, "dir", `"C:\Program Files\foo\cmd.exe" /c "dir"`},
+	}
+	for _, c := range cases {
+		if got := windowsCmdCCommandLine(c.exe, c.command); got != c.want {
+			t.Errorf("windowsCmdCCommandLine(%q, %q) = %q, want %q", c.exe, c.command, got, c.want)
+		}
 	}
 }
 
@@ -118,14 +147,28 @@ func TestNewShellCmdRunsCmdExeForMdShell(t *testing.T) {
 	if release != nil {
 		t.Error("cmd invocation should own no resources")
 	}
-	want := []string{"cmd.exe", "/c", "dir"}
+	want := []string{"cmd.exe", "/c", `"dir"`}
+	if !reflect.DeepEqual(cmd.Args, want) {
+		t.Errorf("Args = %q, want %q", cmd.Args, want)
+	}
+}
+
+func TestNewShellCmdWrapsQuotedCommandForMdShell(t *testing.T) {
+	setShellConfig(t, `C:\Users\me\md.exe`)
+	stubLookPath(t, nil)
+
+	cmd, _, err := newShellCmd(t.Context(), `echo "hello"`, "/tmp")
+	if err != nil {
+		t.Fatalf("newShellCmd: %v", err)
+	}
+	want := []string{"cmd.exe", "/c", `"echo "hello""`}
 	if !reflect.DeepEqual(cmd.Args, want) {
 		t.Errorf("Args = %q, want %q", cmd.Args, want)
 	}
 }
 
 // A real cmd.exe override is exec'd directly (not routed through a marker) and
-// commands are handed to it with `/c <command>`.
+// commands are handed to it with `/c "<command>"`.
 func TestNewShellCmdExecsRealCmdExe(t *testing.T) {
 	setShellConfig(t, `C:\Windows\System32\cmd.exe`)
 	stubLookPath(t, nil) // path used verbatim, no PATH lookup
@@ -137,7 +180,7 @@ func TestNewShellCmdExecsRealCmdExe(t *testing.T) {
 	if release != nil {
 		t.Error("cmd invocation should own no resources")
 	}
-	want := []string{`C:\Windows\System32\cmd.exe`, "/c", "dir"}
+	want := []string{`C:\Windows\System32\cmd.exe`, "/c", `"dir"`}
 	if !reflect.DeepEqual(cmd.Args, want) {
 		t.Errorf("Args = %q, want %q", cmd.Args, want)
 	}
