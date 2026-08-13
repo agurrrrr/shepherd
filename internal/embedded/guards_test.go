@@ -155,11 +155,62 @@ func TestIsFutureIntention(t *testing.T) {
 		// must not trip; end-scoped future still must.
 		{"mid-report next I'll outside last two", "Next, I'll also consider docs later. We fixed the bug. All tests passed.", false},
 		{"ends with next I'll after report", "Analysis is done.\nNext, I'll implement the fix.", true},
+		// Thinking wrappers are not a user-facing declaration.
+		{"think tag only, korean future", "<think>먼저 history를 조회해 진행하겠습니다.</think>", false},
+		{"think tag then real future answer", "<think>계획을 세운다.</think>\n다시 빌드해보겠습니다.", true},
+		{"thought marker lines only", "💭 먼저 shepherd history를 조회해 진행하겠습니다.", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := isFutureIntention(tc.in); got != tc.want {
 				t.Errorf("isFutureIntention(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStripThinkingBlocks(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"plain", "답변입니다.", "답변입니다."},
+		{"closed think", "<think>먼저 조회하겠습니다.</think>\n표로 정리했습니다.", "표로 정리했습니다."},
+		{"thinking tag", "<thinking>plan</thinking>done", "done"},
+		{"unclosed think eats rest", "prefix <think>still thinking", "prefix"},
+		{"thought marker + indent", "💭 first line\n   continued\nvisible", "visible"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stripThinkingBlocks(tc.in); got != tc.want {
+				t.Errorf("stripThinkingBlocks(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVisibleAnswer(t *testing.T) {
+	thought := "사용자가 Rust 서빙 프로젝트를 표로 정리해 달라고 요청했다. 먼저 shepherd history를 조회해 진행하겠습니다."
+	cases := []struct {
+		name      string
+		content   string
+		reasoning string
+		want      string
+	}{
+		{"plain answer", "표를 정리했습니다.", "", "표를 정리했습니다."},
+		{"reasoning only, empty content", "", thought, ""},
+		{"content is exact thought echo", thought, thought, ""},
+		{"content is a slice of the thought", "먼저 shepherd history를 조회해 진행하겠습니다.", thought, ""},
+		{"think-tagged plan only", "<think>" + thought + "</think>", "", ""},
+		{"distinct future answer besides thought", "다시 빌드해보겠습니다.", "The user wants a rebuild. I should call bash.", "다시 빌드해보겠습니다."},
+		{"think wrapper then real answer", "<think>" + thought + "</think>\n표를 정리했습니다.", thought, "표를 정리했습니다."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := visibleAnswer(tc.content, tc.reasoning); got != tc.want {
+				t.Errorf("visibleAnswer() = %q, want %q", got, tc.want)
 			}
 		})
 	}

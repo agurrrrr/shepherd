@@ -21,6 +21,45 @@ import (
 // sseLines builds a mock SSE sequence for a non-streaming chat/completions
 // response. llama.cpp actually supports streaming; we use a minimal streaming
 // wrapper here to exercise the full AccumulateStream → loop path.
+// buildSSELinesWithReasoning emits a reasoning_content chunk (💭 / thinking)
+// followed by a content chunk. Used to reproduce thought-only false-completions.
+func buildSSELinesWithReasoning(reasoning, content, finishReason string) []string {
+	var lines []string
+	if reasoning != "" {
+		rb, _ := json.Marshal(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{"index": 0, "delta": map[string]interface{}{
+					"role":               "assistant",
+					"reasoning_content": reasoning,
+				}},
+			},
+		})
+		lines = append(lines, "data: "+string(rb))
+	}
+	cb, _ := json.Marshal(map[string]interface{}{
+		"choices": []map[string]interface{}{
+			{"index": 0, "delta": map[string]interface{}{
+				"role":    "assistant",
+				"content": content,
+			}},
+		},
+	})
+	lines = append(lines, "data: "+string(cb))
+	fr := map[string]interface{}{
+		"choices": []map[string]interface{}{
+			{"index": 0, "delta": map[string]interface{}{}, "finish_reason": finishReason},
+		},
+		"usage": map[string]interface{}{
+			"prompt_tokens":     10,
+			"completion_tokens": 5,
+			"total_tokens":      15,
+		},
+	}
+	frb, _ := json.Marshal(fr)
+	lines = append(lines, "data: "+string(frb), "data: [DONE]")
+	return lines
+}
+
 func buildSSELines(toolCalls []toolCallSpec, content string, finishReason string) []string {
 	var lines []string
 
@@ -922,6 +961,69 @@ func TestFutureIntentionAdvisoryEscapeHatch(t *testing.T) {
 	// nudge round + restated advisory answer = 2 requests; no third.
 	if len(*bodies) != 2 {
 		t.Fatalf("expected 2 requests (nudge + restated), got %d", len(*bodies))
+	}
+}
+
+// TestFutureIntentionIgnoresReasoningOnly is the thought-block false-positive:
+// three 💭-only planning turns ending in "하겠습니다" used to trip the
+// future-intention guard and mark the task incomplete. They must be treated
+// as empty/reasoning turns instead, so a later real answer can complete.
+func TestFutureIntentionIgnoresReasoningOnly(t *testing.T) {
+	thought := "사용자가 Rust 기반 오픈소스 가중치 모델 서빙 프로젝트를 찾아서 표로 정리해 달라고 요청했다. 먼저 shepherd history를 조회해 맥락을 파악해야 합니다. 그 다음 작업을 진행하겠습니다."
+	r1 := buildSSELinesWithReasoning(thought, "", "stop")
+	r2 := buildSSELinesWithReasoning(thought, thought, "stop") // echo of the thought
+	r3 := buildSSELines(nil, "조사 결과를 표로 정리했습니다.", "stop")
+	srv, bodies := multiRoundSSEServer(t, [][]string{r1, r2, r3})
+	defer srv.Close()
+
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL + "/chat/completions",
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "Rust 기반 오픈소스 모델 서빙 프로젝트를 찾아서 표로 정리해줘.",
+		MaxIterations: 6,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("thought-only turns must not trip future-intention; incomplete=%s", result.IncompleteReason)
+	}
+	if !strings.Contains(result.Result, "표로 정리했습니다") {
+		t.Errorf("Result = %q, want the real answer", result.Result)
+	}
+	if len(*bodies) != 3 {
+		t.Fatalf("expected 3 requests (2 thought turns + answer), got %d", len(*bodies))
+	}
+}
+
+// TestFutureIntentionStillFiresWithDistinctThought keeps #6294 for reasoning
+// models: a user-facing "다시 빌드해보겠습니다" that is NOT just the thought
+// still nudges to incomplete.
+func TestFutureIntentionStillFiresWithDistinctThought(t *testing.T) {
+	thought := "The user wants the build error fixed. I should inspect the logs."
+	declare := "빌드 에러를 수정했습니다. 다시 빌드해보겠습니다."
+	r1 := buildSSELinesWithReasoning(thought, declare, "stop")
+	r2 := buildSSELinesWithReasoning(thought, declare, "stop")
+	r3 := buildSSELinesWithReasoning(thought, declare, "stop")
+	srv, _ := multiRoundSSEServer(t, [][]string{r1, r2, r3})
+	defer srv.Close()
+
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL + "/chat/completions",
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "빌드 에러를 고쳐주세요.",
+		MaxIterations: 6,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if !result.Incomplete {
+		t.Fatal("expected incomplete when the visible answer (not the thought) keeps declaring future work")
+	}
+	if !strings.Contains(result.IncompleteReason, "future actions") {
+		t.Errorf("IncompleteReason = %q, want future-actions reason", result.IncompleteReason)
 	}
 }
 

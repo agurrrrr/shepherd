@@ -235,8 +235,81 @@ func hasStateChangingTools(toolDefs []OpenAIToolDef) bool {
 	return false
 }
 
+// thinkTagBlockRe matches a closed <think> / <thinking> wrapper some reasoning
+// models (Qwen3, DeepSeek-R1 style) leave inside content instead of (or as
+// well as) reasoning_content. Unclosed leftovers are stripped by thinkTagOpenRe.
+var thinkTagBlockRe = regexp.MustCompile(`(?is)<think(?:ing)?\b[^>]*>.*?</think(?:ing)?>`)
+var thinkTagOpenRe = regexp.MustCompile(`(?is)<think(?:ing)?\b[^>]*>.*`)
+
+// stripThinkingBlocks removes thinking markup from a model message so turn-end
+// guards judge the user-visible answer only. Reasoning models often plan in
+// future tense ("먼저 history를 조회하겠습니다") inside a thought; that is not
+// a false-completion declaration.
+func stripThinkingBlocks(s string) string {
+	s = thinkTagBlockRe.ReplaceAllString(s, "")
+	s = thinkTagOpenRe.ReplaceAllString(s, "")
+	if !strings.Contains(s, "💭") {
+		return strings.TrimSpace(s)
+	}
+	var kept []string
+	inThought := false
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "💭") {
+			inThought = true
+			continue
+		}
+		if inThought && (strings.HasPrefix(line, "   ") || strings.TrimSpace(line) == "") {
+			continue
+		}
+		inThought = false
+		kept = append(kept, line)
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
+}
+
+func compactSpace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// minReasoningEchoRunes is the shortest content that may be treated as a
+// thought-echo. Below this, a stray shared token must not hide a real answer.
+const minReasoningEchoRunes = 8
+
+// isReasoningEcho reports whether content is just the thought (or a slice of
+// it) copied into the answer field. Grok / Qwen thinking models often do this:
+// the live UI shows only the 💭 card, but msg.Content still carries the same
+// plan sentence and used to trip the future-intention guard.
+func isReasoningEcho(content, reasoning string) bool {
+	c := compactSpace(content)
+	r := compactSpace(reasoning)
+	if c == "" || r == "" {
+		return false
+	}
+	if c == r {
+		return true
+	}
+	if len([]rune(c)) < minReasoningEchoRunes {
+		return false
+	}
+	return strings.Contains(r, c)
+}
+
+// visibleAnswer is the user-facing completion text used by turn-end guards.
+// Thinking markup and reasoning-content echoes are treated as empty so a
+// thought-only turn is not judged as a finished (or false-finished) answer.
+func visibleAnswer(content, reasoning string) string {
+	s := stripThinkingBlocks(content)
+	if s == "" {
+		return ""
+	}
+	if isReasoningEcho(s, reasoning) {
+		return ""
+	}
+	return s
+}
+
 func isFutureIntention(content string) bool {
-	s := strings.TrimSpace(content)
+	s := strings.TrimSpace(stripThinkingBlocks(content))
 	if s == "" {
 		return false
 	}
@@ -874,7 +947,13 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// Do NOT add the empty message to history: it wastes context and does not
 		// help the model recover. Instead, inject a nudge so the model knows it
 		// should produce output.
-		contentEmpty := strings.TrimSpace(msg.Content) == ""
+		//
+		// visible is content with thinking stripped / reasoning-echo removed.
+		// Thought-only turns (Qwen/Grok planning in 💭, sometimes also copied
+		// into content) must not look like a finished answer to the guards
+		// below, or like a future-intention false-completion.
+		visible := visibleAnswer(msg.Content, msg.ReasoningContent)
+		contentEmpty := visible == ""
 		reasoningPresent := strings.TrimSpace(msg.ReasoningContent) != ""
 
 		// Check for length truncation FIRST, before empty response detection.
@@ -943,11 +1022,13 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		consecutiveEmpty = 0
 
 		// ── Mitigation ①: Future-intention nudge (task #6290 / #6294 / #7751 / #8004) ──
-		// If there are no tool calls AND the content ends with a future-action
-		// declaration ("다시 빌드해보겠습니다", "let me now ~"), do NOT treat it as a
-		// completion. Nudge the model to actually do it — but only up to
-		// maxFutureIntentionNudges times, after which the task is reported
-		// incomplete rather than nudged forever (prevents the #6294 token loop).
+		// If there are no tool calls AND the visible answer (thinking stripped)
+		// ends with a future-action declaration ("다시 빌드해보겠습니다",
+		// "let me now ~"), do NOT treat it as a completion. Nudge the model to
+		// actually do it — but only up to maxFutureIntentionNudges times, after
+		// which the task is reported incomplete rather than nudged forever
+		// (prevents the #6294 token loop). Thought / reasoning_content is never
+		// judged: planning in a 💭 block is not a false-completion.
 		//
 		// #7751 gates (A)+(C): skip when state-changing tools are unavailable
 		// (reset impossible), and skip when bash/write_file/edit_file already
@@ -962,7 +1043,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// ending. The escape hatch requires at least one nudge first: the model
 		// only learns the phrase from the nudge body, so a first-turn future
 		// intention without it still gets nudged (keeps #6294 defense).
-		if futureIntentionGuardArmed(writeToolsAllowed, advisoryPrompt, bashCalled, codeModified, anyToolCalled, futureIntentionNudges, msg.Content) {
+		if futureIntentionGuardArmed(writeToolsAllowed, advisoryPrompt, bashCalled, codeModified, anyToolCalled, futureIntentionNudges, visible) {
 			futureIntentionNudges++
 			if futureIntentionNudges > maxFutureIntentionNudges {
 				emitOutput(opts.OnOutput, "⚠️ [미래형 선언 반복]: 선언만 반복하고 실제 실행이 없어 작업을 미완료로 종료합니다.")
