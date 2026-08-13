@@ -110,8 +110,10 @@ func TestTagThoughtChunk(t *testing.T) {
 	}{
 		{"", ""},
 		{"💭 already tagged", "💭 already tagged"},
-		{"plain continuation", "💭 plain continuation"},
-		{"\n\nplain after blank", "\n\n💭 plain after blank"},
+		// Mid-line safety-flush remnant: do not inject another 💭.
+		{"plain continuation", "plain continuation"},
+		// New physical line without a marker: 3-space continuation, not 💭.
+		{"\n\nplain after blank", "\n\n   plain after blank"},
 		{"   indented cont", "   indented cont"},
 		{"\n💭 has marker", "\n💭 has marker"},
 	}
@@ -326,6 +328,48 @@ func TestGrokThoughtPipeline_LiveCaptureOKTokens(t *testing.T) {
 		if strings.Contains(line, "💭") && strings.HasSuffix(strings.TrimSpace(line), "OK") && !strings.Contains(line, "word OK") {
 			t.Errorf("answer glued onto thinking line: %q", line)
 		}
+	}
+}
+
+// A long thought paragraph without newlines used to pick up a 💭 every
+// ≥120B safety flush. LineCoalescer then joined those onto one line, so
+// the Thinking card showed a marker at every wrap.
+func TestGrokThoughtPipeline_SafetyFlushDoesNotInsertMidLineMarker(t *testing.T) {
+	// ~250B of space-separated English, typical Grok thought shape.
+	words := []string{
+		"The", " user", " wants", " me", " to", " review", " recent",
+		" commits", " related", " to", " Grok", " parsing", " improvements",
+		" and", " then", " test", " them", " thoroughly", " before",
+		" declaring", " the", " work", " complete", " so", " we", " do",
+		" not", " miss", " a", " regression", " in", " the", " live",
+		" output", " pipeline", " when", " thinking", " blocks", " wrap",
+		" across", " multiple", " visual", " lines", ".",
+	}
+	var evs []grokEvent
+	for _, tok := range words {
+		evs = append(evs, grokEvent{Type: "thought", Data: tok})
+	}
+	evs = append(evs, grokEvent{Type: "text", Data: "확인했습니다."})
+
+	chunks := simulateGrokLive(evs)
+	joined := strings.Join(chunks, "")
+	if n := strings.Count(joined, "💭"); n != 1 {
+		t.Errorf("expected a single 💭 section marker, got %d in chunks=%q", n, chunks)
+	}
+	if strings.Contains(joined, " 💭 ") {
+		t.Errorf("mid-line 💭 re-tag leaked into thought stream: %q", joined)
+	}
+
+	lines := coalesceChunks(chunks)
+	coalesced := strings.Join(lines, "")
+	if n := strings.Count(coalesced, "💭"); n != 1 {
+		t.Errorf("LineCoalescer should keep a single 💭, got %d in lines=%q", n, lines)
+	}
+	if !strings.Contains(coalesced, "review recent commits") {
+		t.Errorf("lost thought text: %q", coalesced)
+	}
+	if !strings.Contains(coalesced, "확인했습니다.") {
+		t.Errorf("lost answer text: %q", coalesced)
 	}
 }
 

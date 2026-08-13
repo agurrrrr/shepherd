@@ -122,6 +122,13 @@ describe('thinkingBody', () => {
 		assert.equal(thinkingBody('   cont'), 'cont');
 		assert.equal(thinkingBody('plain'), 'plain');
 	});
+
+	it('strips mid-line Grok safety-flush 💭 re-tags', () => {
+		assert.equal(
+			thinkingBody('💭 The user wants me to review recent commits related to Grok parsing improvements and then test them. They also want 💭 me to:'),
+			'The user wants me to review recent commits related to Grok parsing improvements and then test them. They also want me to:'
+		);
+	});
 });
 
 describe('groupLines', () => {
@@ -234,6 +241,21 @@ describe('groupLines', () => {
 		assert.equal(blocks[1].type, 'text');
 		assert.ok(blocks[1].text.includes('**원인**'));
 		assert.ok(blocks[1].text.includes('Grok 스트리밍'));
+	});
+
+	it('strips mid-line safety-flush 💭 from a thinking card body', () => {
+		const lines = [
+			'💭 The user wants me to review recent commits related to Grok parsing improvements and then test them. They also want 💭 me to:\n',
+			'   continue without another marker\n',
+			'확인했습니다.\n'
+		];
+		const blocks = groupLines(lines);
+		assert.equal(blocks[0].type, 'thinking');
+		assert.ok(!blocks[0].text.includes('💭'), blocks[0].text);
+		assert.ok(blocks[0].text.includes('They also want me to:'));
+		assert.ok(blocks[0].text.includes('continue without another marker'));
+		assert.equal(blocks[1].type, 'text');
+		assert.ok(blocks[1].text.includes('확인했습니다'));
 	});
 
 	it('splits mid-line 💭 glue and merges adjacent re-tagged thought chunks', () => {

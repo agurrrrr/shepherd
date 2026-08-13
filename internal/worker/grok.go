@@ -280,15 +280,22 @@ func indentThoughtData(data string) string {
 	return b.String()
 }
 
-// tagThoughtChunk ensures a flushed thought chunk is classifiable as thinking
-// by the WebUI (starts with "💭 "). The first flush of a thought section is
-// already prefixed via live.Write("\n💭 "); safety-flush / multi-line
-// continuations re-tag so they are not swallowed into answer text blocks.
+// tagThoughtChunk keeps a flushed thought chunk inside the thinking block
+// without injecting a 💭 on every safety flush.
+//
+// The first flush of a thought section is already prefixed via
+// live.Write("\n💭 "). After LineCoalescer (#7209), mid-line remnants of a
+// ≥120B safety flush stay on that same open 💭 line — re-tagging them
+// produced "want 💭 me to" inside the Thinking card (every wrap / ~120B).
+//
+// A new physical line without a marker is indented (3 spaces) so
+// classifyLine keeps it as a thinking continuation. We do not add another
+// 💭; only the section opener should carry the marker.
 func tagThoughtChunk(s string) string {
 	if s == "" {
 		return s
 	}
-	// Preserve leading newlines (section separators) then ensure a 💭 marker.
+	// Preserve leading newlines (section separators).
 	i := 0
 	for i < len(s) && (s[i] == '\n' || s[i] == '\r') {
 		i++
@@ -301,14 +308,17 @@ func tagThoughtChunk(s string) string {
 	if strings.HasPrefix(trimmed, "💭") {
 		return s
 	}
-	// Multi-line worker convention: indent continuations with 3 spaces so
-	// groupLines keeps them inside the thinking block. Prefer 💭 re-tag for
-	// plain mid-section flushes so each chunk is independently classifiable
-	// even when reloaded out of order.
+	// Already a 3-space continuation (indentThoughtData / prior pass).
 	if strings.HasPrefix(rest, "   ") {
 		return s
 	}
-	return prefix + "💭 " + rest
+	// New physical line without a marker: indent, do not re-tag.
+	if prefix != "" {
+		return prefix + "   " + rest
+	}
+	// Mid-line safety-flush remnant: leave untagged so LineCoalescer
+	// concatenates onto the still-open 💭 line.
+	return s
 }
 
 // grokLiveBuf coalesces per-token thought/text deltas into line-sized chunks

@@ -133,6 +133,11 @@ export function thinkingBody(text) {
 	if (t.startsWith('💭 ')) t = t.slice(2).replace(/^\s/, '');
 	else if (t === '💭') t = '';
 	else if (/^\s{3}/.test(t)) t = t.slice(3);
+	// Grok used to re-tag every ≥120B safety flush with 💭. LineCoalescer
+	// then joined those chunks onto one line, so the card body showed
+	// "want 💭 me to" at every wrap. Strip leftover mid-line markers so
+	// historical DB rows render cleanly too.
+	t = t.replace(/\s*💭 /g, ' ');
 	return t;
 }
 
