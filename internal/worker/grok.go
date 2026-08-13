@@ -102,35 +102,7 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 		buf := make([]byte, 0, 64*1024)
 		scanner.Buffer(buf, 1024*1024)
 
-		section := "" // "" | "thought" | "text"
-
-		// Grok's streaming-json emits per-token deltas — often 1-3 characters
-		// per {"type":"text"|"thought","data":".."} event. Passing each delta
-		// straight to OnOutput causes the live output to fragment into tiny
-		// pieces (mid-word breaks, 💭 markers between tokens, markdown flicker).
-		// Buffer BOTH thought and text; flush on newline, section switch, or
-		// when a reasonable chunk accumulates (prefer word boundary).
-		// (text buffering: #7188/#7192; thought was still unbuffered until #7202.)
-		//
-		// Thought flushes must stay tagged for the WebUI thinking block
-		// classifier (task #7275): safety-flush mid-thought used to emit plain
-		// text without 💭, so reasoning melted into the answer stream.
-		live := newGrokLiveBuf(func(s string) {
-			if opts.OnOutput == nil || s == "" {
-				return
-			}
-			if section == "thought" {
-				// Whitespace-only thought flushes (a lone "\n" token becomes
-				// "\n   ") classify as text in the WebUI and close the
-				// thinking block — the blank line flashes then collapses,
-				// and the next thought restates the prompt as if looping.
-				if strings.TrimSpace(s) == "" {
-					return
-				}
-				s = tagThoughtChunk(s)
-			}
-			opts.OnOutput(s)
-		})
+		stream := newGrokStreamState(opts.OnOutput)
 
 		for scanner.Scan() {
 			if ctx.Err() != nil {
@@ -142,47 +114,12 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 			outputBuilder.WriteString(line + "\n")
 			mu.Unlock()
 
-			ev := parseGrokLine(line)
-			if ev == nil || opts.OnOutput == nil {
-				continue
-			}
-			switch ev.Type {
-			case "thought":
-				if ev.Data == "" {
-					continue
-				}
-				if section != "thought" {
-					// Flush any pending text before starting a thought section.
-					live.Flush()
-					section = "thought"
-					// Leading newline so text→thought does not glue mid-line
-					// ("answer.💭 …"); expandGluedLines can split, but a clean
-					// line boundary is cheaper for storage + reload.
-					live.Write("\n💭 ")
-				}
-				live.Append(indentThoughtData(ev.Data))
-			case "text":
-				if ev.Data == "" {
-					continue
-				}
-				if section != "text" {
-					live.Flush()
-					if section != "" {
-						opts.OnOutput("\n\n")
-					}
-					section = "text"
-				}
-				live.Append(ev.Data)
-			case "error":
-				if ev.Message != "" {
-					live.Flush()
-					opts.OnOutput("\n❌ " + ev.Message + "\n")
-				}
+			if ev := parseGrokLine(line); ev != nil {
+				stream.handle(ev)
 			}
 		}
 
-		// Flush any remaining buffered thought/text after the stream ends.
-		live.Flush()
+		stream.flush()
 	}()
 
 	// Read stderr.
@@ -254,26 +191,91 @@ func grokModelArgs(modelOverride string) []string {
 	return []string{"-m", m}
 }
 
-// indentThoughtData keeps thought newlines inside the thinking block.
-// A raw "\n" token used to become "\n   "; the empty/"   " line then
-// classified as text, so Enter appeared and vanished and the next
-// thought (often a restatement of the user prompt) leaked into the
-// answer stream. Drop blank lines; indent only non-empty ones.
+// grokStreamState turns streaming-json thought/text/error events into
+// OnOutput chunks. Thought and text share grokLiveBuf so per-token
+// deltas do not become one live line each.
+type grokStreamState struct {
+	section string // "" | "thought" | "text"
+	live    *grokLiveBuf
+	emit    func(string)
+}
+
+func newGrokStreamState(emit func(string)) *grokStreamState {
+	s := &grokStreamState{emit: emit}
+	s.live = newGrokLiveBuf(func(chunk string) {
+		if s.emit == nil || chunk == "" {
+			return
+		}
+		if s.section == "thought" {
+			// Drop indent-only / blank flushes so classifyLine does not
+			// treat them as text and close the thinking card (#8109).
+			if strings.TrimSpace(chunk) == "" {
+				return
+			}
+			chunk = tagThoughtChunk(chunk)
+		}
+		s.emit(chunk)
+	})
+	return s
+}
+
+func (s *grokStreamState) handle(ev *grokEvent) {
+	if ev == nil || s.emit == nil {
+		return
+	}
+	switch ev.Type {
+	case "thought":
+		if ev.Data == "" {
+			return
+		}
+		if s.section != "thought" {
+			s.live.Flush()
+			s.section = "thought"
+			// Line boundary so text→thought does not glue ("answer.💭").
+			s.live.Write("\n💭 ")
+		}
+		s.live.Append(indentThoughtData(ev.Data))
+	case "text":
+		if ev.Data == "" {
+			return
+		}
+		if s.section != "text" {
+			s.live.Flush()
+			if s.section != "" {
+				s.emit("\n\n")
+			}
+			s.section = "text"
+		}
+		s.live.Append(ev.Data)
+	case "error":
+		if ev.Message != "" {
+			s.live.Flush()
+			s.emit("\n❌ " + ev.Message + "\n")
+		}
+	}
+}
+
+func (s *grokStreamState) flush() {
+	s.live.Flush()
+}
+
+// indentThoughtData turns thought newlines into 3-space continuations.
+// Grok's next sentence usually has no leading space, so the break must
+// stay; blank line bodies are omitted. Whitespace-only flushes are
+// dropped in grokStreamState so they do not close the thinking card.
 func indentThoughtData(data string) string {
 	if data == "" || !strings.Contains(data, "\n") {
 		return data
 	}
 	var b strings.Builder
-	first := true
-	for _, line := range strings.Split(data, "\n") {
+	for i, line := range strings.Split(data, "\n") {
+		if i > 0 {
+			b.WriteString("\n   ")
+		}
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		if !first {
-			b.WriteString("\n   ")
-		}
 		b.WriteString(line)
-		first = false
 	}
 	return b.String()
 }

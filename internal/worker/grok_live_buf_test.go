@@ -130,12 +130,12 @@ func TestIndentThoughtData_DropsBlankLines(t *testing.T) {
 		{"", ""},
 		{"no newline", "no newline"},
 		{"hello\nworld", "hello\n   world"},
-		{"\n", ""},
-		{"\n\n", ""},
-		{"hello\n\nworld", "hello\n   world"},
-		{"\nhello", "hello"},
-		{"hello\n", "hello"},
-		{"  \n\t\nkeep", "keep"},
+		{"\n", "\n   "},
+		{"\n\n", "\n   \n   "},
+		{"hello\n\nworld", "hello\n   \n   world"},
+		{"\nhello", "\n   hello"},
+		{"hello\n", "hello\n   "},
+		{"  \n\t\nkeep", "\n   \n   keep"},
 	}
 	for _, tc := range cases {
 		got := indentThoughtData(tc.in)
@@ -184,5 +184,169 @@ func TestGrokLiveBuf_ThoughtNewlineDoesNotLeakText(t *testing.T) {
 	}
 	if !strings.Contains(combined, "The user prompt") || !strings.Contains(combined, "again") {
 		t.Errorf("lost thought text: %q", combined)
+	}
+}
+
+func simulateGrokLive(events []grokEvent) []string {
+	var out []string
+	stream := newGrokStreamState(func(s string) { out = append(out, s) })
+	for i := range events {
+		stream.handle(&events[i])
+	}
+	stream.flush()
+	return out
+}
+
+func coalesceChunks(chunks []string) []string {
+	var lines []string
+	c := NewLineCoalescer(func(s string) { lines = append(lines, s) })
+	for _, ch := range chunks {
+		c.Append(ch)
+	}
+	c.Flush()
+	return lines
+}
+
+// Grok commonly emits a lone "\n" thought token, then a new sentence with no
+// leading space. Dropping that newline (instead of turning it into a
+// continuation indent) glues the sentences together.
+func TestIndentThoughtData_LoneNewlineKeepsBreakForNextToken(t *testing.T) {
+	got := indentThoughtData("\n")
+	if got == "" {
+		t.Fatalf("lone newline token was discarded; next sentence will glue onto the previous one")
+	}
+	if !strings.Contains(got, "\n") {
+		t.Fatalf("lone newline token lost its line break: %q", got)
+	}
+}
+
+func TestGrokThoughtPipeline_NewlineTokenDoesNotGlueSentences(t *testing.T) {
+	chunks := simulateGrokLive([]grokEvent{
+		{Type: "thought", Data: "The user wants to investigate."},
+		{Type: "thought", Data: "\n"},
+		{Type: "thought", Data: "They mentioned grok-safe."},
+		{Type: "thought", Data: "\n\n"},
+		{Type: "thought", Data: "This is a restatement of the prompt."},
+		{Type: "text", Data: "설정을 정리했습니다."},
+	})
+	lines := coalesceChunks(chunks)
+	joined := strings.Join(lines, "")
+
+	if strings.Contains(joined, "investigate.They") {
+		t.Errorf("sentences glued across a thought newline token:\nchunks=%q\nlines=%q", chunks, lines)
+	}
+	if strings.Contains(joined, "grok-safe.This") {
+		t.Errorf("paragraph break collapsed into glued sentences:\nchunks=%q\nlines=%q", chunks, lines)
+	}
+	if !strings.Contains(joined, "The user wants to investigate.") {
+		t.Errorf("lost first thought sentence: %q", joined)
+	}
+	if !strings.Contains(joined, "They mentioned grok-safe.") {
+		t.Errorf("lost second thought sentence: %q", joined)
+	}
+	if !strings.Contains(joined, "설정을 정리했습니다.") {
+		t.Errorf("lost answer text: %q", joined)
+	}
+
+	// After LineCoalescer, no whitespace-only line should sit between
+	// thinking lines in a way that classifyLine would treat as text —
+	// except the thought→text "\n\n" separator.
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			continue
+		}
+		// Allowed: the explicit thought→text separator.
+		if i > 0 && i < len(lines)-1 && strings.Contains(lines[i+1], "설정을") {
+			continue
+		}
+		// Leading "" from "\n💭 " at section start is also expected.
+		if i == 0 {
+			continue
+		}
+		t.Errorf("whitespace-only line %d leaked into coalesced output: %#v", i, lines)
+	}
+}
+
+// Live grok 1.0.3 streaming-json (2026-08-13) attaches the newline to the
+// last thought token (".\n"), not as a lone "\n". The next thought sentence
+// still has no leading space.
+func TestGrokThoughtPipeline_TrailingNLOnLastToken(t *testing.T) {
+	chunks := simulateGrokLive([]grokEvent{
+		{Type: "thought", Data: "The user wants me to reply with exactly the word OK"},
+		{Type: "thought", Data: ".\n"},
+		{Type: "thought", Data: "They said think one short sentence first."},
+		{Type: "text", Data: "OK"},
+	})
+	joined := strings.Join(coalesceChunks(chunks), "")
+	if strings.Contains(joined, "OKThey") || strings.Contains(joined, "OK.They") && !strings.Contains(joined, "OK.\n") {
+		// "OKThey" would mean the period+NL was dropped and glued.
+		t.Errorf("trailing thought newline glued the next sentence: %q", joined)
+	}
+	if strings.Contains(joined, "OKThey") {
+		t.Errorf("glued across .\\n token: %q", joined)
+	}
+	if !strings.Contains(joined, "They said think") {
+		t.Errorf("lost continuation thought: %q", joined)
+	}
+	// Prefer a line break (or at least a space) between the two sentences.
+	if strings.Contains(joined, "OK.They") {
+		t.Errorf("sentences glued after trailing .\\n token: %q", joined)
+	}
+}
+
+func TestGrokThoughtPipeline_LiveCaptureOKTokens(t *testing.T) {
+	// Exact thought/text deltas from grok 1.0.3 streaming-json
+	// (`-p "Reply with exactly the word OK..."` on 2026-08-13).
+	thoughts := []string{
+		"The", " user", " wants", " me", " to", " reply", " with",
+		" exactly", " the", " word", " OK", ".", " They", " said",
+		" think", " one", " short", " sentence", " first", ",", " and",
+		" do", " not", " use", " tools", ".\n",
+	}
+	var evs []grokEvent
+	for _, tok := range thoughts {
+		evs = append(evs, grokEvent{Type: "thought", Data: tok})
+	}
+	evs = append(evs, grokEvent{Type: "text", Data: "OK"})
+
+	chunks := simulateGrokLive(evs)
+	lines := coalesceChunks(chunks)
+	joined := strings.Join(lines, "")
+	if !strings.Contains(joined, "💭") {
+		t.Fatalf("missing thought marker: %#v", lines)
+	}
+	if !strings.Contains(joined, "The user wants me to reply") {
+		t.Errorf("lost thought text: %q", joined)
+	}
+	if !strings.Contains(joined, "OK") {
+		t.Errorf("lost answer: %q", joined)
+	}
+	// Answer must not be classified inside the thought marker line.
+	for _, line := range lines {
+		if strings.Contains(line, "💭") && strings.HasSuffix(strings.TrimSpace(line), "OK") && !strings.Contains(line, "word OK") {
+			t.Errorf("answer glued onto thinking line: %q", line)
+		}
+	}
+}
+
+func TestParseGrokOutput_RealStreamShape(t *testing.T) {
+	// Minimal NDJSON matching grok 1.0.3: available_commands + thought + text + end.
+	raw := strings.Join([]string{
+		`{"type":"available_commands","tools":["read_file"]}`,
+		`{"type":"thought","data":"The user wants "}`,
+		`{"type":"thought","data":"OK.\n"}`,
+		`{"type":"text","data":"OK"}`,
+		`{"type":"usage","usage":{"input_tokens":10,"output_tokens":2}}`,
+		`{"type":"end","stopReason":"end_turn","sessionId":"sess-1"}`,
+	}, "\n")
+	got := parseGrokOutput(raw)
+	if got.Result != "OK" {
+		t.Errorf("result=%q want OK", got.Result)
+	}
+	if got.SessionID != "sess-1" {
+		t.Errorf("session=%q", got.SessionID)
+	}
+	if got.Incomplete {
+		t.Errorf("unexpected incomplete: %s", got.IncompleteReason)
 	}
 }

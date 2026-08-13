@@ -181,6 +181,26 @@ describe('groupLines', () => {
 		);
 	});
 
+	it('keeps thought sentences on continuation lines after a .\\n token', () => {
+		// Worker: last thought token ".\n" becomes ".\n   ", next sentence
+		// has no leading space. LineCoalescer emits 💭 line then "   They…".
+		const lines = [
+			'💭 The user wants me to reply with exactly the word OK.\n',
+			'   They said think one short sentence first.\n',
+			'\n',
+			'OK\n'
+		];
+		const blocks = groupLines(lines);
+		assert.equal(blocks.length, 2);
+		assert.equal(blocks[0].type, 'thinking');
+		assert.ok(blocks[0].text.includes('exactly the word OK.'));
+		assert.ok(blocks[0].text.includes('They said think'));
+		assert.ok(!blocks[0].text.includes('OKThey'));
+		assert.equal(blocks[1].type, 'text');
+		assert.ok(blocks[1].text.includes('OK'));
+		assert.ok(!blocks[1].text.includes('They said'));
+	});
+
 	it('keeps indent-only thought leftovers inside the thinking block (#8109)', () => {
 		const lines = [
 			'💭 The user wants grok-safe removed\n',

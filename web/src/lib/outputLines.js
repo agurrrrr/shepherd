@@ -105,9 +105,8 @@ export function classifyLine(raw, prevType) {
 	if (line.startsWith('❓')) return 'question';
 	if (line.startsWith('  ▸ ')) return 'question-option';
 	// Reasoning / thinking stream (Grok thought, OpenCode reasoning, pi,
-	// embedded reasoning_content). Marker is always "💭 " at the start of a
-	// chunk; multi-line bodies use a 3-space indent on continuations
-	// (worker convention: ReplaceAll("\n", "\n   ")).
+	// embedded reasoning_content). Marker is "💭 " at the start of a chunk;
+	// multi-line bodies use a 3-space indent on continuations.
 	if (line.startsWith('💭 ') || line === '💭') return 'thinking';
 	if (prevType === 'thinking') {
 		// 3-space continuation, including a leftover indent-only line from
