@@ -1,7 +1,7 @@
 <script>
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
-	import { apiGet, apiPost, apiPatch, apiDelete } from '$lib/api.js';
+	import { apiGet, apiPost, apiPatch, apiPut, apiDelete } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
 	import { appendLiveOutput } from '$lib/liveOutput.js';
 	import { thinkingByProject, modelByProject } from '$lib/stores.js';
@@ -17,6 +17,8 @@
 	import FileBrowser from '$lib/components/FileBrowser.svelte';
 	import IssueTab from '$lib/components/IssueTab.svelte';
 	import ProjectSettings from '$lib/components/ProjectSettings.svelte';
+	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	let projectName = $state('');
 	let project = $state(null);
@@ -156,6 +158,8 @@
 	let wikiEditing = $state(false);
 	let wikiEditContent = $state('');
 	let wikiEditTitle = $state('');
+	let wikiNavCollapsed = $state(false);
+	const WIKI_NAV_KEY = 'shepherd_wiki_nav_collapsed';
 
 	let unsubs = [];
 
@@ -195,6 +199,12 @@
 		skillsLoaded = false;
 		showSkillForm = false;
 		editingSkillItem = null;
+		wikiPages = [];
+		wikiLoaded = false;
+		wikiSelectedPage = null;
+		wikiEditing = false;
+		wikiEditContent = '';
+		wikiEditTitle = '';
 		activeTab = 'output';
 		loadProject();
 		if (initialTab && initialTab !== 'output' && VALID_TABS.includes(initialTab)) {
@@ -203,6 +213,12 @@
 	}
 
 	onMount(() => {
+		try {
+			wikiNavCollapsed = localStorage.getItem(WIKI_NAV_KEY) === '1';
+		} catch {
+			/* ignore */
+		}
+
 		// SSE: live output (5000줄 버퍼). The server-side LineCoalescer
 		// already emits complete lines (task #7209), so appendLiveOutput
 		// is now a thin wrapper that pushes lines.
@@ -438,6 +454,15 @@
 		wikiEditing = false;
 	}
 
+	function toggleWikiNav() {
+		wikiNavCollapsed = !wikiNavCollapsed;
+		try {
+			localStorage.setItem(WIKI_NAV_KEY, wikiNavCollapsed ? '1' : '0');
+		} catch {
+			/* ignore */
+		}
+	}
+
 	function openWikiEdit() {
 		if (!wikiSelectedPage) return;
 		wikiEditing = true;
@@ -453,14 +478,16 @@
 
 	async function saveWikiPage() {
 		if (!wikiSelectedPage) return;
-		const res = await apiPatch(`/api/wiki/pages/${encodeURIComponent(wikiSelectedPage.slug)}?project=${encodeURIComponent(projectName)}`, {
+		const slug = wikiSelectedPage.slug;
+		const res = await apiPut(`/api/wiki/pages/${encodeURIComponent(slug)}?project=${encodeURIComponent(projectName)}`, {
 			content: wikiEditContent,
 			title: wikiEditTitle
 		});
 		if (res?.success) {
 			wikiEditing = false;
 			await loadWikiPages();
-			selectWikiPage(wikiSelectedPage);
+			const updated = wikiPages.find((p) => p.slug === slug);
+			if (updated) selectWikiPage(updated);
 		}
 	}
 
@@ -883,28 +910,43 @@
 			<!-- Wiki tab -->
 			{#if activeTab === 'wiki'}
 				<div class="wiki-fill">
-					<div class="wiki-layout">
-						<div class="wiki-sidebar">
+					<div class="wiki-layout" class:nav-collapsed={wikiNavCollapsed}>
+						<nav class="wiki-sidebar" aria-label="Wiki pages">
 							<div class="wiki-sidebar-hdr">
-								<span class="wiki-sidebar-title">Pages</span>
+								{#if !wikiNavCollapsed}
+									<span class="wiki-sidebar-title">Pages</span>
+								{/if}
+								<button
+									type="button"
+									class="wiki-nav-toggle"
+									onclick={toggleWikiNav}
+									title={wikiNavCollapsed ? '페이지 목록 펼치기' : '페이지 목록 접기'}
+									aria-label={wikiNavCollapsed ? '페이지 목록 펼치기' : '페이지 목록 접기'}
+									aria-expanded={!wikiNavCollapsed}
+								>
+									<Icon name={wikiNavCollapsed ? 'chevron-right' : 'chevron-left'} size={16} />
+								</button>
 							</div>
-							{#if !wikiLoaded}
-								<p class="text-muted">Loading...</p>
-							{:else if wikiPages.length === 0}
-								<p class="text-muted">No wiki pages yet.</p>
-							{:else}
-								{#each wikiPages as page (page.slug)}
-									<button
-										class="wiki-page-item"
-										class:active={wikiSelectedPage && wikiSelectedPage.slug === page.slug}
-										onclick={() => selectWikiPage(page)}
-									>
-										<span class="wiki-page-slug">{page.slug}</span>
-										<span class="wiki-page-cat-badge">{page.category}</span>
-									</button>
-								{/each}
+							{#if !wikiNavCollapsed}
+								{#if !wikiLoaded}
+									<p class="text-muted wiki-sidebar-empty">Loading...</p>
+								{:else if wikiPages.length === 0}
+									<p class="text-muted wiki-sidebar-empty">No wiki pages yet.</p>
+								{:else}
+									{#each wikiPages as page (page.slug)}
+										<button
+											type="button"
+											class="wiki-page-item"
+											class:active={wikiSelectedPage && wikiSelectedPage.slug === page.slug}
+											onclick={() => selectWikiPage(page)}
+										>
+											<span class="wiki-page-slug">{page.title || page.slug}</span>
+											<span class="wiki-page-cat-badge">{page.category}</span>
+										</button>
+									{/each}
+								{/if}
 							{/if}
-						</div>
+						</nav>
 
 						<div class="wiki-main">
 							{#if !wikiSelectedPage}
@@ -946,7 +988,7 @@
 										<button class="btn btn-sm btn-primary" onclick={openWikiEdit}>Edit</button>
 									</div>
 									<div class="wiki-content-body">
-										{wikiSelectedPage.content}
+										<MarkdownBody text={wikiSelectedPage.content || ''} />
 									</div>
 								</div>
 							{/if}
@@ -1612,11 +1654,27 @@
 		display: flex;
 		flex-direction: column;
 		overflow-y: auto;
+		transition: width 0.15s ease;
+	}
+
+	.wiki-layout.nav-collapsed .wiki-sidebar {
+		width: 36px;
+		overflow: hidden;
 	}
 
 	.wiki-sidebar-hdr {
-		padding: 10px 12px 6px;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 8px 8px 8px 12px;
 		border-bottom: 1px solid var(--border);
+		flex-shrink: 0;
+	}
+
+	.wiki-layout.nav-collapsed .wiki-sidebar-hdr {
+		justify-content: center;
+		padding: 8px 0;
 	}
 
 	.wiki-sidebar-title {
@@ -1625,6 +1683,31 @@
 		text-transform: uppercase;
 		color: var(--text-secondary);
 		letter-spacing: 0.05em;
+	}
+
+	.wiki-nav-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		background: none;
+		border: none;
+		border-radius: 4px;
+		color: var(--text-secondary);
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.wiki-nav-toggle:hover {
+		color: var(--text-primary);
+		background: var(--bg-tertiary);
+	}
+
+	.wiki-sidebar-empty {
+		padding: 10px 12px;
+		font-size: 12px;
 	}
 
 	.wiki-page-item {
@@ -1710,8 +1793,45 @@
 	.wiki-content-body {
 		font-size: 14px;
 		line-height: 1.7;
-		white-space: pre-wrap;
-		white-space: break-spaces;
+		min-width: 0;
+	}
+
+	/* MarkdownBody defaults are compact (task summaries). Wiki pages are documents. */
+	.wiki-content-body :global(.markdown-body) {
+		font-size: 14px;
+		line-height: 1.7;
+	}
+
+	.wiki-content-body :global(.markdown-body h1) {
+		font-size: 1.55em;
+		margin: 1.1em 0 0.45em;
+		padding-bottom: 0.25em;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.wiki-content-body :global(.markdown-body h2) {
+		font-size: 1.3em;
+		margin: 1em 0 0.4em;
+	}
+
+	.wiki-content-body :global(.markdown-body h3) {
+		font-size: 1.12em;
+		margin: 0.9em 0 0.3em;
+	}
+
+	.wiki-content-body :global(.markdown-body h4) {
+		font-size: 1.02em;
+		margin: 0.8em 0 0.25em;
+	}
+
+	.wiki-content-body :global(.markdown-body p) {
+		margin: 0.55em 0;
+	}
+
+	.wiki-content-body :global(.markdown-body ul),
+	.wiki-content-body :global(.markdown-body ol) {
+		margin: 0.45em 0;
+		padding-left: 1.4em;
 	}
 
 	.wiki-editor {
@@ -1760,6 +1880,10 @@
 	@media (max-width: 768px) {
 		.wiki-sidebar {
 			width: 160px;
+		}
+
+		.wiki-layout.nav-collapsed .wiki-sidebar {
+			width: 36px;
 		}
 	}
 </style>
