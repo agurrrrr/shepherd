@@ -97,3 +97,30 @@ func TestAppendOutputNoTruncationUnderLimit(t *testing.T) {
 		t.Fatalf("last line mismatch: %q", lines[99])
 	}
 }
+
+func TestMergeRunningOutput_PrefersLiveWhenTaskMatches(t *testing.T) {
+	const name = "test-sheep-merge-output"
+	unregisterRunningTask(name, runningTasks[name])
+
+	if !ClaimDispatch(name, 77) {
+		t.Fatal("claim")
+	}
+	token := registerRunningTask(name, nil, exec.Command("true"))
+	defer unregisterRunningTask(name, token)
+
+	AppendOutput(name, "live line\n")
+
+	got := MergeRunningOutput(name, 77, []string{"db"})
+	if len(got) != 1 || got[0] != "live line\n" {
+		t.Fatalf("want live lines, got %#v", got)
+	}
+
+	// Different task id on the same sheep must not leak.
+	if mixed := MergeRunningOutput(name, 78, []string{"db"}); len(mixed) != 1 || mixed[0] != "db" {
+		t.Fatalf("foreign task should keep db output, got %#v", mixed)
+	}
+
+	if empty := MergeRunningOutput("no-such-sheep", 77, []string{"db"}); len(empty) != 1 || empty[0] != "db" {
+		t.Fatalf("missing sheep should keep db output, got %#v", empty)
+	}
+}

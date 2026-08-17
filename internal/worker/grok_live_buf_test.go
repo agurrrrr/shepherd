@@ -373,6 +373,47 @@ func TestGrokThoughtPipeline_SafetyFlushDoesNotInsertMidLineMarker(t *testing.T)
 	}
 }
 
+func TestGrokThoughtPipeline_ACPSessionUpdate(t *testing.T) {
+	chunks := simulateGrokLive([]grokEvent{
+		{Type: "thought", Data: "Need to inspect the file.\n"},
+		{Type: "tool", Data: "read_file → /tmp/a.go"},
+		{Type: "text", Data: "확인했습니다."},
+	})
+	joined := strings.Join(coalesceChunks(chunks), "")
+	if !strings.Contains(joined, "💭") {
+		t.Fatalf("missing thought marker: %q", joined)
+	}
+	if !strings.Contains(joined, "Need to inspect the file.") {
+		t.Errorf("lost thought: %q", joined)
+	}
+	if !strings.Contains(joined, "🔧 read_file → /tmp/a.go") {
+		t.Errorf("lost tool header: %q", joined)
+	}
+	if !strings.Contains(joined, "확인했습니다.") {
+		t.Errorf("lost answer: %q", joined)
+	}
+}
+
+func TestParseGrokOutput_ACPSessionUpdate(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"method":"session/update","params":{"sessionId":"sid-acp","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"thinking\n"}}}}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","title":"read_file","rawInput":{"target_file":"/tmp/a.go"}}}}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello "}}}}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ACP"}}}}`,
+		`{"method":"_x.ai/session/update","params":{"sessionId":"sid-acp","update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}`,
+	}, "\n")
+	got := parseGrokOutput(raw)
+	if got.Result != "Hello ACP" {
+		t.Errorf("result=%q want Hello ACP", got.Result)
+	}
+	if got.SessionID != "sid-acp" {
+		t.Errorf("session=%q", got.SessionID)
+	}
+	if got.Incomplete {
+		t.Errorf("unexpected incomplete: %s", got.IncompleteReason)
+	}
+}
+
 func TestParseGrokOutput_RealStreamShape(t *testing.T) {
 	// Minimal NDJSON matching grok 1.0.3: available_commands + thought + text + end.
 	raw := strings.Join([]string{

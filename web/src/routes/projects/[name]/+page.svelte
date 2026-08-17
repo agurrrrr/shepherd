@@ -364,14 +364,20 @@
 	}
 
 	async function loadLatestOutput() {
-		const res = await apiGet(`/api/tasks?project=${encodeURIComponent(projectName)}&limit=1`);
-		if (res?.data?.length > 0) {
-			const taskRes = await apiGet(`/api/tasks/${res.data[0].id}`);
-			if (taskRes?.data?.output) {
-				liveOutput = taskRes.data.output;
-				// Historical lines are complete entries; do not treat last as open.
-				liveOutputOpen = false;
-			}
+		// Prefer the in-flight task. created_at DESC would pick a later
+		// pending item and hide the running live buffer (#8165/#8166).
+		const running = await apiGet(`/api/tasks?project=${encodeURIComponent(projectName)}&status=running&limit=1`);
+		let id = running?.data?.[0]?.id;
+		if (!id) {
+			const res = await apiGet(`/api/tasks?project=${encodeURIComponent(projectName)}&limit=1`);
+			id = res?.data?.[0]?.id;
+		}
+		if (!id) return;
+		const taskRes = await apiGet(`/api/tasks/${id}`);
+		if (taskRes?.data?.output) {
+			liveOutput = taskRes.data.output;
+			// Historical lines are complete entries; do not treat last as open.
+			liveOutputOpen = false;
 		}
 	}
 

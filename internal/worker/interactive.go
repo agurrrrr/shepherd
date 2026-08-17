@@ -357,6 +357,24 @@ func GetRunningTaskOutput(sheepName string) (int, []string) {
 	return task.TaskID, output
 }
 
+// MergeRunningOutput returns the in-memory live lines when sheepName is
+// running taskID (or TaskID is unset). Otherwise dbOutput is returned
+// unchanged. GET /api/tasks/:id used to serve only the DB column, which
+// stays empty until CompleteTask (#8165).
+func MergeRunningOutput(sheepName string, taskID int, dbOutput []string) []string {
+	if sheepName == "" {
+		return dbOutput
+	}
+	id, lines := GetRunningTaskOutput(sheepName)
+	if len(lines) == 0 {
+		return dbOutput
+	}
+	if id != 0 && id != taskID {
+		return dbOutput
+	}
+	return lines
+}
+
 // InjectPrompt sends a user prompt to a running embedded task. The prompt is
 // appended as a {role: user} message at the next safe point in the agent loop.
 // Returns an error if the sheep has no running task or the provider does not

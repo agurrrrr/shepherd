@@ -328,9 +328,13 @@ func handleGetTaskDetail(args map[string]interface{}) (string, error) {
 		}
 	}
 
-	if len(t.Output) > 0 {
+	output := t.Output
+	if t.Status == task.StatusRunning && t.Edges.Sheep != nil {
+		output = worker.MergeRunningOutput(t.Edges.Sheep.Name, t.ID, t.Output)
+	}
+	if len(output) > 0 {
 		sb.WriteString("\n--- 출력 로그 ---\n")
-		sb.WriteString(strings.Join(t.Output, "\n"))
+		sb.WriteString(strings.Join(output, "\n"))
 		sb.WriteString("\n")
 	}
 

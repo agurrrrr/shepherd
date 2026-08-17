@@ -273,6 +273,10 @@ func (s *Server) handleGetTask(c *fiber.Ctx) error {
 		result["project"] = t.Edges.Project.Name
 	}
 
+	if t.Status == entTask.StatusRunning && t.Edges.Sheep != nil {
+		result["output"] = worker.MergeRunningOutput(t.Edges.Sheep.Name, t.ID, t.Output)
+	}
+
 	return success(c, result)
 }
 

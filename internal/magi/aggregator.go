@@ -3,7 +3,6 @@ package magi
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os/exec"
@@ -12,6 +11,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/embedded"
 	"github.com/agurrrrr/shepherd/internal/envutil"
+	"github.com/agurrrrr/shepherd/internal/grokstream"
 	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
@@ -205,27 +205,10 @@ func aggregatorGrokCLI(ctx context.Context, spec AggregatorSpec, systemPrompt, u
 	return output, embedded.ChatUsage{}, nil
 }
 
-// extractGrokFinalText reconstructs grok's answer from its streaming-json output
-// by concatenating every {"type":"text","data":".."} delta.
+// extractGrokFinalText reconstructs grok's answer from streaming-json
+// (legacy type=text deltas or ACP agent_message_chunk).
 func extractGrokFinalText(raw string) string {
-	var b strings.Builder
-	for _, line := range strings.Split(raw, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || !strings.HasPrefix(line, "{") {
-			continue
-		}
-		var ev struct {
-			Type string `json:"type"`
-			Data string `json:"data"`
-		}
-		if json.Unmarshal([]byte(line), &ev) != nil {
-			continue
-		}
-		if ev.Type == "text" {
-			b.WriteString(ev.Data)
-		}
-	}
-	return strings.TrimSpace(b.String())
+	return grokstream.ExtractText(raw)
 }
 
 // judgeSystemPrompt is the system prompt for the aggregator. The full

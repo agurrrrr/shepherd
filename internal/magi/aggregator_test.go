@@ -410,3 +410,11 @@ func TestBuildJudgePrompt_AbstainedInstruction(t *testing.T) {
 		t.Error("prompt should instruct recording abstained names")
 	}
 }
+
+func TestExtractGrokFinalText_ACPAndLegacy(t *testing.T) {
+	legacy := `{"type":"thought","data":"no"}` + "\n" + `{"type":"text","data":"Hello "}`
+	acp := `{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"text":"ACP"}}}}`
+	if got := extractGrokFinalText(legacy + "\n" + acp); got != "Hello ACP" {
+		t.Fatalf("extractGrokFinalText = %q", got)
+	}
+}

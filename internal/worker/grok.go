@@ -12,37 +12,34 @@ import (
 
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/envutil"
+	"github.com/agurrrrr/shepherd/internal/grokstream"
 )
 
 // grok (Grok Build TUI / xAI, ~/.grok/bin/grok) is a Claude-class general coding
 // harness. We drive it non-interactively with `grok -p <prompt>
-// --output-format streaming-json`, which streams token deltas as JSON lines:
+// --output-format streaming-json --always-approve`.
+//
+// Grok CLI 1.0.3 made streaming-json ACP session/update NDJSON
+// (agent_thought_chunk / agent_message_chunk / tool_call / turn_completed).
+// Older builds emitted token-delta lines:
 //
 //	{"type":"thought","data":"..."}  reasoning token delta
 //	{"type":"text","data":"..."}     answer token delta
-//	{"type":"end","stopReason":"EndTurn","sessionId":"...","requestId":"..."}
+//	{"type":"end","stopReason":"EndTurn","sessionId":"..."}
 //
-// Unlike OpenCode/pi, grok emits per-token DELTAS rather than whole messages, so
-// the final answer is the concatenation of every "text" delta and the terminal
-// state (session id + stop reason) lives on the single "end" event.
-//
-// --always-approve auto-approves every tool execution so headless runs never
-// block on a permission prompt (grok's equivalent of OPENCODE_PERMISSION=allow /
-// claude's --dangerously-skip-permissions).
+// parseGrokLine accepts both. The final answer is the concatenation of every
+// text / agent_message_chunk, and the terminal state lives on end /
+// turn_completed. --always-approve auto-approves tools (OPENCODE_PERMISSION=allow /
+// claude --dangerously-skip-permissions).
 
-// grokEvent is one streaming-json line from grok's headless mode.
-type grokEvent struct {
-	Type       string `json:"type"`       // "thought" | "text" | "end" | "error"
-	Data       string `json:"data"`       // token delta for thought/text
-	StopReason string `json:"stopReason"` // end event
-	SessionID  string `json:"sessionId"`  // end event
-	Message    string `json:"message"`    // error event
-}
+// grokEvent is the normalized stream event (legacy token-delta or ACP).
+type grokEvent = grokstream.Event
 
 // executeWithGrok runs a task via the grok CLI in streaming-json mode.
 func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, prompt string, opts InteractiveOptions, cancel context.CancelFunc) (*ExecuteResult, error) {
 	// -p (--single)          → headless single-turn: print the response and exit.
-	// --output-format         → streaming-json: emit token-delta JSON lines.
+	// --output-format         → streaming-json: ACP session/update NDJSON
+	//                            (1.0.3+) or legacy thought/text/end deltas.
 	// --always-approve        → auto-approve all tool executions (no prompts).
 	args := []string{"--output-format", "streaming-json", "--always-approve"}
 	args = append(args, grokModelArgs(opts.Model)...)
@@ -93,29 +90,32 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Read stdout (streaming-json token deltas). Track the current section so the
-	// reasoning stream gets a one-time 💭 marker and a clean separator precedes
-	// the answer, instead of prefixing every single token.
+	// Read stdout. ACP tool_call_update lines can exceed 1MB; a Scanner with
+	// a 1MB cap dies (ErrTooLong) and grok blocks in pipe_write (#8165).
+	// ReadCappedLine keeps the reader alive and parseGrokLine maps both
+	// legacy token-delta and ACP session/update into grokEvent.
 	go func() {
 		defer wg.Done()
-		scanner := bufio.NewScanner(stdout)
-		buf := make([]byte, 0, 64*1024)
-		scanner.Buffer(buf, 1024*1024)
-
+		reader := bufio.NewReaderSize(stdout, 64*1024)
 		stream := newGrokStreamState(opts.OnOutput)
 
-		for scanner.Scan() {
+		for {
 			if ctx.Err() != nil {
 				return
 			}
-			line := scanner.Text()
-
-			mu.Lock()
-			outputBuilder.WriteString(line + "\n")
-			mu.Unlock()
-
-			if ev := parseGrokLine(line); ev != nil {
-				stream.handle(ev)
+			line, _, err := grokstream.ReadCappedLine(reader, grokstream.MaxLineBytes)
+			if err != nil {
+				break
+			}
+			ev := parseGrokLine(line)
+			if ev == nil {
+				continue
+			}
+			stream.handle(ev)
+			if compact := compactGrokEvent(ev); compact != "" {
+				mu.Lock()
+				outputBuilder.WriteString(compact + "\n")
+				mu.Unlock()
 			}
 		}
 
@@ -247,6 +247,16 @@ func (s *grokStreamState) handle(ev *grokEvent) {
 			s.section = "text"
 		}
 		s.live.Append(ev.Data)
+	case "tool":
+		if ev.Data == "" {
+			return
+		}
+		s.live.Flush()
+		if s.section != "" && s.section != "tool" {
+			s.emit("\n")
+		}
+		s.section = "tool"
+		s.emit("🔧 " + ev.Data + "\n")
 	case "error":
 		if ev.Message != "" {
 			s.live.Flush()
@@ -410,18 +420,27 @@ func (b *grokLiveBuf) flushSafety() {
 	b.buf.Reset()
 }
 
-// parseGrokLine decodes a single grok streaming-json line. Returns nil for
-// blank / non-JSON lines.
+// parseGrokLine decodes a single grok streaming-json or ACP line.
 func parseGrokLine(line string) *grokEvent {
-	line = strings.TrimSpace(line)
-	if line == "" || !strings.HasPrefix(line, "{") {
-		return nil
+	return grokstream.ParseLine(line)
+}
+
+// compactGrokEvent re-encodes a normalized event for the salvage buffer.
+// Raw ACP lines can be megabytes; we only keep thought/text/end/error.
+func compactGrokEvent(ev *grokEvent) string {
+	if ev == nil {
+		return ""
 	}
-	var ev grokEvent
-	if json.Unmarshal([]byte(line), &ev) != nil {
-		return nil
+	switch ev.Type {
+	case "thought", "text", "end", "error":
+		b, err := json.Marshal(ev)
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	default:
+		return ""
 	}
-	return &ev
 }
 
 // parseGrokOutput reconstructs the final ExecuteResult from grok's complete
