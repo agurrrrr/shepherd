@@ -25,13 +25,24 @@ async function request(url, opts = {}) {
 			const newToken = get(accessToken);
 			headers.Authorization = `Bearer ${newToken}`;
 			const retry = await fetch(BASE + url, { ...opts, headers });
-			return retry.json();
+			return parseJSON(retry);
 		}
 		logout();
 		return null;
 	}
 
-	return res.json();
+	return parseJSON(res);
+}
+
+/** Fiber 404s can be plain text; never let JSON.parse throw into the UI. */
+async function parseJSON(res) {
+	const text = await res.text();
+	if (!text) return null;
+	try {
+		return JSON.parse(text);
+	} catch {
+		return { success: false, message: text };
+	}
 }
 
 /** @param {string} url */

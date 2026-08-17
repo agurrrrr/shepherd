@@ -68,6 +68,15 @@ func Client() *ent.Client {
 	return client
 }
 
+// ReplaceClient swaps the global Ent client and returns the previous one.
+// Tests use this to inject an in-memory database; they must restore the
+// previous client (and not Close a live production handle).
+func ReplaceClient(c *ent.Client) *ent.Client {
+	old := client
+	client = c
+	return old
+}
+
 // RawDB returns the underlying *sql.DB. Useful for SQLite-specific commands
 // such as `VACUUM INTO` that ent does not expose directly. Callers must not
 // close this handle.

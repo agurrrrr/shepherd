@@ -316,6 +316,50 @@ func (s *Server) handleStopTask(c *fiber.Ctx) error {
 	})
 }
 
+// POST /api/tasks/:id/cancel — drop a pending task from the queue.
+// Running work uses POST /api/tasks/:id/stop instead.
+func (s *Server) handleCancelTask(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid task ID")
+	}
+
+	t, err := queue.GetTask(id)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, err.Error())
+	}
+
+	if t.Status != entTask.StatusPending {
+		if t.Status == entTask.StatusRunning {
+			return fail(c, fiber.StatusBadRequest, "task is running; use POST /api/tasks/:id/stop")
+		}
+		return fail(c, fiber.StatusBadRequest, "only pending tasks can be cancelled")
+	}
+
+	if err := queue.CancelPendingTask(id); err != nil {
+		return fail(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	sheepName, projectName := "", ""
+	if t.Edges.Sheep != nil {
+		sheepName = t.Edges.Sheep.Name
+	}
+	if t.Edges.Project != nil {
+		projectName = t.Edges.Project.Name
+	}
+	s.hub.Broadcast(SSEEvent{Type: "task_stop", Data: map[string]interface{}{
+		"task_id":      id,
+		"sheep_name":   sheepName,
+		"project_name": projectName,
+		"reason":       "cancelled by user",
+	}})
+
+	return success(c, map[string]interface{}{
+		"task_id":   id,
+		"cancelled": true,
+	})
+}
+
 // POST /api/tasks/:id/retry
 func (s *Server) handleRetryTask(c *fiber.Ctx) error {
 	id, err := strconv.Atoi(c.Params("id"))

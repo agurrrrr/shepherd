@@ -1227,7 +1227,7 @@ var queueCancelCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if err := queue.FailTask(id, "cancelled by user"); err != nil {
+		if err := queue.CancelPendingTask(id); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to cancel task: %v\n", err)
 			os.Exit(1)
 		}

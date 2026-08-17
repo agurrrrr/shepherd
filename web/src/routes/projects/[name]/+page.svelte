@@ -275,8 +275,11 @@
 		}));
 		unsubs.push(onSSE('task_stop', (data) => {
 			if (data.project_name === projectName) {
-				hasRunningTask = false;
-				runningTaskId = null;
+				if (data.task_id === runningTaskId) {
+					hasRunningTask = false;
+					runningTaskId = null;
+				}
+				if (tasksLoaded) loadTasks();
 			}
 		}));
 		unsubs.push(onSSE('task_start', (data) => {
@@ -398,6 +401,7 @@
 
 	let retryingId = $state(null);
 	let retryFromId = $state(null);
+	let cancellingId = $state(null);
 
 	async function retryTask(e, taskId) {
 		e.preventDefault();
@@ -420,6 +424,26 @@
 		retryFromId = null;
 		if (res?.success) {
 			loadTasks();
+		}
+	}
+
+	async function cancelPendingTask(e, taskId) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (cancellingId) return;
+		if (!confirm(`Cancel pending task #${taskId}?`)) return;
+		cancellingId = taskId;
+		try {
+			const res = await apiPost(`/api/tasks/${taskId}/cancel`, {});
+			if (res?.success) {
+				loadTasks();
+			} else {
+				alert(res?.message || 'Failed to cancel task');
+			}
+		} catch (err) {
+			alert(err?.message || 'Failed to cancel task');
+		} finally {
+			cancellingId = null;
 		}
 	}
 
@@ -794,6 +818,12 @@
 										<span class="task-id mono">#{t.id}</span>
 										<StatusBadge status={t.status} />
 										<span class="task-prompt-text">{truncate(t.prompt, 80)}</span>
+										{#if t.status === 'pending'}
+											<button class="cancel-btn" onclick={(e) => cancelPendingTask(e, t.id)}
+												disabled={cancellingId === t.id}>
+												{cancellingId === t.id ? '...' : 'Cancel'}
+											</button>
+										{/if}
 										{#if t.status === 'failed' || t.status === 'stopped'}
 											<button class="retry-btn" onclick={(e) => retryTask(e, t.id)}
 												disabled={retryingId === t.id}>
@@ -1386,7 +1416,7 @@
 		line-height: 1.4;
 	}
 
-	.retry-btn, .retry-from-btn {
+	.retry-btn, .retry-from-btn, .cancel-btn {
 		padding: 2px 8px;
 		font-size: 11px;
 		font-weight: 600;
@@ -1398,15 +1428,19 @@
 		flex-shrink: 0;
 		transition: background 0.15s, opacity 0.15s;
 	}
-	.retry-btn:hover, .retry-from-btn:hover {
+	.retry-btn:hover, .retry-from-btn:hover, .cancel-btn:hover {
 		background: var(--bg-tertiary, #2a2a2a);
 	}
-	.retry-btn:disabled, .retry-from-btn:disabled {
+	.retry-btn:disabled, .retry-from-btn:disabled, .cancel-btn:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}
 	.retry-from-btn {
 		color: var(--text-secondary, #888);
+	}
+	.cancel-btn {
+		color: var(--danger);
+		border-color: var(--danger);
 	}
 
 	/* Command bar: fixed at bottom */

@@ -393,6 +393,10 @@ func StopTaskWithOutput(id int, reason string, output []string) error {
 	return nil
 }
 
+func issueHasCompletedAt(i *ent.Issue) bool {
+	return i != nil && i.CompletedAt != nil && !i.CompletedAt.IsZero()
+}
+
 // updateIssueStatusOnTaskComplete updates the linked issue status when a task finishes.
 // If the task is linked to an issue and the issue is not already done/failed (user-finalized),
 // it transitions the issue to the given status.
@@ -415,12 +419,12 @@ func updateIssueStatusOnTaskComplete(taskID int, newIssueStatus entIssue.Status)
 
 	i := t.Edges.Issue
 	// Don't override user-finalized issues (done or failed with completed_at set)
-	if i.Status == entIssue.StatusDone || (i.Status == entIssue.StatusFailed && !i.CompletedAt.IsZero()) {
+	if i.Status == entIssue.StatusDone || (i.Status == entIssue.StatusFailed && issueHasCompletedAt(i)) {
 		return
 	}
 
 	update := client.Issue.UpdateOne(i).SetStatus(newIssueStatus)
-	if newIssueStatus == entIssue.StatusFailed && i.CompletedAt.IsZero() {
+	if newIssueStatus == entIssue.StatusFailed && !issueHasCompletedAt(i) {
 		update = update.SetCompletedAt(time.Now())
 	}
 	if _, err := update.Save(ctx); err != nil {
@@ -607,6 +611,35 @@ func CancelStalePendingTasks() (int, error) {
 	syncIssuesFailedForTasks(ids)
 
 	return count, nil
+}
+
+// CancelPendingTask cancels one pending task. The row becomes stopped with
+// error "cancelled by user" so it matches queue clear / CancelPendingTasks.
+// The update is predicated on status=pending so a concurrent StartTask
+// wins and this write does not overwrite a running row.
+func CancelPendingTask(id int) error {
+	ctx := context.Background()
+	client := db.Client()
+
+	count, err := client.Task.Update().
+		Where(task.ID(id), task.StatusEQ(task.StatusPending)).
+		SetStatus(task.StatusStopped).
+		SetError("cancelled by user").
+		SetCompletedAt(time.Now()).
+		Save(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to cancel task: %w", err)
+	}
+	if count == 0 {
+		t, getErr := GetTask(id)
+		if getErr != nil {
+			return getErr
+		}
+		return fmt.Errorf("task #%d is not pending (status: %s)", id, t.Status)
+	}
+
+	updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+	return nil
 }
 
 // CancelPendingTasks marks all pending tasks as stopped (cancelled).

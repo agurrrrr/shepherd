@@ -1,7 +1,7 @@
 <script>
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
-	import { apiGet } from '$lib/api.js';
+	import { apiGet, apiPost } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
 	import { appendLiveOutput } from '$lib/liveOutput.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -15,6 +15,9 @@
 	let liveOutput = $state([]);
 	let liveOutputOpen = $state(false);
 	let unsubs = [];
+
+	let cancelling = $state(false);
+	let cancelError = $state('');
 
 	let taskId = $derived.by(() => $page.params.id);
 	let from = $derived.by(() => $page.url.searchParams.get('from'));
@@ -74,6 +77,25 @@
 		return `${sec}s`;
 	}
 
+	async function cancelPending() {
+		if (cancelling || !task || task.status !== 'pending') return;
+		if (!confirm(`Cancel pending task #${task.id}?`)) return;
+		cancelling = true;
+		cancelError = '';
+		try {
+			const res = await apiPost(`/api/tasks/${task.id}/cancel`, {});
+			if (res?.success) {
+				task = { ...task, status: 'stopped', error: 'cancelled by user' };
+			} else {
+				cancelError = res?.message || 'Failed to cancel task';
+			}
+		} catch (err) {
+			cancelError = err?.message || 'Failed to cancel task';
+		} finally {
+			cancelling = false;
+		}
+	}
+
 	let providerIsMagi = $derived(task?.provider === 'magi');
 
 	// Detect subagent output: any line starting with [SUB: triggers the panel.
@@ -97,7 +119,15 @@
 			<div class="detail-header">
 				<h1>Task #{task.id}</h1>
 				<StatusBadge status={task.status} />
+				{#if task.status === 'pending'}
+					<button class="btn btn-danger cancel-pending" onclick={cancelPending} disabled={cancelling}>
+						{cancelling ? '...' : 'Cancel'}
+					</button>
+				{/if}
 			</div>
+			{#if cancelError}
+				<p class="cancel-error">{cancelError}</p>
+			{/if}
 
 			<div class="meta-grid card">
 				<div class="meta-item">
@@ -222,6 +252,16 @@
 	.detail-header h1 {
 		font-size: 22px;
 		font-weight: 600;
+	}
+
+	.cancel-pending {
+		margin-left: auto;
+	}
+
+	.cancel-error {
+		color: var(--danger);
+		font-size: 13px;
+		margin: 0 0 16px;
 	}
 
 	.meta-grid {
