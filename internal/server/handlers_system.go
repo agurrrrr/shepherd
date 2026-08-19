@@ -119,6 +119,9 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"discord_webhook_url":             config.GetString("discord_webhook_url"),
 		"discord_notify_on_complete":      config.GetBool("discord_notify_on_complete"),
 		"discord_notify_on_fail":          config.GetBool("discord_notify_on_fail"),
+		"webpush_enabled":                 config.GetBool("webpush_enabled"),
+		"webpush_notify_on_complete":      config.GetBool("webpush_notify_on_complete"),
+		"webpush_notify_on_fail":          config.GetBool("webpush_notify_on_fail"),
 		"embedded_active_id":              config.GetString("embedded_active_id"),
 		"custom_prompt_embedded":          config.GetString("custom_prompt_embedded"),
 	})
@@ -252,6 +255,9 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"discord_webhook_url":             true,
 		"discord_notify_on_complete":      true,
 		"discord_notify_on_fail":          true,
+		"webpush_enabled":                 true,
+		"webpush_notify_on_complete":      true,
+		"webpush_notify_on_fail":          true,
 		"embedded_active_id":              true,
 		"custom_prompt_embedded":          true,
 	}

@@ -73,6 +73,9 @@
 			if (configRes?.data) {
 				configData = configRes.data;
 				if (!configData.concurrency_limits) configData.concurrency_limits = {};
+				if (configData.webpush_enabled == null) configData.webpush_enabled = true;
+				if (configData.webpush_notify_on_complete == null) configData.webpush_notify_on_complete = true;
+				if (configData.webpush_notify_on_fail == null) configData.webpush_notify_on_fail = true;
 				providerEnabled = {
 					claude: configRes.data.provider_enabled_claude !== false,
 					opencode: configRes.data.provider_enabled_opencode !== false,
@@ -156,6 +159,9 @@
 			discord_webhook_url: configData.discord_webhook_url || '',
 			discord_notify_on_complete: configData.discord_notify_on_complete,
 			discord_notify_on_fail: configData.discord_notify_on_fail,
+			webpush_enabled: configData.webpush_enabled !== false,
+			webpush_notify_on_complete: configData.webpush_notify_on_complete !== false,
+			webpush_notify_on_fail: configData.webpush_notify_on_fail !== false,
 			embedded_active_id: configData.embedded_active_id || '',
 			custom_prompt_embedded: configData.custom_prompt_embedded || '',
 			shell: configData.shell || ''

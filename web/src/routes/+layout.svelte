@@ -4,6 +4,7 @@
 	import { accessToken, isAuthenticated, username, systemStatus, projects, sheep } from '$lib/stores.js';
 	import { logout, apiGet } from '$lib/api.js';
 	import { connectSSE, disconnectSSE, onSSE } from '$lib/sse.js';
+	import { syncPushSubscription } from '$lib/push.js';
 	import { goto } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
 	import '../app.css';
@@ -84,6 +85,8 @@
 			onSSE('task_complete', refreshStatus),
 			onSSE('task_fail', refreshStatus)
 		);
+
+		syncPushSubscription().catch(() => {});
 
 		return () => disconnectSSE();
 	});

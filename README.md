@@ -154,7 +154,7 @@ The Web UI is a Svelte SPA embedded in the Go binary. After starting the daemon 
 | Task Detail | `/tasks/:id` | Full output, modified files, cost, error details, retry |
 | Schedules | `/schedules` | Cron / interval schedule management |
 | Skills | `/skills` | Skill creation, import/export, sync to projects |
-| Settings | `/settings` | Language, providers, models, Embedded endpoints, MAGI, Discord, wiki, OpenCode thinking proxy |
+| Settings | `/settings` | Language, providers, models, Embedded endpoints, MAGI, Discord, PWA Web Push, wiki, OpenCode thinking proxy |
 | Login | `/login` | Authentication |
 
 ### Project Detail Tabs
@@ -485,6 +485,12 @@ discord_webhook_url: ""
 discord_notify_on_complete: true
 discord_notify_on_fail: true
 
+# PWA Web Push (installed app task-complete notifications)
+webpush_enabled: true
+webpush_notify_on_complete: true
+webpush_notify_on_fail: true
+# webpush_vapid_public / webpush_vapid_private are auto-generated on first use
+
 # Authentication (set via 'shepherd auth setup')
 auth_username: admin
 auth_password_hash: "$2a$10$..."
@@ -528,6 +534,7 @@ shepherd/
 │   ├── daemon/            # PID file, signal handling, lifecycle
 │   ├── db/                # SQLite database
 │   ├── discord/           # Discord webhook notifications
+│   ├── push/              # PWA Web Push (VAPID + subscription store)
 │   ├── embedded/          # In-process local-LLM agent loop (client, loop, tools)
 │   ├── i18n/              # Internationalization (en, ko)
 │   ├── llmproxy/          # Thinking-mode reverse proxy for OpenCode
@@ -620,6 +627,14 @@ POST             /api/config/embedded/test      # Connection test
 GET|PUT          /api/config/magi               # Read / Save MAGI config
 GET              /api/config/model-options      # Available model choices for UI
 GET|PATCH        /api/config                    # General config get / update
+```
+
+### PWA Web Push
+```
+GET  /api/push/status         # VAPID public key + subscription count
+POST /api/push/subscribe      # Register this device (PushSubscription JSON)
+POST /api/push/unsubscribe    # body: { "endpoint": "..." }
+POST /api/push/test           # Send a test notification
 ```
 
 ### Schedules & Skills

@@ -154,7 +154,7 @@ Web UI는 Go 바이너리에 임베드된 Svelte SPA입니다. 데몬 기동 후
 | 작업 상세 | `/tasks/:id` | 전체 출력, 수정 파일, 비용, 에러, 재시도 |
 | 스케줄 | `/schedules` | Cron / interval 스케줄 관리 |
 | 스킬 | `/skills` | 스킬 생성, import/export, 프로젝트 동기화 |
-| 설정 | `/settings` | 언어, 프로바이더, 모델, Embedded, MAGI, Discord, 위키, OpenCode thinking 프록시 |
+| 설정 | `/settings` | 언어, 프로바이더, 모델, Embedded, MAGI, Discord, PWA Web Push, 위키, OpenCode thinking 프록시 |
 | 로그인 | `/login` | 인증 |
 
 ### 프로젝트 상세 탭
@@ -483,6 +483,12 @@ discord_webhook_url: ""
 discord_notify_on_complete: true
 discord_notify_on_fail: true
 
+# PWA Web Push (설치한 앱에서 작업 완료 알림)
+webpush_enabled: true
+webpush_notify_on_complete: true
+webpush_notify_on_fail: true
+# webpush_vapid_public / webpush_vapid_private 는 첫 사용 시 자동 생성
+
 # 인증 ('shepherd auth setup'으로 설정)
 auth_username: admin
 auth_password_hash: "$2a$10$..."
@@ -526,6 +532,7 @@ shepherd/
 │   ├── daemon/            # PID, 시그널, 라이프사이클
 │   ├── db/                # SQLite
 │   ├── discord/           # Discord 웹훅 알림
+│   ├── push/              # PWA Web Push (VAPID + 구독 저장)
 │   ├── embedded/          # in-process 로컬 LLM 에이전트 루프
 │   ├── i18n/              # 국제화 (en, ko)
 │   ├── llmproxy/          # OpenCode thinking 리버스 프록시
@@ -618,6 +625,14 @@ POST             /api/config/embedded/test
 GET|PUT          /api/config/magi
 GET              /api/config/model-options      # UI용 모델 선택지
 GET|PATCH        /api/config
+```
+
+### PWA Web Push
+```
+GET  /api/push/status         # VAPID 공개키 + 구독 수
+POST /api/push/subscribe      # 이 기기 등록 (PushSubscription JSON)
+POST /api/push/unsubscribe    # body: { "endpoint": "..." }
+POST /api/push/test           # 테스트 알림
 ```
 
 ### 스케줄 & 스킬

@@ -24,6 +24,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/magi"
 	"github.com/agurrrrr/shepherd/internal/mcp"
 	"github.com/agurrrrr/shepherd/internal/project"
+	"github.com/agurrrrr/shepherd/internal/push"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/scheduler"
 	"github.com/agurrrrr/shepherd/internal/worker"
@@ -134,6 +135,12 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	// MAGI consensus config (stored in embedded.yaml magi section)
 	api.Get("/config/magi", s.handleGetMagiConfig)
 	api.Put("/config/magi", s.handleUpdateMagiConfig)
+
+	// Web Push (PWA task-complete notifications)
+	api.Get("/push/status", s.handlePushStatus)
+	api.Post("/push/subscribe", s.handlePushSubscribe)
+	api.Post("/push/unsubscribe", s.handlePushUnsubscribe)
+	api.Post("/push/test", s.handlePushTest)
 
 	// Backup & portable task history
 	api.Get("/settings/db-backup", s.handleDownloadDBBackup)
@@ -294,16 +301,18 @@ func (s *Server) WireProcessorCallbacks() {
 			"task_id": taskID, "sheep_name": sheepName,
 			"project_name": projectName, "summary": summary,
 		}})
-		// Discord notification
+		// Discord + PWA Web Push
 		go s.sendDiscordComplete(taskID, sheepName, projectName, summary)
+		go push.NotifyComplete(taskID, sheepName, projectName, summary)
 	}
 	s.processor.OnTaskFail = func(taskID int, sheepName, projectName, errMsg string) {
 		s.hub.Broadcast(SSEEvent{Type: "task_fail", Data: map[string]interface{}{
 			"task_id": taskID, "sheep_name": sheepName,
 			"project_name": projectName, "error": errMsg,
 		}})
-		// Discord notification
+		// Discord + PWA Web Push
 		go s.discord.SendTaskFail(taskID, sheepName, projectName, errMsg)
+		go push.NotifyFail(taskID, sheepName, projectName, errMsg)
 	}
 	s.processor.OnTaskStop = func(taskID int, sheepName, projectName, reason string) {
 		s.hub.Broadcast(SSEEvent{Type: "task_stop", Data: map[string]interface{}{

@@ -145,6 +145,15 @@ func Init() error {
 	viper.SetDefault("discord_notify_on_complete", true)
 	viper.SetDefault("discord_notify_on_fail", true)
 
+	// PWA Web Push — 설치한 기기에서 작업 완료/실패 푸시. VAPID 키는
+	// 첫 구독/상태 조회 때 생성되어 config.yaml 에 저장된다.
+	viper.SetDefault("webpush_enabled", true)
+	viper.SetDefault("webpush_notify_on_complete", true)
+	viper.SetDefault("webpush_notify_on_fail", true)
+	viper.SetDefault("webpush_vapid_public", "")
+	viper.SetDefault("webpush_vapid_private", "")
+	viper.SetDefault("webpush_vapid_subject", "")
+
 	// 위키 자동 ingest — 작업 완료 후 위키 페이지 자동 업데이트
 	viper.SetDefault("wiki_enabled", true)
 	viper.SetDefault("wiki_auto_ingest", true)
@@ -615,7 +624,7 @@ type EmbeddedEndpoint struct {
 // EmbeddedConfig is the top-level config for embedded endpoints.
 type EmbeddedConfig struct {
 	Endpoints []EmbeddedEndpoint `mapstructure:"endpoints"`
-	Magi      *MagiConfig         `mapstructure:"magi" yaml:"magi,omitempty"`
+	Magi      *MagiConfig        `mapstructure:"magi" yaml:"magi,omitempty"`
 }
 
 // UnmarshalEmbeddedYAML parses embedded config from YAML data.
@@ -867,7 +876,7 @@ func ResolveSubagentEndpoint(ref string) (*EmbeddedEndpoint, error) {
 //
 // Example line:
 //
-//	- id="agents-a1-4b" label="agents-a1-4b" model="agents-a1-4b" max_concurrent=8
+//   - id="agents-a1-4b" label="agents-a1-4b" model="agents-a1-4b" max_concurrent=8
 func FormatEndpointCatalog(endpoints []EmbeddedEndpoint) string {
 	if len(endpoints) == 0 {
 		return "(no enabled endpoints)"
