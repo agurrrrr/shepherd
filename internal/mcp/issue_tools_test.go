@@ -72,6 +72,9 @@ func TestToInt(t *testing.T) {
 	if got := toInt(7); got != 7 {
 		t.Fatalf("toInt(7) = %d; want 7", got)
 	}
+	if got := toInt("42"); got != 42 {
+		t.Fatalf("toInt(\"42\") = %d; want 42", got)
+	}
 	if got := toInt("nope"); got != 0 {
 		t.Fatalf("toInt(string) = %d; want 0", got)
 	}

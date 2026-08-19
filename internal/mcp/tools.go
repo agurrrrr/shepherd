@@ -99,11 +99,10 @@ func handleTaskStart(args map[string]interface{}) (string, error) {
 }
 
 func handleTaskComplete(args map[string]interface{}) (string, error) {
-	taskIDFloat, ok := args["task_id"].(float64)
-	if !ok {
-		return "", fmt.Errorf("task_id가 필요합니다")
+	taskID, err := requireTaskID(args)
+	if err != nil {
+		return "", err
 	}
-	taskID := int(taskIDFloat)
 
 	summary, _ := args["summary"].(string)
 	filesStr, _ := args["files_modified"].(string)
@@ -143,11 +142,10 @@ func handleTaskComplete(args map[string]interface{}) (string, error) {
 }
 
 func handleTaskError(args map[string]interface{}) (string, error) {
-	taskIDFloat, ok := args["task_id"].(float64)
-	if !ok {
-		return "", fmt.Errorf("task_id가 필요합니다")
+	taskID, err := requireTaskID(args)
+	if err != nil {
+		return "", err
 	}
-	taskID := int(taskIDFloat)
 
 	errMsg, _ := args["error"].(string)
 	if errMsg == "" {
@@ -188,8 +186,7 @@ func handleGetHistory(args map[string]interface{}) (string, error) {
 		return "", fmt.Errorf("project '%s' is not registered — register it first with `shepherd project add %s <absolute-path>` (or `shepherd init` from inside the directory). Empty history alone does not imply registration", projectName, projectName)
 	}
 
-	limitFloat, _ := args["limit"].(float64)
-	limit := int(limitFloat)
+	limit := toInt(args["limit"])
 	if limit <= 0 {
 		limit = 10
 	}
@@ -259,11 +256,10 @@ func filterFinishedTasks(all []*ent.Task) ([]*ent.Task, int) {
 }
 
 func handleGetTaskDetail(args map[string]interface{}) (string, error) {
-	taskIDFloat, ok := args["task_id"].(float64)
-	if !ok {
-		return "", fmt.Errorf("task_id가 필요합니다")
+	taskID, err := requireTaskID(args)
+	if err != nil {
+		return "", err
 	}
-	taskID := int(taskIDFloat)
 
 	t, err := queue.GetTask(taskID)
 	if err != nil {

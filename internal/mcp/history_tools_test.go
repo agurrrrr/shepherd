@@ -76,3 +76,19 @@ func TestGetHistoryToolDef_DocumentsInProgressExclusion(t *testing.T) {
 		t.Errorf("description does not point at get_status for live state: %q", desc)
 	}
 }
+
+func TestGetTaskDetailToolDef_Present(t *testing.T) {
+	var found bool
+	for _, def := range ListCoreToolDefs() {
+		if def.Name == "get_task_detail" {
+			found = true
+			if _, ok := def.InputSchema.Properties["task_id"]; !ok {
+				t.Error("get_task_detail missing task_id property")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("get_task_detail tool definition not found")
+	}
+}

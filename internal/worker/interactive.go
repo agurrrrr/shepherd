@@ -1154,7 +1154,7 @@ func buildPromptCompact(sheepName, prompt string) string {
 
 	if config.GetBool("include_mcp_guide") {
 		sb.WriteString(`[Available Shepherd MCP Tools]
-Task management: task_complete (task_id, summary), task_error (task_id, error), get_history (project_name, limit), get_status
+Task management: task_complete (task_id, summary), task_error (task_id, error), get_history (project_name, limit), get_task_detail (task_id), get_status
 Skills: skill_load (skill_name) - load full skill content when needed
 Wiki: wiki_read_page, wiki_list_pages, wiki_search, wiki_create, wiki_edit (one mode per call: append|section|line|find_replace)
 Issues: issue_list, issue_get, issue_upsert, issue_execute (enqueue only; sets status in_progress)
@@ -1193,7 +1193,7 @@ For web tasks, use browser tools instead of WebFetch.
 	}
 
 	if config.GetBool("include_mcp_guide") {
-		sb.WriteString("If you need details of previous tasks, use get_history tool.\nFor full skill content, use skill_load MCP tool.\n")
+		sb.WriteString("If you need details of previous tasks, use get_history then get_task_detail(task_id). task_id may be a number or numeric string; id is also accepted.\nFor full skill content, use skill_load MCP tool.\n")
 	}
 
 	if cp := strings.TrimSpace(config.GetString("custom_prompt_opencode")); cp != "" {
@@ -1213,7 +1213,8 @@ const mcpGuideText = `[Shepherd MCP — usage notes]
 These tools are already registered via MCP; the full list and parameters live in the tool definitions. Only the non-obvious guidance is noted here:
 - For web/browser tasks, prefer the browser_* tools over WebFetch. Every browser_* tool requires the sheep_name parameter.
 - Typical browser flow: browser_session_start -> browser_open -> browser_get_text / browser_click / browser_type -> browser_session_stop.
-- Use get_history for details of previous tasks, and skill_load to load a skill's full content when its summary isn't enough.
+- Use get_history (project_name) for a recent-task list, then get_task_detail (task_id) for one task's full prompt/output. task_id is a number or numeric string (e.g. 8201 or "8201"); the id key is also accepted.
+- Use skill_load to load a skill's full content when its summary isn't enough.
 - Use wiki_read_page / wiki_search / wiki_list_pages to read project wiki knowledge.
 - To CREATE/UPDATE wiki pages: wiki_create / wiki_edit (no CLI needed). One mode per wiki_edit call; prefer append.
 - Issue management: issue_list / issue_get / issue_upsert / issue_execute. issue_execute enqueues a task and sets status to in_progress.
@@ -1318,6 +1319,7 @@ func buildPromptWithContextUsing(sheepName, prompt, customPromptKey string) stri
 		sb.WriteString(`[Task Detail Lookup]
 If you need details of previous tasks, use shepherd MCP tools:
 - get_history: Query project task history (project_name required, limit optional)
+- get_task_detail: Full detail for one task (task_id required — number or numeric string such as 8201 / "8201" / "#8201"; id is also accepted)
 Only query when needed. If the summary above is sufficient, start working immediately.
 
 `)

@@ -313,6 +313,7 @@ export default function (pi: ExtensionAPI) {
     { name: "task_complete", desc: "Record task completion", params: Type.Object({ task_id: Type.Number({ description: "Task ID" }), summary: Type.String({ description: "Completion summary" }) }) },
     { name: "task_error", desc: "Record task error", params: Type.Object({ task_id: Type.Number({ description: "Task ID" }), error: Type.String({ description: "Error message" }) }) },
     { name: "get_history", desc: "Query project task history", params: Type.Object({ project_name: Type.String({ description: "Project name" }), limit: Type.Optional(Type.Number({ description: "Max results (default 10)" })) }) },
+    { name: "get_task_detail", desc: "Get full detail for one task (prompt, summary, output log)", params: Type.Object({ task_id: Type.Number({ description: "Task ID (number or numeric string; id alias also accepted)" }), id: Type.Optional(Type.Number({ description: "Alias for task_id" })) }) },
     { name: "get_status", desc: "Get overall Shepherd system status", params: Type.Object({}) },
     // Skills
     { name: "skill_load", desc: "Load full content of a skill by name", params: Type.Object({ name: Type.String({ description: "Skill name to load" }) }) },
@@ -425,7 +426,7 @@ export default function (pi: ExtensionAPI) {
     label: "Shepherd (Gateway)",
     description:
       "On-demand gateway to Shepherd project management tools. " +
-      "Actual Shepherd tools (task_start, task_complete, get_history, skill_load, " +
+      "Actual Shepherd tools (task_start, task_complete, get_history, get_task_detail, skill_load, " +
       "wiki_read_page, wiki_search, wiki_create, wiki_edit, " +
       "issue_list, issue_get, issue_upsert, issue_execute, " +
       "browser_*, get_status, ...) stay hidden to " +
@@ -464,7 +465,7 @@ export default function (pi: ExtensionAPI) {
 
   // --- 자동 펼침: 사용자 입력에서 Shepherd 의도가 감지되면 미리 펼침 -------
   const BROWSER_KW = /(browser|브라우저|크롤|스크린샷|캡처|네트워크|콘솔|페이지|웹)/i;
-  const TASK_KW = /(task_start|task_complete|task_error|get_history|get_status|큐|작업\s*등록|작업\s*완료|프로젝트\s*히스토리)/i;
+  const TASK_KW = /(task_start|task_complete|task_error|get_history|get_task_detail|get_status|큐|작업\s*등록|작업\s*완료|작업\s*상세|프로젝트\s*히스토리)/i;
   const WIKI_KW = /(wiki_read|wiki_list|wiki_search|wiki|위키|문서)/i;
   const SKILL_KW = /(skill_load|skill|스킬)/i;
   const ISSUE_KW = /(issue_|이슈|issue\s*list|issue\s*get|issue\s*upsert|issue\s*execute)/i;

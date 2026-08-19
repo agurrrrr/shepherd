@@ -281,6 +281,7 @@ Task management:
 - task_complete: Record task completion (task_id, summary)
 - task_error: Record task error (task_id, error)
 - get_history: Query project task history (project_name, limit)
+- get_task_detail: Full task detail (task_id; numeric string and id alias OK)
 - get_status: Get overall system status
 
 Skills:

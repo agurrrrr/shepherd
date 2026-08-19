@@ -7,32 +7,6 @@ import (
 	"github.com/agurrrrr/shepherd/internal/wiki"
 )
 
-func toBool(v interface{}) bool {
-	if b, ok := v.(bool); ok {
-		return b
-	}
-	return false
-}
-
-func toString(v interface{}) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
-}
-
-// toInt converts MCP number arguments (JSON numbers arrive as float64) to int.
-// Shared by issue/wiki handlers; return 0 for missing or non-numeric values.
-func toInt(v interface{}) int {
-	if f, ok := v.(float64); ok {
-		return int(f)
-	}
-	if i, ok := v.(int); ok {
-		return i
-	}
-	return 0
-}
-
 func (s *Server) registerWikiTools() {
 	s.tools["wiki_read_page"] = handleWikiReadPage
 	s.tools["wiki_list_pages"] = handleWikiListPages

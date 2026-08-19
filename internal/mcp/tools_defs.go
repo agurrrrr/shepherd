@@ -24,7 +24,8 @@ func ListCoreToolDefs() []Tool {
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
-					"task_id":        {Type: "number", Description: "작업 ID"},
+					"task_id":        {Type: "number", Description: "작업 ID (숫자 또는 \"8201\" / \"#8201\" 문자열. id 키도 허용)"},
+					"id":             {Type: "number", Description: "task_id 별칭"},
 					"summary":        {Type: "string", Description: "작업 요약"},
 					"files_modified": {Type: "string", Description: "수정된 파일 목록 (쉼표 구분)"},
 				},
@@ -37,7 +38,8 @@ func ListCoreToolDefs() []Tool {
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
-					"task_id": {Type: "number", Description: "작업 ID"},
+					"task_id": {Type: "number", Description: "작업 ID (숫자 또는 숫자 문자열. id 키도 허용)"},
+					"id":      {Type: "number", Description: "task_id 별칭"},
 					"error":   {Type: "string", Description: "에러 메시지"},
 				},
 				Required: []string{"task_id", "error"},
@@ -57,11 +59,12 @@ func ListCoreToolDefs() []Tool {
 		},
 		{
 			Name:        "get_task_detail",
-			Description: "작업 상세 정보(요청 프롬프트, 결과 요약, 에러, 수정 파일, 비용, 타임스탬프, 출력 로그)를 전체 조회합니다. 이전 작업 내용을 정확히 파악해야 할 때 사용하세요.",
+			Description: "작업 상세 정보(요청 프롬프트, 결과 요약, 에러, 수정 파일, 비용, 타임스탬프, 출력 로그)를 전체 조회합니다. get_history로 ID를 얻은 뒤 task_id로 호출하세요. 숫자·숫자 문자열·id 별칭을 받습니다.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
-					"task_id": {Type: "number", Description: "작업 ID"},
+					"task_id": {Type: "number", Description: "작업 ID (숫자 또는 \"8201\" / \"#8201\" 문자열)"},
+					"id":      {Type: "number", Description: "task_id 별칭. CLI `shepherd task detail <id>` 와 같은 키"},
 				},
 				Required: []string{"task_id"},
 			},
