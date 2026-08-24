@@ -402,6 +402,7 @@
 	let retryingId = $state(null);
 	let retryFromId = $state(null);
 	let cancellingId = $state(null);
+	let deletingId = $state(null);
 
 	async function retryTask(e, taskId) {
 		e.preventDefault();
@@ -444,6 +445,26 @@
 			alert(err?.message || 'Failed to cancel task');
 		} finally {
 			cancellingId = null;
+		}
+	}
+
+	async function deleteTask(e, taskId) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (deletingId) return;
+		if (!confirm(`Delete task #${taskId}?`)) return;
+		deletingId = taskId;
+		try {
+			const res = await apiDelete(`/api/tasks/${taskId}`);
+			if (res?.success) {
+				loadTasks();
+			} else {
+				alert(res?.message || 'Failed to delete task');
+			}
+		} catch (err) {
+			alert(err?.message || 'Failed to delete task');
+		} finally {
+			deletingId = null;
 		}
 	}
 
@@ -832,6 +853,10 @@
 											<button class="retry-from-btn" onclick={(e) => retryFromTask(e, t.id)}
 												disabled={retryFromId === t.id}>
 												{retryFromId === t.id ? '...' : 'Retry All'}
+											</button>
+											<button class="delete-btn" onclick={(e) => deleteTask(e, t.id)}
+												disabled={deletingId === t.id}>
+												{deletingId === t.id ? '...' : 'Delete'}
 											</button>
 										{/if}
 										{#if t.duration_sec > 0}
@@ -1416,7 +1441,7 @@
 		line-height: 1.4;
 	}
 
-	.retry-btn, .retry-from-btn, .cancel-btn {
+	.retry-btn, .retry-from-btn, .cancel-btn, .delete-btn {
 		padding: 2px 8px;
 		font-size: 11px;
 		font-weight: 600;
@@ -1428,10 +1453,10 @@
 		flex-shrink: 0;
 		transition: background 0.15s, opacity 0.15s;
 	}
-	.retry-btn:hover, .retry-from-btn:hover, .cancel-btn:hover {
+	.retry-btn:hover, .retry-from-btn:hover, .cancel-btn:hover, .delete-btn:hover {
 		background: var(--bg-tertiary, #2a2a2a);
 	}
-	.retry-btn:disabled, .retry-from-btn:disabled, .cancel-btn:disabled {
+	.retry-btn:disabled, .retry-from-btn:disabled, .cancel-btn:disabled, .delete-btn:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}
@@ -1439,6 +1464,10 @@
 		color: var(--text-secondary, #888);
 	}
 	.cancel-btn {
+		color: var(--danger);
+		border-color: var(--danger);
+	}
+	.delete-btn {
 		color: var(--danger);
 		border-color: var(--danger);
 	}

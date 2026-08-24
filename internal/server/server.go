@@ -204,6 +204,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Post("/tasks/:id/cancel", s.handleCancelTask)
 	api.Post("/tasks/:id/retry", s.handleRetryTask)
 	api.Post("/tasks/:id/retry-from", s.handleRetryFromTask)
+	api.Delete("/tasks/:id", s.handleDeleteTask)
 
 	// Issue management
 	api.Get("/projects/:name/issues", s.handleListIssues)

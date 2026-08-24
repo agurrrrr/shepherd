@@ -642,6 +642,37 @@ func CancelPendingTask(id int) error {
 	return nil
 }
 
+// DeleteTask removes a task row. The linked issue is synced to failed first —
+// updateIssueStatusOnTaskComplete re-queries the task row, so it must run
+// before the delete (afterwards the query would match 0 rows).
+func DeleteTask(id int) error {
+	ctx := context.Background()
+	client := db.Client()
+
+	t, err := client.Task.Query().
+		Where(task.ID(id)).
+		WithIssue().
+		Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return fmt.Errorf("task #%d not found", id)
+		}
+		return fmt.Errorf("failed to query task: %w", err)
+	}
+
+	if t.Edges.Issue != nil {
+		updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+	}
+
+	if _, err := client.Task.Delete().
+		Where(task.ID(id)).
+		Exec(ctx); err != nil {
+		return fmt.Errorf("failed to delete task: %w", err)
+	}
+
+	return nil
+}
+
 // CancelPendingTasks marks all pending tasks as stopped (cancelled).
 func CancelPendingTasks() (int, error) {
 	ctx := context.Background()

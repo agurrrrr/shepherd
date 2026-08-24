@@ -360,6 +360,32 @@ func (s *Server) handleCancelTask(c *fiber.Ctx) error {
 	})
 }
 
+// DELETE /api/tasks/:id — remove a failed/stopped task row from history.
+func (s *Server) handleDeleteTask(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid task ID")
+	}
+
+	t, err := queue.GetTask(id)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, err.Error())
+	}
+
+	if t.Status != entTask.StatusFailed && t.Status != entTask.StatusStopped {
+		return fail(c, fiber.StatusBadRequest, "only failed or stopped tasks can be deleted")
+	}
+
+	if err := queue.DeleteTask(id); err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return success(c, map[string]interface{}{
+		"task_id": id,
+		"deleted": true,
+	})
+}
+
 // POST /api/tasks/:id/retry
 func (s *Server) handleRetryTask(c *fiber.Ctx) error {
 	id, err := strconv.Atoi(c.Params("id"))

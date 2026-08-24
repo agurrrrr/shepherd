@@ -164,3 +164,69 @@ func TestCancelPendingTask_FailsLinkedIssue(t *testing.T) {
 		t.Error("issue completed_at should be set")
 	}
 }
+
+func TestDeleteTask_RemovesRow(t *testing.T) {
+	client := withTestDB(t)
+	ctx := context.Background()
+
+	created := client.Task.Create().
+		SetPrompt("failed work").
+		SetStatus(task.StatusFailed).
+		SaveX(ctx)
+
+	if err := DeleteTask(created.ID); err != nil {
+		t.Fatalf("DeleteTask: %v", err)
+	}
+
+	var getErr error
+	if _, getErr = client.Task.Get(ctx, created.ID); getErr == nil {
+		t.Fatal("expected not found error after delete")
+	}
+	if !ent.IsNotFound(getErr) {
+		t.Fatalf("error = %v, want not found", getErr)
+	}
+}
+
+func TestDeleteTask_MissingID(t *testing.T) {
+	withTestDB(t)
+
+	err := DeleteTask(999999)
+	if err == nil {
+		t.Fatal("expected error for missing task")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error = %q, want not found", err)
+	}
+}
+
+func TestDeleteTask_FailsLinkedIssue(t *testing.T) {
+	client := withTestDB(t)
+	ctx := context.Background()
+
+	p := client.Project.Create().
+		SetName("demo").
+		SetPath("/tmp/demo").
+		SaveX(ctx)
+	iss := client.Issue.Create().
+		SetTitle("linked").
+		SetProjectID(p.ID).
+		SetStatus(entIssue.StatusInProgress).
+		SaveX(ctx)
+	created := client.Task.Create().
+		SetPrompt("from issue").
+		SetStatus(task.StatusFailed).
+		SetIssueID(iss.ID).
+		SaveX(ctx)
+
+	if err := DeleteTask(created.ID); err != nil {
+		t.Fatalf("DeleteTask: %v", err)
+	}
+
+	got := client.Issue.GetX(ctx, iss.ID)
+	if got.Status != entIssue.StatusFailed {
+		t.Errorf("issue status = %s, want failed", got.Status)
+	}
+	if got.CompletedAt == nil || got.CompletedAt.IsZero() {
+		t.Error("issue completed_at should be set")
+	}
+}
