@@ -351,7 +351,8 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 
 // AccumulateStreamWithProgress is like AccumulateStream but forwards progress
 // messages (for long prompt processing visibility, task #6955 §4.6) and live
-// token deltas via onToken (may be nil).
+// token deltas via onToken (may be nil). onToken receives content deltas only
+// — never reasoning_content — so MAGI salvage stays clean answer text.
 //
 // This is the single gate for all streaming LLM calls: AccumulateStream,
 // AccumulateStreamWithRetry, and AccumulateStreamProposer all funnel through
@@ -359,6 +360,15 @@ func (c *Client) AccumulateStream(ctx context.Context, req *ChatRequest) (*ChatM
 // so a parent agent waiting for spawn_subagents results (which makes no LLM
 // calls during the wait) automatically frees its slot for sub-agents.
 func (c *Client) AccumulateStreamWithProgress(ctx context.Context, req *ChatRequest, onProgress func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
+	return c.accumulateStreamWithProgress(ctx, req, onProgress, onToken, nil)
+}
+
+// accumulateStreamWithProgress is AccumulateStreamWithProgress plus an
+// optional onReasoning hook. When set, tagged 💭 / 3-space continuation
+// chunks are emitted as reasoning_content deltas arrive so Live Output can
+// grow a Thinking card during a long think (golbang/llama.cpp deepseek
+// schema). Callers must pass OnOutput directly (not emitOutput).
+func (c *Client) accumulateStreamWithProgress(ctx context.Context, req *ChatRequest, onProgress, onToken, onReasoning func(string)) (*ChatMessage, string, *ChatUsage, error) {
 	// Acquire endpoint slot before making the LLM call. This blocks if the
 	// endpoint is at capacity. When nil (max_concurrent=0), it is a no-op.
 	// ctx cancellation propagates: if the context is cancelled while waiting
@@ -377,6 +387,8 @@ func (c *Client) AccumulateStreamWithProgress(ctx context.Context, req *ChatRequ
 		finishReason     string
 		usage            *ChatUsage
 	)
+	thought := newReasoningLive(onReasoning)
+	defer thought.Close()
 
 	// Track buffer sizes at the last repetition check so the (relatively
 	// expensive) scan runs only once per ~400 new chars, not on every tiny delta.
@@ -404,6 +416,7 @@ func (c *Client) AccumulateStreamWithProgress(ctx context.Context, req *ChatRequ
 
 		if event.Delta.ReasoningContent != "" {
 			reasoningBuilder.WriteString(event.Delta.ReasoningContent)
+			thought.Append(event.Delta.ReasoningContent)
 		}
 
 		// Abort early if the model has fallen into degenerate repetition. Check
@@ -725,14 +738,14 @@ func (rc retryConfig) nextDelay(attempt int) time.Duration {
 // server to recover via health checks. The OnOutput callback (if set) receives
 // status messages so the user can see what's happening.
 func (c *Client) AccumulateStreamWithRetry(ctx context.Context, req *ChatRequest, onOutput func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
-	return c.accumulateStreamWithRetry(ctx, req, defaultRetryConfig, onOutput, onToken)
+	return c.accumulateStreamWithRetry(ctx, req, defaultRetryConfig, onOutput, onToken, nil)
 }
 
 // AccumulateStreamProposer is AccumulateStreamWithRetry with the short
 // proposerRetryConfig budget (task #7077). MAGI proposers use it so one dead
 // endpoint cannot hold a per-proposer budget hostage.
 func (c *Client) AccumulateStreamProposer(ctx context.Context, req *ChatRequest, onOutput func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
-	return c.accumulateStreamWithRetry(ctx, req, proposerRetryConfig, onOutput, onToken)
+	return c.accumulateStreamWithRetry(ctx, req, proposerRetryConfig, onOutput, onToken, nil)
 }
 
 // accumulateStreamWithRetry is the shared retry loop. The retry wait budget
@@ -740,7 +753,7 @@ func (c *Client) AccumulateStreamProposer(ctx context.Context, req *ChatRequest,
 // first attempt (e.g. 15+ min prompt eval that ends in 504) does not consume
 // the entire reconnect budget and abort at "1/6 시도" with zero real retries
 // (#7828/#7845). The caller's ctx deadline still bounds every attempt.
-func (c *Client) accumulateStreamWithRetry(ctx context.Context, req *ChatRequest, rc retryConfig, onOutput func(string), onToken func(string)) (*ChatMessage, string, *ChatUsage, error) {
+func (c *Client) accumulateStreamWithRetry(ctx context.Context, req *ChatRequest, rc retryConfig, onOutput, onToken, onReasoning func(string)) (*ChatMessage, string, *ChatUsage, error) {
 	// Wait-budget deadline is zero until the first transient failure; then it
 	// is set to now+totalWaitLimit (capped by ctx deadline if any).
 	var waitDeadline time.Time
@@ -755,7 +768,7 @@ func (c *Client) accumulateStreamWithRetry(ctx context.Context, req *ChatRequest
 			return nil, "", nil, err
 		}
 
-		msg, finishReason, usage, err := c.AccumulateStreamWithProgress(ctx, req, onOutput, onToken)
+		msg, finishReason, usage, err := c.accumulateStreamWithProgress(ctx, req, onOutput, onToken, onReasoning)
 		if err == nil {
 			return msg, finishReason, usage, nil
 		}

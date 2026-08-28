@@ -220,6 +220,98 @@ func TestAccumulateStreamQwen3ThinkingContent(t *testing.T) {
 	if msg.ToolCalls[0].Func.Name != "bash" {
 		t.Errorf("tool name = %q, want bash", msg.ToolCalls[0].Func.Name)
 	}
+	if got, want := msg.ReasoningContent, "Let me think... I should list files."; got != want {
+		t.Errorf("ReasoningContent = %q, want %q", got, want)
+	}
+}
+
+// TestAccumulateStreamReasoningLive verifies golbang/llama.cpp-style
+// reasoning_content deltas are tagged for the Thinking card as they arrive,
+// while onToken still receives only content (MAGI salvage contract).
+func TestAccumulateStreamReasoningLive(t *testing.T) {
+	lines := []string{
+		`data: {"choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"Let"}}]}`,
+		`data: {"choices":[{"index":0,"delta":{"reasoning_content":" me think"}}]}`,
+		`data: {"choices":[{"index":0,"delta":{"reasoning_content":" about files.\nThen list them."}}]}`,
+		`data: {"choices":[{"index":0,"delta":{"content":"I'll "}}]}`,
+		`data: {"choices":[{"index":0,"delta":{"content":"list files."}}]}`,
+		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		`data: [DONE]`,
+	}
+	srv := sseServer(t, lines)
+	defer srv.Close()
+
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
+	var thought []string
+	var tokens []string
+	msg, finish, _, err := c.accumulateStreamWithProgress(
+		context.Background(),
+		&ChatRequest{Model: "test-model"},
+		nil,
+		func(s string) { tokens = append(tokens, s) },
+		func(s string) { thought = append(thought, s) },
+	)
+	if err != nil {
+		t.Fatalf("accumulateStreamWithProgress error: %v", err)
+	}
+	if finish != "stop" {
+		t.Fatalf("finish reason = %q, want stop", finish)
+	}
+	if msg.Content != "I'll list files." {
+		t.Errorf("content = %q, want I'll list files.", msg.Content)
+	}
+	if got, want := msg.ReasoningContent, "Let me think about files.\nThen list them."; got != want {
+		t.Errorf("ReasoningContent = %q, want %q", got, want)
+	}
+
+	joinedThought := strings.Join(thought, "")
+	if n := strings.Count(joinedThought, "💭"); n != 1 {
+		t.Errorf("expected a single 💭 in live thought, got %d in %#v", n, thought)
+	}
+	if !strings.Contains(joinedThought, "Let me think about files.") {
+		t.Errorf("live thought missing body: %q", joinedThought)
+	}
+	if !strings.Contains(joinedThought, "\n   Then list them.") {
+		t.Errorf("live thought missing 3-space continuation: %q", joinedThought)
+	}
+	for _, tok := range tokens {
+		if strings.Contains(tok, "💭") || strings.Contains(tok, "Let me think") {
+			t.Errorf("onToken must stay content-only, got %q", tok)
+		}
+	}
+	if strings.Join(tokens, "") != "I'll list files." {
+		t.Errorf("onToken content = %q, want I'll list files.", strings.Join(tokens, ""))
+	}
+}
+
+// TestAccumulateStreamContentOnlyNoThoughtMarker verifies a content-only
+// stream (llama.cpp reasoning-format none) never emits a 💭 card.
+func TestAccumulateStreamContentOnlyNoThoughtMarker(t *testing.T) {
+	lines := []string{
+		`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"}}]}`,
+		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		`data: [DONE]`,
+	}
+	srv := sseServer(t, lines)
+	defer srv.Close()
+
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
+	var thought []string
+	msg, _, _, err := c.accumulateStreamWithProgress(
+		context.Background(),
+		&ChatRequest{Model: "test-model"},
+		nil, nil,
+		func(s string) { thought = append(thought, s) },
+	)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if msg.Content != "Hello" {
+		t.Errorf("content = %q, want Hello", msg.Content)
+	}
+	if len(thought) != 0 {
+		t.Errorf("content-only stream emitted thought chunks: %#v", thought)
+	}
 }
 
 // TestAccumulateStreamContent verifies plain content accumulation across chunks.
@@ -698,7 +790,7 @@ func TestAccumulateStreamWithRetryBudgetExcludesFirstAttempt(t *testing.T) {
 		maxDelay:       20 * time.Millisecond,
 		totalWaitLimit: 50 * time.Millisecond,
 	}
-	msg, finish, _, err := c.accumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, rc, nil, nil)
+	msg, finish, _, err := c.accumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, rc, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("expected retry after long first 504, got error: %v (attempts=%d)", err, atomic.LoadInt32(&attempt))
 	}

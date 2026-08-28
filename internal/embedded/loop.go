@@ -741,7 +741,16 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		if opts.OnOutput != nil {
 			onProgress = func(s string) { emitOutput(opts.OnOutput, s) }
 		}
-		msg, finishReason, usage, err := client.AccumulateStreamWithRetry(ctx, req, onProgress, nil)
+		// reasoning_content is tagged (💭 / 3-space indent) inside the client
+		// and sent to OnOutput raw so LineCoalescer keeps an open Thinking
+		// card while think tokens arrive. Do not route it through emitOutput
+		// (that would add a newline per token) or onToken (MAGI salvage is
+		// content-only). Content stays a turn-end text block.
+		var onReasoning func(string)
+		if opts.OnOutput != nil {
+			onReasoning = opts.OnOutput
+		}
+		msg, finishReason, usage, err := client.accumulateStreamWithRetry(ctx, req, defaultRetryConfig, onProgress, nil, onReasoning)
 		if err != nil {
 			fmt.Printf("[embedded] iter=%d req error=%v\n", iteration, err)
 			return &ExecuteResult{
@@ -769,13 +778,8 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		fmt.Printf("[embedded] iter=%d req done finish=%s prompt_tok=%d completion_tok=%d\n",
 			iteration, finishReason, pt, ct)
 
-		// Surface the model's "thinking" (reasoning_content) for this turn so the
-		// live output shows what the model is reasoning about, like Claude does.
-		// Multi-line bodies use the shared "\n   " continuation indent so the
-		// WebUI keeps the whole trace inside one thinking block (task #7275).
-		if think := strings.TrimSpace(msg.ReasoningContent); think != "" {
-			emitOutput(opts.OnOutput, "💭 "+strings.ReplaceAll(think, "\n", "\n   "))
-		}
+		// reasoning_content is streamed live via onReasoning. Do not dump
+		// msg.ReasoningContent here — that would write the same trace twice.
 
 		// The stream was aborted because the model degenerated into repeating the
 		// same phrase (task #6008). Stop the whole task: once a local model starts

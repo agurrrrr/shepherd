@@ -29,7 +29,7 @@ func buildSSELinesWithReasoning(reasoning, content, finishReason string) []strin
 		rb, _ := json.Marshal(map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{"index": 0, "delta": map[string]interface{}{
-					"role":               "assistant",
+					"role":              "assistant",
 					"reasoning_content": reasoning,
 				}},
 			},
@@ -961,6 +961,82 @@ func TestFutureIntentionAdvisoryEscapeHatch(t *testing.T) {
 	// nudge round + restated advisory answer = 2 requests; no third.
 	if len(*bodies) != 2 {
 		t.Fatalf("expected 2 requests (nudge + restated), got %d", len(*bodies))
+	}
+}
+
+// TestLoopReasoningLiveNoDuplicateDump is issue #92: reasoning_content must
+// appear in Live Output as a 💭 Thinking card while tokens arrive, and the
+// turn-end path must not dump the same trace again. Content stays a single
+// answer text block.
+func TestLoopReasoningLiveNoDuplicateDump(t *testing.T) {
+	thought := "Let me inspect the repo first.\nThen I will list files."
+	content := "Directory listing is ready."
+	r1 := buildSSELinesWithReasoning(thought, content, "stop")
+	srv := multiRoundServer(t, [][]string{r1})
+	defer srv.Close()
+
+	var outputs []string
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL + "/chat/completions",
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "List the files.",
+		MaxIterations: 3,
+		OnOutput:      func(s string) { outputs = append(outputs, s) },
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("result.Incomplete = true: %s", result.IncompleteReason)
+	}
+	if result.Result != content {
+		t.Errorf("Result = %q, want %q", result.Result, content)
+	}
+
+	joined := strings.Join(outputs, "")
+	if n := strings.Count(joined, "Let me inspect the repo first."); n != 1 {
+		t.Errorf("thought dumped %d times, want 1. outputs=%#v", n, outputs)
+	}
+	if n := strings.Count(joined, "💭"); n != 1 {
+		t.Errorf("expected a single 💭, got %d in %#v", n, outputs)
+	}
+	if !strings.Contains(joined, "\n   Then I will list files.") {
+		t.Errorf("expected 3-space continuation, got %#v", outputs)
+	}
+	if n := strings.Count(joined, content); n != 1 {
+		t.Errorf("content dumped %d times, want 1. outputs=%#v", n, outputs)
+	}
+}
+
+// TestLoopContentOnlyHasNoThinkingCard verifies a content-only completion
+// (no reasoning_content) is unchanged: the answer is a text block, no 💭.
+func TestLoopContentOnlyHasNoThinkingCard(t *testing.T) {
+	r1 := buildSSELines(nil, "The directory contains 3 files.", "stop")
+	srv := multiRoundServer(t, [][]string{r1})
+	defer srv.Close()
+
+	var outputs []string
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL + "/chat/completions",
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "List the files.",
+		MaxIterations: 3,
+		OnOutput:      func(s string) { outputs = append(outputs, s) },
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("result.Incomplete = true: %s", result.IncompleteReason)
+	}
+	joined := strings.Join(outputs, "")
+	if strings.Contains(joined, "💭") {
+		t.Errorf("content-only stream emitted a thinking card: %#v", outputs)
+	}
+	if !strings.Contains(joined, "The directory contains 3 files.") {
+		t.Errorf("missing answer text: %#v", outputs)
 	}
 }
 
