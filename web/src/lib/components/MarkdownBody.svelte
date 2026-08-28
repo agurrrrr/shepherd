@@ -1,11 +1,15 @@
 <script>
 	import { Carta } from 'carta-md';
 	import DOMPurify from 'isomorphic-dompurify';
+	import { cartaSoftBreaks } from '$lib/markdown.js';
 
 	/** @type {{ text?: string }} */
 	let { text = '' } = $props();
 
-	const carta = new Carta({ sanitizer: DOMPurify.sanitize });
+	const carta = new Carta({
+		sanitizer: DOMPurify.sanitize,
+		extensions: [cartaSoftBreaks]
+	});
 
 	let html = $state(/** @type {string|null} */ (null));
 	let lastText = $state('');

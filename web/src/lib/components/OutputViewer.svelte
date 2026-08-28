@@ -3,13 +3,17 @@
 	import DOMPurify from 'isomorphic-dompurify';
 	import { groupLines } from '$lib/outputLines.js';
 	import { createMdStreamCache } from '$lib/mdStream.js';
+	import { cartaSoftBreaks } from '$lib/markdown.js';
 
 	// embedded: nest inside SubagentStreamPanel/Magi cards — no chrome, no
 	// own scroll (parent panel scrolls). Plain: standalone Live Output pane.
 	let { lines = [], maxHeight = '500px', embedded = false } = $props();
 	let container;
 
-	const carta = new Carta({ sanitizer: DOMPurify.sanitize });
+	const carta = new Carta({
+		sanitizer: DOMPurify.sanitize,
+		extensions: [cartaSoftBreaks]
+	});
 
 	// Sticky stream cache: avoids raw↔HTML flicker while Grok (or any
 	// high-frequency provider) grows the last text block token-by-token.

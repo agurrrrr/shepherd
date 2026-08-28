@@ -3,10 +3,14 @@
 	import DOMPurify from 'isomorphic-dompurify';
 	import { assembleMagiPanel } from '$lib/magiPanel.js';
 	import { createMdStreamCache } from '$lib/mdStream.js';
+	import { cartaSoftBreaks } from '$lib/markdown.js';
 
 	let { lines = [], maxHeight = 'none' } = $props();
 
-	const carta = new Carta({ sanitizer: DOMPurify.sanitize });
+	const carta = new Carta({
+		sanitizer: DOMPurify.sanitize,
+		extensions: [cartaSoftBreaks]
+	});
 
 	// Persona metadata per slot — defaults, overridden by 🧩 announcement lines
 	const defaultPersonaInfo = [
