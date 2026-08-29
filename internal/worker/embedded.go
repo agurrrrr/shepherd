@@ -93,9 +93,11 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 			"- edit_file의 oldText에는 `→` 이후 실제 내용만 넣어라. `N→` 프리픽스를 복사하지 마라.\n"+
 			"- edit_file 성공 스니펫도 같은 `N→` 형식을 쓰므로, 검증 시에도 프리픽스는 무시하라.")
 
-	// Behavior discipline — 1st line of defense against false-completion / bash-for-files
+	// Behavior discipline — 1st line of defense against false-completion
 	// (Phase 2-2 / task #7547). Keep concise; existing loop.go guards remain the backstop.
 	// Order: base discipline here → custom_prompt_embedded overlay last.
+	// File I/O is not restricted to read_file/edit_file/write_file: that ban
+	// forced edit_file retries on match/truncation failures (see #7412).
 	sections = append(sections, embeddedBehaviorDiscipline())
 
 	// Project rule files (AGENTS.md / CLAUDE.md / PROJECT.md) — cwd→repo-root walk,
@@ -144,15 +146,6 @@ type shellDialect struct {
 
 func currentShellDialect() shellDialect {
 	return shellDialect{powerShell: embedded.ShellUsesPowerShell()}
-}
-
-// fileReadBanTools are the shell builtins the model must NOT use for file I/O
-// (read_file/edit_file/write_file are the only allowed path).
-func (d shellDialect) fileReadBanTools() string {
-	if d.powerShell {
-		return "Get-Content/Select-String/Select-Object"
-	}
-	return "cat/sed/head/awk"
 }
 
 // workdirToolLine is the bullet under [작업 환경] about the bash tool root.
@@ -204,8 +197,8 @@ func embeddedWorkdirSection(projectPath string, agent bool) string {
 
 // embeddedBehaviorDiscipline is the short fixed conduct block for the embedded
 // coding agent. Intentionally brief to limit context cost on local models.
-// Shell-dialect-dependent bits (file-read ban tools, && warning, verify line)
-// are filled from currentShellDialect so we do not maintain two full copies.
+// Shell-dialect-dependent bits (&& warning, verify line) are filled from
+// currentShellDialect so we do not maintain two full copies.
 func embeddedBehaviorDiscipline() string {
 	d := currentShellDialect()
 	verifyTool := "bash"
@@ -213,8 +206,6 @@ func embeddedBehaviorDiscipline() string {
 		verifyTool = "bash 또는 shell"
 	}
 	s := "[행동 규율]\n" +
-		"- 파일 읽기/수정은 read_file, edit_file, write_file 도구만 사용한다. 셸로 " +
-		d.fileReadBanTools() + " 등으로 파일을 읽거나 편집하지 마라.\n" +
 		d.shellChainHint() +
 		"- 코드/시스템 변경 작업이면 미래형 \"하겠습니다\"만 서술하지 말고 지금 도구를 호출하라. 조언·분석 질문이면 도구 없이 답하되 '추가 실행이 필요 없는 분석·권고'임을 명시하라.\n" +
 		"- 파괴적·공유 상태 변경(삭제, force push, 원격 푸시 등) 전에는 확인·보고하라.\n" +

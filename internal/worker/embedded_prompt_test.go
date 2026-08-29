@@ -28,15 +28,11 @@ func forceShell(t *testing.T, path string) {
 // system-reminder convention. (Full BuildSystemPromptForEmbedded needs a live
 // DB for skills lookup, so we unit-test the discipline block and join order.)
 func TestEmbeddedBehaviorDiscipline(t *testing.T) {
-	// Pin POSIX so the cat/sed wording is stable on every CI host.
+	// Pin POSIX so the discipline block is dialect-stable on every CI host.
 	forceShell(t, "/bin/bash")
 	d := embeddedBehaviorDiscipline()
 	for _, want := range []string{
 		"[행동 규율]",
-		"read_file",
-		"edit_file",
-		"write_file",
-		"cat",
 		"system-reminder",
 		"미래형",
 		"빌드",
@@ -46,6 +42,14 @@ func TestEmbeddedBehaviorDiscipline(t *testing.T) {
 			t.Errorf("discipline block missing %q; got %q", want, d)
 		}
 	}
+	for _, ban := range []string{
+		"파일 읽기/수정은 read_file",
+		"cat/sed/head/awk",
+	} {
+		if strings.Contains(d, ban) {
+			t.Errorf("discipline must not ban shell file I/O (%q); got %q", ban, d)
+		}
+	}
 	// Keep it short — local context is expensive. PowerShell dialect adds a few
 	// lines (name-vs-engine note, grep/glob preference); POSIX stays smaller.
 	if len(d) > 1200 {
@@ -53,8 +57,8 @@ func TestEmbeddedBehaviorDiscipline(t *testing.T) {
 	}
 }
 
-// PowerShell dialect must rewrite the file-read ban and warn about &&.
-// Branch criterion is the resolved shell, not GOOS.
+// PowerShell dialect must warn about &&. Branch criterion is the resolved
+// shell, not GOOS.
 func TestEmbeddedBehaviorDisciplinePowerShell(t *testing.T) {
 	forceShell(t, `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`)
 	if !embedded.ShellUsesPowerShell() {
@@ -62,11 +66,8 @@ func TestEmbeddedBehaviorDisciplinePowerShell(t *testing.T) {
 	}
 	d := embeddedBehaviorDiscipline()
 	for _, want := range []string{
-		"Get-Content",
-		"Select-String",
 		"&&",
 		"$LASTEXITCODE",
-		"read_file",
 		// Local models refuse a tool named "bash" when told "PowerShell only" —
 		// the prompt must resolve that name-vs-engine contradiction.
 		"거부하지",
@@ -77,9 +78,12 @@ func TestEmbeddedBehaviorDisciplinePowerShell(t *testing.T) {
 			t.Errorf("PowerShell discipline missing %q; got %q", want, d)
 		}
 	}
-	for _, ban := range []string{"cat/sed/head/awk"} {
+	for _, ban := range []string{
+		"cat/sed/head/awk",
+		"파일 읽기/수정은 read_file",
+	} {
 		if strings.Contains(d, ban) {
-			t.Errorf("PowerShell discipline must not keep POSIX ban list %q", ban)
+			t.Errorf("PowerShell discipline must not ban shell file I/O (%q)", ban)
 		}
 	}
 	if len(d) > 1400 {
