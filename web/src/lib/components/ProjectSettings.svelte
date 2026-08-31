@@ -60,7 +60,7 @@
 	{:else}
 		<div class="project-settings-section">
 			<h4>🔌 MCP Servers</h4>
-			<p class="hint">Toggle which MCP servers are available for this project.</p>
+			<p class="hint">MCP servers are off by default. Toggle a server on to make it available for this project.</p>
 
 			<div class="mcp-toggle-list">
 				{#each mcpServers as srv}

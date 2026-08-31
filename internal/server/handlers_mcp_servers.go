@@ -200,6 +200,34 @@ func (s *Server) handleDeleteMCPServer(c *fiber.Ctx) error {
 	return success(c, nil)
 }
 
+// projectMCPEnabled returns the effective enabled state of an MCP server for a
+// project. The project-level override defaults to false (off): a server is
+// only active for a project when it has been explicitly enabled there. The
+// global enabled flag acts as a master switch — a globally disabled server is
+// never active, no matter what the project setting says.
+func projectMCPEnabled(srv *ent.MCPServer, projectSettings map[string]interface{}) bool {
+	if !srv.Enabled {
+		return false
+	}
+	if projectSettings == nil {
+		return false
+	}
+	entry, ok := projectSettings[srv.Name]
+	if !ok {
+		return false
+	}
+	entryMap, ok := entry.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	e, ok := entryMap["enabled"]
+	if !ok {
+		return false
+	}
+	eBool, ok := e.(bool)
+	return eBool
+}
+
 // GET /api/projects/:name/mcp-servers
 // Returns the list of all MCP servers with their per-project enabled status.
 func (s *Server) handleGetProjectMCPServers(c *fiber.Ctx) error {
@@ -232,24 +260,9 @@ func (s *Server) handleGetProjectMCPServers(c *fiber.Ctx) error {
 	var result []projectMCPServer
 	for _, srv := range servers {
 		resp := mcpServerToResp(srv)
-		enabled := srv.Enabled // default to global enabled
-
-		// Check project-level override
-		if p.McpServers != nil {
-			if entry, ok := p.McpServers[srv.Name]; ok {
-				if entryMap, ok := entry.(map[string]interface{}); ok {
-					if e, ok := entryMap["enabled"]; ok {
-						if eBool, ok := e.(bool); ok {
-							enabled = eBool
-						}
-					}
-				}
-			}
-		}
-
 		result = append(result, projectMCPServer{
 			mcpServerResp:  resp,
-			ProjectEnabled: enabled,
+			ProjectEnabled: projectMCPEnabled(srv, p.McpServers),
 		})
 	}
 
@@ -334,19 +347,7 @@ func getProjectActiveMCPServers(projectName string) ([]*ent.MCPServer, error) {
 
 	var active []*ent.MCPServer
 	for _, srv := range servers {
-		enabled := srv.Enabled
-		if p.McpServers != nil {
-			if entry, ok := p.McpServers[srv.Name]; ok {
-				if entryMap, ok := entry.(map[string]interface{}); ok {
-					if e, ok := entryMap["enabled"]; ok {
-						if eBool, ok := e.(bool); ok {
-							enabled = eBool
-						}
-					}
-				}
-			}
-		}
-		if enabled {
+		if projectMCPEnabled(srv, p.McpServers) {
 			active = append(active, srv)
 		}
 	}
