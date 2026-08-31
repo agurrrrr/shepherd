@@ -11,6 +11,10 @@ func TestLooksLikeLeakedToolCall(t *testing.T) {
 		"<function=bash><parameter=command>ls</parameter></function>",
 		"thinking... <|tool_call|> bash",
 		"[TOOL_CALL] bash(command='ls')",
+		// Claude-style XML tool-call markup leaked as raw text (SSE-render bug)
+		"<tool_calls>\n<invoke name=\"bash\"><parameter name=\"command\">ls</parameter></invoke>\n</tool_calls>",
+		"<invoke name=\"read_file\"><parameter name=\"path\">foo</parameter></invoke>",
+		"prefix <tool_calls> ... </tool_calls> suffix",
 	}
 	for _, s := range leaked {
 		if !looksLikeLeakedToolCall(s) {
@@ -179,5 +183,28 @@ func TestParseOpenCodeOutput_PartTokens(t *testing.T) {
 				t.Errorf("CostUSD = %f, want %f", result.CostUSD, tt.wantCostUSD)
 			}
 		})
+	}
+}
+
+// TestParseOpenCodeLine_HidesLeakedToolCall verifies that a Claude-style
+// <tool_calls><invoke>... markup leaked into the text channel is NOT emitted to
+// the live SSE stream (it used to render verbatim as broken tags — the bug).
+// Clean prose must still stream normally.
+func TestParseOpenCodeLine_HidesLeakedToolCall(t *testing.T) {
+	leakedText := `{"type":"text","sessionID":"s1","part":{"type":"text","text":"<tool_calls>\n<invoke name=\"bash\"><parameter name=\"command\">ls</parameter></invoke>\n</tool_calls>"}}`
+	if text, sid := parseOpenCodeLine(leakedText); text != "" {
+		t.Errorf("leaked tool-call markup should be hidden from stream, got %q", text)
+	} else if sid != "s1" {
+		t.Errorf("sessionID should still be extracted, got %q", sid)
+	}
+
+	leakedReasoning := `{"type":"reasoning","sessionID":"s1","part":{"type":"reasoning","text":"<invoke name=\"bash\"><parameter name=\"command\">ls</parameter></invoke>"}}`
+	if text, _ := parseOpenCodeLine(leakedReasoning); text != "" {
+		t.Errorf("leaked tool-call in reasoning should be hidden from stream, got %q", text)
+	}
+
+	clean := `{"type":"text","sessionID":"s1","part":{"type":"text","text":"작업을 완료했습니다."}}`
+	if text, _ := parseOpenCodeLine(clean); text != "작업을 완료했습니다." {
+		t.Errorf("clean prose should stream normally, got %q", text)
 	}
 }

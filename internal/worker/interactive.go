@@ -818,13 +818,21 @@ func parseOpenCodeLine(line string) (text string, sessionID string) {
 
 	switch event.Type {
 	case "text":
-		if event.Part.Text != "" {
+		// The model may leak a structured tool call as raw XML/text into the
+		// text channel (e.g. Claude-style <tool_calls><invoke>...). Show only
+		// clean prose; hide leaked tool-call markup so it never renders
+		// verbatim in the SSE stream. It is still tracked for incomplete-run
+		// detection by parseOpenCodeOutput.
+		if event.Part.Text != "" && !looksLikeLeakedToolCall(event.Part.Text) {
 			text = event.Part.Text
 		}
 	case "reasoning":
 		// Surface model reasoning trace prefixed with 💭 so it visually
 		// separates from the final answer in the live output stream.
-		if event.Part.Text != "" {
+		// Skip reasoning that is itself a leaked tool-call markup — the model
+		// "thinks" in XML tool-call syntax; showing it verbatim would render
+		// broken tags in the SSE stream.
+		if event.Part.Text != "" && !looksLikeLeakedToolCall(event.Part.Text) {
 			text = "💭 " + strings.ReplaceAll(strings.TrimSpace(event.Part.Text), "\n", "\n   ")
 		}
 	case "tool_use":
@@ -886,6 +894,13 @@ func looksLikeLeakedToolCall(s string) bool {
 		"<function=", "<function_call>",
 		"<|tool_call|>", "<|tool▁calls▁begin|>",
 		"[tool_call",
+		// Claude-style XML tool-call markup that some local models leak into the
+		// text channel as a raw string instead of emitting a structured tool_use.
+		// See the SSE-render bug where <tool_calls>/<invoke> showed verbatim.
+		"<tool_calls>", "</tool_calls>",
+		"<invoke", "</invoke>",
+		"<parameter", "</parameter>",
+		"<invoke name=",
 	}
 	for _, m := range markers {
 		if strings.Contains(s, m) {

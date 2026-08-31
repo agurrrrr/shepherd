@@ -20,6 +20,10 @@ var leakedMarkerPairs = []leakedMarkerPair{
 	{"<function=", "</function>"},
 	{"<tools_call>", "</tools_call>"},
 	{"[tool_call", "[/tool_call]"},
+	// Claude-style XML tool-call markup leaked as raw text (SSE-render bug).
+	{"<tool_calls>", "</tool_calls>"},
+	{"<invoke", "</invoke>"},
+	{"<parameter", "</parameter>"},
 }
 
 // looksLikeLeakedToolCall checks if the text contains tool call markers that
