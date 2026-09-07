@@ -56,8 +56,11 @@ type InteractiveOptions struct {
 	// Thinking enables provider-side reasoning. Currently only honored by
 	// the OpenCode path, which appends `--thinking` to the CLI invocation.
 	Thinking bool
-	// Model is an explicit model override for OpenCode. When non-empty, it
-	// takes precedence over both model_opencode and opencode_thinking_model.
+	// Model is an explicit per-task model override. When non-empty, it takes
+	// precedence over the provider default. OpenCode/pi/grok: model id.
+	// Embedded: endpoint ID (or unique label/model resolved by
+	// config.ResolveEmbeddedEndpoint). Context-handoff follow-ups inherit this
+	// so they keep running on the same endpoint instead of the global default.
 	Model string
 	// TaskID is the queue task this run belongs to. The embedded loop uses it to
 	// resolve the current handoff_depth when deciding/queuing a context-overflow

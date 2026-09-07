@@ -230,3 +230,59 @@ func TestDeleteTask_FailsLinkedIssue(t *testing.T) {
 		t.Error("issue completed_at should be set")
 	}
 }
+
+func TestCreateFollowUpTask_PersistsModelAndPriority(t *testing.T) {
+	client := withTestDB(t)
+	ctx := context.Background()
+
+	p := client.Project.Create().
+		SetName("demo").
+		SetPath("/tmp/demo").
+		SaveX(ctx)
+	s := client.Sheep.Create().
+		SetName("hamzzi").
+		SaveX(ctx)
+
+	got, err := CreateFollowUpTask("continue the work", s.ID, p.ID, 2, "qwen-coder")
+	if err != nil {
+		t.Fatalf("CreateFollowUpTask: %v", err)
+	}
+	if got.Priority != 1 {
+		t.Errorf("priority = %d, want 1", got.Priority)
+	}
+	if got.HandoffDepth != 2 {
+		t.Errorf("handoff_depth = %d, want 2", got.HandoffDepth)
+	}
+	if got.Model != "qwen-coder" {
+		t.Errorf("model = %q, want qwen-coder", got.Model)
+	}
+	if got.Status != task.StatusPending {
+		t.Errorf("status = %s, want pending", got.Status)
+	}
+
+	reloaded := client.Task.GetX(ctx, got.ID)
+	if reloaded.Model != "qwen-coder" {
+		t.Errorf("persisted model = %q, want qwen-coder", reloaded.Model)
+	}
+}
+
+func TestCreateFollowUpTask_EmptyModelLeftUnset(t *testing.T) {
+	client := withTestDB(t)
+	ctx := context.Background()
+
+	s := client.Sheep.Create().
+		SetName("hamzzi").
+		SaveX(ctx)
+
+	got, err := CreateFollowUpTask("continue", s.ID, 0, 1, "")
+	if err != nil {
+		t.Fatalf("CreateFollowUpTask: %v", err)
+	}
+	if got.Model != "" {
+		t.Errorf("model = %q, want empty", got.Model)
+	}
+	reloaded := client.Task.GetX(ctx, got.ID)
+	if reloaded.Model != "" {
+		t.Errorf("persisted model = %q, want empty", reloaded.Model)
+	}
+}

@@ -30,3 +30,16 @@ func GetTaskModel(taskID int) string {
 	}
 	return t.Model
 }
+
+// ResolveFollowUpModel picks the model a context-handoff continuation should
+// persist. Prefer the parent task's explicit override (endpoint ID / unique
+// label / unique model for embedded). If the parent ran on the provider
+// default, pin fallback — typically the endpoint ID that actually served the
+// parent — so the follow-up does not silently switch to whatever is globally
+// active when it starts.
+func ResolveFollowUpModel(parentOverride, fallback string) string {
+	if parentOverride != "" {
+		return parentOverride
+	}
+	return fallback
+}

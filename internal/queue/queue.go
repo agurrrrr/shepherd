@@ -59,7 +59,12 @@ func CreateManagerTask(prompt string, sheepID int) (*ent.Task, error) {
 // pushed to the back of the FIFO queue. handoffDepth records how many times this
 // line of work has handed itself off (parent depth + 1), for loop detection and
 // alarms. projectID <= 0 creates a manager task (no project association).
-func CreateFollowUpTask(prompt string, sheepID, projectID, handoffDepth int) (*ent.Task, error) {
+//
+// model, when non-empty, is persisted as the per-task model override so the
+// follow-up runs on the same endpoint/model as the parent instead of falling
+// back to the provider default. For embedded this is the endpoint ID (or the
+// unique label/model the parent was created with).
+func CreateFollowUpTask(prompt string, sheepID, projectID, handoffDepth int, model string) (*ent.Task, error) {
 	ctx := context.Background()
 	client := db.Client()
 
@@ -71,6 +76,9 @@ func CreateFollowUpTask(prompt string, sheepID, projectID, handoffDepth int) (*e
 		SetHandoffDepth(handoffDepth)
 	if projectID > 0 {
 		create = create.SetProjectID(projectID)
+	}
+	if model != "" {
+		create = create.SetModel(model)
 	}
 
 	t, err := create.Save(ctx)

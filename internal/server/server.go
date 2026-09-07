@@ -886,7 +886,13 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 					projectID = s.Edges.Project.ID
 					projectName = s.Edges.Project.Name
 				}
-				if _, err := queue.CreateFollowUpTask(followUpPrompt, s.ID, projectID, depth); err != nil {
+				// Inherit the parent run's endpoint/model. Without this the
+				// follow-up has an empty task.Model and the processor falls
+				// back to the globally active embedded endpoint — which is
+				// often a different (usually smaller) default than the one
+				// that produced this handoff.
+				model := queue.ResolveFollowUpModel(opts.Model, ep.ID)
+				if _, err := queue.CreateFollowUpTask(followUpPrompt, s.ID, projectID, depth, model); err != nil {
 					return err
 				}
 				// A deep chain means the model keeps exhausting its context

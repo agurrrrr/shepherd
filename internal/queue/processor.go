@@ -508,8 +508,10 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 	// per-request overrides win over the global default.
 	opts.Thinking = GetTaskThinking(taskID)
 	defer ClearTaskThinking(taskID)
-	// Per-task model override (OpenCode only). Persisted on the task row, so it
-	// survives restarts and feeds the per-group concurrency accounting.
+	// Per-task model override. Persisted on the task row, so it survives
+	// restarts and feeds per-group concurrency accounting. OpenCode/pi/grok:
+	// model id. Embedded: endpoint ID (or unique label/model). Handoff
+	// follow-ups inherit this so they do not fall back to the provider default.
 	opts.Model = GetTaskModel(taskID)
 
 	// Execute with rate limit retry
