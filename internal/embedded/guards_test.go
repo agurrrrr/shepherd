@@ -257,7 +257,7 @@ func TestHasStateChangingTools(t *testing.T) {
 		t.Error("bash should arm the guard")
 	}
 	// Shell aliases (advertised "shell" on PowerShell) must also arm the guard —
-	// otherwise build verification / future-intention stall never resets.
+	// otherwise the future-intention stall counter never resets.
 	withShell := []OpenAIToolDef{
 		{Type: "function", Function: OpenAIFunction{Name: "shell"}},
 	}
@@ -428,67 +428,6 @@ func TestIsPauseSummary(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := isPauseSummary(tc.in); got != tc.want {
 				t.Errorf("isPauseSummary(%q) = %v, want %v", tc.in, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestClaimsBuildWork(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want bool
-	}{
-		{"empty", "", false},
-		// Completion claims must trip the gate (#6294).
-		{"빌드 에러 수정 주장", "빌드 에러를 수정했습니다.", true},
-		{"컴파일 통과 주장", "컴파일이 통과했습니다.", true},
-		{"빌드했습니다", "요청하신 대로 빌드했습니다.", true},
-		{"빌드 성공 주장", "빌드가 성공했습니다. APK가 생성되었습니다.", true},
-		{"빌드 완료 주장", "빌드를 완료했습니다.", true},
-		{"english fixed the build", "Fixed the build errors.", true},
-		{"english build succeeded", "The build succeeded with no warnings.", true},
-		{"english compiles successfully", "The project now compiles successfully.", true},
-		{"english build error resolved", "The build error has been fixed.", true},
-		// Advice/instructions to the user must NOT trip the gate. Task #7000:
-		// "재빌드 후 다시 업로드하세요" in an advisory answer failed a good task.
-		{"권고형 재빌드 #7000", "isAccessibilityTool을 false로 수정했습니다. 재빌드 후 다시 업로드하세요.", false},
-		{"권고형 빌드하시면", "APK를 다시 빌드하시면 됩니다.", false},
-		{"조건형 완료되면", "빌드가 완료되면 Play Console에 업로드하세요.", false},
-		{"english imperative gradlew", "Run ./gradlew assembleDebug.", false},
-		{"english prediction", "This should compile now.", false},
-		{"english rebuild advice", "You can rebuild and upload the app.", false},
-		// Unrelated text stays out entirely.
-		{"unrelated", "텍스트 문구를 다듬었습니다.", false},
-		{"unrelated english", "Updated the README wording.", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := claimsBuildWork(tc.in); got != tc.want {
-				t.Errorf("claimsBuildWork(%q) = %v, want %v", tc.in, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestHasBuildCommandInPrompt(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want bool
-	}{
-		{"gradlew", "빌드는 ./gradlew compileDebugKotlin 으로 확인해줘", true},
-		{"go build", "Please run go build ./... after the change.", true},
-		{"npm run build", "then npm run build to verify", true},
-		// A vague continuation prompt carries no build keyword — this is exactly
-		// why mitigation ② alone missed #6294 and needed the buildClaimed net.
-		{"vague continuation", "6284 작업 이어서 작업해줘.", false},
-		{"plain text task", "README 문구를 다듬어줘", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := hasBuildCommandInPrompt(tc.in); got != tc.want {
-				t.Errorf("hasBuildCommandInPrompt(%q) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
 	}

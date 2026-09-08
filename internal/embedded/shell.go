@@ -16,8 +16,8 @@ import (
 //
 // The primary OpenAI tool name stays "bash" because many local models are
 // trained to emit that name. On PowerShell hosts the tool *runs* PowerShell;
-// loop.go gates (build verification, future-intention stall) use IsShellTool
-// so silent aliases (shell/powershell/pwsh) still count as state-changing.
+// loop.go gates (future-intention stall) use IsShellTool so silent aliases
+// (shell/powershell/pwsh) still count as state-changing.
 // What varies per OS is only *which* shell binary backs the tool and how a
 // command string is handed to it — that lives here plus shell_unix.go /
 // shell_windows.go.
