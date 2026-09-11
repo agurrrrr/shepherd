@@ -10,47 +10,99 @@ import (
 )
 
 type PartialEditOptions struct {
-	Append   string
-	Section  string
-	LineNum  int
-	Find     string
-	Replace  string
-	LineText string
-	Summary  string
-	Author   string
+	// Mode explicitly selects the edit mode ("append"|"section"|"line"|"find_replace").
+	// When empty it is inferred from the set fields (CLI backward compat).
+	Mode    string
+	Append  string
+	Section string
+	LineNum int
+	Find    string
+	Replace string
+	// ReplaceSet reports whether the caller explicitly provided a Replace value
+	// (even an empty one). An explicitly empty Replace in find_replace mode
+	// means "delete the match"; an absent Replace is a validation error.
+	ReplaceSet bool
+	LineText   string
+	// LineTextSet reports whether the caller explicitly provided LineText
+	// (even an empty one). An explicitly empty LineText in section mode clears
+	// the section body; an absent value is a validation error.
+	LineTextSet bool
+	Summary     string
+	Author      string
 }
 
 func (o *PartialEditOptions) validate() error {
-	count := 0
-	if o.Append != "" {
-		count++
+	mode := o.Mode
+	if mode == "" {
+		// Infer the mode from whichever field is set (CLI backward compat).
+		set := 0
+		if o.Append != "" {
+			set++
+		}
+		if o.Section != "" {
+			set++
+		}
+		if o.LineNum > 0 {
+			set++
+		}
+		if o.Find != "" || o.Replace != "" || o.ReplaceSet {
+			set++
+		}
+		if set == 0 {
+			return fmt.Errorf("at least one edit flag is required: --append, --section, --line, or --find/--replace")
+		}
+		if set > 1 {
+			return fmt.Errorf("only one edit mode can be used at a time")
+		}
+		switch {
+		case o.Append != "":
+			mode = "append"
+		case o.Section != "":
+			mode = "section"
+		case o.LineNum > 0:
+			mode = "line"
+		default:
+			mode = "find_replace"
+		}
+		o.Mode = mode // normalize so callers can dispatch on the resolved mode
 	}
-	if o.Section != "" {
-		count++
-	}
-	if o.LineNum > 0 {
-		count++
-	}
-	if o.Find != "" && o.Replace != "" {
-		count++
-	}
-	if count == 0 {
-		return fmt.Errorf("at least one edit flag is required: --append, --section, --line, or --find/--replace")
-	}
-	if count > 1 {
-		return fmt.Errorf("only one edit mode can be used at a time")
-	}
-	if o.Find != "" && o.Replace == "" {
-		return fmt.Errorf("--replace is required when using --find")
-	}
-	if o.Replace != "" && o.Find == "" {
-		return fmt.Errorf("--find is required when using --replace")
-	}
-	if o.LineNum > 0 && o.LineText == "" {
-		return fmt.Errorf("--line-text is required when using --line")
-	}
-	if o.Section != "" && o.LineText == "" {
-		return fmt.Errorf("--line-text is required when using --section")
+
+	switch mode {
+	case "append":
+		if o.Append == "" {
+			return fmt.Errorf("append text is required in append mode")
+		}
+	case "section":
+		if o.Section == "" {
+			return fmt.Errorf("section is required in section mode")
+		}
+		// A non-empty line-text is by definition provided. The Set flag only
+		// matters for an empty value: an explicitly empty line-text clears the
+		// section body, while an absent one is an error (no silent wipe).
+		lineTextSet := o.LineTextSet || o.LineText != ""
+		if !lineTextSet {
+			return fmt.Errorf("line-text is required in section mode (provide an empty value to clear the section body)")
+		}
+	case "line":
+		if o.LineNum <= 0 {
+			return fmt.Errorf("line number is required in line mode")
+		}
+		if o.LineText == "" {
+			return fmt.Errorf("line-text is required in line mode")
+		}
+	case "find_replace":
+		if o.Find == "" {
+			return fmt.Errorf("find is required in find_replace mode")
+		}
+		// A non-empty replace is by definition provided. The Set flag only
+		// matters for an empty value: an explicitly empty replace deletes the
+		// match, while an absent one is an error.
+		replaceSet := o.ReplaceSet || o.Replace != ""
+		if !replaceSet {
+			return fmt.Errorf("replace is required in find_replace mode (provide an empty value to delete the match)")
+		}
+	default:
+		return fmt.Errorf("invalid mode %q: must be append|section|line|find_replace", mode)
 	}
 	return nil
 }
@@ -90,27 +142,30 @@ func PartiallyEditPage(projectName, slug string, opts *PartialEditOptions) (*ent
 	content := page.Content
 	var newContent string
 
-	switch {
-	case opts.Append != "":
+	// opts.Mode is normalized by validate(); dispatch on it.
+	switch opts.Mode {
+	case "append":
 		newContent = appendContent(content, opts.Append)
-	case opts.Section != "":
+	case "section":
 		newContent, err = replaceSection(content, opts.Section, opts.LineText)
 		if err != nil {
 			return nil, err
 		}
-	case opts.LineNum > 0:
+	case "line":
 		newContent, err = replaceLine(content, opts.LineNum, opts.LineText)
 		if err != nil {
 			return nil, err
 		}
-	case opts.Find != "":
+	case "find_replace":
 		newContent, err = findAndReplace(content, opts.Find, opts.Replace)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	_, err = UpdatePageWithOptions(projectName, slug, "", newContent, nil, PageChangeOptions{
+	// Preserve the page's existing tags. Passing nil here used to wipe them
+	// (SetTags(nil) -> NULL column) on every partial edit.
+	_, err = UpdatePageWithOptions(projectName, slug, "", newContent, page.Tags, PageChangeOptions{
 		Summary: opts.Summary,
 		Author:  opts.Author,
 	})
@@ -133,55 +188,118 @@ func appendContent(content, text string) string {
 	return content + "\n" + text
 }
 
-// replaceSection replaces the content under a markdown section header (## heading).
+// normalizeSectionName strips markdown heading markers and surrounding
+// whitespace so callers can pass either "My Section" or "## My Section".
+func normalizeSectionName(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.TrimLeft(name, "#")
+	return strings.TrimSpace(name)
+}
+
+// headingLevel returns the number of leading '#' in a markdown heading line,
+// or 0 if the line is not a heading. A heading requires a space/tab (or end of
+// line) after the '#' run, so "##hashtag" is not a heading.
+func headingLevel(line string) int {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "#") {
+		return 0
+	}
+	level := 0
+	for level < len(trimmed) && trimmed[level] == '#' {
+		level++
+	}
+	if level == len(trimmed) || trimmed[level] == ' ' || trimmed[level] == '\t' {
+		return level
+	}
+	return 0
+}
+
+// headingText returns the text of a markdown heading line (without the '#' run).
+func headingText(line string) string {
+	level := headingLevel(line)
+	if level == 0 {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimSpace(line)[level:])
+}
+
+// availableHeadings lists the text of all markdown headings in content.
+func availableHeadings(content string) []string {
+	var names []string
+	for _, line := range strings.Split(content, "\n") {
+		if headingLevel(line) > 0 {
+			if t := headingText(line); t != "" {
+				names = append(names, t)
+			}
+		}
+	}
+	return names
+}
+
+// replaceSection replaces the body of the markdown section whose heading text
+// matches sectionName, in place. The section may be any heading level; the
+// replaced range runs until the next heading of the same or higher level
+// (deeper subsections are included). Only the first matching section is
+// replaced. An empty newText clears the section body (the heading is kept).
+// The section name may be given with or without the "##" prefix.
 func replaceSection(content, sectionName, newText string) (string, error) {
+	target := normalizeSectionName(sectionName)
+	if target == "" {
+		return "", fmt.Errorf("section name is empty")
+	}
+
+	body := strings.Trim(newText, "\n")
+
+	// Replacement blocks: a blank line after the heading, the new body, and a
+	// trailing blank line when more content follows.
+	blockMid := []string{""}
+	if body != "" {
+		blockMid = append(blockMid, body, "")
+	}
+	blockEnd := []string{""}
+	if body != "" {
+		blockEnd = append(blockEnd, body)
+	}
+
 	lines := strings.Split(content, "\n")
 	var result []string
 	sectionFound := false
-	skipping := false
+	inSection := false
 	sectionLevel := 0
 
 	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
+		level := headingLevel(line)
 
-		if strings.HasPrefix(trimmed, "##") && !strings.HasPrefix(trimmed, "###") {
-			headerName := strings.TrimSpace(strings.TrimPrefix(trimmed, "##"))
-			if headerName == sectionName || headerName == fmt.Sprintf("# %s", sectionName) {
-				sectionFound = true
-				sectionLevel = strings.Count(trimmed, "#")
+		if inSection {
+			if level > 0 && level <= sectionLevel {
+				// The section ends at the next same-or-higher-level heading.
+				inSection = false
+				result = append(result, blockMid...)
 				result = append(result, line)
-				skipping = true
 				continue
 			}
-		}
-
-		if skipping {
-			if strings.HasPrefix(trimmed, "#") {
-				currentLevel := strings.Count(trimmed, "#")
-				if currentLevel <= sectionLevel {
-					skipping = false
-				}
-			}
-			if !skipping {
-				result = append(result, line)
-			}
+			// Body lines (including deeper subsections) are replaced: dropped.
 			continue
 		}
 
+		if !sectionFound && level > 0 && headingText(line) == target {
+			sectionFound = true
+			sectionLevel = level
+			inSection = true
+			result = append(result, line)
+			continue
+		}
 		result = append(result, line)
 	}
 
 	if !sectionFound {
-		return "", fmt.Errorf("section %q not found in page", sectionName)
+		return "", fmt.Errorf("section %q not found in page (available sections: %s)", sectionName, strings.Join(availableHeadings(content), ", "))
+	}
+	if inSection {
+		result = append(result, blockEnd...)
 	}
 
-	newContent := strings.Join(result, "\n")
-	if !strings.HasSuffix(strings.TrimSpace(newContent), "\n") {
-		newContent += "\n"
-	}
-	newContent += newText
-
-	return newContent, nil
+	return strings.Join(result, "\n"), nil
 }
 
 // replaceLine replaces a specific line (1-indexed) in the content.
@@ -194,31 +312,29 @@ func replaceLine(content string, lineNum int, newText string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-// findAndReplace replaces the first line matching the given pattern.
+// findAndReplace replaces the first region of content matching the pattern.
+//
+// The pattern is a regular expression applied to the whole content, so it can
+// match within a line or across multiple lines (e.g. "a\nb" or "[^\n]*old[^\n]*\n[^\n]*").
+// The matched region is replaced with the replacement text, which may itself
+// contain newlines (adding/removing lines) or "$1"-style backreferences to the
+// pattern's capture groups. An empty replacement deletes the matched region.
+//
+// Only the first match is replaced.
 func findAndReplace(content, pattern, replacement string) (string, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return "", fmt.Errorf("invalid regex pattern %q: %w", pattern, err)
 	}
 
-	lines := strings.Split(content, "\n")
-	replaced := false
-	var result []string
-
-	for _, line := range lines {
-		if !replaced && re.MatchString(line) {
-			result = append(result, re.ReplaceAllString(line, replacement))
-			replaced = true
-		} else {
-			result = append(result, line)
-		}
+	loc := re.FindStringIndex(content)
+	if loc == nil {
+		return "", fmt.Errorf("no text matched pattern %q", pattern)
 	}
 
-	if !replaced {
-		return "", fmt.Errorf("no line matched pattern %q", pattern)
-	}
-
-	return strings.Join(result, "\n"), nil
+	// Run the replacement on the matched region so capture-group
+	// backreferences ($1, ...) resolve against the match's own groups.
+	return content[:loc[0]] + re.ReplaceAllString(content[loc[0]:loc[1]], replacement) + content[loc[1]:], nil
 }
 
 // GetPageContent retrieves just the content of a wiki page for editing purposes.

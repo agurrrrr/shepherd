@@ -82,7 +82,10 @@ func getWikiToolsList() []Tool {
 			Name: "wiki_edit",
 			Description: "한 호출에 모드 하나만. 대량 덮어쓰기 대신 append 우선 권장. " +
 				"mode=append→text; mode=section→section+line_text; mode=line→line_num+line_text; " +
-				"mode=find_replace→find+replace. 모드와 무관한 필드는 무시된다.",
+				"mode=find_replace→find+replace. 모드와 무관한 필드는 무시된다. " +
+				"find_replace: find는 전체 본문에 적용되는 정규식이라 다행(여러 줄) 매칭·삭제 가능. " +
+				"replace에 빈 문자열(\"\")을 명시하면 매칭 부분을 삭제한다. replace는 다행 문자열과 $1 백레퍼런스 지원. " +
+				"section: 헤딩 텍스트만 전달(\"## \" 불필요, 붙여도 됨) — 해당 절 본문을 제자리에서 교체한다.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -94,11 +97,11 @@ func getWikiToolsList() []Tool {
 						Description: "Edit mode (exactly one per call)",
 					},
 					"text":      {Type: "string", Description: "Text to append (mode=append)"},
-					"section":   {Type: "string", Description: "Section header name (mode=section)"},
+					"section":   {Type: "string", Description: "Section heading text (mode=section), e.g. \"Details\" (\"## Details\" also accepted)"},
 					"line_num":  {Type: "number", Description: "1-based line number (mode=line)"},
-					"line_text": {Type: "string", Description: "New line/section content (mode=section|line)"},
-					"find":      {Type: "string", Description: "Regex to find (mode=find_replace)"},
-					"replace":   {Type: "string", Description: "Replacement text (mode=find_replace)"},
+					"line_text": {Type: "string", Description: "New line/section content (mode=section|line). Empty in section mode clears the section body."},
+					"find":      {Type: "string", Description: "Regex applied to the whole page content (mode=find_replace); can match across lines"},
+					"replace":   {Type: "string", Description: "Replacement text (mode=find_replace); may span lines and use $1 backreferences. Pass \"\" to delete the match."},
 					"summary":   {Type: "string", Description: "Change summary for version history"},
 				},
 				Required: []string{"project_name", "slug", "mode"},
@@ -252,21 +255,31 @@ func handleWikiEdit(args map[string]interface{}) (string, error) {
 	}
 
 	opts := &wiki.PartialEditOptions{
+		Mode:    mode, // explicit mode: empty replace/line-text mean delete/clear
 		Summary: toString(args["summary"]),
 	}
-	// mode에 맞는 필드만 세팅 → validate()가 단일 모드 강제. 모드 무관 필드는 무시.
+	// mode에 맞는 필드만 세팅 → validate()가 각 모드 필수 필드 검사. 모드 무관 필드는 무시.
 	switch mode {
 	case "append":
 		opts.Append = toString(args["text"])
 	case "section":
 		opts.Section = toString(args["section"])
 		opts.LineText = toString(args["line_text"])
+		if _, ok := args["line_text"]; ok {
+			opts.LineTextSet = true // present-but-empty clears the section body
+		}
 	case "line":
 		opts.LineNum = toInt(args["line_num"])
 		opts.LineText = toString(args["line_text"])
+		if _, ok := args["line_text"]; ok {
+			opts.LineTextSet = true
+		}
 	case "find_replace":
 		opts.Find = toString(args["find"])
 		opts.Replace = toString(args["replace"])
+		if _, ok := args["replace"]; ok {
+			opts.ReplaceSet = true // present-but-empty deletes the match
+		}
 	default:
 		return "", fmt.Errorf("invalid mode %q: must be append|section|line|find_replace", mode)
 	}

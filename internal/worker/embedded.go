@@ -283,7 +283,7 @@ Wiki:
 - wiki_list_pages: List wiki pages for a project (project_name)
 - wiki_search: Search wiki pages by query (project_name, query)
 - wiki_create: Create a new wiki page (project_name, slug, title, content, [category], [tags])
-- wiki_edit: Partially edit a page — one mode per call (project_name, slug, mode=append|section|line|find_replace, ...)
+- wiki_edit: Partially edit a page — one mode per call (project_name, slug, mode=append|section|line|find_replace, ...). find_replace: find is a regex on the whole page (multiline matches OK); empty replace deletes the match; section replaces the named section's body in place.
 
 Issues:
 - issue_list: List issues (project_name, [status], [type], [query])

@@ -189,7 +189,7 @@ func TestFindAndReplace(t *testing.T) {
 		pattern     string
 		replacement string
 		wantErr     bool
-		wantLine    string
+		want        string
 	}{
 		{
 			name:        "simple match",
@@ -197,7 +197,7 @@ func TestFindAndReplace(t *testing.T) {
 			pattern:     "world",
 			replacement: "there",
 			wantErr:     false,
-			wantLine:    "hello there",
+			want:        "hello there\nfoo bar\nbaz",
 		},
 		{
 			name:        "regex match",
@@ -205,7 +205,7 @@ func TestFindAndReplace(t *testing.T) {
 			pattern:     "alice",
 			replacement: "charlie",
 			wantErr:     false,
-			wantLine:    "user: charlie",
+			want:        "user: charlie\nuser: bob",
 		},
 		{
 			name:        "no match",
@@ -227,7 +227,47 @@ func TestFindAndReplace(t *testing.T) {
 			pattern:     "foo",
 			replacement: "bar",
 			wantErr:     false,
-			wantLine:    "bar",
+			want:        "bar\nfoo\nfoo",
+		},
+		{
+			name:        "multiline pattern matches across lines",
+			content:     "keep one\nold line a\nold line b\nkeep two",
+			pattern:     "old line a\nold line b",
+			replacement: "new line",
+			wantErr:     false,
+			want:        "keep one\nnew line\nkeep two",
+		},
+		{
+			name:        "multiline replacement adds lines",
+			content:     "a\nb",
+			pattern:     "b",
+			replacement: "b1\nb2\nb3",
+			wantErr:     false,
+			want:        "a\nb1\nb2\nb3",
+		},
+		{
+			name:        "empty replacement deletes the match",
+			content:     "a\njunk line\nc",
+			pattern:     "\njunk line",
+			replacement: "",
+			wantErr:     false,
+			want:        "a\nc",
+		},
+		{
+			name:        "backreference keeps the rest of the line",
+			content:     "prefix=old;suffix=1",
+			pattern:     "prefix=([^;]*);",
+			replacement: "prefix=new;",
+			wantErr:     false,
+			want:        "prefix=new;suffix=1",
+		},
+		{
+			name:        "capture group backreference in replacement",
+			content:     "date: 2026-01-02",
+			pattern:     "date: (\\d{4})-(\\d{2})-(\\d{2})",
+			replacement: "date: $3/$2/$1",
+			wantErr:     false,
+			want:        "date: 02/01/2026",
 		},
 	}
 
@@ -238,18 +278,8 @@ func TestFindAndReplace(t *testing.T) {
 				t.Errorf("findAndReplace() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr && tt.wantLine != "" {
-				lines := strings.Split(got, "\n")
-				found := false
-				for _, line := range lines {
-					if line == tt.wantLine {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Errorf("findAndReplace() result does not contain %q, got %q", tt.wantLine, got)
-				}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("findAndReplace() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -269,46 +299,115 @@ More details.
 That's it.
 `
 
+	subContent := `# Title
+
+## Section A
+body A
+
+### Sub A1
+sub body
+
+## Section B
+body B
+`
+
 	tests := []struct {
-		name        string
-		section     string
-		newText     string
-		wantErr     bool
-		wantContain string
+		name    string
+		content string
+		section string
+		newText string
+		want    string
+		wantErr string
 	}{
 		{
-			name:        "replace intro section",
-			section:     "Introduction",
-			newText:     "New introduction content.",
-			wantErr:     false,
-			wantContain: "New introduction content.",
+			name:    "replace middle section keeps adjacent sections",
+			content: content,
+			section: "Details",
+			newText: "Updated details.",
+			want: `# Title
+
+## Introduction
+This is the intro.
+
+## Details
+
+Updated details.
+
+## Conclusion
+That's it.
+`,
 		},
 		{
-			name:        "replace details section",
-			section:     "Details",
-			newText:     "Updated details.",
-			wantErr:     false,
-			wantContain: "Updated details.",
+			name:    "replace last section",
+			content: content,
+			section: "Conclusion",
+			newText: "New conclusion.",
+			want:    "# Title\n\n## Introduction\nThis is the intro.\n\n## Details\nSome details here.\nMore details.\n\n## Conclusion\n\nNew conclusion.",
 		},
 		{
-			name:    "section not found",
+			name:    "heading prefix in section name is accepted",
+			content: content,
+			section: "## Details",
+			newText: "Updated details.",
+			want: `# Title
+
+## Introduction
+This is the intro.
+
+## Details
+
+Updated details.
+
+## Conclusion
+That's it.
+`,
+		},
+		{
+			name:    "empty line text clears the section body",
+			content: content,
+			section: "Details",
+			newText: "",
+			want: `# Title
+
+## Introduction
+This is the intro.
+
+## Details
+
+## Conclusion
+That's it.
+`,
+		},
+		{
+			name:    "deeper subsections are part of the replaced range",
+			content: subContent,
+			section: "Section A",
+			newText: "new A",
+			want:    "# Title\n\n## Section A\n\nnew A\n\n## Section B\nbody B\n",
+		},
+		{
+			name:    "section not found lists available sections",
+			content: content,
 			section: "NonExistent",
 			newText: "x",
-			wantErr: true,
+			wantErr: `section "NonExistent" not found in page (available sections: Title, Introduction, Details, Conclusion)`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := replaceSection(content, tt.section, tt.newText)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("replaceSection() error = %v, wantErr %v", err, tt.wantErr)
+			got, err := replaceSection(tt.content, tt.section, tt.newText)
+			if (err != nil) != (tt.wantErr != "") {
+				t.Fatalf("replaceSection() error = %v, wantErr %q", err, tt.wantErr)
+			}
+			if tt.wantErr != "" {
+				if err.Error() != tt.wantErr {
+					t.Errorf("replaceSection() error = %q, want %q", err.Error(), tt.wantErr)
+				}
 				return
 			}
-			if !tt.wantErr && tt.wantContain != "" {
-				if !strings.Contains(got, tt.wantContain) {
-					t.Errorf("replaceSection() result does not contain %q, got\n%s", tt.wantContain, got)
-				}
+			if got != tt.want {
+				t.Errorf("replaceSection() = %q, want %q", got, tt.want)
 			}
 		})
 	}

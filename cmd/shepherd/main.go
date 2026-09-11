@@ -3989,6 +3989,14 @@ var wikiEditCmd = &cobra.Command{
 			Summary:  wikiEditSummary,
 			Author:   wikiEditAuthor,
 		}
+		// Distinguish "flag passed with an empty value" (delete/clear) from
+		// "flag absent" (validation error).
+		if cmd.Flags().Changed("replace") {
+			opts.ReplaceSet = true
+		}
+		if cmd.Flags().Changed("line-text") {
+			opts.LineTextSet = true
+		}
 
 		page, err := wiki.PartiallyEditPage(wikiEditProject, slug, opts)
 		if err != nil {
@@ -4307,11 +4315,11 @@ func init() {
 	wikiInitCmd.Flags().StringVarP(&wikiInitProject, "project", "p", "", "Project name (required)")
 	wikiEditCmd.Flags().StringVarP(&wikiEditProject, "project", "p", "", "Project name (required)")
 	wikiEditCmd.Flags().StringVarP(&wikiEditAppend, "append", "a", "", "Append text to end of page")
-	wikiEditCmd.Flags().StringVarP(&wikiEditSection, "section", "s", "", "Replace content under section header (use with --line-text)")
+	wikiEditCmd.Flags().StringVarP(&wikiEditSection, "section", "s", "", "Replace the body of the section with this heading text (any level; \"## \" prefix optional)")
 	wikiEditCmd.Flags().IntVarP(&wikiEditLine, "line", "l", 0, "Replace line at given number (1-indexed, use with --line-text)")
-	wikiEditCmd.Flags().StringVar(&wikiEditLineText, "line-text", "", "New text for --section or --line replacement")
-	wikiEditCmd.Flags().StringVarP(&wikiEditFind, "find", "f", "", "Pattern to find (regex, use with --replace)")
-	wikiEditCmd.Flags().StringVarP(&wikiEditReplace, "replace", "r", "", "Replacement text for --find")
+	wikiEditCmd.Flags().StringVar(&wikiEditLineText, "line-text", "", "New text for --section or --line. Empty value with --section clears the section body")
+	wikiEditCmd.Flags().StringVarP(&wikiEditFind, "find", "f", "", "Pattern to find (regex applied to the whole page; can match across lines)")
+	wikiEditCmd.Flags().StringVarP(&wikiEditReplace, "replace", "r", "", "Replacement text for --find (may span lines, supports $1 backreferences). Empty value deletes the match")
 	wikiEditCmd.Flags().StringVarP(&wikiEditSummary, "summary", "S", "", "Change summary for version history")
 	wikiEditCmd.Flags().StringVar(&wikiEditAuthor, "author", "", "Author name for version history")
 	wikiHistoryCmd.Flags().StringVarP(&wikiHistoryProject, "project", "p", "", "Project name (required)")
