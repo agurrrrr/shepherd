@@ -19,6 +19,7 @@ import (
 
 	"github.com/agurrrrr/shepherd/ent"
 	"github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/internal/apiclient"
 	"github.com/agurrrrr/shepherd/internal/browser"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/daemon"
@@ -1661,25 +1662,15 @@ func autoInitProject() (string, string, error) {
 
 // runChatMode runs the interactive chat interface.
 func runChatMode() {
-	// Recover from abnormal termination before starting chat mode
-	recoverFromAbnormalTermination(false)
-
-	// Current directory
-	cwd, _ := os.Getwd()
+	cwd := requireDaemon()
 	cwdName := filepath.Base(cwd)
 
 	// Welcome message
 	fmt.Println()
-	fmt.Println("🐏 Shepherd - AI Coding Orchestration")
+	fmt.Println("🐏 Shepherd — Embedded Coding Agent")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("📁 Current directory: %s\n", cwd)
-
-	// Display project status
-	projects, _ := project.List()
-	sheepList, _ := worker.List()
-	fmt.Printf("📊 Projects: %d, Sheep: %d\n", len(projects), len(sheepList))
-	fmt.Println()
-	fmt.Println("Commands: exit, status, projects, help")
+	fmt.Printf("📁 Working directory: %s\n", cwd)
+	fmt.Println("Commands: exit, status, clear, help")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
 
@@ -1696,8 +1687,7 @@ func runChatMode() {
 	}
 	defer rl.Close()
 
-	// Set global readline instance (used in interactive execution)
-	chatReadline = rl
+	client := apiclient.New()
 
 	for {
 		line, err := rl.Readline()
@@ -1735,39 +1725,16 @@ func runChatMode() {
 			printStatus()
 			continue
 
-		case "projects":
-			printProjects()
-			continue
-
-		case "flock":
-			printFlock()
-			continue
-
-		case "log", "logs", "history":
-			printTaskLog()
-			continue
-
 		case "clear", "cls":
 			fmt.Print("\033[H\033[2J")
 			continue
 		}
 
-		// Handle natural language commands related to task logs
-		lowered := strings.ToLower(input)
-		if strings.Contains(lowered, "task") && (strings.Contains(lowered, "done") || strings.Contains(lowered, "list") || strings.Contains(lowered, "completed")) {
-			printTaskLog()
-			continue
-		}
-
-		// Query specific task details (e.g., "#10 detail", "task 10")
-		if taskID := extractTaskID(input); taskID > 0 {
-			printTaskDetail(taskID)
-			continue
-		}
-
-		// Execute general task (interactive mode)
+		// Execute in the current directory via the daemon
 		fmt.Println()
-		executeTaskInteractive(input, rl)
+		if err := runEmbeddedStream(client, cwd, input); err != nil {
+			fmt.Fprintf(os.Stderr, "\n❌ %v\n", err)
+		}
 		fmt.Println()
 	}
 }
@@ -1775,23 +1742,17 @@ func runChatMode() {
 // printChatHelp prints help message for chat mode.
 func printChatHelp() {
 	fmt.Println()
-	fmt.Println("🐏 Shepherd Interactive Mode Help")
+	fmt.Println("🐏 Shepherd — Embedded Coding Agent Help")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
-	fmt.Println("💬 Request tasks in natural language:")
+	fmt.Println("💬 Request work in natural language. Each request runs in the current")
+	fmt.Println("   directory via the shepherd daemon:")
 	fmt.Println("   \"Add login feature\"")
 	fmt.Println("   \"Fix the bug\"")
 	fmt.Println("   \"Write tests\"")
 	fmt.Println()
-	fmt.Println("📁 Project management:")
-	fmt.Println("   \"Register project\"")
-	fmt.Println("   \"Delete project\"")
-	fmt.Println("   \"Show project list\"")
-	fmt.Println()
 	fmt.Println("⌨️  Built-in commands:")
 	fmt.Println("   status    - Show overall status")
-	fmt.Println("   projects  - List projects")
-	fmt.Println("   flock     - List sheep")
 	fmt.Println("   clear     - Clear screen")
 	fmt.Println("   help      - Show this help")
 	fmt.Println("   exit      - Quit")
@@ -2018,139 +1979,93 @@ func printTaskLog() {
 
 // executeTask executes a task through the full workflow.
 func executeTask(prompt string) {
-	// Recover from abnormal termination before single task execution
-	recoverFromAbnormalTermination(false)
+	cwd := requireDaemon()
 
-	fmt.Println("🐕 Shepherd is analyzing the task...")
+	fmt.Printf("🐏 Running in %s\n\n", cwd)
 
-	// Classify intent first
-	intent := classifyUserIntent(prompt)
-
-	// Handle shepherd commands and exit
-	if handleShepherdCommand(intent, prompt) {
-		return
-	}
-
-	// Proceed with coding task
-	// Check for existing projects/sheep
-	projects, _ := project.List()
-	sheepList, _ := worker.List()
-
-	// No projects or sheep: auto-register current directory
-	if len(projects) == 0 || len(sheepList) == 0 {
-		fmt.Println("📁 No projects found. Auto-registering current directory...")
-		_, _, err := autoInitProject()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Auto-registration failed: %v\n", err)
-			fmt.Println()
-			fmt.Println("To register manually:")
-			fmt.Println("   shepherd init")
-			os.Exit(1)
-		}
-		fmt.Println()
-		// Continue (re-fetch projects and sheep)
-		projects, _ = project.List()
-		sheepList, _ = worker.List()
-	}
-
-	// 1. Shepherd analyzes task and decides assignment
-	decision, err := manager.Analyze(prompt)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to analyze task: %v\n", err)
+	client := apiclient.New()
+	if err := runEmbeddedStream(client, cwd, prompt); err != nil {
+		fmt.Fprintf(os.Stderr, "\n❌ %v\n", err)
 		os.Exit(1)
 	}
+}
 
-	fmt.Printf("📋 %s\n", decision.Reason)
-	fmt.Printf("🐏 %s will work on %s\n\n", decision.SheepName, decision.ProjectName)
-
-	// 2. Assign sheep to project (if not already assigned)
-	proj, err := project.Get(decision.ProjectName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to find project: %v\n", err)
-		os.Exit(1)
-	}
-
-	sheep, err := worker.Get(decision.SheepName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to find sheep: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Re-assign if sheep is assigned to a different project
-	if sheep.Edges.Project == nil || sheep.Edges.Project.ID != proj.ID {
-		if err := project.AssignSheep(decision.ProjectName, decision.SheepName); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to assign sheep: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-	// 3. Add to task queue
-	task, err := queue.CreateTask(prompt, sheep.ID, proj.ID)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create task: %v\n", err)
-		os.Exit(1)
-	}
-
-	// 4. Check if sheep is currently working
-	isWorking, err := worker.IsWorking(decision.SheepName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to check sheep status: %v\n", err)
-		os.Exit(1)
-	}
-
-	if isWorking {
-		// Sheep is busy: wait in queue
-		pendingCount, _ := queue.CountPendingTasksBySheep(sheep.ID)
-		fmt.Printf("⏸ %s is currently working. Added to queue (pending: %d)\n", decision.SheepName, pendingCount)
-		fmt.Println("   Will start automatically when the previous task completes.")
-
-		// Wait while checking sheep status
-		for {
-			time.Sleep(2 * time.Second)
-			isWorking, err = worker.IsWorking(decision.SheepName)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to check sheep status: %v\n", err)
-				os.Exit(1)
+// runEmbeddedStream runs the embedded agent in projectPath through the daemon
+// and streams its output to stdout. It is shared by single-shot and REPL
+// execution. It returns an error when the run fails (connection or agent
+// error); output events are printed as they arrive.
+func runEmbeddedStream(client *apiclient.Client, projectPath, prompt string) error {
+	var agentErr error
+	err := client.RunEmbedded(context.Background(), projectPath, prompt, "", func(eventType string, data json.RawMessage) {
+		switch eventType {
+		case "output":
+			var ev struct {
+				Text string `json:"text"`
 			}
-			if !isWorking {
-				break
+			if json.Unmarshal(data, &ev) == nil {
+				fmt.Print(ev.Text)
+			}
+		case "done":
+			var ev struct {
+				Result           string   `json:"result"`
+				FilesModified    []string `json:"files_modified"`
+				CostUSD          float64  `json:"cost_usd"`
+				Incomplete       bool     `json:"incomplete"`
+				IncompleteReason string   `json:"incomplete_reason"`
+			}
+			if json.Unmarshal(data, &ev) == nil {
+				printEmbeddedSummary(ev.Result, ev.FilesModified, ev.CostUSD, ev.Incomplete, ev.IncompleteReason)
+			}
+		case "error":
+			var ev struct {
+				Message string `json:"message"`
+			}
+			if json.Unmarshal(data, &ev) == nil {
+				agentErr = fmt.Errorf("%s", ev.Message)
 			}
 		}
-		fmt.Printf("🐏 %s is ready. Starting task...\n", decision.SheepName)
+	})
+	if err != nil {
+		return err
 	}
+	return agentErr
+}
 
-	// 5. Start task
-	if err := queue.StartTask(task.ID); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start task: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("⏸ Task in progress...")
+// printEmbeddedSummary prints the closing summary of an embedded run.
+func printEmbeddedSummary(result string, filesModified []string, cost float64, incomplete bool, incompleteReason string) {
 	fmt.Println()
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	if incomplete {
+		fmt.Printf("⚠️  Incomplete: %s\n", incompleteReason)
+	} else {
+		fmt.Println("✅ Done")
+	}
+	if len(filesModified) > 0 {
+		fmt.Printf("📁 Modified: %s\n", strings.Join(filesModified, ", "))
+	}
+	if cost > 0 {
+		fmt.Printf("💰 Cost: $%.4f\n", cost)
+	}
+	if result != "" {
+		fmt.Printf("📝 %s\n", truncate(result, 300))
+	}
+}
 
-	// 6. Execute Claude Code
-	result, err := worker.Execute(decision.SheepName, prompt)
+// requireDaemon returns the current working directory and exits with a clear
+// message when the daemon is not running. The direct embedded path is served
+// by the daemon, which owns the provider/MCP/queue wiring.
+func requireDaemon() string {
+	if !daemon.IsRunning() {
+		fmt.Fprintln(os.Stderr, "❌ shepherd daemon is not running.")
+		fmt.Fprintln(os.Stderr, "   Start it with: shepherd serve")
+		os.Exit(1)
+	}
+	cwd, err := os.Getwd()
 	if err != nil {
-		// Handle task failure
-		_ = queue.FailTask(task.ID, err.Error())
-		fmt.Fprintf(os.Stderr, "❌ Task failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to get working directory: %v\n", err)
 		os.Exit(1)
 	}
-
-	// 7. Complete task
-	if err := queue.CompleteTask(task.ID, result.Result, result.FilesModified); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to complete task: %v\n", err)
-		os.Exit(1)
-	}
-
-	// 8. Display results
-	fmt.Printf("✅ %s task completed\n", decision.SheepName)
-	if len(result.FilesModified) > 0 {
-		fmt.Printf("   Modified: %s\n", strings.Join(result.FilesModified, ", "))
-	}
-	if result.Result != "" {
-		fmt.Printf("   Summary: %s\n", truncate(result.Result, 200))
-	}
+	return cwd
 }
 
 // findIdleSheep finds an idle sheep not assigned to any project.
@@ -2189,206 +2104,6 @@ func extractRepoName(gitURL string) string {
 		return url[idx+1:]
 	}
 	return url
-}
-
-// executeTaskInteractive executes a task with interactive Claude Code session.
-// This is used in chat mode to allow Q&A between Claude and the user.
-func executeTaskInteractive(prompt string, rl *readline.Instance) {
-	fmt.Println("🐕 Shepherd is analyzing the task...")
-
-	// Classify intent first
-	intent := classifyUserIntent(prompt)
-
-	// Handle shepherd commands and exit
-	if handleShepherdCommand(intent, prompt) {
-		return
-	}
-
-	// Proceed with coding task
-	projects, _ := project.List()
-	sheepList, _ := worker.List()
-
-	// No projects or sheep: auto-register current directory
-	if len(projects) == 0 || len(sheepList) == 0 {
-		fmt.Println("📁 No projects found. Auto-registering current directory...")
-		_, _, err := autoInitProject()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Auto-registration failed: %v\n", err)
-			return
-		}
-		fmt.Println()
-	}
-
-	// Shepherd analyzes task and decides assignment
-	decision, err := manager.Analyze(prompt)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to analyze task: %v\n", err)
-		return
-	}
-
-	fmt.Printf("📋 %s\n", decision.Reason)
-	fmt.Printf("🐏 %s will work on %s\n\n", decision.SheepName, decision.ProjectName)
-
-	// Assign sheep to project
-	proj, err := project.Get(decision.ProjectName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to find project: %v\n", err)
-		return
-	}
-
-	// Use existing sheep if already assigned to the project
-	var actualSheepName string
-	if proj.Edges.Sheep != nil {
-		actualSheepName = proj.Edges.Sheep.Name
-	} else {
-		// Try to assign sheep
-		if err := project.AssignSheep(decision.ProjectName, decision.SheepName); err != nil {
-			// Assignment failed - find or create another sheep
-			idleSheep := findIdleSheep()
-			if idleSheep != "" {
-				if err := project.AssignSheep(decision.ProjectName, idleSheep); err != nil {
-					// Create new sheep
-					newSheep, createErr := worker.Create("")
-					if createErr != nil {
-						fmt.Fprintf(os.Stderr, "Failed to create sheep: %v\n", createErr)
-						return
-					}
-					fmt.Printf("🐏 %s created\n", newSheep.Name)
-					if err := project.AssignSheep(decision.ProjectName, newSheep.Name); err != nil {
-						fmt.Fprintf(os.Stderr, "Failed to assign sheep: %v\n", err)
-						return
-					}
-					actualSheepName = newSheep.Name
-				} else {
-					actualSheepName = idleSheep
-				}
-			} else {
-				// Create new sheep
-				newSheep, createErr := worker.Create("")
-				if createErr != nil {
-					fmt.Fprintf(os.Stderr, "Failed to create sheep: %v\n", createErr)
-					return
-				}
-				fmt.Printf("🐏 %s created\n", newSheep.Name)
-				if err := project.AssignSheep(decision.ProjectName, newSheep.Name); err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to assign sheep: %v\n", err)
-					return
-				}
-				actualSheepName = newSheep.Name
-			}
-		} else {
-			actualSheepName = decision.SheepName
-		}
-	}
-
-	s, err := worker.Get(actualSheepName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to find sheep: %v\n", err)
-		return
-	}
-
-	if actualSheepName != decision.SheepName {
-		fmt.Printf("🐏 %s will work instead\n", actualSheepName)
-	}
-
-	// Add to task queue
-	task, err := queue.CreateTask(prompt, s.ID, proj.ID)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create task: %v\n", err)
-		return
-	}
-
-	// Check if sheep is currently working
-	isWorking, err := worker.IsWorking(actualSheepName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to check sheep status: %v\n", err)
-		return
-	}
-
-	if isWorking {
-		// Sheep is busy: wait in queue
-		pendingCount, _ := queue.CountPendingTasksBySheep(s.ID)
-		fmt.Printf("⏸ %s is currently working. Added to queue (pending: %d)\n", actualSheepName, pendingCount)
-		fmt.Println("   Will start automatically when the previous task completes.")
-
-		// Wait while checking sheep status
-		for {
-			time.Sleep(2 * time.Second)
-			isWorking, err = worker.IsWorking(actualSheepName)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to check sheep status: %v\n", err)
-				return
-			}
-			if !isWorking {
-				break
-			}
-		}
-		fmt.Printf("🐏 %s is ready. Starting task...\n", actualSheepName)
-	}
-
-	if err := queue.StartTask(task.ID); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start task: %v\n", err)
-		return
-	}
-
-	fmt.Println("⏸ Task in progress...")
-	fmt.Println()
-
-	// Configure interactive execution options
-	opts := worker.DefaultInteractiveOptions(
-		// Output handler - display Claude's output to user
-		func(output string) {
-			fmt.Print(output)
-		},
-		// Input handler - get user input when Claude asks a question
-		func(promptText string) (string, error) {
-			rl.SetPrompt("   💬 답변 > ")
-			defer rl.SetPrompt(fmt.Sprintf("\033[36m%s\033[0m 🐏 > ", filepath.Base(proj.Path)))
-
-			line, err := rl.Readline()
-			if err != nil {
-				return "", err
-			}
-			return strings.TrimSpace(line), nil
-		},
-	)
-
-	// Execute interactive Claude Code (using actualSheepName!)
-	result, err := worker.ExecuteInteractive(actualSheepName, prompt, opts)
-	if err != nil {
-		_ = queue.FailTask(task.ID, err.Error())
-		fmt.Fprintf(os.Stderr, "\n❌ Task failed: %v\n", err)
-		return
-	}
-
-	// Complete task
-	var filesModified []string
-	var summary string
-	if result != nil {
-		filesModified = result.FilesModified
-		summary = result.Result
-	}
-
-	if err := queue.CompleteTask(task.ID, summary, filesModified); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to complete task: %v\n", err)
-		return
-	}
-
-	// Display results
-	fmt.Printf("\n✅ %s task completed\n", actualSheepName)
-	if result != nil {
-		if result.Result != "" {
-			// Display result summary (max 500 chars)
-			resultText := result.Result
-			if len(resultText) > 500 {
-				resultText = resultText[:500] + "..."
-			}
-			fmt.Printf("\n📝 Result:\n%s\n", resultText)
-		}
-		if len(result.FilesModified) > 0 {
-			fmt.Printf("\n📁 Modified files: %s\n", strings.Join(result.FilesModified, ", "))
-		}
-	}
 }
 
 // status command
