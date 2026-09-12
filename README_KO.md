@@ -14,7 +14,7 @@ Shepherd는 여러 AI 코딩 에이전트("양")를 서로 다른 코드베이�
 
 - **Web UI** *(주력)* — 실시간 스트리밍, 작업 관리, 프로젝트 git, 파일 브라우저, 이슈, 위키, 스케줄, 스킬을 갖춘 대시보드
 - **MCP 서버** — Claude Desktop 등 MCP 클라이언트와 통합
-- **CLI** — 직접 명령 및 레거시 대화형/TUI 모드
+- **CLI** — 프로젝트 폴더에서 `shepherd`를 실행하면 임베디드 코딩 에이전트가 동작하며, 직접 관리 명령도 제공합니다
 
 ### 핵심 개념
 
@@ -314,6 +314,20 @@ systemctl --user enable --now shepherd
 
 주력 UI는 Web UI이지만, 동일 작업은 CLI로도 가능합니다.
 
+### 임베디드 코딩 에이전트 (프로젝트 폴더에서 실행)
+
+CLI는 데몬의 임베디드 에이전트에 붙는 얇은 클라이언트입니다. 프로젝트 등록,
+양 할당, 큐가 필요하지 않으며, 현재 디렉토리가 곧 작업 디렉토리입니다.
+
+```bash
+cd ~/code/myproject
+shepherd                  # 대화형 REPL, 각 입력은 현재 디렉토리에서 실행됩니다
+shepherd "로그인 버그 수정"      # 단일 실행, 출력 스트리밍
+```
+
+데몬이 실행 중이어야 합니다(`shepherd serve`). 프로바이더·MCP·스킬 배선은
+데몬에 남아 있으므로 CLI가 데몬 상태를 훼손하지 않습니다.
+
 ### 양 관리
 
 ```bash
@@ -340,8 +354,8 @@ shepherd project assign <project> <sheep>        # 양 배정
 ### 작업 실행 & 큐
 
 ```bash
-shepherd "<task>"                 # 작업 제출 (매니저 자동 라우팅)
-shepherd task "<task>"            # 명시적 task 명령
+shepherd "<task>"                 # 현재 디렉토리에서 임베디드 에이전트 실행
+shepherd task "<task>"            # 명시적 task 명령 (동일한 cwd 경로)
 shepherd task detail <id>         # 작업 상세
 shepherd task stop <id>           # 실행 중 작업 중지
 shepherd queue add <project> "<prompt>"          # 큐에 추가
@@ -369,7 +383,6 @@ shepherd config path              # 설정 파일 경로
 shepherd recover                  # 고착 양/작업 복구
 shepherd mcp                      # MCP 서버로 실행
 shepherd skill list               # 스킬 목록
-shepherd tui                      # 레거시 터미널 UI
 shepherd --version                # 버전
 ```
 
@@ -545,7 +558,6 @@ shepherd/
 │   ├── server/            # Fiber HTTP, SSE, auth, 핸들러
 │   ├── skill/             # 파일 기반 스킬
 │   ├── spec/              # 스펙/템플릿 생성
-│   ├── tui/               # 레거시 Bubbletea TUI
 │   ├── wiki/              # 프로젝트 위키 + 자동 ingest
 │   └── worker/            # 양 실행 & 프로바이더 디스패치
 └── web/                   # Svelte SPA (JS only, TypeScript 없음)
@@ -655,7 +667,8 @@ GET  /api/health
 GET  /api/system/status
 POST /api/system/restart
 GET  /api/events
-POST /api/command
+POST /api/command                  # 자연어 명령 (매니저 라우팅)
+POST /api/embedded/run             # cwd에서 임베디드 에이전트 실행, 요청 단위 SSE
 POST /api/upload
 ```
 

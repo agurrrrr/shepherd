@@ -14,7 +14,7 @@ Three ways to drive it:
 
 - **Web UI** *(primary)* — Full dashboard with real-time streaming, task management, project git views, file browser, issues, wiki, schedules, and skills
 - **MCP Server** — Integrate with Claude Desktop / other MCP clients
-- **CLI** — Direct commands and a legacy interactive/TUI mode
+- **CLI** — `cd` into any project and run `shepherd` for an embedded coding agent, plus direct management commands
 
 ### Core Concepts
 
@@ -316,6 +316,21 @@ systemctl --user enable --now shepherd
 
 The Web UI is the primary interface, but every operation is also available on the CLI.
 
+### Embedded coding agent (run from your project)
+
+The CLI is a thin client for the daemon's embedded agent. There is no project
+registration, sheep assignment, or queue involved: the current directory *is*
+the working directory.
+
+```bash
+cd ~/code/myproject
+shepherd                  # interactive REPL, each line runs in the cwd
+shepherd "Fix the login bug"   # single-shot run, streams output
+```
+
+The daemon must be running (`shepherd serve`). Provider/MCP/skill wiring stays in
+the daemon, so the CLI cannot corrupt daemon state.
+
 ### Sheep Management
 
 ```bash
@@ -342,8 +357,8 @@ shepherd project assign <project> <sheep>        # Assign a sheep to a project
 ### Task Execution & Queue
 
 ```bash
-shepherd "<task>"                 # Submit a task (auto-routed by the manager)
-shepherd task "<task>"            # Explicit task command
+shepherd "<task>"                 # Run the embedded agent in the current directory
+shepherd task "<task>"            # Explicit task command (same cwd path)
 shepherd task detail <id>         # Task details
 shepherd task stop <id>           # Stop a running task
 shepherd queue add <project> "<prompt>"          # Add a task to the queue
@@ -371,7 +386,6 @@ shepherd config path              # Show the config file path
 shepherd recover                  # Recover stuck sheep / tasks
 shepherd mcp                      # Run as an MCP server
 shepherd skill list               # List skills
-shepherd tui                      # Legacy terminal UI dashboard
 shepherd --version                # Show version
 ```
 
@@ -547,7 +561,6 @@ shepherd/
 │   ├── server/            # Fiber HTTP server, SSE, auth, handlers
 │   ├── skill/             # File-based skill system
 │   ├── spec/              # Spec/template generation
-│   ├── tui/               # Legacy Bubbletea terminal UI
 │   ├── wiki/              # Project wiki + auto-ingest
 │   └── worker/            # Sheep execution & provider dispatch
 └── web/                   # Svelte SPA (JavaScript only, no TypeScript)
@@ -657,7 +670,8 @@ GET  /api/health                   # Health check (public)
 GET  /api/system/status            # System stats
 POST /api/system/restart           # Restart daemon
 GET  /api/events                   # SSE stream
-POST /api/command                  # Natural-language command
+POST /api/command                  # Natural-language command (manager routing)
+POST /api/embedded/run             # Embedded agent in cwd, request-scoped SSE
 POST /api/upload                   # File upload (10MB limit)
 ```
 

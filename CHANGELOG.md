@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - MCP server mode for integration with Claude Desktop and other MCP clients
 - Multi-provider support: Claude Code, OpenCode, and auto-select
 - CONTRIBUTING.md and CHANGELOG.md for open-source readiness
+- Direct embedded endpoint `POST /api/embedded/run`: `cd <project> && shepherd` or `shepherd "..."` runs the embedded coding agent in the current directory through the daemon (request-scoped SSE, no project/sheep/queue)
 
 ### Changed
 - All internal error messages and comments converted to English
@@ -22,6 +23,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Internal constants (`ShepherdName`, `ManagerName`) changed from Korean to English
 - Documentation IPs and domains replaced with example placeholders
 - CLI messages internationalized via i18n package (English and Korean)
+- CLI default paths (`shepherd`, `shepherd "..."`, `shepherd task "..."`) are now thin clients for the daemon's embedded agent
+
+### Removed
+- Bubbletea TUI (`internal/tui/`) and the `shepherd tui` command
+- `charmbracelet/bubbletea`, `bubbles`, and `lipgloss` dependencies
 
 ### Security
 - JWT secret auto-generated on server startup if not configured

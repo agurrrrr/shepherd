@@ -5,7 +5,7 @@
 ## Design Principles
 
 1. **All AI interactions go through CLI subprocesses** — no direct API calls, no API key management
-2. **Daemon owns all business logic** — CLI, Web UI, and TUI are pure presentation layers
+2. **Daemon owns all business logic** — CLI, Web UI, and MCP are pure presentation layers
 3. **One sheep per project** — each project gets a dedicated Claude Code worker with persistent session
 4. **Single binary deployment** — Web UI is embedded via `go:embed`
 
@@ -35,7 +35,7 @@
        │              │              │
 ┌──────┴──┐   ┌──────┴──────┐  ┌───┴────────┐
 │  Svelte │   │ Interactive │  │    MCP     │
-│  WebUI  │   │  CLI / TUI  │  │   Server   │
+│  WebUI  │   │  CLI client │  │   Server   │
 │(browser)│   │ (terminal)  │  │  (stdio)   │
 └─────────┘   └─────────────┘  └────────────┘
 ```
@@ -66,6 +66,14 @@
    ├── Summary, modified files, error (if any)
    └── Session ID preserved for conversation continuity
 ```
+
+### Direct Embedded Run (CLI)
+
+`shepherd` and `shepherd "..."` take a shortcut that skips steps 2–3 above: the
+CLI sends `{project_path: cwd, prompt}` to `POST /api/embedded/run`. The daemon
+runs its already-wired embedded executor in that directory and streams the
+output back as request-scoped SSE (never through the global `/api/events` hub).
+No project registration, sheep assignment, or queue task is involved.
 
 ### Authentication Flow
 
@@ -156,10 +164,6 @@ internal/
 ├── skill/               # Skill system
 │   └── skill.go         # CRUD, bundled skills, import/export
 │
-├── tui/                 # Terminal UI (Bubbletea)
-│   ├── tui.go           # TUI lifecycle, hybrid mode (standalone/client)
-│   └── views/           # Split view, dashboard, renderers
-│
 └── worker/              # Sheep execution
     ├── worker.go        # CRUD, status management
     └── interactive.go   # CLI subprocess execution, output parsing
@@ -205,7 +209,7 @@ Project 0:N Skill       # A project can have project-scoped skills
 | SSE over WebSockets | Simpler, HTTP-native, sufficient for one-way streaming |
 | Svelte (JS only) | Lightweight, no TypeScript complexity |
 | go:embed for WebUI | Single binary deployment, no separate static server |
-| Bubbletea TUI | Rich terminal UI with split views and real-time updates |
+| Direct embedded endpoint | CLI `shepherd "..."` runs the agent in cwd via `/api/embedded/run`, bypassing manager/sheep/queue |
 | Rod for browser | Chromium DevTools Protocol, no external browser driver |
 | Config-based auth | Single-user tool; no need for user table in DB |
 | 1:1 sheep-project | Session continuity; each sheep maintains conversation context |

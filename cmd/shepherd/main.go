@@ -27,7 +27,6 @@ import (
 	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/llmproxy"
-	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/mcp"
 	"github.com/agurrrrr/shepherd/internal/names"
 	"github.com/agurrrrr/shepherd/internal/project"
@@ -36,7 +35,6 @@ import (
 	"github.com/agurrrrr/shepherd/internal/server"
 	"github.com/agurrrrr/shepherd/internal/skill"
 	"github.com/agurrrrr/shepherd/internal/spec"
-	"github.com/agurrrrr/shepherd/internal/tui"
 	"github.com/agurrrrr/shepherd/internal/wiki"
 	"github.com/agurrrrr/shepherd/internal/worker"
 	"github.com/chzyer/readline"
@@ -48,9 +46,6 @@ var (
 	version   = "0.2.0"
 	buildTime = "unknown"
 )
-
-// Readline instance for chat mode (used in interactive execution)
-var chatReadline *readline.Instance
 
 var rootCmd = &cobra.Command{
 	Use:   "shepherd [prompt]",
@@ -1352,314 +1347,6 @@ var projectUnassignCmd = &cobra.Command{
 	},
 }
 
-// classifyUserIntent classifies the user's intent using Claude Code.
-func classifyUserIntent(prompt string) *manager.Intent {
-	cwd, _ := os.Getwd()
-	intent, err := manager.ClassifyIntent(prompt, cwd)
-	if err != nil {
-		// Default fallback on classification failure
-		return &manager.Intent{Type: "coding_task"}
-	}
-	return intent
-}
-
-// handleShepherdCommand handles shepherd-specific commands from natural language.
-func handleShepherdCommand(intent *manager.Intent, prompt string) bool {
-	cwd, _ := os.Getwd()
-
-	// Record shepherd commands as tasks
-	var taskID int
-	var taskSummary string
-	recordManagerTask := func(summary string) {
-		mgr, err := worker.GetOrCreateManager()
-		if err != nil {
-			return
-		}
-		t, err := queue.CreateManagerTask(prompt, mgr.ID)
-		if err != nil {
-			return
-		}
-		taskID = t.ID
-		_ = queue.StartTask(taskID)
-		taskSummary = summary
-	}
-	completeManagerTask := func() {
-		if taskID > 0 {
-			_ = queue.CompleteTask(taskID, taskSummary, nil)
-		}
-	}
-
-	switch intent.Type {
-	case "register_project":
-		recordManagerTask("Register project")
-		defer completeManagerTask()
-
-		// If a git URL is provided, clone first
-		if intent.GitURL != "" {
-			// Extract project name from git URL
-			repoName := extractRepoName(intent.GitURL)
-			clonePath := filepath.Join(cwd, repoName)
-
-			// Check if already exists
-			if _, err := os.Stat(clonePath); err == nil {
-				fmt.Printf("📁 Directory '%s' already exists\n", repoName)
-			} else {
-				// Run git clone
-				fmt.Printf("🔄 git clone %s ...\n", intent.GitURL)
-				cmd := exec.Command("git", "clone", intent.GitURL, clonePath)
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				if err := cmd.Run(); err != nil {
-					fmt.Printf("❌ git clone failed: %v\n", err)
-					return true
-				}
-				fmt.Printf("✅ '%s' cloned successfully\n", repoName)
-			}
-
-			// Register the cloned directory as a project
-			_, err := project.Add(repoName, clonePath, "")
-			if err != nil {
-				if strings.Contains(err.Error(), "already exists") {
-					fmt.Printf("📁 '%s' already registered\n", repoName)
-				} else {
-					fmt.Printf("❌ Failed to register '%s': %v\n", repoName, err)
-				}
-			} else {
-				fmt.Printf("📁 '%s' registered (%s)\n", repoName, clonePath)
-			}
-		} else if len(intent.RegisterNames) > 0 {
-			// Register specific directories
-			for _, name := range intent.RegisterNames {
-				path := filepath.Join(cwd, name)
-				if info, err := os.Stat(path); err == nil && info.IsDir() {
-					_, err := project.Add(name, path, "")
-					if err != nil {
-						if strings.Contains(err.Error(), "already exists") {
-							fmt.Printf("📁 '%s' already registered\n", name)
-						} else {
-							fmt.Printf("❌ Failed to register '%s': %v\n", name, err)
-						}
-					} else {
-						fmt.Printf("📁 '%s' registered (%s)\n", name, path)
-					}
-				}
-			}
-		} else {
-			// Register subdirectories of the current directory
-			entries, _ := os.ReadDir(cwd)
-			registered := 0
-			for _, entry := range entries {
-				if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
-					path := filepath.Join(cwd, entry.Name())
-					_, err := project.Add(entry.Name(), path, "")
-					if err == nil {
-						fmt.Printf("📁 '%s' registered\n", entry.Name())
-						registered++
-					}
-				}
-			}
-			if registered == 0 {
-				fmt.Println("No directories to register.")
-			}
-		}
-
-		// Create a sheep if none exist
-		sheepList, _ := worker.List()
-		if len(sheepList) == 0 {
-			s, _ := worker.Create("")
-			if s != nil {
-				fmt.Printf("🐏 %s created\n", s.Name)
-			}
-		}
-		return true
-
-	case "delete_project":
-		recordManagerTask("Delete project")
-		defer completeManagerTask()
-
-		// Delete projects
-		if len(intent.ProjectNames) > 0 {
-			for _, name := range intent.ProjectNames {
-				if err := project.Remove(name); err != nil {
-					fmt.Printf("❌ Failed to delete '%s': %v\n", name, err)
-				} else {
-					fmt.Printf("🗑️  '%s' deleted\n", name)
-				}
-			}
-		} else {
-			fmt.Println("Please specify the project name to delete.")
-		}
-		return true
-
-	case "delete_and_register":
-		recordManagerTask("Delete and re-register projects")
-		defer completeManagerTask()
-
-		// Delete projects then register new ones
-		// 1. First, look up paths of projects to delete
-		var deletedPaths []string
-		for _, name := range intent.ProjectNames {
-			proj, err := project.Get(name)
-			if err == nil {
-				deletedPaths = append(deletedPaths, proj.Path)
-			}
-			if err := project.Remove(name); err != nil {
-				fmt.Printf("❌ Failed to delete '%s': %v\n", name, err)
-			} else {
-				fmt.Printf("🗑️  '%s' deleted\n", name)
-			}
-		}
-
-		// 2. Determine directories to register
-		var foldersToRegister []string
-		if len(intent.RegisterNames) > 0 {
-			// Specific directories specified
-			for _, name := range intent.RegisterNames {
-				path := filepath.Join(cwd, name)
-				if info, err := os.Stat(path); err == nil && info.IsDir() {
-					foldersToRegister = append(foldersToRegister, path)
-				}
-			}
-		} else {
-			// Register subdirectories of the deleted project paths
-			for _, deletedPath := range deletedPaths {
-				entries, err := os.ReadDir(deletedPath)
-				if err != nil {
-					continue
-				}
-				for _, entry := range entries {
-					if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
-						foldersToRegister = append(foldersToRegister, filepath.Join(deletedPath, entry.Name()))
-					}
-				}
-			}
-			// Fall back to current directory subdirectories if no deleted paths
-			if len(foldersToRegister) == 0 {
-				entries, _ := os.ReadDir(cwd)
-				for _, entry := range entries {
-					if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
-						foldersToRegister = append(foldersToRegister, filepath.Join(cwd, entry.Name()))
-					}
-				}
-			}
-		}
-
-		// 3. Register directories
-		registered := 0
-		for _, path := range foldersToRegister {
-			name := filepath.Base(path)
-			_, err := project.Add(name, path, "")
-			if err != nil {
-				if strings.Contains(err.Error(), "already exists") {
-					fmt.Printf("📁 '%s' already registered\n", name)
-				} else {
-					fmt.Printf("❌ Failed to register '%s': %v\n", name, err)
-				}
-			} else {
-				fmt.Printf("📁 '%s' registered (%s)\n", name, path)
-				registered++
-			}
-		}
-
-		if registered == 0 && len(foldersToRegister) == 0 {
-			fmt.Println("No directories to register.")
-		}
-
-		// Create a sheep if none exist
-		sheepList, _ := worker.List()
-		if len(sheepList) == 0 {
-			s, _ := worker.Create("")
-			if s != nil {
-				fmt.Printf("🐏 %s created\n", s.Name)
-			}
-		}
-		return true
-
-	case "list_projects":
-		recordManagerTask("List projects")
-		defer completeManagerTask()
-
-		// Project list
-		projects, _ := project.List()
-		if len(projects) == 0 {
-			fmt.Println("No projects registered.")
-		} else {
-			fmt.Println("📁 Projects:")
-			for _, p := range projects {
-				sheepName := "unassigned"
-				if p.Edges.Sheep != nil {
-					sheepName = p.Edges.Sheep.Name
-				}
-				fmt.Printf("   %s (%s) - %s\n", p.Name, p.Path, sheepName)
-			}
-		}
-		return true
-
-	case "shepherd_command":
-		recordManagerTask("Show shepherd commands")
-		defer completeManagerTask()
-
-		// Other shepherd commands - display help
-		fmt.Println("Shepherd commands:")
-		fmt.Println("   shepherd init           - Register current directory as a project")
-		fmt.Println("   shepherd spawn          - Create a new sheep")
-		fmt.Println("   shepherd flock          - List all sheep")
-		fmt.Println("   shepherd status         - Show overall status")
-		fmt.Println("   shepherd project list   - List projects")
-		return true
-	}
-
-	return false
-}
-
-// autoInitProject automatically initializes the current directory as a project.
-func autoInitProject() (string, string, error) {
-	// Current directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", "", err
-	}
-
-	projectName := filepath.Base(cwd)
-
-	// Register project
-	_, err = project.Add(projectName, cwd, "")
-	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		return "", "", err
-	}
-
-	// Create a sheep if none exist
-	sheepList, err := worker.List()
-	if err != nil {
-		return "", "", err
-	}
-
-	var sheepName string
-	if len(sheepList) == 0 {
-		s, err := worker.Create("")
-		if err != nil {
-			return "", "", err
-		}
-		sheepName = s.Name
-		fmt.Printf("🐏 %s created\n", sheepName)
-	} else {
-		for _, s := range sheepList {
-			if s.Edges.Project == nil {
-				sheepName = s.Name
-				break
-			}
-		}
-		if sheepName == "" {
-			sheepName = sheepList[0].Name
-		}
-	}
-
-	// Assign sheep to project
-	_ = project.AssignSheep(projectName, sheepName)
-
-	return projectName, sheepName, nil
-}
-
 // runChatMode runs the interactive chat interface.
 func runChatMode() {
 	cwd := requireDaemon()
@@ -1803,47 +1490,6 @@ func printStatus() {
 	fmt.Println()
 }
 
-// printProjects prints project list in chat mode.
-func printProjects() {
-	fmt.Println()
-	projects, _ := project.List()
-	if len(projects) == 0 {
-		fmt.Println("📁 No projects registered.")
-		fmt.Println("   Use \"register project\" or 'shepherd init' to register one.")
-	} else {
-		fmt.Println("📁 Projects:")
-		for _, p := range projects {
-			sheepName := "unassigned"
-			if p.Edges.Sheep != nil {
-				sheepName = p.Edges.Sheep.Name
-			}
-			fmt.Printf("   %-15s %s (%s)\n", p.Name, p.Path, sheepName)
-		}
-	}
-	fmt.Println()
-}
-
-// printFlock prints sheep list in chat mode.
-func printFlock() {
-	fmt.Println()
-	sheepList, _ := worker.List()
-	if len(sheepList) == 0 {
-		fmt.Println("🐏 No sheep created.")
-		fmt.Println("   Create one with 'shepherd spawn'.")
-	} else {
-		fmt.Println("🐏 Sheep list:")
-		for _, s := range sheepList {
-			projectName := "-"
-			if s.Edges.Project != nil {
-				projectName = s.Edges.Project.Name
-			}
-			status := worker.StatusToKorean(s.Status)
-			fmt.Printf("   %-10s %-15s %s\n", s.Name, projectName, status)
-		}
-	}
-	fmt.Println()
-}
-
 // bareTaskRef returns the task ID when the entire input is nothing but a task
 // reference like "#5630" (optionally surrounded by whitespace). Unlike
 // extractTaskID, it deliberately does NOT match prompts that merely contain a
@@ -1941,42 +1587,6 @@ func printTaskDetail(taskID int) {
 	fmt.Println()
 }
 
-// printTaskLog prints recent task log in chat mode.
-func printTaskLog() {
-	fmt.Println()
-	tasks, err := queue.ListTasks(10)
-	if err != nil {
-		fmt.Printf("Failed to list tasks: %v\n", err)
-		return
-	}
-
-	if len(tasks) == 0 {
-		fmt.Println("📋 No task history.")
-	} else {
-		fmt.Println("📋 Recent tasks:")
-		for _, t := range tasks {
-			sheepName := "-"
-			if t.Edges.Sheep != nil {
-				sheepName = t.Edges.Sheep.Name
-			}
-			projectName := "-"
-			if t.Edges.Project != nil {
-				projectName = t.Edges.Project.Name
-			}
-			status := queue.StatusToKorean(t.Status)
-			timeStr := t.CreatedAt.Format("01/02 15:04")
-
-			fmt.Printf("\n   #%d [%s] %s\n", t.ID, status, timeStr)
-			fmt.Printf("      🐏 %s → 📁 %s\n", sheepName, projectName)
-			fmt.Printf("      Prompt: %s\n", truncate(t.Prompt, 50))
-			if t.Summary != "" {
-				fmt.Printf("      Result: %s\n", truncate(t.Summary, 50))
-			}
-		}
-	}
-	fmt.Println()
-}
-
 // executeTask executes a task through the full workflow.
 func executeTask(prompt string) {
 	cwd := requireDaemon()
@@ -2068,17 +1678,6 @@ func requireDaemon() string {
 	return cwd
 }
 
-// findIdleSheep finds an idle sheep not assigned to any project.
-func findIdleSheep() string {
-	sheepList, _ := worker.List()
-	for _, s := range sheepList {
-		if s.Edges.Project == nil {
-			return s.Name
-		}
-	}
-	return ""
-}
-
 // truncate truncates a string to maxLen characters.
 func truncate(s string, maxLen int) string {
 	// Remove newlines and use only the first line
@@ -2088,22 +1687,6 @@ func truncate(s string, maxLen int) string {
 		return s[:maxLen] + "..."
 	}
 	return s
-}
-
-// extractRepoName extracts the repository name from a git URL.
-// Supports: git@github.com:user/repo.git, https://github.com/user/repo.git
-func extractRepoName(gitURL string) string {
-	// Remove .git suffix
-	url := strings.TrimSuffix(gitURL, ".git")
-
-	// Extract name after the last / or :
-	if idx := strings.LastIndex(url, "/"); idx != -1 {
-		return url[idx+1:]
-	}
-	if idx := strings.LastIndex(url, ":"); idx != -1 {
-		return url[idx+1:]
-	}
-	return url
 }
 
 // status command
@@ -3084,31 +2667,6 @@ var authChangePasswordCmd = &cobra.Command{
 	},
 }
 
-var tuiCmd = &cobra.Command{
-	Use:   "tui",
-	Short: "Run TUI mode",
-	Long: `Runs the TUI (Terminal User Interface) mode.
-Monitor and manage multiple sheep tasks in real-time.
-
-Key bindings:
-  1         Split view (view all sheep simultaneously)
-  2         Dashboard view (list + details)
-  Up/Down   Navigate project list
-  Tab       Switch panels
-  Enter     Input/execute command
-  Esc       Cancel input
-  q         Quit`,
-	Run: func(cmd *cobra.Command, args []string) {
-		// Recover from abnormal termination before TUI starts
-		recoverFromAbnormalTermination(false)
-
-		if err := tui.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, i18n.T().CLITUIErrorFmt, err)
-			os.Exit(1)
-		}
-	},
-}
-
 // recover command
 var recoverCmd = &cobra.Command{
 	Use:   "recover",
@@ -3989,9 +3547,6 @@ func init() {
 	authCmd.AddCommand(authSetupCmd)
 	authCmd.AddCommand(authChangePasswordCmd)
 	rootCmd.AddCommand(authCmd)
-
-	// Register tui command
-	rootCmd.AddCommand(tuiCmd)
 
 	// Register recover command
 	rootCmd.AddCommand(recoverCmd)
