@@ -68,6 +68,11 @@ type InteractiveOptions struct {
 	// registry entry is created later, inside the execute* call, and would still
 	// read 0 here. Zero means "unknown / not a queued task".
 	TaskID int
+	// RegistryName overrides the key used for the running-task registry while
+	// keeping SheepName for context (project skills, memory, browser isolation).
+	// The daemon's direct embedded endpoint uses a unique per-request value so a
+	// cwd run cannot clobber a queued task's registry entry (StopTask target).
+	RegistryName string
 }
 
 // RunningTask contains information about a running task

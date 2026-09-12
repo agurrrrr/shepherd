@@ -3,6 +3,7 @@ package apiclient
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -159,6 +160,74 @@ func (c *Client) CreateTask(prompt, sheepName, projectName string) (*CommandResu
 		return nil, fmt.Errorf("%s", apiResp.Message)
 	}
 	return &apiResp.Data, nil
+}
+
+// RunEmbedded runs the embedded coding agent in projectPath through the
+// daemon's dedicated /api/embedded/run endpoint. Output is delivered to
+// onEvent as SSE events ("output", "done", "error"). It returns when the
+// stream ends or ctx is cancelled. This is the thin-client path that bypasses
+// project/sheep/queue orchestration.
+func (c *Client) RunEmbedded(ctx context.Context, projectPath, prompt, model string, onEvent func(eventType string, data json.RawMessage)) error {
+	body, _ := json.Marshal(map[string]string{
+		"project_path": projectPath,
+		"prompt":       prompt,
+		"model":        model,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/embedded/run", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	// No client timeout: an agent run can be long-lived. Cancellation is
+	// handled through ctx (Ctrl+C in the CLI).
+	streamClient := &http.Client{}
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("embedded run failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	// SSE frames can carry long single lines (streamed markdown), so allow up
+	// to 1 MB per line instead of bufio.Scanner's 64 KB default.
+	if err := parseSSEStream(resp.Body, onEvent); err != nil && ctx.Err() == nil {
+		return err
+	}
+	return nil
+}
+
+// parseSSEStream reads an SSE body and invokes onEvent per complete frame.
+// It understands the "event: <type>" / "data: <payload>" framing emitted by
+// the daemon. Comment and blank lines are ignored.
+func parseSSEStream(r io.Reader, onEvent func(eventType string, data json.RawMessage)) error {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	var eventType string
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case strings.HasPrefix(line, "event: "):
+			eventType = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			data := strings.TrimPrefix(line, "data: ")
+			if eventType != "" && onEvent != nil {
+				onEvent(eventType, json.RawMessage(data))
+			}
+			eventType = ""
+		}
+	}
+	return scanner.Err()
 }
 
 // SystemStatus returns the system status from the daemon.

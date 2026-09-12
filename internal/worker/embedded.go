@@ -48,18 +48,43 @@ func executeWithEmbedded(
 	// Buffer of 16 allows multiple quick injections without blocking.
 	injectCh := make(chan string, 16)
 
+	// Registry key: default to the sheep name, but allow a caller to supply a
+	// distinct key. The direct embedded endpoint uses a unique per-request key
+	// so a cwd run never displaces a queued task's entry (which StopTask uses).
+	regName := sheepName
+	if opts.RegistryName != "" {
+		regName = opts.RegistryName
+	}
+
 	// Register in the running-task registry so StopTask can find and cancel
 	// this work. Embedded runs have no subprocess (Cmd == nil); killProcessGroup
 	// already guards against nil, so this is safe. The identity token prevents
 	// a late-finishing task from clobbering a newer task's entry.
-	rt := registerRunningTask(sheepName, cancel, nil)
+	rt := registerRunningTask(regName, cancel, nil)
 	rt.InjectCh = injectCh
 	defer func() {
 		close(injectCh)
-		unregisterRunningTask(sheepName, rt)
+		unregisterRunningTask(regName, rt)
 	}()
 
 	return embeddedExecutor(ctx, sheepName, projectPath, prompt, opts, cancel, injectCh)
+}
+
+// ExecuteEmbeddedDirect runs the embedded agent loop without any DB lookups
+// for project/sheep/queue orchestration. It is used by the daemon's
+// POST /api/embedded/run endpoint so a client can run the coding agent in an
+// arbitrary working directory (the caller's cwd).
+//
+// sheepName is used only for context (project skills, sheep memory, browser
+// session isolation) and may be empty. opts.RegistryName should be set to a
+// unique per-request value to avoid clobbering a queued task's registry entry.
+func ExecuteEmbeddedDirect(
+	ctx context.Context,
+	sheepName, projectPath, prompt string,
+	opts InteractiveOptions,
+	cancel context.CancelFunc,
+) (*ExecuteResult, error) {
+	return executeWithEmbedded(ctx, sheepName, projectPath, prompt, opts, cancel)
 }
 
 // BuildSystemPromptForEmbedded builds the system prompt for the embedded provider.

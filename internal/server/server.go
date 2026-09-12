@@ -255,6 +255,10 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	// Command (natural language)
 	api.Post("/command", s.handleCommand)
 
+	// Direct embedded run in a caller-provided directory (thin CLI client).
+	// Bypasses project/sheep/queue orchestration and streams request-scoped SSE.
+	api.Post("/embedded/run", s.handleEmbeddedRun)
+
 	// Serve embedded Svelte SPA (if provided)
 	if webFS != nil {
 		app.Use("/", filesystem.New(filesystem.Config{
@@ -872,6 +876,12 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			// maxHandoffChain times it's likely looping without progress, so we
 			// stop growing the chain and let plain trimming carry it to the end.
 			ShouldHandoff: func() bool {
+				// Direct (non-queued) runs have no DB task to attach a
+				// follow-up to, so disable handoff and let plain trimming
+				// carry them to the end.
+				if opts.TaskID <= 0 {
+					return false
+				}
 				return taskHandoffDepth(opts.TaskID) < maxHandoffChain
 			},
 			EnqueueFollowUp: func(followUpPrompt string) error {
