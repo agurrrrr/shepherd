@@ -143,10 +143,11 @@
 
 		{:else if block.type === 'thinking'}
 			{@const view = viewFor('thinking:' + i, block.text)}
-			<details class="block-thinking" open>
+			<details class="block-thinking">
 				<summary class="thinking-summary">
 					<span class="thinking-icon">💭</span>
 					<span class="thinking-label">Thinking</span>
+					<span class="thinking-hint">{block.text.trim().length.toLocaleString()} chars</span>
 				</summary>
 				{#if view.kind === 'exact'}
 					<div class="thinking-body markdown-body">{@html view.html}</div>
@@ -220,10 +221,11 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		padding: 6px 8px;
-		margin-top: 4px;
+		padding: 6px 10px;
+		margin-top: 6px;
 		background: var(--bg-tertiary);
-		border-radius: var(--radius);
+		border-left: 3px solid var(--accent);
+		border-radius: 0 var(--radius) var(--radius) 0;
 		font-family: var(--font-mono);
 		font-size: 12px;
 		min-height: 28px;
@@ -353,12 +355,14 @@
 		overflow-wrap: inherit;
 	}
 
-	/* Reasoning / thinking (💭) — collapsible, dimmed, markdown body */
+	/* Reasoning / thinking (💭) — collapsible, dimmed, markdown body.
+	   A warm wool rail + tint distinguishes private reasoning from the cool
+	   accent rail of tool calls at a glance. */
 	.block-thinking {
-		margin-top: 4px;
+		margin-top: 6px;
 		padding: 0;
-		background: var(--bg-secondary);
-		border-left: 3px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+		background: color-mix(in srgb, var(--wool) 7%, var(--bg-secondary));
+		border-left: 3px solid color-mix(in srgb, var(--wool) 60%, var(--border));
 		border-radius: 0 var(--radius) var(--radius) 0;
 		min-width: 0;
 		overflow: hidden;
@@ -400,6 +404,13 @@
 
 	.thinking-label {
 		letter-spacing: 0.02em;
+	}
+
+	.thinking-hint {
+		margin-left: auto;
+		font-size: 11px;
+		font-weight: 400;
+		color: var(--text-tertiary);
 	}
 
 	.thinking-body {

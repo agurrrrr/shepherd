@@ -109,11 +109,12 @@ export function classifyLine(raw, prevType) {
 	// multi-line bodies use a 3-space indent on continuations.
 	if (line.startsWith('💭 ') || line === '💭') return 'thinking';
 	if (prevType === 'thinking') {
-		// 3-space continuation, including a leftover indent-only line from
-		// a thought "\n" token ("\n   "). Empty lines stay text so the
-		// thought→text "\n\n" separator still closes the thinking block.
+		// Continuations are emitted with a 3-space prefix. The reasoning's own
+		// indentation is preserved after it, so nested list items / code fences
+		// arrive with 5+ leading spaces. Match 3-or-more, otherwise deeply
+		// indented thought lines fall out of the card as plain answer text.
 		const cont = line.replace(/[\r\n]+$/, '');
-		if (/^\s{3}\S/.test(cont) || /^\s{3}$/.test(cont)) return 'thinking';
+		if (/^\s{3,}\S/.test(cont) || /^\s{3,}$/.test(cont)) return 'thinking';
 	}
 	// Only classify as 'result' when preceded by a tool call or another
 	// result line. Without this context check, indented markdown lines
@@ -195,7 +196,12 @@ export function groupLines(lines) {
 		// fences. A get_task_detail output may echo a previous task's prompt
 		// that contains ``` code blocks — those must not toggle inFence or
 		// they'll swallow all subsequent lines into one giant text block.
-		if (isFence && type !== 'result') {
+		//
+		// Fence markers inside a thinking block are thinking content too: the
+		// reasoning leg of the stream routinely "designs" code samples. If we
+		// force them to text here, the whole fence (and the reasoning after
+		// it) leaks out of the Thinking card and interleaves with tool boxes.
+		if (isFence && type !== 'result' && type !== 'thinking') {
 			// Fence markers themselves are always text.
 			type = 'text';
 			inFence = !inFence;

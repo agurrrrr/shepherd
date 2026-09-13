@@ -96,6 +96,10 @@ describe('classifyLine', () => {
 	it('classifies 💭 lines as thinking, with 3-space continuations', () => {
 		assert.equal(classifyLine('💭 reasoning about the bug\n', null), 'thinking');
 		assert.equal(classifyLine('   more thought on next line\n', 'thinking'), 'thinking');
+		// Nested list / code lines keep their own indent after the 3-space
+		// prefix, so 4+ leading spaces must still continue the thought.
+		assert.equal(classifyLine('     5-space continuation\n', 'thinking'), 'thinking');
+		assert.equal(classifyLine('       deeply nested code\n', 'thinking'), 'thinking');
 		// Leftover indent-only line from a thought "\n" token (#8109).
 		assert.equal(classifyLine('   \n', 'thinking'), 'thinking');
 		assert.equal(classifyLine('   ', 'thinking'), 'thinking');
@@ -223,6 +227,51 @@ describe('groupLines', () => {
 		assert.ok(blocks[0].text.includes('restating the prompt'));
 		assert.equal(blocks[1].type, 'text');
 		assert.ok(blocks[1].text.includes('설정을 정리했습니다'));
+	});
+
+	it('keeps a fenced code block inside the thinking card (no tool/text leak)', () => {
+		// The reasoning stream routinely "designs" code. A ``` line indented
+		// with the thought's 3-space prefix used to be forced to text and the
+		// whole fence (plus the reasoning after it) leaked out of the card,
+		// interleaving with tool boxes.
+		const lines = [
+			'💭 Design of each file:\n',
+			'   ```rust\n',
+			'   struct TableBuffer<T> { rows: Vec<T> }\n',
+			'   ```\n',
+			'   Then move on.\n',
+			'이제 작성합니다.\n'
+		];
+		const blocks = groupLines(lines);
+		assert.equal(blocks.length, 2);
+		assert.equal(blocks[0].type, 'thinking');
+		assert.ok(blocks[0].text.includes('struct TableBuffer'));
+		assert.ok(blocks[0].text.includes('Then move on.'));
+		assert.equal(blocks[1].type, 'text');
+		assert.ok(blocks[1].text.includes('이제 작성합니다'));
+		assert.ok(!blocks.some((b) => b.type === 'tool' || b.type === 'result'));
+	});
+
+	it('keeps deeply indented thought continuations inside the thinking block', () => {
+		// Nested list items / code inside reasoning arrive with more than the
+		// 3-space prefix. They used to fall out as plain text and break the
+		// Thinking card mid-thought.
+		const lines = [
+			'💭 Plan:\n',
+			'   1. first item\n',
+			'      nested detail\n',
+			'   Procedure:\n',
+			'   2. second item\n',
+			'답변입니다.\n'
+		];
+		const blocks = groupLines(lines);
+		assert.equal(blocks.length, 2);
+		assert.equal(blocks[0].type, 'thinking');
+		assert.ok(blocks[0].text.includes('nested detail'));
+		assert.ok(blocks[0].text.includes('Procedure:'));
+		assert.ok(blocks[0].text.includes('second item'));
+		assert.equal(blocks[1].type, 'text');
+		assert.ok(blocks[1].text.includes('답변입니다'));
 	});
 
 	it('groups 💭 reasoning into a thinking block separate from answer text', () => {
