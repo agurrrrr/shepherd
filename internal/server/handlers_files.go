@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,7 +14,10 @@ import (
 	"github.com/agurrrrr/shepherd/internal/project"
 )
 
-const maxFileViewSize = 1 << 20 // 1MB
+const (
+	maxFileViewSize   = 1 << 20  // 1MB
+	maxFileUploadSize = 10 << 20 // 10MB per file
+)
 
 // Directories always excluded from file listing.
 var excludedDirs = map[string]bool{
@@ -127,6 +131,89 @@ func (s *Server) handleListFiles(c *fiber.Ctx) error {
 	result = append(result, files...)
 
 	return success(c, result)
+}
+
+// POST /api/projects/:name/files/upload?path=<dir>
+// Saves the multipart "files" into the given project directory (path relative
+// to the project root). Existing files with the same name are overwritten.
+func (s *Server) handleUploadFile(c *fiber.Ctx) error {
+	if !config.GetBool("enable_file_browser") {
+		return fail(c, fiber.StatusForbidden, "file browser is disabled")
+	}
+
+	name := paramDecoded(c, "name")
+	p, err := project.Get(name)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, "project not found")
+	}
+
+	projectRoot := filepath.Clean(p.Path)
+	dirPath := c.Query("path", "")
+	fullDir := filepath.Clean(filepath.Join(projectRoot, dirPath))
+	if fullDir != projectRoot && !strings.HasPrefix(fullDir, projectRoot+string(filepath.Separator)) {
+		return fail(c, fiber.StatusBadRequest, "invalid path")
+	}
+
+	// Reject hidden path segments
+	for _, seg := range strings.Split(dirPath, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return fail(c, fiber.StatusForbidden, "access denied")
+		}
+	}
+
+	info, err := os.Stat(fullDir)
+	if err != nil || !info.IsDir() {
+		return fail(c, fiber.StatusNotFound, "directory not found")
+	}
+
+	form, err := c.MultipartForm()
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid multipart form")
+	}
+
+	files := form.File["files"]
+	if len(files) == 0 {
+		return fail(c, fiber.StatusBadRequest, "no files provided")
+	}
+
+	type uploadedFile struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+		Size int64  `json:"size"`
+	}
+
+	result := make([]uploadedFile, 0, len(files))
+	for _, fh := range files {
+		if fh.Size > maxFileUploadSize {
+			return fail(c, fiber.StatusBadRequest, fmt.Sprintf("file %s exceeds 10MB limit", fh.Filename))
+		}
+
+		base := filepath.Base(filepath.FromSlash(fh.Filename))
+		if base == "" || base == "." || base == ".." || strings.HasPrefix(base, ".") {
+			return fail(c, fiber.StatusBadRequest, "invalid file name")
+		}
+
+		savePath := filepath.Join(fullDir, base)
+		if !strings.HasPrefix(savePath, projectRoot+string(filepath.Separator)) {
+			return fail(c, fiber.StatusBadRequest, "invalid path")
+		}
+
+		if err := c.SaveFile(fh, savePath); err != nil {
+			return fail(c, fiber.StatusInternalServerError, fmt.Sprintf("failed to save %s", fh.Filename))
+		}
+
+		rel, err := filepath.Rel(projectRoot, savePath)
+		if err != nil {
+			rel = base
+		}
+		result = append(result, uploadedFile{
+			Name: base,
+			Path: filepath.ToSlash(rel),
+			Size: fh.Size,
+		})
+	}
+
+	return success(c, fiber.Map{"files": result})
 }
 
 // GET /api/projects/:name/files/content/*

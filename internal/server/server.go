@@ -182,6 +182,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 
 	// File browser
 	api.Get("/projects/:name/files", s.handleListFiles)
+	api.Post("/projects/:name/files/upload", s.handleUploadFile)
 	api.Get("/projects/:name/files/download/*", s.handleDownloadFile)
 	api.Get("/projects/:name/files/content/*", s.handleGetFileContent)
 

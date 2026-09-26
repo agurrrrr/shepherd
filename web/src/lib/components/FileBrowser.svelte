@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { apiGet } from '$lib/api.js';
+	import { apiGet, apiUpload } from '$lib/api.js';
 	import { accessToken } from '$lib/stores.js';
 	import { get } from 'svelte/store';
 	import { Carta } from 'carta-md';
@@ -28,6 +28,12 @@
 	let pdfExporting = $state(false);
 	let mdBodyEl = $state(null);
 	let codeEl = $state(null);
+
+	let uploading = $state(false);
+	let uploadMsg = $state(null); // { type: 'ok' | 'err', text }
+	let dragging = $state(false);
+	let fileInputEl = $state(null);
+	let dragDepth = 0;
 
 	let breadcrumbs = $derived.by(() => {
 		const crumbs = [{ name: 'root', path: '' }];
@@ -121,6 +127,76 @@
 		} else {
 			openFile(entry);
 		}
+	}
+
+	function triggerUpload() {
+		fileInputEl?.click();
+	}
+
+	function handleUploadSelect(e) {
+		const files = Array.from(e.target.files || []);
+		e.target.value = '';
+		if (files.length) uploadFiles(files);
+	}
+
+	async function uploadFiles(fileList) {
+		const files = Array.from(fileList || []);
+		if (files.length === 0 || uploading) return;
+
+		const tooBig = files.find((f) => f.size > 10 * 1024 * 1024);
+		if (tooBig) {
+			uploadMsg = { type: 'err', text: `${tooBig.name} exceeds 10MB limit` };
+			return;
+		}
+
+		uploading = true;
+		uploadMsg = null;
+		try {
+			const formData = new FormData();
+			for (const f of files) formData.append('files', f, f.name);
+			const res = await apiUpload(
+				`/api/projects/${encodeURIComponent(projectName)}/files/upload?path=${encodeURIComponent(currentPath)}`,
+				formData
+			);
+			if (res?.success) {
+				uploadMsg = {
+					type: 'ok',
+					text: files.length > 1 ? `${files.length}개 파일 업로드 완료` : `${files[0].name} 업로드 완료`
+				};
+				await navigateTo(currentPath);
+			} else {
+				uploadMsg = { type: 'err', text: res?.message || 'Upload failed' };
+			}
+		} catch (err) {
+			uploadMsg = { type: 'err', text: err.message || 'Upload failed' };
+		} finally {
+			uploading = false;
+		}
+	}
+
+	function handleDragEnter(e) {
+		if (!e.dataTransfer?.types?.includes('Files')) return;
+		dragDepth++;
+		dragging = true;
+	}
+
+	function handleDragOver(e) {
+		if (!e.dataTransfer?.types?.includes('Files')) return;
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'copy';
+	}
+
+	function handleDragLeave() {
+		dragDepth = Math.max(0, dragDepth - 1);
+		if (dragDepth === 0) dragging = false;
+	}
+
+	function handleDrop(e) {
+		if (!e.dataTransfer?.files?.length) return;
+		e.preventDefault();
+		dragDepth = 0;
+		dragging = false;
+		uploadFiles(e.dataTransfer.files);
 	}
 
 	function downloadFile(entry) {
@@ -279,37 +355,60 @@
 		</div>
 	{:else}
 		<!-- Directory listing -->
-		<div class="fb-breadcrumb">
-			{#each breadcrumbs as crumb, i}
-				{#if i > 0}<span class="fb-sep">/</span>{/if}
-				{#if i < breadcrumbs.length - 1}
-					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-					<span class="fb-crumb-link" onclick={() => navigateTo(crumb.path)}>{crumb.name}</span>
-				{:else}
-					<span class="fb-crumb-current">{crumb.name}</span>
-				{/if}
-			{/each}
-		</div>
-
-		{#if loading}
-			<p class="text-muted">Loading...</p>
-		{:else if error}
-			<p class="text-muted">{error}</p>
-		{:else if entries.length === 0}
-			<p class="text-muted">Empty directory</p>
-		{:else}
-			<div class="fb-list">
-				{#each entries as entry}
-					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-					<div class="fb-entry" onclick={() => handleEntryClick(entry)}>
-						<span class="fb-icon">{fileIcon(entry)}</span>
-						<span class="fb-name" class:fb-dir={entry.is_dir}>{entry.name}</span>
-						<span class="fb-size text-muted">{entry.is_dir ? '' : formatFileSize(entry.size)}</span>
-						<span class="fb-time text-muted">{entry.modified_at || ''}</span>
-					</div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="fb-dirlisting"
+			class:fb-dragging={dragging}
+			ondragenter={handleDragEnter}
+			ondragover={handleDragOver}
+			ondragleave={handleDragLeave}
+			ondrop={handleDrop}
+		>
+			<div class="fb-breadcrumb">
+				{#each breadcrumbs as crumb, i}
+					{#if i > 0}<span class="fb-sep">/</span>{/if}
+					{#if i < breadcrumbs.length - 1}
+						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+						<span class="fb-crumb-link" onclick={() => navigateTo(crumb.path)}>{crumb.name}</span>
+					{:else}
+						<span class="fb-crumb-current">{crumb.name}</span>
+					{/if}
 				{/each}
+				<button class="fb-upload-btn" onclick={triggerUpload} disabled={uploading}>
+					{uploading ? 'Uploading…' : 'Upload'}
+				</button>
+				<input bind:this={fileInputEl} type="file" multiple hidden onchange={handleUploadSelect} />
 			</div>
-		{/if}
+
+			{#if uploadMsg}
+				<div class="fb-upload-msg" class:fb-err={uploadMsg.type === 'err'}>{uploadMsg.text}</div>
+			{/if}
+
+			{#if loading}
+				<p class="text-muted fb-pad">Loading...</p>
+			{:else if error}
+				<p class="text-muted fb-pad">{error}</p>
+			{:else if entries.length === 0}
+				<p class="text-muted fb-pad">Empty directory</p>
+			{:else}
+				<div class="fb-list">
+					{#each entries as entry}
+						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+						<div class="fb-entry" onclick={() => handleEntryClick(entry)}>
+							<span class="fb-icon">{fileIcon(entry)}</span>
+							<span class="fb-name" class:fb-dir={entry.is_dir}>{entry.name}</span>
+							<span class="fb-size text-muted">{entry.is_dir ? '' : formatFileSize(entry.size)}</span>
+							<span class="fb-time text-muted">{entry.modified_at || ''}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
+			{#if dragging}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="fb-drop-overlay">업로드할 파일을 놓으세요</div>
+			{/if}
+		</div>
 	{/if}
 </div>
 
@@ -320,6 +419,58 @@
 		height: 100%;
 		overflow: hidden;
 	}
+
+	/* Directory listing wrapper (drop target) */
+	.fb-dirlisting {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+	.fb-dirlisting.fb-dragging {
+		background: color-mix(in srgb, var(--accent) 8%, transparent);
+	}
+	.fb-drop-overlay {
+		position: absolute;
+		inset: 8px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 2px dashed var(--accent);
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+		color: var(--accent);
+		font-size: 14px;
+		font-weight: 600;
+		pointer-events: none;
+		z-index: 5;
+	}
+	.fb-pad { padding: 8px 12px; }
+	.fb-upload-btn {
+		margin-left: auto;
+		padding: 3px 12px;
+		font-size: 12px;
+		font-weight: 600;
+		background: var(--accent);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		white-space: nowrap;
+		transition: opacity 0.15s;
+	}
+	.fb-upload-btn:hover { opacity: 0.85; }
+	.fb-upload-btn:disabled { opacity: 0.5; cursor: default; }
+	.fb-upload-msg {
+		padding: 6px 12px;
+		font-size: 12px;
+		color: var(--accent);
+		border-bottom: 1px solid var(--border);
+		flex-shrink: 0;
+	}
+	.fb-upload-msg.fb-err { color: var(--danger, #e5534b); }
 
 	/* Breadcrumb */
 	.fb-breadcrumb {
