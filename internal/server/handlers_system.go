@@ -143,6 +143,7 @@ func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
 		{ID: "opus", Label: "opus (alias — latest Opus)"},
 		{ID: "sonnet", Label: "sonnet (alias — latest Sonnet)"},
 		{ID: "haiku", Label: "haiku (alias — latest Haiku)"},
+		{ID: "claude-sonnet-5.5", Label: "claude-sonnet-5.5"},
 		{ID: "claude-opus-5.5", Label: "claude-opus-5.5"},
 		{ID: "claude-opus-5", Label: "claude-opus-5"},
 		{ID: "claude-fable-5", Label: "claude-fable-5"},
