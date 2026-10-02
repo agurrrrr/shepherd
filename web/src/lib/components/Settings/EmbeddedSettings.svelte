@@ -43,7 +43,9 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				subagent: true,
 				max_iterations: 40,
 				context_tokens: 32768,
-				max_concurrent: 0
+				max_concurrent: 0,
+				reasoning_budget_tokens: 0,
+				handoff_no_thinking: false
 			};
 		}
 	}
@@ -67,7 +69,9 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			subagent: !!editing.subagent,
 			max_iterations: parseInt(editing.max_iterations) || 40,
 			context_tokens: parseInt(editing.context_tokens) || 32768,
-			max_concurrent: parseInt(editing.max_concurrent) || 0
+			max_concurrent: parseInt(editing.max_concurrent) || 0,
+			reasoning_budget_tokens: Math.max(0, parseInt(editing.reasoning_budget_tokens) || 0),
+			handoff_no_thinking: !!editing.handoff_no_thinking
 		};
 
 		let res;
@@ -204,6 +208,8 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 					<div class="embedded-detail"><span class="embedded-label">Thinking:</span> {ep.thinking ? 'On' : 'Off'}</div>
 					<div class="embedded-detail"><span class="embedded-label">Vision:</span> {ep.vision ? 'On' : 'Off'}</div>
 					<div class="embedded-detail"><span class="embedded-label">Subagent:</span> {ep.subagent ? 'On' : 'Off'}</div>
+					<div class="embedded-detail"><span class="embedded-label">Reasoning Budget:</span> {ep.reasoning_budget_tokens > 0 ? `${ep.reasoning_budget_tokens.toLocaleString()} tokens` : 'Off'}</div>
+					<div class="embedded-detail"><span class="embedded-label">Handoff No-Thinking:</span> {ep.handoff_no_thinking ? 'On' : 'Off'}</div>
 				</div>
 			</div>
 		{/each}
@@ -264,6 +270,19 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				</label>
 			</div>
 			<p class="hint">모델이 이미지를 볼 수 있으면 켜세요. 켜면 작업 중 생성한 스크린샷도 read_file로 직접 봅니다.</p>
+			<div class="setting-row">
+				<label>Reasoning Budget</label>
+				<input class="input" type="number" bind:value={editing.reasoning_budget_tokens} min="0" step="1024" placeholder="0" />
+			</div>
+			<p class="hint">0보다 크면 요청마다 <code>reasoning_budget_tokens</code>를 보냅니다(최대 max_tokens의 절반). 추론만 하다 출력 한도에서 끊기는 것을 막습니다. 이 필드를 지원하는 서버(Strata)에서만 켜세요. 0이면 보내지 않습니다.</p>
+			<div class="setting-row">
+				<label>Handoff No-Thinking</label>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={editing.handoff_no_thinking} />
+					<span>{editing.handoff_no_thinking ? 'On' : 'Off'}</span>
+				</label>
+			</div>
+			<p class="hint">켜면 컨텍스트 핸드오프 요약 요청에 <code>chat_template_kwargs: {'{'}"enable_thinking": false{'}'}</code>를 보내 추론 없이 요약하게 합니다.</p>
 			<div class="setting-row">
 				<label>Subagent</label>
 				<label class="toggle">

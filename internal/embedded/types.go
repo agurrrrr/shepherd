@@ -27,6 +27,10 @@ type Endpoint struct {
 	Thinking      bool `mapstructure:"thinking"`
 	MaxIterations int  `mapstructure:"max_iterations"`
 	ContextTokens int  `mapstructure:"context_tokens"`
+	// ReasoningBudgetTokens / HandoffNoThinking are opt-in server extensions
+	// (Strata, llama.cpp-style chat_template_kwargs). See ExecuteOptions.
+	ReasoningBudgetTokens int  `mapstructure:"reasoning_budget_tokens"`
+	HandoffNoThinking     bool `mapstructure:"handoff_no_thinking"`
 }
 
 // Config holds embedded provider settings loaded from embedded.yaml.
@@ -144,6 +148,14 @@ type ChatRequest struct {
 	StreamOptions    *StreamOptions `json:"stream_options,omitempty"`
 	// Ollama-specific
 	Options map[string]interface{} `json:"options,omitempty"`
+	// ReasoningBudgetTokens caps the thinking phase (Strata: the server closes
+	// </think> at N tokens and the model continues with the answer/tool call in
+	// the same request). Zero is omitted so endpoints that never opted in get a
+	// byte-identical body — unknown fields may be rejected with 400 (#347).
+	ReasoningBudgetTokens int `json:"reasoning_budget_tokens,omitempty"`
+	// ChatTemplateKwargs is forwarded to the chat template (llama.cpp / vLLM /
+	// Strata convention), e.g. {"enable_thinking": false}. Nil is omitted.
+	ChatTemplateKwargs map[string]interface{} `json:"chat_template_kwargs,omitempty"`
 }
 
 // StreamOptions requests usage statistics in the final streaming chunk.
@@ -251,6 +263,18 @@ type ExecuteOptions struct {
 	OnOutput      func(output string)
 	MaxIterations int
 	ContextTokens int
+
+	// ReasoningBudgetTokens, when > 0, is sent as reasoning_budget_tokens on
+	// every agent-loop request, clamped to half of max_tokens so the answer and
+	// tool-call arguments always keep at least the other half (#347: thinking
+	// alone used the whole 12,288 output cap and the turn ended with no tool
+	// call). Zero sends nothing (default; body unchanged).
+	ReasoningBudgetTokens int
+	// HandoffNoThinking sends chat_template_kwargs {"enable_thinking": false}
+	// on the handoff summary request, so the summary cannot be eaten by
+	// reasoning (#10023). Default false leaves the summary request unchanged
+	// apart from ReasoningBudgetTokens.
+	HandoffNoThinking bool
 
 	// Vision marks the configured model as vision-capable. When true, read_file
 	// surfaces image files (including screenshots the model captures at runtime)

@@ -295,3 +295,44 @@ func TestFormatSubagentEndpointCatalogEmptyMessage(t *testing.T) {
 		t.Fatal("empty subagent catalog message contract broken")
 	}
 }
+
+// TestEmbeddedEndpoint_ReasoningControls_RoundTrip verifies the issue #347
+// fields survive YAML (lowercased keys like the other fields) and the API
+// JSON conversions — a missing copy would wipe them on a Web UI save.
+func TestEmbeddedEndpoint_ReasoningControls_RoundTrip(t *testing.T) {
+	cfg := &EmbeddedConfig{Endpoints: []EmbeddedEndpoint{
+		{ID: "strata", Model: "m", ReasoningBudgetTokens: 6144, HandoffNoThinking: true},
+		{ID: "plain", Model: "m"},
+	}}
+	out, err := MarshalEmbeddedYAML(cfg)
+	if err != nil {
+		t.Fatalf("MarshalEmbeddedYAML failed: %v", err)
+	}
+	if !strings.Contains(string(out), "reasoningbudgettokens: 6144") || !strings.Contains(string(out), "handoffnothinking: true") {
+		t.Fatalf("unexpected YAML keys:\n%s", out)
+	}
+	cfg2, err := UnmarshalEmbeddedYAML(out)
+	if err != nil {
+		t.Fatalf("UnmarshalEmbeddedYAML failed: %v", err)
+	}
+	if ep := cfg2.Endpoints[0]; ep.ReasoningBudgetTokens != 6144 || !ep.HandoffNoThinking {
+		t.Fatalf("YAML round-trip lost fields: %+v", ep)
+	}
+	if ep := cfg2.Endpoints[1]; ep.ReasoningBudgetTokens != 0 || ep.HandoffNoThinking {
+		t.Fatalf("YAML round-trip invented fields: %+v", ep)
+	}
+
+	back := EndpointsFromJSON(EndpointsToJSON(cfg2.Endpoints))
+	if back[0].ReasoningBudgetTokens != 6144 || !back[0].HandoffNoThinking {
+		t.Fatalf("JSON round-trip lost fields: %+v", back[0])
+	}
+
+	// Older files without the keys load as off.
+	old, err := UnmarshalEmbeddedYAML([]byte("endpoints:\n  - id: test\n    model: m\n    contexttokens: 100000\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Endpoints[0].ReasoningBudgetTokens != 0 || old.Endpoints[0].HandoffNoThinking {
+		t.Fatalf("pre-field config must default to off: %+v", old.Endpoints[0])
+	}
+}

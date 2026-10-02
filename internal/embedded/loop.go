@@ -70,6 +70,56 @@ const futureIntentionNudgeBody = "위에서 선언한 작업이 아직 남아 �
 // falsely marked complete.
 const maxPauseSummaryNudges = 2
 
+// maxThinkingTruncNudges bounds how many times a turn that spent the whole
+// max_tokens on reasoning (finish_reason "length", no content, no tool call)
+// is nudged to act instead of being handed off (issue #347). Such a turn is an
+// output-cap problem, not a context overflow: a handoff makes the follow-up
+// re-read the same files, rebuild the same prompt and stall at the same point
+// (tasks #10010→#10023). Past the bound the old handoff/incomplete path runs.
+// A turn that executes tool calls resets the counter.
+const maxThinkingTruncNudges = 2
+
+// thinkingTruncatedNudgeBody is the plain body of the thinking-truncation
+// nudge (wrapped by systemReminder). The truncated reasoning is not kept in
+// history (it may be loop output), so the model is told it is gone and asked
+// for one concrete step instead of re-planning the whole change.
+const thinkingTruncatedNudgeBody = "직전 응답은 추론(thinking)만 하다가 출력 한도(max_tokens)에 도달해 잘렸고, " +
+	"그 추론 내용은 대화에 남지 않았습니다. 전체 계획을 다시 길게 세우지 말고, " +
+	"지금 바로 첫 번째 단계의 도구 호출 하나(파일 수정 또는 명령 실행)를 실행하세요. " +
+	"큰 파일은 한 번에 write_file로 쓰지 말고 edit_file로 나눠서 수정하세요."
+
+// maxTokensCap bounds max_tokens for every request (task #6955, §4.3) to limit
+// the damage when the repetition guard is slow to catch a loop. With 92K
+// context, the old ContextTokens/4 = 23K let a looping model burn 17 minutes
+// (task #6944). 12288 tokens (~20K chars of payload) can still cut a large
+// write_file mid-content (task #7412); dispatchTool refuses repaired
+// file-mutating args so a silent prefix is never persisted.
+const maxTokensCap = 12288
+
+// requestMaxTokens is the max_tokens sent with agent-loop and handoff
+// requests: a quarter of the context window, capped at maxTokensCap.
+func requestMaxTokens(contextTokens int) int {
+	maxTok := contextTokens / 4
+	if maxTok > maxTokensCap {
+		maxTok = maxTokensCap
+	}
+	return maxTok
+}
+
+// requestReasoningBudget is the reasoning_budget_tokens sent with a request
+// whose max_tokens is maxTok: the configured budget, clamped to maxTok/2 so at
+// least half of the output cap stays for the answer and tool-call arguments.
+// Returns 0 (field omitted) when no budget is configured.
+func requestReasoningBudget(configured, maxTok int) int {
+	if configured <= 0 {
+		return 0
+	}
+	if half := maxTok / 2; configured > half {
+		return half
+	}
+	return configured
+}
+
 // Todo gate max fires is defined in todo.go as maxTodoGateNudges (=2), matching
 // grok DEFAULT_TODO_GATE_MAX_FIRES. Opt-in via ExecuteOptions.TodoGateEnabled.
 
@@ -551,6 +601,10 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// (Phase 3-2). Only active when opts.TodoGateEnabled; does not replace
 		// the regex guards above — they still run first.
 		todoGateNudges int
+		// thinkingTruncNudges counts reasoning-only turns cut at max_tokens
+		// that were nudged instead of handed off (issue #347). Reset by any
+		// turn that executes tool calls.
+		thinkingTruncNudges int
 	)
 
 	// Task #8004 (P0-1): advisory/Q&A prompts need no execution to answer, so
@@ -623,18 +677,10 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		}
 		messages = trimmed
 
-		// Build request
-		// MaxTokens is capped at 12288 (task #6955, §4.3) to limit the damage
-		// when the repetition guard is slow to catch a loop. With 92K context,
-		// the old ContextTokens/4 = 23K let a looping model burn 17 minutes
-		// (task #6944). 12288 tokens (~20K chars of payload) can still cut a
-		// large write_file mid-content (task #7412); dispatchTool refuses
-		// repaired file-mutating args so a silent prefix is never persisted.
-		maxTok := opts.ContextTokens / 4
-		const maxTokensCap = 12288
-		if maxTok > maxTokensCap {
-			maxTok = maxTokensCap
-		}
+		// Build request. max_tokens is capped (see maxTokensCap); the optional
+		// reasoning budget keeps thinking from consuming that whole cap (#347).
+		maxTok := requestMaxTokens(opts.ContextTokens)
+		reasoningBudget := requestReasoningBudget(opts.ReasoningBudgetTokens, maxTok)
 		req := &ChatRequest{
 			Model:       opts.Model,
 			Messages:    messages,
@@ -644,11 +690,12 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			// Mild penalties to steer local models away from looping on the same
 			// phrase. The streaming repetition guard (AccumulateStream) is the hard
 			// backstop; these just make the loop less likely in the first place.
-			FrequencyPenalty: DefaultFrequencyPenalty,
-			PresencePenalty:  DefaultPresencePenalty,
-			MaxTokens:        maxTok,
-			Stream:           true,
-			StreamOptions:    &StreamOptions{IncludeUsage: true},
+			FrequencyPenalty:      DefaultFrequencyPenalty,
+			PresencePenalty:       DefaultPresencePenalty,
+			MaxTokens:             maxTok,
+			Stream:                true,
+			StreamOptions:         &StreamOptions{IncludeUsage: true},
+			ReasoningBudgetTokens: reasoningBudget,
 		}
 
 		// Log LLM request for observability (task #6955, §4.7).
@@ -656,8 +703,8 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		for _, m := range messages {
 			estTokens += estimateMessageTokens(m)
 		}
-		fmt.Printf("[embedded] iter=%d req start msgs=%d est_tokens=%d max_tokens=%d\n",
-			iteration, len(messages), estTokens, maxTok)
+		fmt.Printf("[embedded] iter=%d req start msgs=%d est_tokens=%d max_tokens=%d reasoning_budget=%d\n",
+			iteration, len(messages), estTokens, maxTok, reasoningBudget)
 
 		// Accumulate streaming response with automatic retry on transient
 		// errors (task #6955, §4.1). When the LLM server drops the connection
@@ -812,6 +859,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			// to immediately follow the assistant's tool_calls, so images cannot
 			// be interleaved above).
 			messages = appendPendingImages(messages, toolRegistry)
+			thinkingTruncNudges = 0
 			continue
 		}
 
@@ -872,6 +920,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 					}
 				}
 				messages = appendPendingImages(messages, toolRegistry)
+				thinkingTruncNudges = 0
 				continue
 			}
 		}
@@ -888,6 +937,25 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		visible := visibleAnswer(msg.Content, msg.ReasoningContent)
 		contentEmpty := visible == ""
 		reasoningPresent := strings.TrimSpace(msg.ReasoningContent) != ""
+
+		// Issue #347: the turn spent the whole output cap on reasoning and never
+		// reached an answer or tool call. That is an output-cap problem, not a
+		// context overflow, so a handoff would only rebuild the same prompt and
+		// stall at the same point. Ask for one concrete step in this same
+		// conversation instead, up to maxThinkingTruncNudges times; past that,
+		// fall through to the handoff/incomplete path below. The truncated
+		// reasoning stays out of history (it may be loop output).
+		if finishReason == "length" && contentEmpty && reasoningPresent &&
+			thinkingTruncNudges < maxThinkingTruncNudges {
+			thinkingTruncNudges++
+			emitOutput(opts.OnOutput, "⚠️ [추론 길이 초과]: 추론만 하다 출력 한도에서 끊겨 첫 실행 단계부터 진행하도록 요청합니다.")
+			// Don't stack identical nudges when the model truncates again.
+			nudge := systemReminder(thinkingTruncatedNudgeBody)
+			if last := messages[len(messages)-1]; last.Role != ChatRoleUser || last.Content != nudge {
+				messages = append(messages, ChatMessage{Role: ChatRoleUser, Content: nudge})
+			}
+			continue
+		}
 
 		// Check for length truncation FIRST, before empty response detection.
 		// When the model hits context length limit with finish_reason: "length"
@@ -1235,11 +1303,7 @@ func attemptHandoff(ctx context.Context, client *Client, opts ExecuteOptions, tr
 	})
 
 	// Apply the same MaxTokens cap as the main loop (task #6955, §4.3).
-	handoffMaxTok := opts.ContextTokens / 4
-	const maxTokensCap = 12288
-	if handoffMaxTok > maxTokensCap {
-		handoffMaxTok = maxTokensCap
-	}
+	handoffMaxTok := requestMaxTokens(opts.ContextTokens)
 	req := &ChatRequest{
 		Model:         opts.Model,
 		Messages:      msgs,
@@ -1248,6 +1312,16 @@ func attemptHandoff(ctx context.Context, client *Client, opts ExecuteOptions, tr
 		Stream:        true,
 		StreamOptions: &StreamOptions{IncludeUsage: true},
 	}
+	// The summary must not be eaten by reasoning: #10023's summary request
+	// thought for ~11K tokens, hit the cap and failed the task. Thinking off
+	// wins; otherwise fall back to the same budget as the main loop.
+	if opts.HandoffNoThinking {
+		req.ChatTemplateKwargs = map[string]interface{}{"enable_thinking": false}
+	} else {
+		req.ReasoningBudgetTokens = requestReasoningBudget(opts.ReasoningBudgetTokens, handoffMaxTok)
+	}
+	fmt.Printf("[embedded] handoff req start msgs=%d max_tokens=%d reasoning_budget=%d no_thinking=%t\n",
+		len(msgs), handoffMaxTok, req.ReasoningBudgetTokens, opts.HandoffNoThinking)
 	msg, _, usage, err := client.AccumulateStream(ctx, req)
 	if err != nil || msg == nil || strings.TrimSpace(msg.Content) == "" {
 		return nil, false

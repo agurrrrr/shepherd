@@ -794,6 +794,9 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 				MCPDispatch:   subDispatch,
 				Semaphore:     subSem,
 				// No InjectCh, ShouldHandoff, EnqueueFollowUp — sub-agents are short-lived.
+
+				ReasoningBudgetTokens: subEp.ReasoningBudgetTokens,
+				HandoffNoThinking:     subEp.HandoffNoThinking,
 			})
 			if runErr != nil {
 				return nil, runErr
@@ -918,6 +921,10 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			// ToolRegistry. Without this, the tool definition is visible to
 			// the model (via toolDefs) but dispatch fails with "unknown tool".
 			SubagentSpawner: subagentSpawner,
+			// Opt-in reasoning controls (issue #347); zero values keep the
+			// request body unchanged for servers that don't know the fields.
+			ReasoningBudgetTokens: ep.ReasoningBudgetTokens,
+			HandoffNoThinking:     ep.HandoffNoThinking,
 		})
 		if err != nil {
 			return nil, err

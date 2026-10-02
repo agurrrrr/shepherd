@@ -434,6 +434,10 @@ func (s *Server) handleGetEmbeddedEndpoints(c *fiber.Ctx) error {
 			"max_concurrent": ep.MaxConcurrent,
 			"subagent":       ep.Subagent,
 			"is_active":      ep.ID == activeID,
+			// The edit form is filled from this response; omitting a field
+			// here makes the next save write its zero value back.
+			"reasoning_budget_tokens": ep.ReasoningBudgetTokens,
+			"handoff_no_thinking":     ep.HandoffNoThinking,
 		})
 	}
 	return success(c, map[string]interface{}{
@@ -644,6 +648,9 @@ func embeddedEndpointFromJSON(body config.EmbeddedEndpointJSON) config.EmbeddedE
 		ContextTokens: body.ContextTokens,
 		MaxConcurrent: body.MaxConcurrent,
 		Subagent:      body.Subagent,
+
+		ReasoningBudgetTokens: body.ReasoningBudgetTokens,
+		HandoffNoThinking:     body.HandoffNoThinking,
 	}
 }
 

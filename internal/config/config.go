@@ -619,6 +619,13 @@ type EmbeddedEndpoint struct {
 	// enabled endpoint. Pre-field configs (YAML without "subagent:") are
 	// migrated to true on load for backward compatibility.
 	Subagent bool `mapstructure:"subagent"`
+	// ReasoningBudgetTokens, when > 0, is sent as reasoning_budget_tokens on
+	// embedded agent-loop requests (clamped to max_tokens/2). 0 = not sent.
+	// Only for servers that accept the field (Strata); others may reject it.
+	ReasoningBudgetTokens int `mapstructure:"reasoning_budget_tokens"`
+	// HandoffNoThinking sends chat_template_kwargs {"enable_thinking": false}
+	// on the context-handoff summary request so reasoning cannot eat it.
+	HandoffNoThinking bool `mapstructure:"handoff_no_thinking"`
 }
 
 // EmbeddedConfig is the top-level config for embedded endpoints.
@@ -656,6 +663,10 @@ type EmbeddedEndpointJSON struct {
 	ContextTokens int    `json:"context_tokens"`
 	MaxConcurrent int    `json:"max_concurrent"`
 	Subagent      bool   `json:"subagent"`
+	// Every field must also be copied in EndpointsToJSON / EndpointsFromJSON
+	// and the server's embeddedEndpointFromJSON, or a Web UI save drops it.
+	ReasoningBudgetTokens int  `json:"reasoning_budget_tokens"`
+	HandoffNoThinking     bool `json:"handoff_no_thinking"`
 }
 
 // EndpointsToJSON converts embedded endpoints to JSON-friendly slice.
@@ -675,6 +686,9 @@ func EndpointsToJSON(endpoints []EmbeddedEndpoint) []EmbeddedEndpointJSON {
 			ContextTokens: ep.ContextTokens,
 			MaxConcurrent: ep.MaxConcurrent,
 			Subagent:      ep.Subagent,
+
+			ReasoningBudgetTokens: ep.ReasoningBudgetTokens,
+			HandoffNoThinking:     ep.HandoffNoThinking,
 		}
 	}
 	return result
@@ -697,6 +711,9 @@ func EndpointsFromJSON(jsonEps []EmbeddedEndpointJSON) []EmbeddedEndpoint {
 			ContextTokens: ep.ContextTokens,
 			MaxConcurrent: ep.MaxConcurrent,
 			Subagent:      ep.Subagent,
+
+			ReasoningBudgetTokens: ep.ReasoningBudgetTokens,
+			HandoffNoThinking:     ep.HandoffNoThinking,
 		}
 	}
 	return result
