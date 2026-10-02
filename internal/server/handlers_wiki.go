@@ -34,7 +34,7 @@ func (s *Server) handleListWikiPages(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusBadRequest, "project query parameter is required")
 	}
 
-	pages, err := wiki.ListPages(projectName)
+	pages, err := wiki.ListPagesByCreated(projectName)
 	if err != nil {
 		return fail(c, fiber.StatusInternalServerError, err.Error())
 	}

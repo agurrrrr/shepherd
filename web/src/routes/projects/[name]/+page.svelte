@@ -492,9 +492,10 @@
 	async function loadWikiPages() {
 		const res = await apiGet(`/api/wiki/pages?project=${encodeURIComponent(projectName)}`);
 		if (res?.data) {
+			// 왼쪽 페이지 목록: API가 최근 작성순(created_at DESC)으로 반환한다.
 			wikiPages = res.data;
-			if (res.data.length > 0 && !wikiSelectedPage) {
-				selectWikiPage(res.data[0]);
+			if (wikiPages.length > 0 && !wikiSelectedPage) {
+				selectWikiPage(wikiPages[0]);
 			}
 		}
 		wikiLoaded = true;

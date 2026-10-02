@@ -200,7 +200,9 @@ func GetPage(projectName, slug string) (*ent.WikiPage, error) {
 	return page, nil
 }
 
-// ListPages lists all wiki pages for a project.
+// ListPages lists all wiki pages for a project. 공유 경로(CLI/MCP/lint/index)는
+// 마지막 수정 순서를 유지한다. UI 사이드바처럼 작성 순이 필요한 callers는
+// ListPagesByCreated를 사용한다.
 func ListPages(projectName string) ([]*ent.WikiPage, error) {
 	ctx := context.Background()
 	client := db.Client()
@@ -214,6 +216,28 @@ func ListPages(projectName string) ([]*ent.WikiPage, error) {
 		return nil, fmt.Errorf("failed to list wiki pages: %w", err)
 	}
 	return pages, nil
+}
+
+// ListPagesByCreated 최근 작성된 페이지가 앞에 오는 순서로 반환한다.
+// Web UI 위키 사이드바(왼쪽 페이지 목록)가 이 순서를 사용한다.
+func ListPagesByCreated(projectName string) ([]*ent.WikiPage, error) {
+	pages, err := ListPages(projectName)
+	if err != nil {
+		return nil, err
+	}
+	sortPagesByCreated(pages)
+	return pages, nil
+}
+
+// sortPagesByCreated 정렬 기준: 작성 시각(created_at) 내림차순. 같은 작성 시각에는
+// slug 오름차순으로 결정적인 순서를 보장한다 — 갱신 시각은 정렬에 영향을 주지 않는다.
+func sortPagesByCreated(pages []*ent.WikiPage) {
+	sort.SliceStable(pages, func(i, j int) bool {
+		if !pages[i].CreatedAt.Equal(pages[j].CreatedAt) {
+			return pages[i].CreatedAt.After(pages[j].CreatedAt)
+		}
+		return pages[i].Slug < pages[j].Slug
+	})
 }
 
 // DeletePage deletes a wiki page.
