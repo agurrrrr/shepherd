@@ -94,20 +94,21 @@ func searchWithText(projectName string, opts SearchOptions) ([]SearchPageResult,
 
 // searchWithRegex performs a regex-based search.
 func searchWithRegex(projectName string, opts SearchOptions) ([]SearchPageResult, error) {
-	pages, err := ListPages(projectName)
-	if err != nil {
-		return nil, err
-	}
-
 	caseInsensitive := opts.CaseInsensitive
 	pattern := opts.Query
 	if caseInsensitive {
 		pattern = "(?i)" + pattern
 	}
 
+	// Compile before querying the DB so an invalid pattern fails fast.
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("invalid regex pattern %q: %w", opts.Query, err)
+	}
+
+	pages, err := ListPages(projectName)
+	if err != nil {
+		return nil, err
 	}
 
 	var results []SearchPageResult
@@ -165,6 +166,10 @@ func pageMatchesFilters(page *ent.WikiPage, opts SearchOptions) bool {
 // Searches both title and content lines.
 func findPlainTextMatches(title, content, query string, caseInsensitive bool) []SearchMatch {
 	var matches []SearchMatch
+
+	if caseInsensitive {
+		query = strings.ToLower(query)
+	}
 
 	// Check title
 	titleToSearch := title

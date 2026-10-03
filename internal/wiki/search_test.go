@@ -20,7 +20,7 @@ func TestFindPlainTextMatches(t *testing.T) {
 			content:         "Line 1\nGo is great\nLine 3",
 			query:           "Go",
 			caseInsensitive: false,
-			wantCount:       2, // title "Test Page" doesn't match, line 2 matches, total 1 match in content + 0 in title
+			wantCount:       1, // title "Test Page" doesn't match, line 2 matches, total 1 match in content + 0 in title
 		},
 		{
 			name:            "case insensitive match",
@@ -41,7 +41,7 @@ func TestFindPlainTextMatches(t *testing.T) {
 		{
 			name:            "title match",
 			title:           "Go Programming",
-			content:         "Some content without Go",
+			content:         "Some content without the keyword",
 			query:           "Go",
 			caseInsensitive: false,
 			wantCount:       1, // only title matches
