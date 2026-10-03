@@ -161,9 +161,8 @@ func optimizeImageFile(data []byte, mime string) string {
 // consume when sent to a local LLM server (llama.cpp, vLLM, etc.). Unlike
 // cloud APIs that replace images with fixed-size vision-encoder embeddings,
 // local servers tokenize the entire data URL string as regular text. Base64
-// uses a limited ASCII alphabet, so ~4 characters per token (same ratio as
-// estimateTextTokens for ASCII). This prevents context overflow caused by
-// underestimating large screenshots (task #6698).
+// uses a limited ASCII alphabet, so ~4 characters per token. This prevents
+// context overflow caused by underestimating large screenshots (task #6698).
 func EstimateImageTokens(dataURL string) int {
 	return len(dataURL) / 4
 }

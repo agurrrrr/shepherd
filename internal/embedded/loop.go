@@ -557,6 +557,9 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 	}
 	// Future-intention guard only arms when a reset path exists (task #7751 (A)).
 	writeToolsAllowed := hasStateChangingTools(toolDefs)
+	// Prompt-size estimate for trimming/handoff: counts toolDefs and is
+	// calibrated by each response's usage.prompt_tokens (issue #348).
+	promptEst := newPromptEstimator(toolDefs)
 
 	var (
 		totalPromptTokens     int64
@@ -667,7 +670,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// turns and a handoff is allowed (queue empty), finish this task with a
 		// summary + queue the remaining work as a follow-up task instead —
 		// trimming destroys context and tends to degrade the model.
-		trimmed := trimMessages(messages, opts.ContextTokens)
+		trimmed := trimMessages(messages, opts.ContextTokens, promptEst)
 		if len(trimmed) < len(messages) &&
 			opts.EnqueueFollowUp != nil &&
 			(opts.ShouldHandoff == nil || opts.ShouldHandoff()) {
@@ -698,13 +701,12 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			ReasoningBudgetTokens: reasoningBudget,
 		}
 
-		// Log LLM request for observability (task #6955, §4.7).
-		estTokens := 0
-		for _, m := range messages {
-			estTokens += estimateMessageTokens(m)
-		}
-		fmt.Printf("[embedded] iter=%d req start msgs=%d est_tokens=%d max_tokens=%d reasoning_budget=%d\n",
-			iteration, len(messages), estTokens, maxTok, reasoningBudget)
+		// Log LLM request for observability (task #6955, §4.7). est_tokens is
+		// the calibrated estimate trimming uses; heur_tokens is the raw
+		// heuristic (tool definitions included) for comparison with prompt_tok.
+		estTokens, heurTokens := promptEst.estimate(messages)
+		fmt.Printf("[embedded] iter=%d req start msgs=%d est_tokens=%d heur_tokens=%d max_tokens=%d reasoning_budget=%d\n",
+			iteration, len(messages), estTokens, heurTokens, maxTok, reasoningBudget)
 
 		// Accumulate streaming response with automatic retry on transient
 		// errors (task #6955, §4.1). When the LLM server drops the connection
@@ -743,6 +745,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		if usage != nil {
 			totalPromptTokens += usage.PromptTokens
 			totalCompletionTokens += usage.CompletionTokens
+			promptEst.observe(len(messages), heurTokens, usage.PromptTokens)
 		}
 
 		// Log LLM response for observability (task #6955, §4.7).
