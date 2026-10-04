@@ -88,6 +88,20 @@ const thinkingTruncatedNudgeBody = "직전 응답은 추론(thinking)만 하다�
 	"지금 바로 첫 번째 단계의 도구 호출 하나(파일 수정 또는 명령 실행)를 실행하세요. " +
 	"큰 파일은 한 번에 write_file로 쓰지 말고 edit_file로 나눠서 수정하세요."
 
+// injectedReplyNudgeBody is the plain body of the injected-message reply
+// nudge (wrapped by systemReminder). After a mid-run injected user message,
+// the model can answer that message with text only ("확인했습니다. 이제 구현을
+// 계속하겠습니다.") and the loop would take the tool-less turn as the final
+// answer, ending the task mid-work (task #10095). The future-intention guard
+// misses this once any tool has run, and present-tense endings ("추가합니다")
+// slip past its regex, so the first text-only turn after an injection gets
+// this one-shot reminder instead. The body leaves room for an injection that
+// asked to stop or changed the task, and for a task that is really done.
+const injectedReplyNudgeBody = "작업 도중 사용자 메시지가 들어온 뒤 도구 호출 없이 텍스트 답변만 나왔습니다. " +
+	"그 답변이 사용자 메시지에 대한 응답이었고 원래 작업이 아직 끝나지 않았다면, 지금 바로 다음 단계의 도구 호출로 원래 작업을 이어 가세요. " +
+	"사용자 메시지가 작업 중단이나 변경을 요청했다면 그 요청을 따르세요. " +
+	"원래 작업이 실제로 모두 끝났다면 무엇을 완료했는지 최종 보고를 작성하세요."
+
 // maxTokensCap bounds max_tokens for every request (task #6955, §4.3) to limit
 // the damage when the repetition guard is slow to catch a loop. With 92K
 // context, the old ContextTokens/4 = 23K let a looping model burn 17 minutes
@@ -608,6 +622,12 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 		// that were nudged instead of handed off (issue #347). Reset by any
 		// turn that executes tool calls.
 		thinkingTruncNudges int
+		// injectReplyPending is set when a user message is injected mid-run
+		// and cleared by the first text-only turn after it, which is nudged
+		// once to resume the original task instead of completing (task
+		// #10095). Tool-call turns leave it set: the model may acknowledge the
+		// injection, keep working, and only stall several turns later.
+		injectReplyPending bool
 	)
 
 	// Task #8004 (P0-1): advisory/Q&A prompts need no execution to answer, so
@@ -660,6 +680,12 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 						Content: injected,
 					})
 					emitOutput(opts.OnOutput, "💬 [주입된 메시지]: "+injected)
+					// Only a mid-run injection can pull the model off its
+					// task; one that lands before the first turn is answered
+					// together with the original prompt.
+					if iteration > 0 {
+						injectReplyPending = true
+					}
 				default:
 					break pollLoop
 				}
@@ -1024,6 +1050,23 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 			continue
 		}
 		consecutiveEmpty = 0
+
+		// ── Injected-message reply guard (task #10095) ──
+		// The first text-only turn after a mid-run injected message is likely a
+		// reply to that message, not the end of the original task. Remind the
+		// model once to resume; a second text-only turn falls through to the
+		// guards below and can complete. Runs before ① because ① is disarmed
+		// once any tool has run, which is the usual state mid-run.
+		if injectReplyPending {
+			injectReplyPending = false
+			emitOutput(opts.OnOutput, "⚠️ [주입 메시지 응답 감지]: 주입된 메시지에 답한 뒤 도구 호출 없이 멈춰 원래 작업을 이어 가도록 요청합니다.")
+			messages = append(messages, ChatMessage{Role: ChatRoleAssistant, Content: msg.Content})
+			messages = append(messages, ChatMessage{
+				Role:    ChatRoleUser,
+				Content: systemReminder(injectedReplyNudgeBody),
+			})
+			continue
+		}
 
 		// ── Mitigation ①: Future-intention nudge (task #6290 / #6294 / #7751 / #8004) ──
 		// If there are no tool calls AND the visible answer (thinking stripped)

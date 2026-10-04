@@ -1248,3 +1248,139 @@ func TestEmitOutputDoesNotGlueUnits(t *testing.T) {
 		t.Fatalf("summary line missing from coalesced output: %q", chunks)
 	}
 }
+
+// injectingSSEServer is multiRoundSSEServer that also pushes msg into inject
+// while serving round injectAt, so the loop picks it up at the top of the next
+// iteration — the same point a real mid-run injection lands.
+func injectingSSEServer(t *testing.T, rounds [][]string, injectAt int, inject chan<- string, msg string) (srv *httptest.Server, bodies *[]string) {
+	t.Helper()
+	var recorded []string
+	var count atomic.Int64
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		idx := int(count.Add(1)) - 1
+		raw, _ := io.ReadAll(r.Body)
+		recorded = append(recorded, string(raw))
+		if idx == injectAt {
+			inject <- msg
+		}
+		if idx >= len(rounds) {
+			http.Error(w, "no more rounds", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fl, _ := w.(http.Flusher)
+		for _, l := range rounds[idx] {
+			_, _ = fmt.Fprintln(w, l)
+			_, _ = fmt.Fprintln(w)
+			if fl != nil {
+				fl.Flush()
+			}
+		}
+	}))
+	return srv, &recorded
+}
+
+// TestInjectedReplyNudge reproduces task #10095: a message injected mid-run,
+// acknowledged alongside tool calls, followed turns later by a text-only reply
+// ending in a present-tense line the future-intention guard cannot catch. That
+// first text-only turn must be nudged once instead of completing the task, and
+// the next text-only turn completes normally.
+func TestInjectedReplyNudge(t *testing.T) {
+	r1 := buildSSELines([]toolCallSpec{
+		{id: "call_1", name: "bash", args: `{"command":"echo one"}`},
+	}, "", "")
+	r2 := buildSSELines([]toolCallSpec{
+		{id: "call_2", name: "bash", args: `{"command":"echo two"}`},
+	}, "확인했습니다. 엔드포인트 두 개 기준으로 진행합니다.", "")
+	stall := "확인했습니다. 이제 구현을 계속하겠습니다. 주인 상태를 추가합니다."
+	r3 := buildSSELines(nil, stall, "stop")
+	done := "비용 기반 배치를 구현하고 테스트를 통과시켰습니다."
+	r4 := buildSSELines(nil, done, "stop")
+
+	inject := make(chan string, 1)
+	injected := "엔드포인트 세 개였던 게 두 개로 줄었어. 참고해."
+	srv, bodies := injectingSSEServer(t, [][]string{r1, r2, r3, r4}, 0, inject, injected)
+	defer srv.Close()
+
+	var outputs []string
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL + "/chat/completions",
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "비용 기반 배치를 구현해주세요.",
+		ProjectPath:   t.TempDir(),
+		MaxIterations: 8,
+		InjectCh:      inject,
+		OnOutput:      func(s string) { outputs = append(outputs, s) },
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("Incomplete: %s", result.IncompleteReason)
+	}
+	if result.Result != done {
+		t.Fatalf("Result = %q, want the post-nudge report %q", result.Result, done)
+	}
+	if len(*bodies) != 4 {
+		t.Fatalf("expected 4 requests, got %d", len(*bodies))
+	}
+
+	if users := lastUserContents(t, (*bodies)[1]); users[len(users)-1] != injected {
+		t.Fatalf("2nd request should end with the injected message, got %q", users[len(users)-1])
+	}
+	// The tool-call turn after the injection must not have consumed the
+	// nudge: the 3rd request carries no reminder yet.
+	for _, c := range lastUserContents(t, (*bodies)[2]) {
+		if strings.Contains(c, injectedReplyNudgeBody) {
+			t.Fatal("nudge fired before any text-only turn")
+		}
+	}
+	users := lastUserContents(t, (*bodies)[3])
+	if last := users[len(users)-1]; last != systemReminder(injectedReplyNudgeBody) {
+		t.Fatalf("4th request should end with the injected-reply nudge, got %q", last)
+	}
+	if !strings.Contains((*bodies)[3], "주인 상태를 추가합니다") {
+		t.Fatal("stalled reply should stay in history before the nudge")
+	}
+
+	nudged := 0
+	for _, o := range outputs {
+		if strings.Contains(o, "[주입 메시지 응답 감지]") {
+			nudged++
+		}
+	}
+	if nudged != 1 {
+		t.Fatalf("expected exactly one injected-reply warning, got %d in %q", nudged, outputs)
+	}
+}
+
+// TestInjectedBeforeFirstTurnNoNudge: a message already queued before the first
+// request is answered together with the original prompt, so a text-only reply
+// completes without the injected-reply nudge.
+func TestInjectedBeforeFirstTurnNoNudge(t *testing.T) {
+	r1 := buildSSELines(nil, "두 가지 모두 답변드렸습니다.", "stop")
+	srv, bodies := multiRoundSSEServer(t, [][]string{r1})
+	defer srv.Close()
+
+	inject := make(chan string, 1)
+	inject <- "추가로 하나만 더 알려줘."
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL + "/chat/completions",
+		Model:         "qwen3-test",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "설정 파일 위치를 알려주세요.",
+		MaxIterations: 4,
+		InjectCh:      inject,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if result.Incomplete {
+		t.Fatalf("Incomplete: %s", result.IncompleteReason)
+	}
+	if len(*bodies) != 1 {
+		t.Fatalf("expected 1 request (no nudge), got %d", len(*bodies))
+	}
+}
