@@ -79,18 +79,18 @@ func estimateTextTokens(s string) int {
 }
 
 // estimateMessageTokens estimates the token count for a single message.
-// Includes Content, ToolCalls (function name + JSON args), and template framing.
+// Includes Content (or ContentParts, which replace it on the wire), ToolCalls
+// (function name + JSON args), and template framing.
 func estimateMessageTokens(msg ChatMessage) int {
-	tokens := estimateTextTokens(msg.Content)
+	tokens := 0
+	if len(msg.ContentParts) == 0 {
+		tokens = estimateTextTokens(msg.Content)
+	}
 	for _, p := range msg.ContentParts {
 		tokens += estimateTextTokens(p.Text)
 		if p.ImageURL != nil {
-			// Local LLM servers (llama.cpp, vLLM) tokenize the entire base64
-			// data URL as regular text — the cost scales with payload size, not
-			// a fixed vision-encoder constant. A 200KB screenshot (~270KB data
-			// URL) costs ~68K tokens, far more than the old fixed 2048. Using
-			// the actual URL length prevents context overflow that caused
-			// "empty response loop detected" failures (task #6698).
+			// Vision encoders cost the picture by pixel size, not by its
+			// base64 length (see EstimateImageTokens).
 			tokens += EstimateImageTokens(p.ImageURL.URL)
 		}
 	}

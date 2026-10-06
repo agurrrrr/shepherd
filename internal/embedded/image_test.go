@@ -217,16 +217,31 @@ func TestOptimizeMCPImage_EmptyMIME(t *testing.T) {
 }
 
 func TestEstimateImageTokens(t *testing.T) {
-	// A 1KB data URL should estimate to ~250 tokens (1000/4).
-	// Local LLM servers tokenize the base64 data URL as regular text.
-	tokens := EstimateImageTokens(strings.Repeat("a", 750))
-	if tokens != 187 {
-		t.Errorf("750 chars should be ~187 tokens (750/4), got %d", tokens)
+	// Vision encoders cost a picture by its pixel grid, not its base64 length:
+	// 28px squares per token plus the start/end markers.
+	tests := []struct {
+		w, h int
+		want int
+	}{
+		{1280, 688, 46*25 + 2},  // Strata measured 882
+		{720, 1248, 26*45 + 2},  // Strata measured 899
+		{1536, 1024, 55*37 + 2}, // Strata measured 1,016 (its cap is 1,024)
+		{100, 100, 4*4 + 2},
+	}
+	for _, tt := range tests {
+		dataURL := optimizeImageForContext(makeTestImage(tt.w, tt.h), "image/png")
+		if got := EstimateImageTokens(dataURL); got != tt.want {
+			t.Errorf("%dx%d: got %d tokens, want %d (data URL %d bytes)", tt.w, tt.h, got, tt.want, len(dataURL))
+		}
 	}
 
-	tokens = EstimateImageTokens(strings.Repeat("a", 7500))
-	if tokens != 1875 {
-		t.Errorf("7500 chars should be ~1875 tokens (7500/4), got %d", tokens)
+	// Undecodable payloads count as the largest picture the optimizer sends.
+	side := (maxImageDim + 27) / 28
+	want := side*side + 2
+	for _, dataURL := range []string{"no comma", "data:image/png;base64,!!!", "data:image/webp;base64," + strings.Repeat("A", 4000)} {
+		if got := EstimateImageTokens(dataURL); got != want {
+			t.Errorf("undecodable %.30q: got %d tokens, want fallback %d", dataURL, got, want)
+		}
 	}
 }
 

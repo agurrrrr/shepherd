@@ -157,14 +157,48 @@ func optimizeImageFile(data []byte, mime string) string {
 	return optimizeImageForContext(data, mime)
 }
 
-// EstimateImageTokens estimates how many prompt tokens a base64 data URL will
-// consume when sent to a local LLM server (llama.cpp, vLLM, etc.). Unlike
-// cloud APIs that replace images with fixed-size vision-encoder embeddings,
-// local servers tokenize the entire data URL string as regular text. Base64
-// uses a limited ASCII alphabet, so ~4 characters per token. This prevents
-// context overflow caused by underestimating large screenshots (task #6698).
+const (
+	// imagePatchPixels is the side of the pixel square that becomes one prompt
+	// token: 14px ViT patches merged 2×2 (Qwen2/2.5-VL, GLM-4V, Kimi-VL).
+	// Qwen3-VL-family encoders use 16px patches (32px per token) and may cap
+	// the token count, so this leans high there — measured on Strata
+	// (Qwen3.8-Flash-Next, cap 1024): 1280×688 = 882 tokens (estimate 1,152),
+	// 720×1248 = 899 (1,172), 1536×1024 = 1,016 (2,037). The usage.prompt_tokens
+	// calibration absorbs the rest.
+	imagePatchPixels = 28
+	// imageFramingTokens covers the vision start/end markers around the grid.
+	imageFramingTokens = 2
+)
+
+// EstimateImageTokens estimates how many prompt tokens an image data URL costs
+// a vision model. The encoder turns the picture into a grid of patch tokens, so
+// the cost follows the pixel size, not the base64 length: the old len/4 rule
+// (task #6698) counted the 1,016-token picture above as 78,734 tokens and
+// handed off vision tasks after a few screenshots. An image whose header cannot
+// be decoded counts as the largest picture optimizeImageForContext sends.
 func EstimateImageTokens(dataURL string) int {
-	return len(dataURL) / 4
+	w, h, ok := imageDataURLSize(dataURL)
+	if !ok {
+		w, h = maxImageDim, maxImageDim
+	}
+	cols := (w + imagePatchPixels - 1) / imagePatchPixels
+	rows := (h + imagePatchPixels - 1) / imagePatchPixels
+	return cols*rows + imageFramingTokens
+}
+
+// imageDataURLSize reads the pixel size from a base64 data URL. Only the image
+// header is decoded, so this stays cheap for the per-request estimate.
+func imageDataURLSize(dataURL string) (w, h int, ok bool) {
+	idx := strings.Index(dataURL, ",")
+	if idx < 0 {
+		return 0, 0, false
+	}
+	r := base64.NewDecoder(base64.StdEncoding, strings.NewReader(dataURL[idx+1:]))
+	cfg, _, err := image.DecodeConfig(r)
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0, false
+	}
+	return cfg.Width, cfg.Height, true
 }
 
 // FormatImageSize returns a human-readable size string for logging.

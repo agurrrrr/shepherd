@@ -272,3 +272,56 @@ func TestRunTrimsOnReportedPromptTokens(t *testing.T) {
 		})
 	}
 }
+
+// Task #10136: a vision task read four screenshots; est_tokens climbed to
+// 147,214 while the server reported 15,007, because each picture was counted
+// at len(base64)/4 and the first image report fell under half the heuristic,
+// so usage calibration switched off for the rest of the run.
+func TestPromptEstimatorKeepsAnchorWithImages(t *testing.T) {
+	const realImageTokens = 882 // Strata, 1280×688 screenshot
+	img := optimizeImageForContext(makeTestImage(1280, 688), "image/png")
+	e := newPromptEstimator(testToolDefs(20))
+	msgs := historyOf(1, "ok")
+	_, heur := e.estimate(msgs)
+	actual := heur
+	e.observe(len(msgs), heur, int64(actual))
+
+	for i := 0; i < 4; i++ {
+		id := fmt.Sprintf("img_%d", i)
+		msgs = append(msgs,
+			ChatMessage{Role: ChatRoleAssistant, ToolCalls: []ToolCall{{ID: id, Type: "function",
+				Func: ToolCallFunction{Name: "read_file", Args: `{"path":"shot.png"}`}}}},
+			ChatMessage{Role: ChatRoleTool, ToolCallID: id, Content: "Image loaded."},
+			ChatMessage{Role: ChatRoleUser, ContentParts: []ContentPart{
+				{Type: "text", Text: "Attached image(s) from the tool call(s) above:"},
+				{Type: "image_url", ImageURL: &ImageURL{URL: img}},
+			}},
+		)
+		est, h := e.estimate(msgs)
+		appended := h - heur
+		actual += appended - EstimateImageTokens(img) + realImageTokens
+		if est > actual*3/2 {
+			t.Fatalf("after image %d: est=%d is more than 1.5× the real %d", i+1, est, actual)
+		}
+		e.observe(len(msgs), h, int64(actual))
+		if e.anchorActual != actual {
+			t.Fatalf("after image %d: usage %d was not anchored (heur %d)", i+1, actual, h)
+		}
+		heur = h
+	}
+}
+
+func TestEstimateMessageTokensContentPartsReplaceContent(t *testing.T) {
+	text := strings.Repeat("화면에 무엇이 보이는지 설명해 주세요. ", 20)
+	img := optimizeImageForContext(makeTestImage(64, 64), "image/png")
+	// extractAttachedImages keeps the prompt in Content and in the first text
+	// part; only the parts are sent, so the text must count once.
+	withBoth := ChatMessage{Role: ChatRoleUser, Content: text, ContentParts: []ContentPart{
+		{Type: "text", Text: text},
+		{Type: "image_url", ImageURL: &ImageURL{URL: img}},
+	}}
+	want := estimateTextTokens(text) + EstimateImageTokens(img) + msgOverheadTokens
+	if got := estimateMessageTokens(withBoth); got != want {
+		t.Fatalf("got %d, want %d: Content must not be counted next to ContentParts", got, want)
+	}
+}
