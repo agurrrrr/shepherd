@@ -209,6 +209,15 @@ func Set(key string, value interface{}) error {
 	return Save()
 }
 
+// SetMany sets several keys and writes the config file once, so related
+// values (e.g. login credentials) never land on disk half-updated.
+func SetMany(values map[string]interface{}) error {
+	for key, value := range values {
+		viper.Set(key, value)
+	}
+	return Save()
+}
+
 func Save() error {
 	return viper.WriteConfigAs(configFile)
 }

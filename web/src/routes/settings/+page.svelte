@@ -13,6 +13,7 @@
 	import MCPSection from '$lib/components/Settings/MCPSection.svelte';
 	import SkillSyncSection from '$lib/components/Settings/SkillSyncSection.svelte';
 	import DataManagement from '$lib/components/Settings/DataManagement.svelte';
+	import AccountSettings from '$lib/components/Settings/AccountSettings.svelte';
 
 	// NOTE: 이 컴포넌트는 아래 $derived 사용으로 Svelte 5 runes 모드다.
 	// runes 모드에서는 평범한 let 변수가 반응형이 아니므로 반드시 $state로 선언해야 한다.
@@ -280,6 +281,9 @@
 
 		<!-- 공통 관리 섹션 — 공통 탭에만 표시 -->
 		{#if activeTab === 'common'}
+			<div style="margin-top:24px">
+				<AccountSettings />
+			</div>
 			<div style="margin-top:24px">
 				<MCPSection {mcpStatus} {mcpLoaded} />
 			</div>

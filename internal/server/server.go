@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -11,11 +12,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/discord"
@@ -107,8 +110,12 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	app.Post("/api/_internal/shutdown", s.handleInternalShutdown)
 
 	// Authenticated routes
-	jwtSecret := config.GetString("auth_jwt_secret")
-	api := app.Group("/api", AuthMiddleware(jwtSecret))
+	api := app.Group("/api", AuthMiddleware(func() string {
+		return config.GetString("auth_jwt_secret")
+	}))
+
+	// Login credentials (username / password) change
+	api.Put("/auth/credentials", s.handleChangeCredentials)
 
 	// SSE event stream
 	api.Get("/events", s.handleSSE)
@@ -393,31 +400,11 @@ func (s *Server) handleLogin(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusUnauthorized, "invalid credentials")
 	}
 
-	jwtSecret := config.GetString("auth_jwt_secret")
-	accessTTL, _ := time.ParseDuration(config.GetString("auth_access_ttl"))
-	refreshTTL, _ := time.ParseDuration(config.GetString("auth_refresh_ttl"))
-	if accessTTL == 0 {
-		accessTTL = 24 * time.Hour
-	}
-	if refreshTTL == 0 {
-		refreshTTL = 168 * time.Hour
-	}
-
-	accessToken, err := GenerateAccessToken(req.Username, jwtSecret, accessTTL)
+	tokens, err := issueTokens(req.Username, config.GetString("auth_jwt_secret"))
 	if err != nil {
 		return fail(c, fiber.StatusInternalServerError, "failed to generate token")
 	}
-
-	refreshToken, err := GenerateRefreshToken(req.Username, jwtSecret, refreshTTL)
-	if err != nil {
-		return fail(c, fiber.StatusInternalServerError, "failed to generate token")
-	}
-
-	return c.JSON(LoginResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		Username:     req.Username,
-	})
+	return c.JSON(tokens)
 }
 
 func (s *Server) handleRefresh(c *fiber.Ctx) error {
@@ -439,6 +426,89 @@ func (s *Server) handleRefresh(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusUnauthorized, "invalid token type")
 	}
 
+	tokens, err := issueTokens(claims.Username, jwtSecret)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to generate token")
+	}
+	return c.JSON(tokens)
+}
+
+// persistConfig writes several config keys in one file write. It is a
+// variable so tests can keep handler writes out of ~/.shepherd/config.yaml.
+var persistConfig = config.SetMany
+
+// PUT /api/auth/credentials
+// Changes the login username and/or password after verifying the current
+// password. The JWT secret is rotated so every previously issued token —
+// including other devices' sessions — stops working; the caller gets a fresh
+// token pair in the response so its own session continues.
+func (s *Server) handleChangeCredentials(c *fiber.Ctx) error {
+	var req ChangeCredentialsRequest
+	if err := c.BodyParser(&req); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+
+	storedUsername := config.GetString("auth_username")
+	storedHash := config.GetString("auth_password_hash")
+	if storedUsername == "" || storedHash == "" {
+		return fail(c, fiber.StatusForbidden, "authentication not configured, run 'shepherd auth setup' first")
+	}
+
+	// 403, not 401: the web client treats 401 as an expired session and
+	// logs the user out, which is the wrong reaction to a typo.
+	if err := ComparePassword(storedHash, req.CurrentPassword); err != nil {
+		return fail(c, fiber.StatusForbidden, "current password is incorrect")
+	}
+
+	newUsername := strings.TrimSpace(req.NewUsername)
+	if newUsername == "" {
+		newUsername = storedUsername
+	}
+	if strings.ContainsFunc(newUsername, unicode.IsSpace) {
+		return fail(c, fiber.StatusBadRequest, "username must not contain spaces")
+	}
+	if len(newUsername) > 64 {
+		return fail(c, fiber.StatusBadRequest, "username must be at most 64 characters")
+	}
+	if newUsername == storedUsername && req.NewPassword == "" {
+		return fail(c, fiber.StatusBadRequest, "nothing to change")
+	}
+
+	newHash := storedHash
+	if req.NewPassword != "" {
+		hash, err := HashPassword(req.NewPassword)
+		if errors.Is(err, bcrypt.ErrPasswordTooLong) {
+			return fail(c, fiber.StatusBadRequest, "password must be at most 72 bytes")
+		}
+		if err != nil {
+			return fail(c, fiber.StatusInternalServerError, "failed to hash password")
+		}
+		newHash = hash
+	}
+
+	newSecret, err := GenerateJWTSecret()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to generate JWT secret")
+	}
+
+	if err := persistConfig(map[string]interface{}{
+		"auth_username":      newUsername,
+		"auth_password_hash": newHash,
+		"auth_jwt_secret":    newSecret,
+	}); err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to save config: "+err.Error())
+	}
+
+	tokens, err := issueTokens(newUsername, newSecret)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to generate token")
+	}
+	return success(c, tokens)
+}
+
+// issueTokens signs a fresh access/refresh token pair for username using the
+// configured TTLs.
+func issueTokens(username, jwtSecret string) (LoginResponse, error) {
 	accessTTL, _ := time.ParseDuration(config.GetString("auth_access_ttl"))
 	refreshTTL, _ := time.ParseDuration(config.GetString("auth_refresh_ttl"))
 	if accessTTL == 0 {
@@ -448,20 +518,20 @@ func (s *Server) handleRefresh(c *fiber.Ctx) error {
 		refreshTTL = 168 * time.Hour
 	}
 
-	newAccess, err := GenerateAccessToken(claims.Username, jwtSecret, accessTTL)
+	accessToken, err := GenerateAccessToken(username, jwtSecret, accessTTL)
 	if err != nil {
-		return fail(c, fiber.StatusInternalServerError, "failed to generate token")
+		return LoginResponse{}, err
 	}
-	newRefresh, err := GenerateRefreshToken(claims.Username, jwtSecret, refreshTTL)
+	refreshToken, err := GenerateRefreshToken(username, jwtSecret, refreshTTL)
 	if err != nil {
-		return fail(c, fiber.StatusInternalServerError, "failed to generate token")
+		return LoginResponse{}, err
 	}
 
-	return c.JSON(LoginResponse{
-		AccessToken:  newAccess,
-		RefreshToken: newRefresh,
-		Username:     claims.Username,
-	})
+	return LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		Username:     username,
+	}, nil
 }
 
 // --- SSE handler ---

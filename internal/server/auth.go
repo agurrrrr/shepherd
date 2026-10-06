@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -26,6 +28,23 @@ type LoginResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	Username     string `json:"username"`
+}
+
+// ChangeCredentialsRequest is the body for PUT /api/auth/credentials.
+// An empty NewUsername or NewPassword keeps the current value.
+type ChangeCredentialsRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewUsername     string `json:"new_username"`
+	NewPassword     string `json:"new_password"`
+}
+
+// GenerateJWTSecret returns a random 32-byte hex-encoded signing secret.
+func GenerateJWTSecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // GenerateAccessToken creates a signed JWT access token.

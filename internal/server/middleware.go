@@ -8,9 +8,13 @@ import (
 )
 
 // AuthMiddleware creates a JWT authentication middleware.
-// jwtSecret must not be empty — the server should ensure a secret is configured before starting.
-func AuthMiddleware(jwtSecret string) fiber.Handler {
+// The secret is fetched per request rather than captured once, because
+// changing the login credentials rotates it to revoke every issued token.
+// It must not be empty — the server should ensure a secret is configured before starting.
+func AuthMiddleware(secret func() string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		jwtSecret := secret()
+
 		// Reject all requests if JWT secret is not configured
 		if jwtSecret == "" {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
