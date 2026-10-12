@@ -1,7 +1,7 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
 	import { apiGet } from '$lib/api.js';
-	import { sheep, systemStatus } from '$lib/stores.js';
+	import { sheep, systemStatus, projects } from '$lib/stores.js';
 	import { onSSE } from '$lib/sse.js';
 	import SheepCard from '$lib/components/SheepCard.svelte';
 	import CommandInput from '$lib/components/CommandInput.svelte';
@@ -15,13 +15,21 @@
 	let dashboard = null;
 	let unsubscribers = [];
 	let activityWindow = '1d';
+	let activityProject = '';
+	let refreshSeq = 0;
 	let monitoring = false;
 
 	const activityTabs = [
 		{ value: '5h', label: '5h' },
 		{ value: '1d', label: '1d' },
-		{ value: '7d', label: '7d' }
+		{ value: '7d', label: '7d' },
+		{ value: '1m', label: '1M' },
+		{ value: '3m', label: '3M' },
+		{ value: '6m', label: '6M' },
+		{ value: '1y', label: '1Y' }
 	];
+
+	$: projectOptions = [...($projects || [])].sort((a, b) => a.name.localeCompare(b.name));
 
 	function fmtTokens(n) {
 		const v = Number(n) || 0;
@@ -73,10 +81,17 @@
 	});
 
 	async function refreshData() {
+		// SSE refreshes and project-filter changes can overlap; only the latest
+		// response may land, or a stale project's activity could win the race.
+		const seq = ++refreshSeq;
+		const dashUrl = activityProject
+			? `/api/dashboard?project=${encodeURIComponent(activityProject)}`
+			: '/api/dashboard';
 		const [dashRes, sheepRes] = await Promise.all([
-			apiGet('/api/dashboard'),
+			apiGet(dashUrl),
 			apiGet('/api/sheep')
 		]);
+		if (seq !== refreshSeq) return;
 		if (dashRes?.data) {
 			dashboard = dashRes.data;
 			// Keep systemStatus in sync for sidebar
@@ -101,6 +116,11 @@
 
 	$: workingSheep = $sheep.filter(s => s.status === 'working' && s.project);
 
+	function setActivityProject(name) {
+		activityProject = name;
+		refreshData();
+	}
+
 	function statusIcon(status) {
 		switch (status) {
 			case 'completed': return { name: 'check-circle', tone: 'success' };
@@ -111,6 +131,28 @@
 		}
 	}
 </script>
+
+{#snippet activityControls(label)}
+	<div class="activity-controls">
+		<select
+			class="project-filter"
+			value={activityProject}
+			onchange={(e) => setActivityProject(e.currentTarget.value)}
+			aria-label={`${label} project filter`}
+		>
+			<option value="">All projects</option>
+			{#each projectOptions as p (p.name)}
+				<option value={p.name}>{p.name}</option>
+			{/each}
+		</select>
+		<Tabs
+			tabs={activityTabs}
+			value={activityWindow}
+			onChange={(v) => (activityWindow = v)}
+			ariaLabel={`${label} window`}
+		/>
+	</div>
+{/snippet}
 
 {#if monitoring}
 	<MonitorGrid working={workingSheep} onClose={() => (monitoring = false)} />
@@ -208,12 +250,7 @@
 					title="Activity"
 					subtitle={`${activity.total} tasks · ${fmtTokens(activityTotalTokens)}`}
 				/>
-				<Tabs
-					tabs={activityTabs}
-					value={activityWindow}
-					onChange={(v) => (activityWindow = v)}
-					ariaLabel="Activity window"
-				/>
+				{@render activityControls('Activity')}
 			</div>
 			{#if activity.items.length > 0}
 				<div class="activity-list card">
@@ -238,7 +275,7 @@
 			{/if}
 		</section>
 
-		<!-- By Model: completed count + tokens + duration (shares activityWindow) -->
+		<!-- By Model: completed count + tokens + duration (shares activityWindow + activityProject) -->
 		{@const byModel = dashboard.by_model?.[activityWindow] || { items: [], total_completed: 0, total_tokens: 0, total_duration_sec: 0 }}
 		{@const byModelMaxTokens = byModel.items.reduce((m, it) => Math.max(m, it.total_tokens || 0), 0)}
 		<section class="activity-section model-section">
@@ -247,12 +284,7 @@
 					title="By Model"
 					subtitle={`${byModel.total_completed || 0} completed · ${fmtTokens(byModel.total_tokens)} · ${fmtDuration(byModel.total_duration_sec)}`}
 				/>
-				<Tabs
-					tabs={activityTabs}
-					value={activityWindow}
-					onChange={(v) => (activityWindow = v)}
-					ariaLabel="By Model window"
-				/>
+				{@render activityControls('By Model')}
 			</div>
 			{#if byModel.items.length > 0}
 				<div class="activity-list card">
@@ -495,6 +527,32 @@
 		gap: var(--space-3);
 		flex-wrap: wrap;
 		margin-bottom: var(--space-3);
+	}
+
+	.activity-controls {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex-wrap: wrap;
+	}
+
+	.project-filter {
+		max-width: 200px;
+		padding: 6px 10px;
+		background: var(--bg-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		color: var(--text-primary);
+		font-size: var(--fs-sm);
+		font-family: inherit;
+		cursor: pointer;
+		outline: none;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+
+	.project-filter:focus {
+		border-color: var(--accent);
+		box-shadow: var(--focus-ring);
 	}
 
 	.activity-list {
@@ -770,6 +828,10 @@
 			gap: var(--space-2);
 		}
 
+		.activity-controls {
+			width: 100%;
+		}
+
 		.activity-row {
 			padding: 8px 10px;
 			gap: var(--space-2);
@@ -845,6 +907,13 @@
 		.activity-section,
 		.recent-section {
 			margin-bottom: var(--space-4);
+		}
+
+		.project-filter {
+			width: 100%;
+			max-width: none;
+			/* 16px keeps iOS Safari from zooming on focus */
+			font-size: 16px;
 		}
 
 		.activity-row {

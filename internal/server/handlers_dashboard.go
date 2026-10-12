@@ -9,6 +9,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/agurrrrr/shepherd/ent"
+	entProject "github.com/agurrrrr/shepherd/ent/project"
+	entSheep "github.com/agurrrrr/shepherd/ent/sheep"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/project"
@@ -32,18 +34,70 @@ type activityWindow struct {
 	TotalCost float64        `json:"total_cost"`
 }
 
-// projectActivity buckets tasks created since `since` by project and sums
-// cost_usd. Tasks without a project edge fall under "(unassigned)" so they
-// do not silently disappear from the totals.
-func projectActivity(ctx context.Context, client *ent.Client, since time.Time) (activityWindow, error) {
-	tasks, err := client.Task.Query().
-		Where(entTask.CreatedAtGTE(since)).
-		WithProject().
-		All(ctx)
-	if err != nil {
-		return activityWindow{}, err
-	}
+// dashboardWindows are the rolling windows the Activity / By Model sections
+// switch between. Keys are what the web UI tabs select; order is narrowest
+// first so the last entry is the widest window to load from the DB.
+var dashboardWindows = []struct {
+	key   string
+	since func(now time.Time) time.Time
+}{
+	{"5h", func(now time.Time) time.Time { return now.Add(-5 * time.Hour) }},
+	{"1d", func(now time.Time) time.Time { return now.AddDate(0, 0, -1) }},
+	{"7d", func(now time.Time) time.Time { return now.AddDate(0, 0, -7) }},
+	{"1m", func(now time.Time) time.Time { return now.AddDate(0, -1, 0) }},
+	{"3m", func(now time.Time) time.Time { return now.AddDate(0, -3, 0) }},
+	{"6m", func(now time.Time) time.Time { return now.AddDate(0, -6, 0) }},
+	{"1y", func(now time.Time) time.Time { return now.AddDate(-1, 0, 0) }},
+}
 
+// dashboardTasks loads every task created since `since` (optionally limited
+// to one project) with only the columns the activity folds read. The task
+// row carries the full output log, so selecting columns keeps a year-wide
+// scan cheap enough to rerun on every SSE-triggered dashboard refresh.
+func dashboardTasks(ctx context.Context, client *ent.Client, since time.Time, projectName string) ([]*ent.Task, error) {
+	q := client.Task.Query().Where(entTask.CreatedAtGTE(since))
+	if projectName != "" {
+		q = q.Where(entTask.HasProjectWith(entProject.Name(projectName)))
+	}
+	return q.
+		Select(
+			entTask.FieldStatus,
+			entTask.FieldModel,
+			entTask.FieldCostUsd,
+			entTask.FieldPromptTokens,
+			entTask.FieldCompletionTokens,
+			entTask.FieldStartedAt,
+			entTask.FieldCompletedAt,
+			entTask.FieldCreatedAt,
+		).
+		WithProject(func(pq *ent.ProjectQuery) { pq.Select(entProject.FieldName) }).
+		WithSheep(func(sq *ent.SheepQuery) { sq.Select(entSheep.FieldProvider) }).
+		All(ctx)
+}
+
+// dashboardActivity folds tasks into every dashboardWindows bucket for both
+// the per-project and the per-model sections.
+func dashboardActivity(tasks []*ent.Task, now time.Time) (map[string]activityWindow, map[string]modelStatWindow) {
+	activity := make(map[string]activityWindow, len(dashboardWindows))
+	byModel := make(map[string]modelStatWindow, len(dashboardWindows))
+	for _, w := range dashboardWindows {
+		since := w.since(now)
+		inWindow := make([]*ent.Task, 0, len(tasks))
+		for _, t := range tasks {
+			if !t.CreatedAt.Before(since) {
+				inWindow = append(inWindow, t)
+			}
+		}
+		activity[w.key] = projectActivityFrom(inWindow)
+		byModel[w.key] = modelActivityFrom(inWindow)
+	}
+	return activity, byModel
+}
+
+// projectActivityFrom buckets tasks by project and sums cost_usd. Tasks
+// without a project edge fall under "(unassigned)" so they do not silently
+// disappear from the totals.
+func projectActivityFrom(tasks []*ent.Task) activityWindow {
 	agg := map[string]*activityItem{}
 	for _, t := range tasks {
 		name := "(unassigned)"
@@ -71,7 +125,7 @@ func projectActivity(ctx context.Context, client *ent.Client, since time.Time) (
 		return out[i].Tasks > out[j].Tasks
 	})
 
-	return activityWindow{Items: out, Total: len(tasks), TotalCost: totalCost}, nil
+	return activityWindow{Items: out, Total: len(tasks), TotalCost: totalCost}
 }
 
 // modelStatItem aggregates completed-task stats for one statsKey bucket.
@@ -135,19 +189,6 @@ func statsProvider(provider string) string {
 	default:
 		return p
 	}
-}
-
-// modelActivity loads tasks created since `since` and aggregates completed-only
-// stats by statsKey (provider/model rules above).
-func modelActivity(ctx context.Context, client *ent.Client, since time.Time) (modelStatWindow, error) {
-	tasks, err := client.Task.Query().
-		Where(entTask.CreatedAtGTE(since)).
-		WithSheep().
-		All(ctx)
-	if err != nil {
-		return modelStatWindow{}, err
-	}
-	return modelActivityFrom(tasks), nil
 }
 
 // modelActivityFrom aggregates completed tasks by statsKey. Extracted so unit
@@ -311,17 +352,12 @@ func (s *Server) handleDashboard(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 6. Activity windows: 5h / 1d / 7d, per-project task count + cost.
-	// Computed in-process — three small scans over recent rows is cheap and
-	// avoids client-side time math (which gets fiddly across timezones).
-	act5h, _ := projectActivity(ctx, client, now.Add(-5*time.Hour))
-	act1d, _ := projectActivity(ctx, client, now.Add(-24*time.Hour))
-	act7d, _ := projectActivity(ctx, client, now.Add(-7*24*time.Hour))
-
-	// 7. By-model windows: completed count + tokens + duration, same time windows.
-	byModel5h, _ := modelActivity(ctx, client, now.Add(-5*time.Hour))
-	byModel1d, _ := modelActivity(ctx, client, now.Add(-24*time.Hour))
-	byModel7d, _ := modelActivity(ctx, client, now.Add(-7*24*time.Hour))
+	// 6. Activity + by-model windows (5h … 1y), optionally scoped to one
+	// project. One column-trimmed scan over the widest window, then folded
+	// per window in-process — avoids client-side time math across timezones.
+	widest := dashboardWindows[len(dashboardWindows)-1]
+	windowTasks, _ := dashboardTasks(ctx, client, widest.since(now), c.Query("project"))
+	activity, byModel := dashboardActivity(windowTasks, now)
 
 	// Sheep counts
 	working := 0
@@ -360,16 +396,8 @@ func (s *Server) handleDashboard(c *fiber.Ctx) error {
 		},
 		"recent_tasks": recentItems,
 		"projects":     len(projects),
-		"activity": map[string]interface{}{
-			"5h": act5h,
-			"1d": act1d,
-			"7d": act7d,
-		},
-		"by_model": map[string]interface{}{
-			"5h": byModel5h,
-			"1d": byModel1d,
-			"7d": byModel7d,
-		},
+		"activity":     activity,
+		"by_model":     byModel,
 	})
 }
 

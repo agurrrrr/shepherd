@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -207,5 +208,113 @@ func TestModelActivityFrom_SortTieBreakByTokensThenKey(t *testing.T) {
 	}
 	if win.Items[2].Key != "magi" {
 		t.Errorf("items[2]=%q want magi", win.Items[2].Key)
+	}
+}
+
+// Each window must only count tasks created inside it; a 40-day-old task
+// belongs to 3m/6m/1y but not to 1m or narrower.
+func TestDashboardActivity_WindowsBucketByCreatedAt(t *testing.T) {
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	mk := func(age time.Duration) *ent.Task {
+		return &ent.Task{
+			Status:           entTask.StatusCompleted,
+			PromptTokens:     10,
+			CompletionTokens: 5,
+			CreatedAt:        now.Add(-age),
+			Edges: ent.TaskEdges{
+				Project: &ent.Project{Name: "demo"},
+				Sheep:   &ent.Sheep{Provider: sheep.ProviderClaude},
+			},
+		}
+	}
+	day := 24 * time.Hour
+	tasks := []*ent.Task{
+		mk(time.Hour),      // 5h and wider
+		mk(10 * time.Hour), // 1d and wider
+		mk(3 * day),        // 7d and wider
+		mk(20 * day),       // 1m and wider
+		mk(40 * day),       // 3m and wider
+		mk(120 * day),      // 6m and wider
+		mk(300 * day),      // 1y only
+		mk(400 * day),      // outside every window
+	}
+
+	activity, byModel := dashboardActivity(tasks, now)
+
+	want := map[string]int{"5h": 1, "1d": 2, "7d": 3, "1m": 4, "3m": 5, "6m": 6, "1y": 7}
+	for key, n := range want {
+		if got := activity[key].Total; got != n {
+			t.Errorf("activity[%s].Total = %d, want %d", key, got, n)
+		}
+		if got := byModel[key].TotalCompleted; got != n {
+			t.Errorf("byModel[%s].TotalCompleted = %d, want %d", key, got, n)
+		}
+	}
+	if len(activity) != len(dashboardWindows) || len(byModel) != len(dashboardWindows) {
+		t.Errorf("expected %d windows, got activity=%d byModel=%d", len(dashboardWindows), len(activity), len(byModel))
+	}
+	if got := activity["1y"].Items[0].TotalTokenCount; got != 7*15 {
+		t.Errorf("1y tokens = %d, want %d", got, 7*15)
+	}
+}
+
+// dashboardTasks trims columns, so the project/sheep edges and the fields the
+// folds read must still come back populated — and the project filter must
+// drop other projects' tasks.
+func TestDashboardTasks_ProjectFilterAndTrimmedColumns(t *testing.T) {
+	client := newTestClient(t)
+	ctx := context.Background()
+
+	alpha := client.Project.Create().SetName("alpha").SetPath("/tmp/alpha").SaveX(ctx)
+	beta := client.Project.Create().SetName("beta").SetPath("/tmp/beta").SaveX(ctx)
+	sh := client.Sheep.Create().SetName("dolly").SetProvider(sheep.ProviderEmbedded).SaveX(ctx)
+
+	now := time.Now()
+	client.Task.Create().SetPrompt("a").SetProject(alpha).SetSheep(sh).
+		SetStatus(entTask.StatusCompleted).SetModel("umans").
+		SetPromptTokens(100).SetCompletionTokens(20).SetOutput([]string{"big log"}).
+		SetCreatedAt(now.Add(-time.Hour)).SaveX(ctx)
+	client.Task.Create().SetPrompt("b").SetProject(beta).SetSheep(sh).
+		SetStatus(entTask.StatusCompleted).
+		SetCreatedAt(now.Add(-time.Hour)).SaveX(ctx)
+	// Older than the requested window — must not be loaded.
+	client.Task.Create().SetPrompt("old").SetProject(alpha).
+		SetCreatedAt(now.AddDate(-2, 0, 0)).SaveX(ctx)
+
+	all, err := dashboardTasks(ctx, client, now.AddDate(-1, 0, 0), "")
+	if err != nil {
+		t.Fatalf("dashboardTasks: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("unfiltered len = %d, want 2", len(all))
+	}
+
+	got, err := dashboardTasks(ctx, client, now.AddDate(-1, 0, 0), "alpha")
+	if err != nil {
+		t.Fatalf("dashboardTasks(alpha): %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("alpha len = %d, want 1", len(got))
+	}
+	task := got[0]
+	if task.Edges.Project == nil || task.Edges.Project.Name != "alpha" {
+		t.Errorf("project edge = %+v, want alpha", task.Edges.Project)
+	}
+	if task.Edges.Sheep == nil || task.Edges.Sheep.Provider != sheep.ProviderEmbedded {
+		t.Errorf("sheep edge = %+v, want embedded provider", task.Edges.Sheep)
+	}
+	if task.Status != entTask.StatusCompleted || task.Model != "umans" || task.PromptTokens != 100 || task.CompletionTokens != 20 {
+		t.Errorf("selected fields not loaded: %+v", task)
+	}
+	if task.Output != nil || task.Prompt != "" {
+		t.Errorf("heavy columns should not be loaded: output=%v prompt=%q", task.Output, task.Prompt)
+	}
+
+	none, err := dashboardTasks(ctx, client, now.AddDate(-1, 0, 0), "missing")
+	if err != nil {
+		t.Fatalf("dashboardTasks(missing): %v", err)
+	}
+	if len(none) != 0 {
+		t.Errorf("unknown project len = %d, want 0", len(none))
 	}
 }
