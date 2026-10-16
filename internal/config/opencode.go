@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
+	"sync"
 
 	"github.com/agurrrrr/shepherd/internal/procutil"
 	"path/filepath"
@@ -209,16 +212,100 @@ func stripUTF8BOM(data []byte) []byte {
 }
 
 // readOpenCodeConfigFile reads config from the first existing path.
+// The returned bytes are normalized to strict JSON (see normalizeJSONC).
 func readOpenCodeConfigFile() ([]byte, string, error) {
 	for _, configPath := range OpenCodeNativeConfigPaths() {
 		data, err := os.ReadFile(configPath)
 		if err != nil {
 			continue
 		}
-		data = stripUTF8BOM(data)
+		data = normalizeJSONC(stripUTF8BOM(data))
 		return data, configPath, nil
 	}
 	return nil, "", os.ErrNotExist
+}
+
+// normalizeJSONC converts JSONC (// and /* */ comments, trailing commas) into
+// strict JSON. OpenCode parses config.json as JSONC, so a file OpenCode happily
+// accepts can still make encoding/json fail — which silently emptied the model
+// selector and the native model lookup.
+func normalizeJSONC(data []byte) []byte {
+	return stripJSONTrailingCommas(stripJSONComments(data))
+}
+
+// stripJSONComments removes // and /* */ comments outside string literals.
+func stripJSONComments(data []byte) []byte {
+	out := make([]byte, 0, len(data))
+	inString := false
+	for i := 0; i < len(data); i++ {
+		c := data[i]
+		if inString {
+			out = append(out, c)
+			if c == '\\' && i+1 < len(data) {
+				i++
+				out = append(out, data[i])
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if c == '/' && i+1 < len(data) {
+			switch data[i+1] {
+			case '/':
+				// Skip to the end of the line but keep the newline itself.
+				for i+1 < len(data) && data[i+1] != '\n' {
+					i++
+				}
+				continue
+			case '*':
+				end := bytes.Index(data[i+2:], []byte("*/"))
+				if end < 0 {
+					return out
+				}
+				i += 2 + end + 1 // land on the closing '/'
+				continue
+			}
+		}
+		if c == '"' {
+			inString = true
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// stripJSONTrailingCommas drops commas (outside string literals) whose next
+// non-whitespace character closes an object or array.
+func stripJSONTrailingCommas(data []byte) []byte {
+	out := make([]byte, 0, len(data))
+	inString := false
+	for i := 0; i < len(data); i++ {
+		c := data[i]
+		if inString {
+			out = append(out, c)
+			if c == '\\' && i+1 < len(data) {
+				i++
+				out = append(out, data[i])
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if c == ',' {
+			j := i + 1
+			for j < len(data) && (data[j] == ' ' || data[j] == '\t' || data[j] == '\n' || data[j] == '\r') {
+				j++
+			}
+			if j < len(data) && (data[j] == '}' || data[j] == ']') {
+				continue
+			}
+		}
+		if c == '"' {
+			inString = true
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // ReadOpenCodeNativeModel reads the model from OpenCode's own config file.
@@ -248,16 +335,27 @@ type OpenCodeModelOption struct {
 	Label string `json:"label"` // human-readable display name
 }
 
-// ListOpenCodeModels returns the list of models defined in OpenCode's native
-// config.json (custom providers defined by the user). The currently-selected
-// `model` field is also included at the top of the list so users can keep
-// using it even if it points to a built-in provider not declared under
-// `provider.*.models.*`.
+// ListOpenCodeModels returns the selectable OpenCode models: the current
+// `model` from OpenCode's native config.json first, then the custom providers
+// declared there (with their display names), then everything `opencode models`
+// reports — which is the only source for built-in providers such as
+// opencode/* and opencode-go/*. A config default that `opencode models` does
+// not know is flagged, since `opencode run` fails on it.
 func ListOpenCodeModels() []OpenCodeModelOption {
-	data, configPath, err := readOpenCodeConfigFile()
-	if err != nil {
-		log.Printf("[opencode] ListOpenCodeModels: config not found: %v", err)
-		return nil
+	cliIDs := CachedOpenCodeCLIModels()
+	known := make(map[string]bool, len(cliIDs))
+	for _, id := range cliIDs {
+		known[id] = true
+	}
+
+	seen := map[string]bool{}
+	out := make([]OpenCodeModelOption, 0, len(cliIDs)+1)
+	add := func(id, label string) {
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		out = append(out, OpenCodeModelOption{ID: id, Label: label})
 	}
 
 	var raw struct {
@@ -269,38 +367,172 @@ func ListOpenCodeModels() []OpenCodeModelOption {
 			} `json:"models"`
 		} `json:"provider"`
 	}
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if data, configPath, err := readOpenCodeConfigFile(); err != nil {
+		log.Printf("[opencode] ListOpenCodeModels: config not found: %v", err)
+	} else if err := json.Unmarshal(data, &raw); err != nil {
 		log.Printf("[opencode] ListOpenCodeModels: JSON parse failed for %s: %v", configPath, err)
-		return nil
 	}
-
-	seen := map[string]bool{}
-	out := make([]OpenCodeModelOption, 0)
 
 	// Current default first, so users recognize "what I'm already using".
 	if raw.Model != "" {
-		out = append(out, OpenCodeModelOption{ID: raw.Model, Label: raw.Model + " (current default)"})
-		seen[raw.Model] = true
+		label := raw.Model + " (current default)"
+		if len(known) > 0 && !known[raw.Model] {
+			label = raw.Model + " (current default — not in `opencode models`)"
+		}
+		add(raw.Model, label)
 	}
 
 	for provKey, prov := range raw.Provider {
 		for modelKey, model := range prov.Models {
 			id := provKey + "/" + modelKey
-			if seen[id] {
-				continue
-			}
-			seen[id] = true
 			label := id
 			if model.Name != "" {
 				label = model.Name + " (" + id + ")"
 			} else if prov.Name != "" {
 				label = prov.Name + " / " + modelKey
 			}
-			out = append(out, OpenCodeModelOption{ID: id, Label: label})
+			add(id, label)
 		}
 	}
 
+	for _, id := range cliIDs {
+		add(id, id)
+	}
+
 	return out
+}
+
+// opencodeModelsTimeout bounds `opencode models`, which loads every provider
+// plugin (~2s on a warm machine).
+const opencodeModelsTimeout = 20 * time.Second
+
+// opencodeCLIModelsTTL is how long CachedOpenCodeCLIModels serves a result
+// before refreshing it in the background.
+const opencodeCLIModelsTTL = 10 * time.Minute
+
+var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+
+// ListOpenCodeCLIModels runs `opencode models` in dir and returns the
+// "<provider>/<model>" IDs it prints. This is the authoritative set of what
+// `opencode run -m` accepts. dir matters because a project-local opencode.json
+// can declare extra providers.
+func ListOpenCodeCLIModels(ctx context.Context, dir string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, opencodeModelsTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, GetOpenCodeBinary(), "models")
+	cmd.Dir = dir
+	procutil.HideWindow(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	return parseOpenCodeModelsOutput(string(out)), nil
+}
+
+// parseOpenCodeModelsOutput extracts "<provider>/<model>" lines from
+// `opencode models` output, ignoring blank lines and anything that is not a
+// single provider-qualified token.
+func parseOpenCodeModelsOutput(out string) []string {
+	var ids []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(ansiEscapeRe.ReplaceAllString(line, ""))
+		if line == "" || strings.ContainsAny(line, " \t") {
+			continue
+		}
+		if i := strings.Index(line, "/"); i <= 0 || i == len(line)-1 {
+			continue
+		}
+		ids = append(ids, line)
+	}
+	return ids
+}
+
+var opencodeCLIModelsCache struct {
+	mu         sync.Mutex
+	ids        []string
+	fetched    time.Time
+	refreshing bool
+}
+
+// CachedOpenCodeCLIModels returns `opencode models` as seen from the home
+// directory (so no project-local opencode.json leaks in). The first call runs
+// the CLI synchronously; afterwards the cached list is returned immediately and
+// refreshed in the background once it is older than opencodeCLIModelsTTL, so
+// pages that list model options never wait on the CLI twice. A failed run
+// caches an empty list rather than respawning on every request.
+func CachedOpenCodeCLIModels() []string {
+	c := &opencodeCLIModelsCache
+	c.mu.Lock()
+	if !c.fetched.IsZero() {
+		ids := c.ids
+		if time.Since(c.fetched) > opencodeCLIModelsTTL && !c.refreshing {
+			c.refreshing = true
+			go refreshOpenCodeCLIModels()
+		}
+		c.mu.Unlock()
+		return ids
+	}
+	c.mu.Unlock()
+	return refreshOpenCodeCLIModels()
+}
+
+func refreshOpenCodeCLIModels() []string {
+	dir, _ := os.UserHomeDir()
+	ids, err := ListOpenCodeCLIModels(context.Background(), dir)
+	if err != nil {
+		log.Printf("[opencode] `opencode models` failed: %v", err)
+	}
+
+	c := &opencodeCLIModelsCache
+	c.mu.Lock()
+	c.ids = ids
+	c.fetched = time.Now()
+	c.refreshing = false
+	c.mu.Unlock()
+	return ids
+}
+
+// DiagnoseOpenCodeModel returns a hint when model is not something OpenCode
+// knows, or "" when it is known (or the list cannot be obtained). OpenCode
+// reports an unknown model only as "Unexpected server error" — the actual
+// ProviderModelNotFoundError stays in its own server log — so callers append
+// this hint to make the cause visible. dir should be the project directory the
+// run happened in.
+func DiagnoseOpenCodeModel(ctx context.Context, dir, model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+	ids, err := ListOpenCodeCLIModels(ctx, dir)
+	if err != nil || len(ids) == 0 {
+		return ""
+	}
+	return unknownOpenCodeModelHint(model, ids)
+}
+
+// unknownOpenCodeModelHint builds the hint for a model missing from ids,
+// suggesting IDs with the same model key under another provider (e.g.
+// "opencode-zen/x" → "opencode/x"). Returns "" when model is in ids.
+func unknownOpenCodeModelHint(model string, ids []string) string {
+	key := model
+	if i := strings.Index(model, "/"); i >= 0 {
+		key = model[i+1:]
+	}
+	var similar []string
+	for _, id := range ids {
+		if id == model {
+			return ""
+		}
+		if i := strings.Index(id, "/"); i >= 0 && id[i+1:] == key {
+			similar = append(similar, `"`+id+`"`)
+		}
+	}
+	hint := fmt.Sprintf("model %q is not in `opencode models`", model)
+	if len(similar) > 0 {
+		hint += " (did you mean " + strings.Join(similar, " or ") + "?)"
+	}
+	return hint + "; check Settings > OpenCode Model or \"model\" in OpenCode's config.json"
 }
 
 // GetModelDisplayName returns display name (e.g., "opencode(local-llm/devstral-small-2)")

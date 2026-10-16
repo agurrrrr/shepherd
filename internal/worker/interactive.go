@@ -591,7 +591,8 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 	//     reasoning_content blocks in the JSON event stream
 	// The flag alone does NOT activate reasoning (verified on opencode 1.3.17)
 	// — both pieces are required for the user to see traces.
-	args = append(args, opencodeModelArgs(opts.Thinking, opts.Model)...)
+	modelArgs := opencodeModelArgs(opts.Thinking, opts.Model)
+	args = append(args, modelArgs...)
 	if opts.Thinking {
 		args = append(args, "--thinking")
 	}
@@ -724,7 +725,7 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 			result.SessionID = sid
 			return result, nil
 		}
-		return nil, fmt.Errorf("OpenCode execution failed: %w\noutput: %s", err, truncateStr(fullOutput, 500))
+		return nil, fmt.Errorf("OpenCode execution failed: %w%s\noutput: %s", err, opencodeModelHint(ctx, projectPath, modelArgs), truncateStr(fullOutput, 500))
 	}
 
 	result := parseOpenCodeOutput(fullOutput)
@@ -741,7 +742,7 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 	// Check for OpenCode error events in output (exit code 0 but error JSON)
 	if result.Result == "" {
 		if errMsg := extractOpenCodeError(fullOutput); errMsg != "" {
-			return nil, fmt.Errorf("OpenCode error: %s", errMsg)
+			return nil, fmt.Errorf("OpenCode error: %s%s", errMsg, opencodeModelHint(ctx, projectPath, modelArgs))
 		}
 		// Model completed with only tool calls and no text response.
 		// Treat as success rather than failing the task.
@@ -749,6 +750,24 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 	}
 
 	return result, nil
+}
+
+// opencodeModelHint returns " — <hint>" when the model a failed OpenCode run
+// used is unknown to OpenCode, else "". modelArgs is the -m pair passed to
+// opencode; when it is empty OpenCode fell back to the "model" in its own
+// config.json. An unknown model surfaces only as "Unexpected server error",
+// so without this hint the real cause is invisible in the task error.
+func opencodeModelHint(ctx context.Context, projectPath string, modelArgs []string) string {
+	var model string
+	if len(modelArgs) == 2 {
+		model = modelArgs[1]
+	} else {
+		model = config.ReadOpenCodeNativeModel()
+	}
+	if hint := config.DiagnoseOpenCodeModel(ctx, projectPath, model); hint != "" {
+		return " — " + hint
+	}
+	return ""
 }
 
 // extractOpenCodeError checks if the output contains an OpenCode error event.
