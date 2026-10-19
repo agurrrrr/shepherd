@@ -1,8 +1,9 @@
 package config
 
 // grok (Grok Build TUI / xAI) exposes a small, fixed set of models rather than a
-// user-editable config file, so — unlike ListOpenCodeModels / ListPiModels which
-// read the CLI's own config — the selectable models are a curated list kept here.
+// user-editable config file, so — unlike ListOpenCodeModels (which runs the CLI)
+// or ListPiModels (which reads the CLI's own config) — the selectable models are
+// a curated list kept here.
 // IDs are passed straight to `grok -m <id>`. Update this list when xAI ships new
 // models. `grok models` prints the live set for the logged-in account.
 

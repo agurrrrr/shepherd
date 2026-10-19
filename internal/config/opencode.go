@@ -335,80 +335,28 @@ type OpenCodeModelOption struct {
 	Label string `json:"label"` // human-readable display name
 }
 
-// ListOpenCodeModels returns the selectable OpenCode models: the current
-// `model` from OpenCode's native config.json first, then the custom providers
-// declared there (with their display names), then everything `opencode models`
-// reports — which is the only source for built-in providers such as
-// opencode/* and opencode-go/*. A config default that `opencode models` does
-// not know is flagged, since `opencode run` fails on it.
+// ListOpenCodeModels returns the selectable OpenCode models exactly as reported
+// by `opencode models`. The list is captured once when the daemon starts
+// (InitOpenCodeModelList) instead of being derived from OpenCode's config.json,
+// so it reflects what `opencode run -m` actually accepts (including built-in
+// providers such as opencode/* and opencode-go/*).
 func ListOpenCodeModels() []OpenCodeModelOption {
 	cliIDs := CachedOpenCodeCLIModels()
-	known := make(map[string]bool, len(cliIDs))
+	out := make([]OpenCodeModelOption, 0, len(cliIDs))
+	seen := make(map[string]bool, len(cliIDs))
 	for _, id := range cliIDs {
-		known[id] = true
-	}
-
-	seen := map[string]bool{}
-	out := make([]OpenCodeModelOption, 0, len(cliIDs)+1)
-	add := func(id, label string) {
 		if seen[id] {
-			return
+			continue
 		}
 		seen[id] = true
-		out = append(out, OpenCodeModelOption{ID: id, Label: label})
+		out = append(out, OpenCodeModelOption{ID: id, Label: id})
 	}
-
-	var raw struct {
-		Model    string `json:"model"`
-		Provider map[string]struct {
-			Name   string `json:"name"`
-			Models map[string]struct {
-				Name string `json:"name"`
-			} `json:"models"`
-		} `json:"provider"`
-	}
-	if data, configPath, err := readOpenCodeConfigFile(); err != nil {
-		log.Printf("[opencode] ListOpenCodeModels: config not found: %v", err)
-	} else if err := json.Unmarshal(data, &raw); err != nil {
-		log.Printf("[opencode] ListOpenCodeModels: JSON parse failed for %s: %v", configPath, err)
-	}
-
-	// Current default first, so users recognize "what I'm already using".
-	if raw.Model != "" {
-		label := raw.Model + " (current default)"
-		if len(known) > 0 && !known[raw.Model] {
-			label = raw.Model + " (current default — not in `opencode models`)"
-		}
-		add(raw.Model, label)
-	}
-
-	for provKey, prov := range raw.Provider {
-		for modelKey, model := range prov.Models {
-			id := provKey + "/" + modelKey
-			label := id
-			if model.Name != "" {
-				label = model.Name + " (" + id + ")"
-			} else if prov.Name != "" {
-				label = prov.Name + " / " + modelKey
-			}
-			add(id, label)
-		}
-	}
-
-	for _, id := range cliIDs {
-		add(id, id)
-	}
-
 	return out
 }
 
 // opencodeModelsTimeout bounds `opencode models`, which loads every provider
 // plugin (~2s on a warm machine).
 const opencodeModelsTimeout = 20 * time.Second
-
-// opencodeCLIModelsTTL is how long CachedOpenCodeCLIModels serves a result
-// before refreshing it in the background.
-const opencodeCLIModelsTTL = 10 * time.Minute
 
 var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
@@ -449,31 +397,31 @@ func parseOpenCodeModelsOutput(out string) []string {
 }
 
 var opencodeCLIModelsCache struct {
-	mu         sync.Mutex
-	ids        []string
-	fetched    time.Time
-	refreshing bool
+	mu      sync.RWMutex
+	ids     []string
+	fetched bool
 }
 
-// CachedOpenCodeCLIModels returns `opencode models` as seen from the home
-// directory (so no project-local opencode.json leaks in). The first call runs
-// the CLI synchronously; afterwards the cached list is returned immediately and
-// refreshed in the background once it is older than opencodeCLIModelsTTL, so
-// pages that list model options never wait on the CLI twice. A failed run
-// caches an empty list rather than respawning on every request.
+// InitOpenCodeModelList queries `opencode models` once at daemon startup and
+// caches the result. The Settings model selector only ever reads this cache, so
+// the CLI is not spawned again while the daemon is running. If the call fails
+// the cache stays empty and CachedOpenCodeCLIModels retries lazily.
+func InitOpenCodeModelList() {
+	refreshOpenCodeCLIModels()
+}
+
+// CachedOpenCodeCLIModels returns the `opencode models` list captured by
+// InitOpenCodeModelList. If the daemon has not initialized it yet (e.g. in
+// tests or one-shot CLI paths), the CLI runs synchronously on first use.
 func CachedOpenCodeCLIModels() []string {
 	c := &opencodeCLIModelsCache
-	c.mu.Lock()
-	if !c.fetched.IsZero() {
+	c.mu.RLock()
+	if c.fetched {
 		ids := c.ids
-		if time.Since(c.fetched) > opencodeCLIModelsTTL && !c.refreshing {
-			c.refreshing = true
-			go refreshOpenCodeCLIModels()
-		}
-		c.mu.Unlock()
+		c.mu.RUnlock()
 		return ids
 	}
-	c.mu.Unlock()
+	c.mu.RUnlock()
 	return refreshOpenCodeCLIModels()
 }
 
@@ -482,13 +430,13 @@ func refreshOpenCodeCLIModels() []string {
 	ids, err := ListOpenCodeCLIModels(context.Background(), dir)
 	if err != nil {
 		log.Printf("[opencode] `opencode models` failed: %v", err)
+		return nil
 	}
 
 	c := &opencodeCLIModelsCache
 	c.mu.Lock()
 	c.ids = ids
-	c.fetched = time.Now()
-	c.refreshing = false
+	c.fetched = true
 	c.mu.Unlock()
 	return ids
 }

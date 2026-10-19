@@ -2377,6 +2377,11 @@ func runServeForeground() {
 		return res.Result, nil
 	})
 
+	// Snapshot the models OpenCode reports (`opencode models`) once at daemon
+	// startup. The Settings selector uses this list instead of parsing
+	// OpenCode's config.json, so it matches what `opencode run -m` accepts.
+	config.InitOpenCodeModelList()
+
 	// Start queue processor
 	processor := queue.NewProcessor(2 * time.Second)
 	processor.Start()

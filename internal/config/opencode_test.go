@@ -62,6 +62,29 @@ func TestParseOpenCodeModelsOutput(t *testing.T) {
 	}
 }
 
+func TestListOpenCodeModelsUsesCLIListOnly(t *testing.T) {
+	// The selector must mirror `opencode models`, not OpenCode's config.json.
+	c := &opencodeCLIModelsCache
+	c.mu.Lock()
+	oldIDs, oldFetched := c.ids, c.fetched
+	c.ids = []string{"opencode/a", "opencode/b", "opencode/a"}
+	c.fetched = true
+	c.mu.Unlock()
+	t.Cleanup(func() {
+		c.mu.Lock()
+		c.ids, c.fetched = oldIDs, oldFetched
+		c.mu.Unlock()
+	})
+
+	want := []OpenCodeModelOption{
+		{ID: "opencode/a", Label: "opencode/a"},
+		{ID: "opencode/b", Label: "opencode/b"},
+	}
+	if got := ListOpenCodeModels(); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 func TestUnknownOpenCodeModelHint(t *testing.T) {
 	ids := []string{"opencode/deepseek-v4.1-flash", "opencode-go/deepseek-v4.1-flash", "opencode/big-pickle"}
 

@@ -9,9 +9,9 @@ import (
 
 // pi (pi-coding-agent) stores custom providers/models in ~/.pi/agent/models.json.
 // The schema mirrors OpenCode's native config but uses a different shape, so
-// Shepherd reads it directly to populate the Pi model selector — the same way
-// ListOpenCodeModels reads OpenCode's config.json. See https://pi.dev/docs/latest
-// (models.md) for the file format.
+// Shepherd reads it directly to populate the Pi model selector. (OpenCode is
+// different: its list comes from the `opencode models` command.) See
+// https://pi.dev/docs/latest (models.md) for the file format.
 
 // PiModelsConfigPath returns the path to pi's custom models file.
 func PiModelsConfigPath() string {

@@ -129,8 +129,8 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 
 // GET /api/config/model-options
 // Returns selectable models for each provider. Claude options are a curated
-// hard-coded list (CLI aliases + pinned versions), OpenCode options come from
-// the user's ~/.config/opencode/config.json, and Pi options come from
+// hard-coded list (CLI aliases + pinned versions), OpenCode options are the
+// `opencode models` list captured at daemon startup, and Pi options come from
 // ~/.pi/agent/models.json.
 func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
 	type option struct {
