@@ -149,7 +149,7 @@ var callEndpoint = func(
 	dispatch embedded.MCPDispatcher,
 	projectPath, sheepName string,
 ) (string, embedded.ChatUsage, error) {
-	client := embedded.NewClient(ep.BaseURL, ep.APIKey, ep.Model)
+	client := embedded.NewClientWithAuth(ep.BaseURL, ep.APIKey, ep.Model, ep.Auth, ep.GitHubToken)
 	// Set endpoint concurrency limiter if one exists for this endpoint.
 	// Lookup (not Get) so we never create a semaphore here — only reuse one
 	// already created by syncEndpointSemaphores at server startup.
@@ -727,7 +727,7 @@ var reaskProposer = func(
 	}
 
 	// Embedded: one tools-off chat turn — no mini agent loop, no nudge.
-	client := embedded.NewClient(spec.Endpoint.BaseURL, spec.Endpoint.APIKey, spec.Endpoint.Model)
+	client := embedded.NewClientWithAuth(spec.Endpoint.BaseURL, spec.Endpoint.APIKey, spec.Endpoint.Model, spec.Endpoint.Auth, spec.Endpoint.GitHubToken)
 	// Reuse the endpoint semaphore if one exists (same Lookup pattern as
 	// callEndpoint — never create, only reuse).
 	if sem := llmslots.Global().Lookup(spec.Endpoint.ID); sem != nil {

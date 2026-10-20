@@ -18,6 +18,13 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	let testBusy = {};
 	let testResult = {};
 
+	let editorModels = [];
+	let editorModelsBusy = false;
+
+	// Copilot device-flow modal state.
+	// step: starting | authorize | models | error
+	let copilot = null;
+
 	async function loadEndpoints() {
 		const res = await apiGet('/api/config/embedded');
 		if (res?.data) {
@@ -27,9 +34,17 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	}
 
 	function openEditor(ep = null) {
+		editorModels = [];
+		editorModelsBusy = false;
 		if (ep) {
 			// Older API responses may omit subagent; default true (matches server BC migration).
-			editing = { ...ep, subagent: ep.subagent ?? true, _existing: true };
+			editing = {
+				...ep,
+				subagent: ep.subagent ?? true,
+				auth: ep.auth || '',
+				github_token: ep.github_token || '',
+				_existing: true
+			};
 		} else {
 			editing = {
 				id: '',
@@ -45,13 +60,16 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				context_tokens: 32768,
 				max_concurrent: 0,
 				reasoning_budget_tokens: 0,
-				handoff_no_thinking: false
+				handoff_no_thinking: false,
+				auth: '',
+				github_token: ''
 			};
 		}
 	}
 
 	function closeEditor() {
 		editing = null;
+		editorModels = [];
 	}
 
 	async function saveEndpoint() {
@@ -71,7 +89,9 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			context_tokens: parseInt(editing.context_tokens) || 32768,
 			max_concurrent: parseInt(editing.max_concurrent) || 0,
 			reasoning_budget_tokens: Math.max(0, parseInt(editing.reasoning_budget_tokens) || 0),
-			handoff_no_thinking: !!editing.handoff_no_thinking
+			handoff_no_thinking: !!editing.handoff_no_thinking,
+			auth: editing.auth || '',
+			github_token: editing.github_token || ''
 		};
 
 		let res;
@@ -116,9 +136,12 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		testResult[ep.id] = '';
 		try {
 			const res = await apiPost('/api/config/embedded/test', {
+				id: ep.id,
 				base_url: ep.base_url,
 				api_key: ep.api_key,
-				model: ep.model
+				model: ep.model,
+				auth: ep.auth || '',
+				github_token: ep.github_token || ''
 			});
 			if (res?.success) {
 				testResult[ep.id] = '✅ Connected';
@@ -130,6 +153,212 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		}
 		testBusy[ep.id] = false;
 		setTimeout(() => { testResult[ep.id] = ''; }, 5000);
+	}
+
+	// ── Copilot device-flow auth + model picker ──────────────────────────────
+
+	function openCopilot() {
+		copilot = {
+			open: true,
+			step: 'starting',
+			device: null,
+			token: '',
+			models: [],
+			selected: null,
+			apiBase: 'https://api.githubcopilot.com',
+			error: '',
+			busy: false,
+			interval: 5,
+			pollTimer: null,
+			manualToken: '',
+			id: '',
+			label: '',
+			contextTokens: 0
+		};
+		startCopilotAuth();
+	}
+
+	function closeCopilot() {
+		if (copilot?.pollTimer) clearTimeout(copilot.pollTimer);
+		copilot = null;
+	}
+
+	async function startCopilotAuth() {
+		if (copilot.pollTimer) clearTimeout(copilot.pollTimer);
+		copilot.pollTimer = null;
+		copilot.step = 'starting';
+		copilot.error = '';
+		const res = await apiPost('/api/config/copilot/device/start', {});
+		if (!copilot) return;
+		if (res?.success && res.data) {
+			copilot.device = res.data;
+			copilot.interval = Math.max(5, res.data.interval || 5);
+			copilot.step = 'authorize';
+			scheduleCopilotPoll();
+		} else {
+			copilot.step = 'authorize';
+			copilot.error = res?.message || 'GitHub 인증을 시작하지 못했습니다. 토큰을 직접 입력해 보세요.';
+		}
+	}
+
+	function scheduleCopilotPoll(interval) {
+		if (!copilot) return;
+		if (copilot.pollTimer) clearTimeout(copilot.pollTimer);
+		const seconds = Math.max(5, interval || copilot.interval || 5);
+		copilot.pollTimer = setTimeout(pollCopilot, seconds * 1000);
+	}
+
+	async function pollCopilot() {
+		if (!copilot || !copilot.device) return;
+		const res = await apiPost('/api/config/copilot/device/poll', {
+			device_code: copilot.device.device_code
+		});
+		if (!copilot) return;
+		if (!res?.success) {
+			copilot.error = res?.message || '인증 상태를 확인하지 못했습니다.';
+			scheduleCopilotPoll();
+			return;
+		}
+		const d = res.data || {};
+		if (d.status === 'authorized') {
+			copilot.token = d.github_token;
+			await loadCopilotModels(d.github_token);
+			return;
+		}
+		if (d.status === 'expired' || d.status === 'denied' || d.status === 'error') {
+			copilot.step = 'error';
+			copilot.error = d.message || d.status;
+			return;
+		}
+		if (d.status === 'slow_down') copilot.interval += 5;
+		scheduleCopilotPoll();
+	}
+
+	async function useManualToken() {
+		const token = (copilot?.manualToken || '').trim();
+		if (!token) {
+			copilot.error = 'GitHub 토큰을 입력하세요.';
+			return;
+		}
+		if (copilot.pollTimer) clearTimeout(copilot.pollTimer);
+		copilot.pollTimer = null;
+		copilot.token = token;
+		await loadCopilotModels(token);
+	}
+
+	async function loadCopilotModels(token) {
+		if (!copilot) return;
+		copilot.step = 'models';
+		copilot.busy = true;
+		copilot.error = '';
+		const res = await apiPost('/api/config/copilot/models', { github_token: token });
+		if (!copilot) return;
+		copilot.busy = false;
+		if (!res?.success || !res.data) {
+			copilot.step = 'error';
+			copilot.error = res?.message || '모델 목록을 가져오지 못했습니다.';
+			return;
+		}
+		const models = (res.data.models || []).slice().sort((a, b) => {
+			if (!!b.supports_tools !== !!a.supports_tools) return b.supports_tools ? 1 : -1;
+			return (a.name || a.id).localeCompare(b.name || b.id);
+		});
+		copilot.models = models;
+		copilot.apiBase = res.data.api_base || 'https://api.githubcopilot.com';
+		if (!models.length) {
+			copilot.step = 'error';
+			copilot.error = '사용 가능한 Chat Completions 모델이 없습니다. Copilot 구독 상태를 확인하세요.';
+			return;
+		}
+		selectCopilotModel(models.find((m) => m.supports_tools) || models[0]);
+	}
+
+	function selectCopilotModel(m) {
+		if (!copilot || !m) return;
+		copilot.selected = m;
+		copilot.contextTokens = m.context_tokens || m.context_window_tokens || 0;
+		const slug = (m.id || '').replace(/[^a-zA-Z0-9._-]+/g, '-').toLowerCase();
+		copilot.id = 'copilot-' + slug;
+		copilot.label = m.name || m.id;
+	}
+
+	async function createCopilotEndpoint() {
+		if (!copilot || !copilot.selected) return;
+		if (!copilot.id.trim()) {
+			copilot.error = '엔드포인트 ID를 입력하세요.';
+			return;
+		}
+		copilot.busy = true;
+		copilot.error = '';
+		const body = {
+			id: copilot.id.trim(),
+			label: copilot.label.trim() || copilot.selected.name,
+			base_url: (copilot.apiBase || 'https://api.githubcopilot.com') + '/chat/completions',
+			api_key: '',
+			model: copilot.selected.id,
+			enabled: true,
+			thinking: false,
+			vision: !!copilot.selected.supports_vision,
+			subagent: true,
+			max_iterations: 40,
+			context_tokens: parseInt(copilot.contextTokens) || copilot.selected.context_tokens || 128000,
+			max_concurrent: 0,
+			reasoning_budget_tokens: 0,
+			handoff_no_thinking: false,
+			auth: 'copilot',
+			github_token: copilot.token
+		};
+		const res = await apiPost('/api/config/embedded', body);
+		if (!copilot) return;
+		copilot.busy = false;
+		if (res?.success) {
+			closeCopilot();
+			await loadEndpoints();
+			await reloadEndpoints();
+		} else {
+			copilot.error = res?.message || '엔드포인트를 저장하지 못했습니다.';
+		}
+	}
+
+	async function copyUserCode() {
+		if (!copilot?.device?.user_code) return;
+		try {
+			await navigator.clipboard.writeText(copilot.device.user_code);
+		} catch {
+			/* clipboard may be unavailable; the code is visible for manual copy */
+		}
+	}
+
+	async function refreshEditorModels() {
+		if (!editing) return;
+		editorModelsBusy = true;
+		// The GET response masks tokens. For an existing endpoint send the id so
+		// the server can use the stored token; otherwise use the typed token.
+		const token = (editing.github_token || '').trim();
+		const useStored = editing._existing && (!token || token.includes('****'));
+		const payload = useStored ? { id: editing.id } : { github_token: token };
+		const res = await apiPost('/api/config/copilot/models', payload);
+		editorModelsBusy = false;
+		if (res?.success && res.data?.models) {
+			editorModels = res.data.models.slice().sort((a, b) => {
+				if (!!b.supports_tools !== !!a.supports_tools) return b.supports_tools ? 1 : -1;
+				return (a.name || a.id).localeCompare(b.name || b.id);
+			});
+			applyEditorModel();
+			if (!editing.base_url) {
+				editing.base_url = (res.data.api_base || 'https://api.githubcopilot.com') + '/chat/completions';
+			}
+		} else {
+			alert('Error: ' + (res?.message || 'Failed to load models'));
+		}
+	}
+
+	function applyEditorModel() {
+		if (!editing) return;
+		const m = editorModels.find((x) => x.id === editing.model);
+		if (!m) return;
+		if (m.context_tokens) editing.context_tokens = m.context_tokens;
+		editing.vision = !!m.supports_vision;
 	}
 
 	// Load endpoints on mount
@@ -174,7 +403,10 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 <div class="embedded-endpoints">
 	<div class="embedded-header">
 		<h3>Endpoints</h3>
-		<button class="btn btn-sm btn-outline" onclick={() => openEditor(null)}>+ Add</button>
+		<div class="embedded-header-actions">
+			<button class="btn btn-sm btn-outline" onclick={openCopilot}>+ Copilot</button>
+			<button class="btn btn-sm btn-outline" onclick={() => openEditor(null)}>+ Add</button>
+		</div>
 	</div>
 
 	{#if !loaded}
@@ -202,6 +434,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				<div class="embedded-card-body">
 					<div class="embedded-detail"><span class="embedded-label">Model:</span> {ep.model}</div>
 					<div class="embedded-detail"><span class="embedded-label">URL:</span> <code>{ep.base_url}</code></div>
+					<div class="embedded-detail"><span class="embedded-label">Auth:</span> {ep.auth === 'copilot' ? 'GitHub Copilot' : 'API Key'}</div>
 					<div class="embedded-detail"><span class="embedded-label">Context:</span> {ep.context_tokens?.toLocaleString()} tokens</div>
 					<div class="embedded-detail"><span class="embedded-label">Max Iterations:</span> {ep.max_iterations}</div>
 				<div class="embedded-detail"><span class="embedded-label">Max Concurrent:</span> {ep.max_concurrent || '∞'}</div>
@@ -235,20 +468,55 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			</div>
 			<p class="hint">호출할 전체 URL을 그대로 적으세요. 뒤에 경로를 덧붙이지 않으므로 OpenAI 형식이 아닌 게이트웨이도 쓸 수 있습니다. 기존 설정처럼 <code>/v1</code>로 끝나면 <code>/chat/completions</code>를 붙여 호환 처리합니다.</p>
 			<div class="setting-row">
-				<label>API Key</label>
-				<input class="input" type="password" bind:value={editing.api_key} placeholder="Leave empty for local servers" />
+				<label>Auth</label>
+				<select class="input" bind:value={editing.auth}>
+					<option value="">API Key / OpenAI-compatible</option>
+					<option value="copilot">GitHub Copilot</option>
+				</select>
 			</div>
-			<div class="setting-row">
-				<label>Model</label>
-				<input class="input" type="text" bind:value={editing.model} placeholder="qwen3-27b" />
-			</div>
+			{#if editing.auth === 'copilot'}
+				<div class="setting-row">
+					<label>GitHub Token</label>
+					<input class="input" type="password" bind:value={editing.github_token} placeholder="ghu_... (비우면 저장된 토큰 유지)" />
+				</div>
+				<p class="hint">Copilot은 GitHub 토큰을 단기 API 토큰으로 교환해 사용합니다. 저장된 토큰은 GET 응답에서 마스킹되므로, 그대로 두면 기존 토큰이 유지됩니다.</p>
+				<div class="setting-row">
+					<label>Model</label>
+					<input class="input" type="text" bind:value={editing.model} placeholder="gpt-4o" />
+					<button class="btn btn-sm btn-outline" onclick={refreshEditorModels} disabled={editorModelsBusy}>
+						{editorModelsBusy ? '...' : '모델 불러오기'}
+					</button>
+				</div>
+				{#if editorModels.length > 0}
+					<div class="setting-row">
+						<label>Model List</label>
+						<select class="input" bind:value={editing.model} onchange={applyEditorModel}>
+							{#each editorModels as m}
+								<option value={m.id}>
+									{m.name} — context {(m.context_tokens || 0).toLocaleString()}{m.supports_tools ? '' : ' (도구 미지원)'}
+								</option>
+							{/each}
+						</select>
+					</div>
+				{/if}
+				<p class="hint">모델을 고르면 Context Tokens가 모델의 최대 입력 컨텍스트로 채워집니다. 핸드오프는 이 값의 75%에서 발동합니다.</p>
+			{:else}
+				<div class="setting-row">
+					<label>API Key</label>
+					<input class="input" type="password" bind:value={editing.api_key} placeholder="Leave empty for local servers" />
+				</div>
+				<div class="setting-row">
+					<label>Model</label>
+					<input class="input" type="text" bind:value={editing.model} placeholder="qwen3-27b" />
+				</div>
+			{/if}
 			<div class="setting-row">
 				<label>Max Iterations</label>
 				<input class="input" type="number" bind:value={editing.max_iterations} min="1" max="200" />
 			</div>
 			<div class="setting-row">
 				<label>Context Tokens</label>
-				<input class="input" type="number" bind:value={editing.context_tokens} min="1024" max="131072" step="1024" />
+				<input class="input" type="number" bind:value={editing.context_tokens} min="1024" max="2000000" step="1024" />
 			</div>
 			<div class="setting-row">
 				<label>Max Concurrent</label>
@@ -302,6 +570,94 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				<button class="btn btn-primary" onclick={saveEndpoint}>Save</button>
 				<button class="btn btn-outline" onclick={closeEditor}>Cancel</button>
 			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Copilot device-flow modal -->
+{#if copilot?.open}
+	<div class="modal-overlay">
+		<div class="modal-card copilot-modal">
+			<h3>Add Copilot Endpoint</h3>
+
+			{#if copilot.step === 'starting'}
+				<p class="text-muted">GitHub 인증을 준비하는 중...</p>
+			{/if}
+
+			{#if copilot.step === 'authorize'}
+				{#if copilot.device}
+					<p>GitHub에서 아래 코드를 입력해 Copilot 접근을 승인하세요.</p>
+					<div class="copilot-code-row">
+						<code class="copilot-code">{copilot.device.user_code}</code>
+						<button class="btn btn-sm btn-outline" onclick={copyUserCode}>복사</button>
+						<a class="btn btn-sm btn-outline copilot-link" href={copilot.device.verification_uri} target="_blank" rel="noreferrer">GitHub 열기</a>
+					</div>
+					<p class="hint">승인하면 자동으로 모델 목록을 불러옵니다. 코드 만료: {Math.round((copilot.device.expires_in || 900) / 60)}분</p>
+				{/if}
+				<div class="copilot-manual">
+					<label class="hint" for="copilot-token">이미 GitHub 토큰이 있다면 직접 입력</label>
+					<div class="copilot-manual-row">
+						<input id="copilot-token" class="input" type="password" bind:value={copilot.manualToken} placeholder="ghu_... 또는 ghp_..." />
+						<button class="btn btn-sm btn-outline" onclick={useManualToken}>토큰으로 불러오기</button>
+					</div>
+				</div>
+			{/if}
+
+			{#if copilot.step === 'models'}
+				{#if copilot.busy}
+					<p class="text-muted">모델 목록을 불러오는 중...</p>
+				{:else}
+					<p class="hint">사용할 모델을 선택하세요. 도구 호출을 지원하는 모델을 권장합니다.</p>
+					<div class="copilot-model-list">
+						{#each copilot.models as m}
+							<button class="copilot-model" class:selected={copilot.selected?.id === m.id} onclick={() => selectCopilotModel(m)}>
+								<span class="copilot-model-name">{m.name}</span>
+								<span class="copilot-model-meta">{m.id}</span>
+								<span class="copilot-model-badges">
+									<span>context {(m.context_tokens || 0).toLocaleString()}</span>
+									{#if m.supports_tools}<span class="badge badge-subagent">Tools</span>{/if}
+									{#if m.supports_vision}<span class="badge badge-success">Vision</span>{/if}
+									{#if !m.supports_tools}<span class="badge badge-muted">No tools</span>{/if}
+								</span>
+							</button>
+						{/each}
+					</div>
+					{#if copilot.selected}
+						<div class="setting-row">
+							<label>ID</label>
+							<input class="input" type="text" bind:value={copilot.id} />
+						</div>
+						<div class="setting-row">
+							<label>Label</label>
+							<input class="input" type="text" bind:value={copilot.label} />
+						</div>
+						<div class="setting-row">
+							<label>Context Tokens</label>
+							<input class="input" type="number" bind:value={copilot.contextTokens} min="1024" max="2000000" step="1024" />
+						</div>
+						<p class="hint">핸드오프 기준은 Context Tokens의 75%입니다. Copilot 모델의 max_prompt_tokens(없으면 컨텍스트 창)으로 자동 설정됩니다.</p>
+					{/if}
+				{/if}
+			{/if}
+
+			{#if copilot.error}
+				<p class="hint error">{copilot.error}</p>
+				{#if copilot.step === 'error'}
+					<div class="embedded-editor-actions">
+						<button class="btn btn-outline" onclick={startCopilotAuth}>다시 인증</button>
+						<button class="btn btn-outline" onclick={closeCopilot}>취소</button>
+					</div>
+				{/if}
+			{/if}
+
+			{#if copilot.step !== 'error'}
+				<div class="embedded-editor-actions">
+					<button class="btn btn-primary" onclick={createCopilotEndpoint} disabled={copilot.step !== 'models' || copilot.busy || !copilot.selected}>
+						Add Endpoint
+					</button>
+					<button class="btn btn-outline" onclick={closeCopilot}>Cancel</button>
+				</div>
+			{/if}
 		</div>
 	</div>
 {/if}
@@ -381,6 +737,10 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		font-size: 14px;
 		font-weight: 600;
 	}
+	.embedded-header-actions {
+		display: flex;
+		gap: 6px;
+	}
 	.embedded-card {
 		border: 1px solid var(--border);
 		border-radius: 8px;
@@ -436,6 +796,97 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		display: flex;
 		gap: 8px;
 		margin-top: 16px;
+	}
+
+	.copilot-modal {
+		max-width: 620px;
+	}
+	.copilot-code-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 12px 0;
+		flex-wrap: wrap;
+	}
+	.copilot-code {
+		font-size: 22px;
+		font-weight: 700;
+		letter-spacing: 3px;
+		padding: 8px 14px;
+		border: 1px dashed var(--accent);
+		border-radius: 8px;
+		background: var(--bg-input);
+	}
+	.copilot-link {
+		text-decoration: none;
+	}
+	.copilot-manual {
+		margin-top: 14px;
+		padding-top: 12px;
+		border-top: 1px solid var(--border);
+	}
+	.copilot-manual-row {
+		display: flex;
+		gap: 8px;
+		margin-top: 6px;
+	}
+	.copilot-manual-row .input {
+		flex: 1 1 auto;
+		min-width: 0;
+		max-width: none;
+	}
+	.copilot-model-list {
+		max-height: 260px;
+		overflow-y: auto;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		margin: 8px 0 12px;
+	}
+	.copilot-model {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		gap: 2px 12px;
+		width: 100%;
+		padding: 8px 12px;
+		text-align: left;
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid var(--border);
+		color: var(--text-primary);
+		cursor: pointer;
+		font: inherit;
+	}
+	.copilot-model:last-child {
+		border-bottom: none;
+	}
+	.copilot-model:hover {
+		background: var(--bg-tertiary);
+	}
+	.copilot-model.selected {
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+		box-shadow: inset 3px 0 0 var(--accent);
+	}
+	.copilot-model-name {
+		font-weight: 600;
+		font-size: 13px;
+	}
+	.copilot-model-meta {
+		grid-column: 1;
+		font-size: 11px;
+		color: var(--text-muted);
+	}
+	.copilot-model-badges {
+		grid-column: 2;
+		grid-row: 1 / span 2;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 11px;
+		color: var(--text-secondary);
+		white-space: nowrap;
+	}
+	.hint.error {
+		color: var(--danger);
 	}
 
 	.badge {

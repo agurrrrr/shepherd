@@ -31,6 +31,11 @@ type Endpoint struct {
 	// (Strata, llama.cpp-style chat_template_kwargs). See ExecuteOptions.
 	ReasoningBudgetTokens int  `mapstructure:"reasoning_budget_tokens"`
 	HandoffNoThinking     bool `mapstructure:"handoff_no_thinking"`
+	// Auth is "" for a static API key or AuthCopilot for GitHub Copilot.
+	Auth string `mapstructure:"auth"`
+	// GitHubToken is the long-lived GitHub token exchanged for Copilot API
+	// tokens when Auth == AuthCopilot.
+	GitHubToken string `mapstructure:"github_token"`
 }
 
 // Config holds embedded provider settings loaded from embedded.yaml.
@@ -256,6 +261,8 @@ type ExecuteOptions struct {
 	ProjectPath   string
 	BaseURL       string // Full chat-completions URL, called verbatim (ResolveChatURL)
 	APIKey        string // API key (empty allowed for local servers)
+	Auth          string // "" (static API key) or AuthCopilot
+	GitHubToken   string // GitHub token for AuthCopilot
 	Model         string // Model name
 	SystemPrompt  string
 	UserPrompt    string
@@ -362,7 +369,10 @@ func ValidateEndpoint(ep *Endpoint) error {
 // on the configured URL itself (see Client.HealthCheck). The API key is sent, so
 // authenticated gateways don't report a false failure.
 func TestConnection(ctx context.Context, ep *Endpoint) error {
-	if err := NewClient(ep.BaseURL, ep.APIKey, ep.Model).HealthCheck(ctx, 5*time.Second); err != nil {
+	if ep.Auth == AuthCopilot && ep.GitHubToken == "" {
+		return fmt.Errorf("github_token is required for copilot auth")
+	}
+	if err := NewClientWithAuth(ep.BaseURL, ep.APIKey, ep.Model, ep.Auth, ep.GitHubToken).HealthCheck(ctx, 5*time.Second); err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
 	return nil

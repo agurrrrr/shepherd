@@ -438,6 +438,8 @@ func (s *Server) handleGetEmbeddedEndpoints(c *fiber.Ctx) error {
 			// here makes the next save write its zero value back.
 			"reasoning_budget_tokens": ep.ReasoningBudgetTokens,
 			"handoff_no_thinking":     ep.HandoffNoThinking,
+			"auth":                    ep.Auth,
+			"github_token":            maskAPIKey(ep.GitHubToken),
 		})
 	}
 	return success(c, map[string]interface{}{
@@ -453,8 +455,18 @@ func (s *Server) handleCreateEmbeddedEndpoint(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
 	}
-	if body.ID == "" || body.BaseURL == "" || body.Model == "" {
-		return fail(c, fiber.StatusBadRequest, "id, base_url, and model are required")
+	if body.ID == "" || body.Model == "" {
+		return fail(c, fiber.StatusBadRequest, "id and model are required")
+	}
+	if body.Auth == config.EmbeddedAuthCopilot {
+		if body.GitHubToken == "" {
+			return fail(c, fiber.StatusBadRequest, "github_token is required for copilot auth")
+		}
+		if body.BaseURL == "" {
+			body.BaseURL = embedded.CopilotDefaultAPIBase + "/chat/completions"
+		}
+	} else if body.BaseURL == "" {
+		return fail(c, fiber.StatusBadRequest, "base_url is required")
 	}
 
 	cfg, err := config.LoadEmbeddedConfig()
@@ -511,6 +523,9 @@ func (s *Server) handleUpdateEmbeddedEndpoint(c *fiber.Ctx) error {
 			// 401 Invalid API Key at inference time.
 			if body.APIKey == "" || body.APIKey == maskAPIKey(ep.APIKey) {
 				updated.APIKey = ep.APIKey
+			}
+			if body.GitHubToken == "" || body.GitHubToken == maskAPIKey(ep.GitHubToken) {
+				updated.GitHubToken = ep.GitHubToken
 			}
 			cfg.Endpoints[i] = updated
 
@@ -594,22 +609,55 @@ func (s *Server) handleSetActiveEndpoint(c *fiber.Ctx) error {
 // Tests the connection to an embedded endpoint.
 func (s *Server) handleTestEmbeddedEndpoint(c *fiber.Ctx) error {
 	var body struct {
-		BaseURL string `json:"base_url"`
-		APIKey  string `json:"api_key"`
-		Model   string `json:"model"`
+		ID          string `json:"id"`
+		BaseURL     string `json:"base_url"`
+		APIKey      string `json:"api_key"`
+		Model       string `json:"model"`
+		Auth        string `json:"auth"`
+		GitHubToken string `json:"github_token"`
 	}
-	if err := c.BodyParser(&body); err != nil || body.BaseURL == "" {
-		return fail(c, fiber.StatusBadRequest, "base_url is required")
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
 	}
 	if body.Model == "" {
 		return fail(c, fiber.StatusBadRequest, "model is required")
 	}
+	// The Web UI sends back masked secrets from the GET response. Resolve them
+	// to the stored values so "Test" does not fail on a masked key/token.
+	if body.ID != "" {
+		if stored, err := config.GetEmbeddedEndpointByID(body.ID); err == nil && stored != nil {
+			if body.APIKey == "" || body.APIKey == maskAPIKey(stored.APIKey) {
+				body.APIKey = stored.APIKey
+			}
+			if body.GitHubToken == "" || body.GitHubToken == maskAPIKey(stored.GitHubToken) {
+				body.GitHubToken = stored.GitHubToken
+			}
+			if body.Auth == "" {
+				body.Auth = stored.Auth
+			}
+			if body.BaseURL == "" {
+				body.BaseURL = stored.BaseURL
+			}
+		}
+	}
+	if body.Auth == config.EmbeddedAuthCopilot {
+		if body.GitHubToken == "" {
+			return fail(c, fiber.StatusBadRequest, "github_token is required for copilot auth")
+		}
+		if body.BaseURL == "" {
+			body.BaseURL = embedded.CopilotDefaultAPIBase + "/chat/completions"
+		}
+	} else if body.BaseURL == "" {
+		return fail(c, fiber.StatusBadRequest, "base_url is required")
+	}
 
 	ep := &embedded.Endpoint{
-		ID:      "test",
-		BaseURL: body.BaseURL,
-		APIKey:  body.APIKey,
-		Model:   body.Model,
+		ID:          "test",
+		BaseURL:     body.BaseURL,
+		APIKey:      body.APIKey,
+		Model:       body.Model,
+		Auth:        body.Auth,
+		GitHubToken: body.GitHubToken,
 	}
 
 	ctx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
@@ -627,6 +675,9 @@ func (s *Server) handleTestEmbeddedEndpoint(c *fiber.Ctx) error {
 
 // maskAPIKey masks an API key for display.
 func maskAPIKey(key string) string {
+	if key == "" {
+		return ""
+	}
 	if len(key) <= 8 {
 		return "****"
 	}
@@ -651,6 +702,8 @@ func embeddedEndpointFromJSON(body config.EmbeddedEndpointJSON) config.EmbeddedE
 
 		ReasoningBudgetTokens: body.ReasoningBudgetTokens,
 		HandoffNoThinking:     body.HandoffNoThinking,
+		Auth:                  body.Auth,
+		GitHubToken:           body.GitHubToken,
 	}
 }
 

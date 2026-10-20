@@ -518,7 +518,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 	// The configured URL is used as-is; NewClient only expands legacy
 	// OpenAI-base shapes (see ResolveChatURL).
-	client := NewClient(opts.BaseURL, opts.APIKey, opts.Model)
+	client := NewClientWithAuth(opts.BaseURL, opts.APIKey, opts.Model, opts.Auth, opts.GitHubToken)
 	// Set endpoint concurrency limiter (#7461: LLM call-level gating).
 	// nil = unlimited (max_concurrent=0). The semaphore is acquired in
 	// AccumulateStreamWithProgress before each streaming LLM call and released

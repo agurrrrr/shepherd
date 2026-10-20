@@ -30,3 +30,18 @@ func TestEmbeddedEndpointFromJSON_ReasoningControls(t *testing.T) {
 		t.Fatalf("defaults must be off: %+v", ep)
 	}
 }
+
+// TestEmbeddedEndpointFromJSON_CopilotAuth ensures the Web UI save body keeps
+// the Copilot auth mode and GitHub token.
+func TestEmbeddedEndpointFromJSON_CopilotAuth(t *testing.T) {
+	raw := `{"id":"cp","base_url":"https://api.githubcopilot.com/chat/completions",
+		"model":"gpt-4o","auth":"copilot","github_token":"ghu_test"}`
+	var body config.EmbeddedEndpointJSON
+	if err := json.Unmarshal([]byte(raw), &body); err != nil {
+		t.Fatal(err)
+	}
+	ep := embeddedEndpointFromJSON(body)
+	if ep.Auth != config.EmbeddedAuthCopilot || ep.GitHubToken != "ghu_test" {
+		t.Fatalf("auth fields dropped: %+v", ep)
+	}
+}

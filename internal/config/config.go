@@ -635,7 +635,23 @@ type EmbeddedEndpoint struct {
 	// HandoffNoThinking sends chat_template_kwargs {"enable_thinking": false}
 	// on the context-handoff summary request so reasoning cannot eat it.
 	HandoffNoThinking bool `mapstructure:"handoff_no_thinking"`
+	// Auth selects the authentication mode. Empty means the static APIKey is
+	// sent as a Bearer token (the historical behavior). "copilot" swaps the
+	// static key for a short-lived GitHub Copilot API token derived from
+	// GitHubToken, refreshing it before expiry.
+	Auth string `mapstructure:"auth"`
+	// GitHubToken is the GitHub OAuth/PAT token used to exchange a Copilot API
+	// token. Only meaningful when Auth == "copilot". Stored in embedded.yaml
+	// like APIKey and masked in API responses.
+	GitHubToken string `mapstructure:"github_token"`
 }
+
+// Embedded auth modes.
+const (
+	// EmbeddedAuthCopilot makes the embedded client exchange GitHubToken for a
+	// short-lived Copilot API token and send the Copilot-specific headers.
+	EmbeddedAuthCopilot = "copilot"
+)
 
 // EmbeddedConfig is the top-level config for embedded endpoints.
 type EmbeddedConfig struct {
@@ -674,8 +690,10 @@ type EmbeddedEndpointJSON struct {
 	Subagent      bool   `json:"subagent"`
 	// Every field must also be copied in EndpointsToJSON / EndpointsFromJSON
 	// and the server's embeddedEndpointFromJSON, or a Web UI save drops it.
-	ReasoningBudgetTokens int  `json:"reasoning_budget_tokens"`
-	HandoffNoThinking     bool `json:"handoff_no_thinking"`
+	ReasoningBudgetTokens int    `json:"reasoning_budget_tokens"`
+	HandoffNoThinking     bool   `json:"handoff_no_thinking"`
+	Auth                  string `json:"auth"`
+	GitHubToken           string `json:"github_token"`
 }
 
 // EndpointsToJSON converts embedded endpoints to JSON-friendly slice.
@@ -698,6 +716,8 @@ func EndpointsToJSON(endpoints []EmbeddedEndpoint) []EmbeddedEndpointJSON {
 
 			ReasoningBudgetTokens: ep.ReasoningBudgetTokens,
 			HandoffNoThinking:     ep.HandoffNoThinking,
+			Auth:                  ep.Auth,
+			GitHubToken:           ep.GitHubToken,
 		}
 	}
 	return result
@@ -723,6 +743,8 @@ func EndpointsFromJSON(jsonEps []EmbeddedEndpointJSON) []EmbeddedEndpoint {
 
 			ReasoningBudgetTokens: ep.ReasoningBudgetTokens,
 			HandoffNoThinking:     ep.HandoffNoThinking,
+			Auth:                  ep.Auth,
+			GitHubToken:           ep.GitHubToken,
 		}
 	}
 	return result

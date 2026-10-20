@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -40,6 +41,12 @@ type Client struct {
 	// unlimited. Acquired in AccumulateStreamWithProgress (the single gate
 	// for all streaming LLM calls) and released on completion.
 	semaphore *llmslots.Semaphore
+
+	// authMode selects the authentication scheme. Empty uses apiKey as a
+	// static Bearer token; AuthCopilot exchanges githubToken for a short-lived
+	// Copilot API token and sends Copilot's required headers.
+	authMode    string
+	githubToken string
 }
 
 // NewClient creates a new client for the given endpoint.
@@ -80,10 +87,95 @@ func NewClient(endpointURL, apiKey, model string) *Client {
 	}
 }
 
+// NewClientWithAuth creates a client with an explicit auth mode. For
+// AuthCopilot, githubToken is exchanged for a short-lived Copilot API token
+// before each call (cached and refreshed before expiry); apiKey is ignored.
+func NewClientWithAuth(endpointURL, apiKey, model, authMode, githubToken string) *Client {
+	c := NewClient(endpointURL, apiKey, model)
+	c.authMode = authMode
+	c.githubToken = githubToken
+	return c
+}
+
 // SetSemaphore sets the endpoint concurrency limiter. Called by the loop
 // before the first LLM call. nil means unlimited.
 func (c *Client) SetSemaphore(sem *llmslots.Semaphore) {
 	c.semaphore = sem
+}
+
+// isCopilot reports whether this client authenticates via GitHub Copilot.
+func (c *Client) isCopilot() bool {
+	return c.authMode == AuthCopilot
+}
+
+// prepareRequest applies authentication and, for Copilot, rewrites the target
+// URL to the account-specific API base returned by the token exchange and adds
+// the required Copilot headers. kind is "chat" or "models".
+func (c *Client) prepareRequest(ctx context.Context, req *http.Request, kind string) error {
+	if !c.isCopilot() {
+		if c.apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		}
+		return nil
+	}
+
+	tok, err := CopilotToken(ctx, c.githubToken)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok.Token)
+	for k, v := range copilotHeaders() {
+		req.Header.Set(k, v)
+	}
+
+	apiBase := strings.TrimRight(tok.Endpoints.API, "/")
+	if apiBase == "" {
+		apiBase = CopilotDefaultAPIBase
+	}
+	target := apiBase + "/chat/completions"
+	if kind == "models" {
+		target = copilotModelsURL(apiBase)
+	}
+	u, err := url.Parse(target)
+	if err != nil {
+		return fmt.Errorf("copilot: invalid API endpoint %q: %w", apiBase, err)
+	}
+	req.URL = u
+	req.Host = u.Host
+	return nil
+}
+
+// doRequest builds and sends a request, applying Copilot auth. A Copilot 401
+// means the cached API token was rejected (e.g. revoked or expired early), so
+// it is invalidated and the request is retried once with a fresh token. Without
+// this, a long-running task would fail permanently when the ~30-minute token
+// rotates mid-session.
+func (c *Client) doRequest(ctx context.Context, kind string, newReq func() (*http.Request, error)) (*http.Response, error) {
+	req, err := newReq()
+	if err != nil {
+		return nil, err
+	}
+	if err := c.prepareRequest(ctx, req, kind); err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusUnauthorized || !c.isCopilot() {
+		return resp, nil
+	}
+
+	resp.Body.Close()
+	InvalidateCopilotToken(c.githubToken)
+	req, err = newReq()
+	if err != nil {
+		return nil, err
+	}
+	if err := c.prepareRequest(ctx, req, kind); err != nil {
+		return nil, err
+	}
+	return c.httpClient.Do(req)
 }
 
 // StreamEvent is a single SSE chunk from streaming response.
@@ -110,17 +202,14 @@ func (c *Client) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.chatURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.doRequest(ctx, "chat", func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, "POST", c.chatURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request: %w", err)
 	}
@@ -167,17 +256,14 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	httpReq, err := http.NewRequestWithContext(streamCtx, "POST", c.chatURL, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.doRequest(streamCtx, "chat", func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(streamCtx, "POST", c.chatURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	})
 	if err != nil {
 		return fmt.Errorf("HTTP request: %w", err)
 	}
@@ -667,20 +753,20 @@ func (c *Client) HealthCheck(ctx context.Context, timeout time.Duration) error {
 
 	probeURL := c.modelsURL
 	strict := true
-	if probeURL == "" {
+	kind := "models"
+	if c.isCopilot() {
+		// Copilot's models endpoint lives at the account-specific API base,
+		// which prepareRequest resolves from the token.
+		probeURL = copilotModelsURL(CopilotDefaultAPIBase)
+	} else if probeURL == "" {
 		probeURL = c.chatURL
 		strict = false
+		kind = "chat"
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", probeURL, nil)
-	if err != nil {
-		return err
-	}
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.doRequest(ctx, kind, func() (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, "GET", probeURL, nil)
+	})
 	if err != nil {
 		return err
 	}

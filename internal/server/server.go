@@ -138,6 +138,9 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Delete("/config/embedded/:id", s.handleDeleteEmbeddedEndpoint)
 	api.Post("/config/embedded/:id/set-active", s.handleSetActiveEndpoint)
 	api.Post("/config/embedded/test", s.handleTestEmbeddedEndpoint)
+	api.Post("/config/copilot/device/start", s.handleCopilotDeviceStart)
+	api.Post("/config/copilot/device/poll", s.handleCopilotDevicePoll)
+	api.Post("/config/copilot/models", s.handleCopilotModels)
 
 	// MAGI consensus config (stored in embedded.yaml magi section)
 	api.Get("/config/magi", s.handleGetMagiConfig)
@@ -852,6 +855,8 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 				ProjectPath:   projectPath,
 				BaseURL:       subEp.BaseURL,
 				APIKey:        subEp.APIKey,
+				Auth:          subEp.Auth,
+				GitHubToken:   subEp.GitHubToken,
 				Model:         subEp.Model,
 				SystemPrompt:  subSystemPrompt,
 				UserPrompt:    subPrompt,
@@ -927,6 +932,8 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 			ProjectPath:     projectPath,
 			BaseURL:         ep.BaseURL,
 			APIKey:          ep.APIKey,
+			Auth:            ep.Auth,
+			GitHubToken:     ep.GitHubToken,
 			Model:           ep.Model,
 			SystemPrompt:    systemPrompt,
 			UserPrompt:      prompt,
@@ -1126,6 +1133,8 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 					APIKey:        ep.APIKey,
 					Model:         ep.Model,
 					ContextTokens: ep.ContextTokens,
+					Auth:          ep.Auth,
+					GitHubToken:   ep.GitHubToken,
 				}
 				spec.Endpoint = ref
 				if firstProposerEP == nil {
@@ -1149,7 +1158,7 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 			}
 			aggregator = magi.AggregatorSpec{
 				Type:     "endpoint",
-				Endpoint: magi.EndpointRef{ID: ep.ID, BaseURL: ep.BaseURL, APIKey: ep.APIKey, Model: ep.Model, ContextTokens: ep.ContextTokens},
+				Endpoint: magi.EndpointRef{ID: ep.ID, BaseURL: ep.BaseURL, APIKey: ep.APIKey, Model: ep.Model, ContextTokens: ep.ContextTokens, Auth: ep.Auth, GitHubToken: ep.GitHubToken},
 			}
 			// Fallback to first proposer endpoint (design §7).
 			if firstProposerEP != nil {

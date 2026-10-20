@@ -336,3 +336,35 @@ func TestEmbeddedEndpoint_ReasoningControls_RoundTrip(t *testing.T) {
 		t.Fatalf("pre-field config must default to off: %+v", old.Endpoints[0])
 	}
 }
+
+// TestEmbeddedEndpoint_CopilotAuth_RoundTrip verifies the Copilot auth fields
+// survive the YAML file and the API JSON conversions. A missing copy in any of
+// these paths silently drops the GitHub token on the next Web UI save.
+func TestEmbeddedEndpoint_CopilotAuth_RoundTrip(t *testing.T) {
+	cfg := &EmbeddedConfig{Endpoints: []EmbeddedEndpoint{
+		{ID: "cp", Model: "gpt-4o", Auth: EmbeddedAuthCopilot, GitHubToken: "ghu_testtoken"},
+		{ID: "plain", Model: "m"},
+	}}
+	out, err := MarshalEmbeddedYAML(cfg)
+	if err != nil {
+		t.Fatalf("MarshalEmbeddedYAML failed: %v", err)
+	}
+	if !strings.Contains(string(out), "auth: copilot") || !strings.Contains(string(out), "githubtoken: ghu_testtoken") {
+		t.Fatalf("unexpected YAML keys:\n%s", out)
+	}
+	cfg2, err := UnmarshalEmbeddedYAML(out)
+	if err != nil {
+		t.Fatalf("UnmarshalEmbeddedYAML failed: %v", err)
+	}
+	if ep := cfg2.Endpoints[0]; ep.Auth != EmbeddedAuthCopilot || ep.GitHubToken != "ghu_testtoken" {
+		t.Fatalf("YAML round-trip lost auth fields: %+v", ep)
+	}
+	if ep := cfg2.Endpoints[1]; ep.Auth != "" || ep.GitHubToken != "" {
+		t.Fatalf("YAML round-trip invented auth fields: %+v", ep)
+	}
+
+	back := EndpointsFromJSON(EndpointsToJSON(cfg2.Endpoints))
+	if back[0].Auth != EmbeddedAuthCopilot || back[0].GitHubToken != "ghu_testtoken" {
+		t.Fatalf("JSON round-trip lost auth fields: %+v", back[0])
+	}
+}
