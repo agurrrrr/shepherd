@@ -248,7 +248,7 @@ func modelActivityFrom(tasks []*ent.Task) modelStatWindow {
 // GET /api/dashboard
 func (s *Server) handleDashboard(c *fiber.Ctx) error {
 	ctx := context.Background()
-	client := db.Client()
+	client := db.ReadClient()
 
 	// 1. Sheep list with project info
 	sheepList, err := worker.List()

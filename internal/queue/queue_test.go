@@ -286,3 +286,76 @@ func TestCreateFollowUpTask_EmptyModelLeftUnset(t *testing.T) {
 		t.Errorf("persisted model = %q, want empty", reloaded.Model)
 	}
 }
+
+func TestCountByStatusGroupsInOneQuery(t *testing.T) {
+	client := withTestDB(t)
+	ctx := context.Background()
+
+	seed := []task.Status{
+		task.StatusPending,
+		task.StatusPending,
+		task.StatusRunning,
+		task.StatusCompleted,
+		task.StatusFailed,
+		task.StatusStopped,
+	}
+	for _, status := range seed {
+		if _, err := client.Task.Create().
+			SetPrompt("probe").
+			SetStatus(status).
+			Save(ctx); err != nil {
+			t.Fatalf("seed task: %v", err)
+		}
+	}
+
+	counts, err := CountByStatus()
+	if err != nil {
+		t.Fatalf("CountByStatus: %v", err)
+	}
+
+	want := map[task.Status]int{
+		task.StatusPending:   2,
+		task.StatusRunning:   1,
+		task.StatusCompleted: 1,
+		task.StatusFailed:    1,
+		task.StatusStopped:   1,
+	}
+	for status, n := range want {
+		if counts[status] != n {
+			t.Errorf("counts[%s] = %d, want %d", status, counts[status], n)
+		}
+	}
+}
+
+func TestListTasksByProjectSelectsHistoryFields(t *testing.T) {
+	client := withTestDB(t)
+	ctx := context.Background()
+
+	p := client.Project.Create().SetName("demo").SetPath("/tmp/demo").SaveX(ctx)
+	s := client.Sheep.Create().SetName("hamzzi").SaveX(ctx)
+	if _, err := client.Task.Create().
+		SetPrompt("do work").
+		SetSummary("done").
+		SetStatus(task.StatusCompleted).
+		SetOutput([]string{"large output that history does not need"}).
+		SetSheepID(s.ID).
+		SetProjectID(p.ID).
+		Save(ctx); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	tasks, err := ListTasksByProject("demo")
+	if err != nil {
+		t.Fatalf("ListTasksByProject: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("got %d tasks, want 1", len(tasks))
+	}
+	got := tasks[0]
+	if got.Prompt != "do work" || got.Summary != "done" || got.Status != task.StatusCompleted {
+		t.Errorf("history fields = prompt %q summary %q status %q", got.Prompt, got.Summary, got.Status)
+	}
+	if got.Edges.Sheep == nil || got.Edges.Sheep.Name != "hamzzi" {
+		t.Errorf("sheep edge = %+v, want hamzzi", got.Edges.Sheep)
+	}
+}

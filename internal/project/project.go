@@ -178,7 +178,7 @@ func Remove(name string) error {
 // List returns all projects.
 func List() ([]*ent.Project, error) {
 	ctx := context.Background()
-	client := db.Client()
+	client := db.ReadClient()
 
 	projects, err := client.Project.Query().
 		WithSheep().

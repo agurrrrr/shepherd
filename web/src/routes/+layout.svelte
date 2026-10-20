@@ -55,15 +55,17 @@
 
 	onMount(async () => {
 		if ($accessToken) {
-			// Load system status, projects, and sheep in parallel
-			const [statusRes, projectsRes, sheepRes] = await Promise.all([
-				apiGet('/api/system/status'),
-				apiGet('/api/projects'),
-				apiGet('/api/sheep')
-			]);
-			if (statusRes?.data) systemStatus.set(statusRes.data);
-			if (projectsRes?.data) projects.set(projectsRes.data);
-			if (sheepRes?.data) sheep.set(sheepRes.data);
+			// Load independently: a slow endpoint (e.g. task counters) must not
+			// delay the sidebar project list.
+			apiGet('/api/projects')
+				.then(res => { if (res?.data) projects.set(res.data); })
+				.catch(() => {});
+			apiGet('/api/sheep')
+				.then(res => { if (res?.data) sheep.set(res.data); })
+				.catch(() => {});
+			apiGet('/api/system/status')
+				.then(res => { if (res?.data) systemStatus.set(res.data); })
+				.catch(() => {});
 		}
 
 		// Refresh stats + sheep status on SSE events

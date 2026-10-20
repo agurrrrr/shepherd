@@ -2382,6 +2382,17 @@ func runServeForeground() {
 	// OpenCode's config.json, so it matches what `opencode run -m` accepts.
 	config.InitOpenCodeModelList()
 
+	// Cache git origin URLs for projects registered before repo_url existed, in
+	// the background: /api/projects only reads the cached column, so it must not
+	// spawn `git` per project on every request.
+	go func() {
+		if n, err := project.BackfillRepoURLs(); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  Failed to backfill repo URLs: %v\n", err)
+		} else if n > 0 {
+			fmt.Printf("🔗 Cached repository URLs for %d projects\n", n)
+		}
+	}()
+
 	// Start queue processor
 	processor := queue.NewProcessor(2 * time.Second)
 	processor.Start()

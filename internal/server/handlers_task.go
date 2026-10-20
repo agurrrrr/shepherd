@@ -21,7 +21,7 @@ import (
 // GET /api/tasks
 func (s *Server) handleListTasks(c *fiber.Ctx) error {
 	ctx := context.Background()
-	client := db.Client()
+	client := db.ReadClient()
 
 	query := client.Task.Query()
 
@@ -67,6 +67,20 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 	}
 
 	tasks, err := query.
+		Select(
+			entTask.FieldID,
+			entTask.FieldPrompt,
+			entTask.FieldStatus,
+			entTask.FieldSummary,
+			entTask.FieldError,
+			entTask.FieldCostUsd,
+			entTask.FieldPromptTokens,
+			entTask.FieldCompletionTokens,
+			entTask.FieldModel,
+			entTask.FieldStartedAt,
+			entTask.FieldCompletedAt,
+			entTask.FieldCreatedAt,
+		).
 		Order(orderFunc).
 		Offset((page - 1) * limit).
 		Limit(limit).

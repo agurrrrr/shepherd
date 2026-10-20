@@ -15,10 +15,11 @@ import (
 )
 
 var (
-	client *ent.Client
-	rawDB  *sql.DB
-	dbPath string
-	once   sync.Once
+	client     *ent.Client
+	rawDB      *sql.DB
+	readClient *ent.Client
+	dbPath     string
+	once       sync.Once
 )
 
 // Init initializes the database connection and runs migrations.
@@ -40,8 +41,9 @@ func Init() error {
 		}
 		drv := entsql.OpenDB("sqlite3", sqlDB)
 
-		// SQLite는 동시 write를 허용하지 않으므로 커넥션을 1개로 제한하여
-		// "database table is locked" 에러 방지
+		// SQLite는 동시 write를 허용하지 않으므로 쓰기 커넥션은 1개로 제한하여
+		// "database table is locked" 에러 방지. 읽기는 별도 풀(ReadClient)로
+		// 분리해 무거운 읽기 쿼리가 쓰기/다른 읽기를 막지 않게 한다.
 		rawDB = drv.DB()
 		rawDB.SetMaxOpenConns(1)
 
@@ -52,6 +54,18 @@ func Init() error {
 			initErr = fmt.Errorf("failed to create schema: %w", err)
 			return
 		}
+
+		// Read-only pool: WAL lets readers run concurrently with the single
+		// writer. query_only(1) makes accidental writes on this handle fail
+		// loudly instead of corrupting the locking assumptions above.
+		readSQLDB, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_pragma=query_only(1)&_pragma=busy_timeout(5000)", dbPath))
+		if err != nil {
+			initErr = fmt.Errorf("failed to open read database: %w", err)
+			return
+		}
+		readSQLDB.SetMaxOpenConns(8)
+		readSQLDB.SetMaxIdleConns(8)
+		readClient = ent.NewClient(ent.Driver(entsql.OpenDB("sqlite3", readSQLDB)))
 
 		// names 패키지에 클라이언트 설정 및 기본 이름 초기화
 		names.SetClient(client)
@@ -65,6 +79,17 @@ func Init() error {
 
 // Client returns the database client.
 func Client() *ent.Client {
+	return client
+}
+
+// ReadClient returns a client backed by a multi-connection, read-only pool so
+// expensive reads do not queue behind the single write connection. It falls
+// back to Client when Init has not opened the read pool (e.g. tests that inject
+// an in-memory client via ReplaceClient).
+func ReadClient() *ent.Client {
+	if readClient != nil {
+		return readClient
+	}
 	return client
 }
 
@@ -91,6 +116,9 @@ func Path() string {
 
 // Close closes the database connection.
 func Close() error {
+	if readClient != nil && readClient != client {
+		_ = readClient.Close()
+	}
 	if client != nil {
 		return client.Close()
 	}

@@ -125,7 +125,7 @@ func DeleteAll() (int, error) {
 // List returns all sheep (excluding the manager).
 func List() ([]*ent.Sheep, error) {
 	ctx := context.Background()
-	client := db.Client()
+	client := db.ReadClient()
 
 	sheepList, err := client.Sheep.Query().
 		Where(sheep.NameNEQ(names.ManagerName)).

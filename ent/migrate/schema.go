@@ -253,6 +253,23 @@ var (
 				OnDelete:   schema.SetNull,
 			},
 		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "task_status",
+				Unique:  false,
+				Columns: []*schema.Column{TasksColumns[4]},
+			},
+			{
+				Name:    "task_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{TasksColumns[16]},
+			},
+			{
+				Name:    "task_status_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{TasksColumns[4], TasksColumns[16]},
+			},
+		},
 	}
 	// WikiPagesColumns holds the columns for the "wiki_pages" table.
 	WikiPagesColumns = []*schema.Column{

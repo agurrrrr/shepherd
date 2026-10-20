@@ -43,8 +43,10 @@ func (s *Server) handleListProjects(c *fiber.Ctx) error {
 			Name:        p.Name,
 			Path:        p.Path,
 			Description: p.Description,
-			RepoURL:     repoURLFor(p),
-			Hidden:      p.Hidden,
+			// Cached only: the list endpoint must not spawn `git` per uncached
+			// project. Startup backfill (project.BackfillRepoURLs) fills these.
+			RepoURL: p.RepoURL,
+			Hidden:  p.Hidden,
 		}
 		if p.Edges.Sheep != nil {
 			item.Sheep = p.Edges.Sheep.Name

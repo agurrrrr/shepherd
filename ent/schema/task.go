@@ -6,6 +6,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
+	"entgo.io/ent/schema/index"
 )
 
 // Task holds the schema definition for the Task entity.
@@ -71,6 +72,19 @@ func (Task) Fields() []ent.Field {
 		field.Time("created_at").
 			Default(time.Now).
 			Immutable(),
+	}
+}
+
+// Indexes of the Task.
+//
+// status is used by the dashboard/status counters (GROUP BY status) and
+// created_at by the time-window scans; the composite index serves queries that
+// filter on both (e.g. today's completed/failed counts).
+func (Task) Indexes() []ent.Index {
+	return []ent.Index{
+		index.Fields("status"),
+		index.Fields("created_at"),
+		index.Fields("status", "created_at"),
 	}
 }
 

@@ -168,13 +168,23 @@ func ListTasksBySheep(sheepName string) ([]*ent.Task, error) {
 }
 
 // ListTasksByProject returns tasks for the given project.
+//
+// Only the columns history listings render are selected: the task row carries
+// the full output log, and loading it for every task made `shepherd history`
+// and the get_history tool read hundreds of megabytes.
 func ListTasksByProject(projectName string) ([]*ent.Task, error) {
 	ctx := context.Background()
-	client := db.Client()
+	client := db.ReadClient()
 
 	tasks, err := client.Task.Query().
-		WithSheep().
-		WithProject().
+		Select(
+			task.FieldID,
+			task.FieldStatus,
+			task.FieldPrompt,
+			task.FieldSummary,
+			task.FieldCreatedAt,
+		).
+		WithSheep(func(q *ent.SheepQuery) { q.Select(sheep.FieldName) }).
 		Where(task.HasProjectWith(project.Name(projectName))).
 		Order(ent.Desc(task.FieldCreatedAt)).
 		All(ctx)
@@ -464,9 +474,23 @@ func buildSummaryFromOutput(output []string) string {
 // CountByStatus returns task counts by status.
 func CountByStatus() (map[task.Status]int, error) {
 	ctx := context.Background()
-	client := db.Client()
+	client := db.ReadClient()
 
 	result := make(map[task.Status]int)
+
+	// One grouped query instead of five COUNT scans: the tasks table carries
+	// the full output log, so scanning it repeatedly was the main cost of
+	// /api/system/status and /api/dashboard.
+	var rows []struct {
+		Status task.Status `json:"status"`
+		Count  int         `json:"count"`
+	}
+	if err := client.Task.Query().
+		GroupBy(task.FieldStatus).
+		Aggregate(ent.Count()).
+		Scan(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("failed to count tasks: %w", err)
+	}
 
 	for _, status := range []task.Status{
 		task.StatusPending,
@@ -475,13 +499,10 @@ func CountByStatus() (map[task.Status]int, error) {
 		task.StatusFailed,
 		task.StatusStopped,
 	} {
-		count, err := client.Task.Query().
-			Where(task.StatusEQ(status)).
-			Count(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to count tasks: %w", err)
-		}
-		result[status] = count
+		result[status] = 0
+	}
+	for _, row := range rows {
+		result[row.Status] = row.Count
 	}
 
 	return result, nil
