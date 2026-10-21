@@ -20,6 +20,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 
 	let editorModels = [];
 	let editorModelsBusy = false;
+	let editorApiBase = '';
 
 	// Copilot device-flow modal state.
 	// step: starting | authorize | models | error
@@ -290,10 +291,11 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		}
 		copilot.busy = true;
 		copilot.error = '';
+		const apiPath = copilot.selected.api === 'responses' ? '/responses' : '/chat/completions';
 		const body = {
 			id: copilot.id.trim(),
 			label: copilot.label.trim() || copilot.selected.name,
-			base_url: (copilot.apiBase || 'https://api.githubcopilot.com') + '/chat/completions',
+			base_url: (copilot.apiBase || 'https://api.githubcopilot.com') + apiPath,
 			api_key: '',
 			model: copilot.selected.id,
 			enabled: true,
@@ -344,6 +346,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				if (!!b.supports_tools !== !!a.supports_tools) return b.supports_tools ? 1 : -1;
 				return (a.name || a.id).localeCompare(b.name || b.id);
 			});
+			editorApiBase = res.data.api_base || '';
 			applyEditorModel();
 			if (!editing.base_url) {
 				editing.base_url = (res.data.api_base || 'https://api.githubcopilot.com') + '/chat/completions';
@@ -359,6 +362,11 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		if (!m) return;
 		if (m.context_tokens) editing.context_tokens = m.context_tokens;
 		editing.vision = !!m.supports_vision;
+		// Responses-only models (GPT-6.1 Sol) must call /responses, not
+		// /chat/completions — the latter is rejected for those models.
+		if (editorApiBase && editing.auth === 'copilot') {
+			editing.base_url = editorApiBase + (m.api === 'responses' ? '/responses' : '/chat/completions');
+		}
 	}
 
 	// Load endpoints on mount
@@ -615,6 +623,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 								<span class="copilot-model-meta">{m.id}</span>
 								<span class="copilot-model-badges">
 									<span>context {(m.context_tokens || 0).toLocaleString()}</span>
+									{#if m.api === 'responses'}<span class="badge badge-muted">Responses API</span>{/if}
 									{#if m.supports_tools}<span class="badge badge-subagent">Tools</span>{/if}
 									{#if m.supports_vision}<span class="badge badge-success">Vision</span>{/if}
 									{#if !m.supports_tools}<span class="badge badge-muted">No tools</span>{/if}

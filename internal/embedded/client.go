@@ -47,6 +47,12 @@ type Client struct {
 	// Copilot API token and sends Copilot's required headers.
 	authMode    string
 	githubToken string
+
+	// responsesMode is set when the configured URL targets the OpenAI
+	// Responses API (/responses) instead of /chat/completions. The agent loop
+	// speaks Chat Completions internally, so requests/events are translated
+	// (see responses.go). Copilot serves some models (GPT-6.1 Sol) only there.
+	responsesMode bool
 }
 
 // NewClient creates a new client for the given endpoint.
@@ -80,10 +86,11 @@ func NewClient(endpointURL, apiKey, model string) *Client {
 				ResponseHeaderTimeout: 10 * time.Minute,
 			},
 		},
-		chatURL:   chatURL,
-		modelsURL: ResolveModelsURL(chatURL),
-		apiKey:    apiKey,
-		model:     model,
+		chatURL:       chatURL,
+		modelsURL:     ResolveModelsURL(chatURL),
+		apiKey:        apiKey,
+		model:         model,
+		responsesMode: isResponsesURL(chatURL),
 	}
 }
 
@@ -133,6 +140,9 @@ func (c *Client) prepareRequest(ctx context.Context, req *http.Request, kind str
 		apiBase = CopilotDefaultAPIBase
 	}
 	target := apiBase + "/chat/completions"
+	if c.responsesMode {
+		target = apiBase + "/responses"
+	}
 	if kind == "models" {
 		target = copilotModelsURL(apiBase)
 	}
@@ -197,7 +207,15 @@ func (c *Client) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 	}
 	req.Stream = false
 
-	body, err := json.Marshal(req)
+	var (
+		body []byte
+		err  error
+	)
+	if c.responsesMode {
+		body, err = json.Marshal(buildResponsesRequest(req, false))
+	} else {
+		body, err = json.Marshal(req)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -220,8 +238,16 @@ func (c *Client) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if c.responsesMode {
+		return responsesToChatResponse(raw)
+	}
+
 	var chatResp ChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+	if err := json.Unmarshal(raw, &chatResp); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return &chatResp, nil
@@ -243,7 +269,15 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 	}
 	req.Stream = true
 
-	body, err := json.Marshal(req)
+	var (
+		body []byte
+		err  error
+	)
+	if c.responsesMode {
+		body, err = json.Marshal(buildResponsesRequest(req, true))
+	} else {
+		body, err = json.Marshal(req)
+	}
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
@@ -355,6 +389,18 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 		var rawMsg json.RawMessage
 		if err := json.Unmarshal([]byte(data), &rawMsg); err != nil {
 			return nil // skip malformed lines
+		}
+
+		if c.responsesMode {
+			event, err := responsesEventToStream(rawMsg)
+			if err != nil {
+				return err
+			}
+			if event == nil {
+				return nil
+			}
+			event.Raw = rawMsg
+			return cb(event)
 		}
 
 		var event StreamEvent

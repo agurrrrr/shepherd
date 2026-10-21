@@ -313,6 +313,10 @@ type CopilotModel struct {
 	SupportsTools       bool     `json:"supports_tools"`
 	SupportsVision      bool     `json:"supports_vision"`
 	SupportedEndpoints  []string `json:"supported_endpoints,omitempty"`
+	// API is the wire API the model is served on: "chat" for
+	// /chat/completions or "responses" for /responses. Copilot serves some
+	// models (GPT-6.1 Sol) only on the Responses API.
+	API string `json:"api"`
 }
 
 // ContextTokens returns the input budget to use for trimming/handoff: the
@@ -418,22 +422,46 @@ func ListCopilotModels(ctx context.Context, githubToken string) ([]CopilotModel,
 			SupportsTools:       caps.Supports.ToolCalls,
 			SupportsVision:      caps.Supports.Vision,
 			SupportedEndpoints:  m.SupportedEndpoints,
+			API:                 copilotModelAPI(m.SupportedEndpoints),
 		})
 	}
 	return out, apiBase, nil
 }
 
+// copilotModelSupportsChat reports whether shepherd can talk to the model. Models
+// served only on other APIs (Anthropic /v1/messages) are skipped.
 func copilotModelSupportsChat(endpoints []string, capabilityType string) bool {
-	if capabilityType != "" && capabilityType != "chat" {
+	switch capabilityType {
+	case "", "chat", "responses":
+	default:
 		return false
 	}
+	return copilotModelAPI(endpoints) != ""
+}
+
+// copilotModelAPI returns the wire API a model is served on: "chat" when
+// /chat/completions is advertised, otherwise "responses" when /responses is,
+// otherwise "" (unsupported by shepherd). When Copilot omits supported_endpoints
+// the historical assumption (chat completions) is kept.
+func copilotModelAPI(endpoints []string) string {
 	if len(endpoints) == 0 {
-		return true
+		return "chat"
 	}
+	hasChat, hasResponses := false, false
 	for _, ep := range endpoints {
-		if strings.TrimRight(ep, "/") == "/chat/completions" {
-			return true
+		e := strings.TrimRight(strings.TrimSpace(ep), "/")
+		switch {
+		case strings.HasSuffix(e, "/chat/completions"):
+			hasChat = true
+		case strings.HasSuffix(e, "/responses"):
+			hasResponses = true
 		}
 	}
-	return false
+	if hasChat {
+		return "chat"
+	}
+	if hasResponses {
+		return "responses"
+	}
+	return ""
 }

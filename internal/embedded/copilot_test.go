@@ -176,12 +176,15 @@ func TestListCopilotModelsFiltersAndLimits(t *testing.T) {
 	if apiBase != srv.URL {
 		t.Fatalf("apiBase = %q", apiBase)
 	}
-	if len(models) != 1 {
-		t.Fatalf("models = %+v, want only the chat-completions model", models)
+	if len(models) != 2 {
+		t.Fatalf("models = %+v, want chat-completions and responses models", models)
 	}
 	m := models[0]
-	if m.ID != "gpt-4o" || m.ContextTokens() != 96000 || m.ContextWindowTokens != 128000 || !m.SupportsTools || !m.SupportsVision {
+	if m.ID != "gpt-4o" || m.ContextTokens() != 96000 || m.ContextWindowTokens != 128000 || !m.SupportsTools || !m.SupportsVision || m.API != "chat" {
 		t.Fatalf("unexpected model: %+v (context=%d)", m, m.ContextTokens())
+	}
+	if models[1].ID != "gpt-5-responses-only" || models[1].API != "responses" {
+		t.Fatalf("responses-only model not exposed: %+v", models[1])
 	}
 	if exchanges.Load() != 1 {
 		t.Fatalf("exchanges = %d", exchanges.Load())

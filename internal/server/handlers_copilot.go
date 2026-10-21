@@ -102,6 +102,7 @@ func (s *Server) handleCopilotModels(c *fiber.Ctx) error {
 			"context_tokens":        m.ContextTokens(),
 			"supports_tools":        m.SupportsTools,
 			"supports_vision":       m.SupportsVision,
+			"api":                   m.API,
 		})
 	}
 	return success(c, map[string]interface{}{
