@@ -51,6 +51,18 @@ type Task struct {
 	StartedAt time.Time `json:"started_at,omitempty"`
 	// 작업 완료 시간
 	CompletedAt time.Time `json:"completed_at,omitempty"`
+	// 체크포인트 스냅샷을 찍은 디렉터리의 절대 경로
+	CheckpointDir string `json:"checkpoint_dir,omitempty"`
+	// 작업 시작 스냅샷 커밋 SHA
+	CheckpointStart string `json:"checkpoint_start,omitempty"`
+	// 작업 종료 스냅샷 커밋 SHA
+	CheckpointEnd string `json:"checkpoint_end,omitempty"`
+	// 체크포인트를 건너뛴 이유나 실패 메시지
+	CheckpointError string `json:"checkpoint_error,omitempty"`
+	// 작업 되돌리기 시각
+	RevertedAt time.Time `json:"reverted_at,omitempty"`
+	// 되돌리기 직전 스냅샷 SHA (되돌리기 취소용)
+	RevertPre string `json:"revert_pre,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -119,9 +131,9 @@ func (*Task) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case task.FieldID, task.FieldPromptTokens, task.FieldCompletionTokens, task.FieldOwnerPid, task.FieldPriority, task.FieldHandoffDepth:
 			values[i] = new(sql.NullInt64)
-		case task.FieldPrompt, task.FieldSummary, task.FieldStatus, task.FieldError, task.FieldModel:
+		case task.FieldPrompt, task.FieldSummary, task.FieldStatus, task.FieldError, task.FieldModel, task.FieldCheckpointDir, task.FieldCheckpointStart, task.FieldCheckpointEnd, task.FieldCheckpointError, task.FieldRevertPre:
 			values[i] = new(sql.NullString)
-		case task.FieldStartedAt, task.FieldCompletedAt, task.FieldCreatedAt:
+		case task.FieldStartedAt, task.FieldCompletedAt, task.FieldRevertedAt, task.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
 		case task.ForeignKeys[0]: // issue_tasks
 			values[i] = new(sql.NullInt64)
@@ -243,6 +255,42 @@ func (_m *Task) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field completed_at", values[i])
 			} else if value.Valid {
 				_m.CompletedAt = value.Time
+			}
+		case task.FieldCheckpointDir:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field checkpoint_dir", values[i])
+			} else if value.Valid {
+				_m.CheckpointDir = value.String
+			}
+		case task.FieldCheckpointStart:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field checkpoint_start", values[i])
+			} else if value.Valid {
+				_m.CheckpointStart = value.String
+			}
+		case task.FieldCheckpointEnd:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field checkpoint_end", values[i])
+			} else if value.Valid {
+				_m.CheckpointEnd = value.String
+			}
+		case task.FieldCheckpointError:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field checkpoint_error", values[i])
+			} else if value.Valid {
+				_m.CheckpointError = value.String
+			}
+		case task.FieldRevertedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field reverted_at", values[i])
+			} else if value.Valid {
+				_m.RevertedAt = value.Time
+			}
+		case task.FieldRevertPre:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field revert_pre", values[i])
+			} else if value.Valid {
+				_m.RevertPre = value.String
 			}
 		case task.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -366,6 +414,24 @@ func (_m *Task) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("completed_at=")
 	builder.WriteString(_m.CompletedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("checkpoint_dir=")
+	builder.WriteString(_m.CheckpointDir)
+	builder.WriteString(", ")
+	builder.WriteString("checkpoint_start=")
+	builder.WriteString(_m.CheckpointStart)
+	builder.WriteString(", ")
+	builder.WriteString("checkpoint_end=")
+	builder.WriteString(_m.CheckpointEnd)
+	builder.WriteString(", ")
+	builder.WriteString("checkpoint_error=")
+	builder.WriteString(_m.CheckpointError)
+	builder.WriteString(", ")
+	builder.WriteString("reverted_at=")
+	builder.WriteString(_m.RevertedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("revert_pre=")
+	builder.WriteString(_m.RevertPre)
 	builder.WriteString(", ")
 	builder.WriteString("created_at=")
 	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))

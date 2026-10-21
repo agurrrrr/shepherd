@@ -69,6 +69,24 @@ func (Task) Fields() []ent.Field {
 		field.Time("completed_at").
 			Optional().
 			Comment("작업 완료 시간"),
+		field.String("checkpoint_dir").
+			Optional().
+			Comment("체크포인트 스냅샷을 찍은 디렉터리의 절대 경로"),
+		field.String("checkpoint_start").
+			Optional().
+			Comment("작업 시작 스냅샷 커밋 SHA"),
+		field.String("checkpoint_end").
+			Optional().
+			Comment("작업 종료 스냅샷 커밋 SHA"),
+		field.Text("checkpoint_error").
+			Optional().
+			Comment("체크포인트를 건너뛴 이유나 실패 메시지"),
+		field.Time("reverted_at").
+			Optional().
+			Comment("작업 되돌리기 시각"),
+		field.String("revert_pre").
+			Optional().
+			Comment("되돌리기 직전 스냅샷 SHA (되돌리기 취소용)"),
 		field.Time("created_at").
 			Default(time.Now).
 			Immutable(),

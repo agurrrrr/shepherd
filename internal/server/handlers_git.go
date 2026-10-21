@@ -116,10 +116,14 @@ func (s *Server) handleGitLog(c *fiber.Ctx) error {
 		skip = 0
 	}
 
-	// Build git log command
+	// Build git log command. Checkpoint snapshots live under refs/shepherd/*;
+	// exclude them from --all and from %D decorations so the commit graph only
+	// shows real user history. --exclude must precede --all to take effect.
 	args := []string{"-C", p.Path, "log",
 		"--format=%H|%h|%an|%ae|%aI|%s|%P|%D",
+		"--exclude=refs/shepherd/*",
 		"--all",
+		"--decorate-refs-exclude=refs/shepherd/*",
 		fmt.Sprintf("-n%d", limit),
 		fmt.Sprintf("--skip=%d", skip),
 	}
@@ -130,6 +134,7 @@ func (s *Server) handleGitLog(c *fiber.Ctx) error {
 		// Replace --all with specific branch
 		args = []string{"-C", p.Path, "log",
 			"--format=%H|%h|%an|%ae|%aI|%s|%P|%D",
+			"--decorate-refs-exclude=refs/shepherd/*",
 			fmt.Sprintf("-n%d", limit),
 			fmt.Sprintf("--skip=%d", skip),
 			branch,
@@ -181,7 +186,7 @@ func (s *Server) handleGitLog(c *fiber.Ctx) error {
 	}
 
 	// Get total commit count
-	countCmd := newGitCmd("-C", p.Path, "rev-list", "--count", "--all")
+	countCmd := newGitCmd("-C", p.Path, "rev-list", "--count", "--exclude=refs/shepherd/*", "--all")
 	countOut, _ := countCmd.Output()
 	total, _ := strconv.Atoi(strings.TrimSpace(string(countOut)))
 

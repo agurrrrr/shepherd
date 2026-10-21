@@ -7755,6 +7755,12 @@ type TaskMutation struct {
 	addhandoff_depth     *int
 	started_at           *time.Time
 	completed_at         *time.Time
+	checkpoint_dir       *string
+	checkpoint_start     *string
+	checkpoint_end       *string
+	checkpoint_error     *string
+	reverted_at          *time.Time
+	revert_pre           *string
 	created_at           *time.Time
 	clearedFields        map[string]struct{}
 	sheep                *int
@@ -8733,6 +8739,300 @@ func (m *TaskMutation) ResetCompletedAt() {
 	delete(m.clearedFields, task.FieldCompletedAt)
 }
 
+// SetCheckpointDir sets the "checkpoint_dir" field.
+func (m *TaskMutation) SetCheckpointDir(s string) {
+	m.checkpoint_dir = &s
+}
+
+// CheckpointDir returns the value of the "checkpoint_dir" field in the mutation.
+func (m *TaskMutation) CheckpointDir() (r string, exists bool) {
+	v := m.checkpoint_dir
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCheckpointDir returns the old "checkpoint_dir" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldCheckpointDir(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCheckpointDir is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCheckpointDir requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCheckpointDir: %w", err)
+	}
+	return oldValue.CheckpointDir, nil
+}
+
+// ClearCheckpointDir clears the value of the "checkpoint_dir" field.
+func (m *TaskMutation) ClearCheckpointDir() {
+	m.checkpoint_dir = nil
+	m.clearedFields[task.FieldCheckpointDir] = struct{}{}
+}
+
+// CheckpointDirCleared returns if the "checkpoint_dir" field was cleared in this mutation.
+func (m *TaskMutation) CheckpointDirCleared() bool {
+	_, ok := m.clearedFields[task.FieldCheckpointDir]
+	return ok
+}
+
+// ResetCheckpointDir resets all changes to the "checkpoint_dir" field.
+func (m *TaskMutation) ResetCheckpointDir() {
+	m.checkpoint_dir = nil
+	delete(m.clearedFields, task.FieldCheckpointDir)
+}
+
+// SetCheckpointStart sets the "checkpoint_start" field.
+func (m *TaskMutation) SetCheckpointStart(s string) {
+	m.checkpoint_start = &s
+}
+
+// CheckpointStart returns the value of the "checkpoint_start" field in the mutation.
+func (m *TaskMutation) CheckpointStart() (r string, exists bool) {
+	v := m.checkpoint_start
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCheckpointStart returns the old "checkpoint_start" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldCheckpointStart(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCheckpointStart is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCheckpointStart requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCheckpointStart: %w", err)
+	}
+	return oldValue.CheckpointStart, nil
+}
+
+// ClearCheckpointStart clears the value of the "checkpoint_start" field.
+func (m *TaskMutation) ClearCheckpointStart() {
+	m.checkpoint_start = nil
+	m.clearedFields[task.FieldCheckpointStart] = struct{}{}
+}
+
+// CheckpointStartCleared returns if the "checkpoint_start" field was cleared in this mutation.
+func (m *TaskMutation) CheckpointStartCleared() bool {
+	_, ok := m.clearedFields[task.FieldCheckpointStart]
+	return ok
+}
+
+// ResetCheckpointStart resets all changes to the "checkpoint_start" field.
+func (m *TaskMutation) ResetCheckpointStart() {
+	m.checkpoint_start = nil
+	delete(m.clearedFields, task.FieldCheckpointStart)
+}
+
+// SetCheckpointEnd sets the "checkpoint_end" field.
+func (m *TaskMutation) SetCheckpointEnd(s string) {
+	m.checkpoint_end = &s
+}
+
+// CheckpointEnd returns the value of the "checkpoint_end" field in the mutation.
+func (m *TaskMutation) CheckpointEnd() (r string, exists bool) {
+	v := m.checkpoint_end
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCheckpointEnd returns the old "checkpoint_end" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldCheckpointEnd(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCheckpointEnd is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCheckpointEnd requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCheckpointEnd: %w", err)
+	}
+	return oldValue.CheckpointEnd, nil
+}
+
+// ClearCheckpointEnd clears the value of the "checkpoint_end" field.
+func (m *TaskMutation) ClearCheckpointEnd() {
+	m.checkpoint_end = nil
+	m.clearedFields[task.FieldCheckpointEnd] = struct{}{}
+}
+
+// CheckpointEndCleared returns if the "checkpoint_end" field was cleared in this mutation.
+func (m *TaskMutation) CheckpointEndCleared() bool {
+	_, ok := m.clearedFields[task.FieldCheckpointEnd]
+	return ok
+}
+
+// ResetCheckpointEnd resets all changes to the "checkpoint_end" field.
+func (m *TaskMutation) ResetCheckpointEnd() {
+	m.checkpoint_end = nil
+	delete(m.clearedFields, task.FieldCheckpointEnd)
+}
+
+// SetCheckpointError sets the "checkpoint_error" field.
+func (m *TaskMutation) SetCheckpointError(s string) {
+	m.checkpoint_error = &s
+}
+
+// CheckpointError returns the value of the "checkpoint_error" field in the mutation.
+func (m *TaskMutation) CheckpointError() (r string, exists bool) {
+	v := m.checkpoint_error
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCheckpointError returns the old "checkpoint_error" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldCheckpointError(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCheckpointError is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCheckpointError requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCheckpointError: %w", err)
+	}
+	return oldValue.CheckpointError, nil
+}
+
+// ClearCheckpointError clears the value of the "checkpoint_error" field.
+func (m *TaskMutation) ClearCheckpointError() {
+	m.checkpoint_error = nil
+	m.clearedFields[task.FieldCheckpointError] = struct{}{}
+}
+
+// CheckpointErrorCleared returns if the "checkpoint_error" field was cleared in this mutation.
+func (m *TaskMutation) CheckpointErrorCleared() bool {
+	_, ok := m.clearedFields[task.FieldCheckpointError]
+	return ok
+}
+
+// ResetCheckpointError resets all changes to the "checkpoint_error" field.
+func (m *TaskMutation) ResetCheckpointError() {
+	m.checkpoint_error = nil
+	delete(m.clearedFields, task.FieldCheckpointError)
+}
+
+// SetRevertedAt sets the "reverted_at" field.
+func (m *TaskMutation) SetRevertedAt(t time.Time) {
+	m.reverted_at = &t
+}
+
+// RevertedAt returns the value of the "reverted_at" field in the mutation.
+func (m *TaskMutation) RevertedAt() (r time.Time, exists bool) {
+	v := m.reverted_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevertedAt returns the old "reverted_at" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldRevertedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevertedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevertedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevertedAt: %w", err)
+	}
+	return oldValue.RevertedAt, nil
+}
+
+// ClearRevertedAt clears the value of the "reverted_at" field.
+func (m *TaskMutation) ClearRevertedAt() {
+	m.reverted_at = nil
+	m.clearedFields[task.FieldRevertedAt] = struct{}{}
+}
+
+// RevertedAtCleared returns if the "reverted_at" field was cleared in this mutation.
+func (m *TaskMutation) RevertedAtCleared() bool {
+	_, ok := m.clearedFields[task.FieldRevertedAt]
+	return ok
+}
+
+// ResetRevertedAt resets all changes to the "reverted_at" field.
+func (m *TaskMutation) ResetRevertedAt() {
+	m.reverted_at = nil
+	delete(m.clearedFields, task.FieldRevertedAt)
+}
+
+// SetRevertPre sets the "revert_pre" field.
+func (m *TaskMutation) SetRevertPre(s string) {
+	m.revert_pre = &s
+}
+
+// RevertPre returns the value of the "revert_pre" field in the mutation.
+func (m *TaskMutation) RevertPre() (r string, exists bool) {
+	v := m.revert_pre
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevertPre returns the old "revert_pre" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldRevertPre(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevertPre is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevertPre requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevertPre: %w", err)
+	}
+	return oldValue.RevertPre, nil
+}
+
+// ClearRevertPre clears the value of the "revert_pre" field.
+func (m *TaskMutation) ClearRevertPre() {
+	m.revert_pre = nil
+	m.clearedFields[task.FieldRevertPre] = struct{}{}
+}
+
+// RevertPreCleared returns if the "revert_pre" field was cleared in this mutation.
+func (m *TaskMutation) RevertPreCleared() bool {
+	_, ok := m.clearedFields[task.FieldRevertPre]
+	return ok
+}
+
+// ResetRevertPre resets all changes to the "revert_pre" field.
+func (m *TaskMutation) ResetRevertPre() {
+	m.revert_pre = nil
+	delete(m.clearedFields, task.FieldRevertPre)
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *TaskMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -8920,7 +9220,7 @@ func (m *TaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *TaskMutation) Fields() []string {
-	fields := make([]string, 0, 16)
+	fields := make([]string, 0, 22)
 	if m.prompt != nil {
 		fields = append(fields, task.FieldPrompt)
 	}
@@ -8966,6 +9266,24 @@ func (m *TaskMutation) Fields() []string {
 	if m.completed_at != nil {
 		fields = append(fields, task.FieldCompletedAt)
 	}
+	if m.checkpoint_dir != nil {
+		fields = append(fields, task.FieldCheckpointDir)
+	}
+	if m.checkpoint_start != nil {
+		fields = append(fields, task.FieldCheckpointStart)
+	}
+	if m.checkpoint_end != nil {
+		fields = append(fields, task.FieldCheckpointEnd)
+	}
+	if m.checkpoint_error != nil {
+		fields = append(fields, task.FieldCheckpointError)
+	}
+	if m.reverted_at != nil {
+		fields = append(fields, task.FieldRevertedAt)
+	}
+	if m.revert_pre != nil {
+		fields = append(fields, task.FieldRevertPre)
+	}
 	if m.created_at != nil {
 		fields = append(fields, task.FieldCreatedAt)
 	}
@@ -9007,6 +9325,18 @@ func (m *TaskMutation) Field(name string) (ent.Value, bool) {
 		return m.StartedAt()
 	case task.FieldCompletedAt:
 		return m.CompletedAt()
+	case task.FieldCheckpointDir:
+		return m.CheckpointDir()
+	case task.FieldCheckpointStart:
+		return m.CheckpointStart()
+	case task.FieldCheckpointEnd:
+		return m.CheckpointEnd()
+	case task.FieldCheckpointError:
+		return m.CheckpointError()
+	case task.FieldRevertedAt:
+		return m.RevertedAt()
+	case task.FieldRevertPre:
+		return m.RevertPre()
 	case task.FieldCreatedAt:
 		return m.CreatedAt()
 	}
@@ -9048,6 +9378,18 @@ func (m *TaskMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldStartedAt(ctx)
 	case task.FieldCompletedAt:
 		return m.OldCompletedAt(ctx)
+	case task.FieldCheckpointDir:
+		return m.OldCheckpointDir(ctx)
+	case task.FieldCheckpointStart:
+		return m.OldCheckpointStart(ctx)
+	case task.FieldCheckpointEnd:
+		return m.OldCheckpointEnd(ctx)
+	case task.FieldCheckpointError:
+		return m.OldCheckpointError(ctx)
+	case task.FieldRevertedAt:
+		return m.OldRevertedAt(ctx)
+	case task.FieldRevertPre:
+		return m.OldRevertPre(ctx)
 	case task.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	}
@@ -9163,6 +9505,48 @@ func (m *TaskMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetCompletedAt(v)
+		return nil
+	case task.FieldCheckpointDir:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCheckpointDir(v)
+		return nil
+	case task.FieldCheckpointStart:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCheckpointStart(v)
+		return nil
+	case task.FieldCheckpointEnd:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCheckpointEnd(v)
+		return nil
+	case task.FieldCheckpointError:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCheckpointError(v)
+		return nil
+	case task.FieldRevertedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevertedAt(v)
+		return nil
+	case task.FieldRevertPre:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevertPre(v)
 		return nil
 	case task.FieldCreatedAt:
 		v, ok := value.(time.Time)
@@ -9315,6 +9699,24 @@ func (m *TaskMutation) ClearedFields() []string {
 	if m.FieldCleared(task.FieldCompletedAt) {
 		fields = append(fields, task.FieldCompletedAt)
 	}
+	if m.FieldCleared(task.FieldCheckpointDir) {
+		fields = append(fields, task.FieldCheckpointDir)
+	}
+	if m.FieldCleared(task.FieldCheckpointStart) {
+		fields = append(fields, task.FieldCheckpointStart)
+	}
+	if m.FieldCleared(task.FieldCheckpointEnd) {
+		fields = append(fields, task.FieldCheckpointEnd)
+	}
+	if m.FieldCleared(task.FieldCheckpointError) {
+		fields = append(fields, task.FieldCheckpointError)
+	}
+	if m.FieldCleared(task.FieldRevertedAt) {
+		fields = append(fields, task.FieldRevertedAt)
+	}
+	if m.FieldCleared(task.FieldRevertPre) {
+		fields = append(fields, task.FieldRevertPre)
+	}
 	return fields
 }
 
@@ -9368,6 +9770,24 @@ func (m *TaskMutation) ClearField(name string) error {
 	case task.FieldCompletedAt:
 		m.ClearCompletedAt()
 		return nil
+	case task.FieldCheckpointDir:
+		m.ClearCheckpointDir()
+		return nil
+	case task.FieldCheckpointStart:
+		m.ClearCheckpointStart()
+		return nil
+	case task.FieldCheckpointEnd:
+		m.ClearCheckpointEnd()
+		return nil
+	case task.FieldCheckpointError:
+		m.ClearCheckpointError()
+		return nil
+	case task.FieldRevertedAt:
+		m.ClearRevertedAt()
+		return nil
+	case task.FieldRevertPre:
+		m.ClearRevertPre()
+		return nil
 	}
 	return fmt.Errorf("unknown Task nullable field %s", name)
 }
@@ -9420,6 +9840,24 @@ func (m *TaskMutation) ResetField(name string) error {
 		return nil
 	case task.FieldCompletedAt:
 		m.ResetCompletedAt()
+		return nil
+	case task.FieldCheckpointDir:
+		m.ResetCheckpointDir()
+		return nil
+	case task.FieldCheckpointStart:
+		m.ResetCheckpointStart()
+		return nil
+	case task.FieldCheckpointEnd:
+		m.ResetCheckpointEnd()
+		return nil
+	case task.FieldCheckpointError:
+		m.ResetCheckpointError()
+		return nil
+	case task.FieldRevertedAt:
+		m.ResetRevertedAt()
+		return nil
+	case task.FieldRevertPre:
+		m.ResetRevertPre()
 		return nil
 	case task.FieldCreatedAt:
 		m.ResetCreatedAt()

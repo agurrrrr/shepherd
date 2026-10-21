@@ -115,6 +115,36 @@ func CompletedAt(v time.Time) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldCompletedAt, v))
 }
 
+// CheckpointDir applies equality check predicate on the "checkpoint_dir" field. It's identical to CheckpointDirEQ.
+func CheckpointDir(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCheckpointDir, v))
+}
+
+// CheckpointStart applies equality check predicate on the "checkpoint_start" field. It's identical to CheckpointStartEQ.
+func CheckpointStart(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCheckpointStart, v))
+}
+
+// CheckpointEnd applies equality check predicate on the "checkpoint_end" field. It's identical to CheckpointEndEQ.
+func CheckpointEnd(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCheckpointEnd, v))
+}
+
+// CheckpointError applies equality check predicate on the "checkpoint_error" field. It's identical to CheckpointErrorEQ.
+func CheckpointError(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCheckpointError, v))
+}
+
+// RevertedAt applies equality check predicate on the "reverted_at" field. It's identical to RevertedAtEQ.
+func RevertedAt(v time.Time) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldRevertedAt, v))
+}
+
+// RevertPre applies equality check predicate on the "revert_pre" field. It's identical to RevertPreEQ.
+func RevertPre(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldRevertPre, v))
+}
+
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldCreatedAt, v))
@@ -848,6 +878,431 @@ func CompletedAtIsNil() predicate.Task {
 // CompletedAtNotNil applies the NotNil predicate on the "completed_at" field.
 func CompletedAtNotNil() predicate.Task {
 	return predicate.Task(sql.FieldNotNull(FieldCompletedAt))
+}
+
+// CheckpointDirEQ applies the EQ predicate on the "checkpoint_dir" field.
+func CheckpointDirEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCheckpointDir, v))
+}
+
+// CheckpointDirNEQ applies the NEQ predicate on the "checkpoint_dir" field.
+func CheckpointDirNEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldCheckpointDir, v))
+}
+
+// CheckpointDirIn applies the In predicate on the "checkpoint_dir" field.
+func CheckpointDirIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldCheckpointDir, vs...))
+}
+
+// CheckpointDirNotIn applies the NotIn predicate on the "checkpoint_dir" field.
+func CheckpointDirNotIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldCheckpointDir, vs...))
+}
+
+// CheckpointDirGT applies the GT predicate on the "checkpoint_dir" field.
+func CheckpointDirGT(v string) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldCheckpointDir, v))
+}
+
+// CheckpointDirGTE applies the GTE predicate on the "checkpoint_dir" field.
+func CheckpointDirGTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldCheckpointDir, v))
+}
+
+// CheckpointDirLT applies the LT predicate on the "checkpoint_dir" field.
+func CheckpointDirLT(v string) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldCheckpointDir, v))
+}
+
+// CheckpointDirLTE applies the LTE predicate on the "checkpoint_dir" field.
+func CheckpointDirLTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldCheckpointDir, v))
+}
+
+// CheckpointDirContains applies the Contains predicate on the "checkpoint_dir" field.
+func CheckpointDirContains(v string) predicate.Task {
+	return predicate.Task(sql.FieldContains(FieldCheckpointDir, v))
+}
+
+// CheckpointDirHasPrefix applies the HasPrefix predicate on the "checkpoint_dir" field.
+func CheckpointDirHasPrefix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasPrefix(FieldCheckpointDir, v))
+}
+
+// CheckpointDirHasSuffix applies the HasSuffix predicate on the "checkpoint_dir" field.
+func CheckpointDirHasSuffix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasSuffix(FieldCheckpointDir, v))
+}
+
+// CheckpointDirIsNil applies the IsNil predicate on the "checkpoint_dir" field.
+func CheckpointDirIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldCheckpointDir))
+}
+
+// CheckpointDirNotNil applies the NotNil predicate on the "checkpoint_dir" field.
+func CheckpointDirNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldCheckpointDir))
+}
+
+// CheckpointDirEqualFold applies the EqualFold predicate on the "checkpoint_dir" field.
+func CheckpointDirEqualFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldEqualFold(FieldCheckpointDir, v))
+}
+
+// CheckpointDirContainsFold applies the ContainsFold predicate on the "checkpoint_dir" field.
+func CheckpointDirContainsFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldContainsFold(FieldCheckpointDir, v))
+}
+
+// CheckpointStartEQ applies the EQ predicate on the "checkpoint_start" field.
+func CheckpointStartEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCheckpointStart, v))
+}
+
+// CheckpointStartNEQ applies the NEQ predicate on the "checkpoint_start" field.
+func CheckpointStartNEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldCheckpointStart, v))
+}
+
+// CheckpointStartIn applies the In predicate on the "checkpoint_start" field.
+func CheckpointStartIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldCheckpointStart, vs...))
+}
+
+// CheckpointStartNotIn applies the NotIn predicate on the "checkpoint_start" field.
+func CheckpointStartNotIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldCheckpointStart, vs...))
+}
+
+// CheckpointStartGT applies the GT predicate on the "checkpoint_start" field.
+func CheckpointStartGT(v string) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldCheckpointStart, v))
+}
+
+// CheckpointStartGTE applies the GTE predicate on the "checkpoint_start" field.
+func CheckpointStartGTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldCheckpointStart, v))
+}
+
+// CheckpointStartLT applies the LT predicate on the "checkpoint_start" field.
+func CheckpointStartLT(v string) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldCheckpointStart, v))
+}
+
+// CheckpointStartLTE applies the LTE predicate on the "checkpoint_start" field.
+func CheckpointStartLTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldCheckpointStart, v))
+}
+
+// CheckpointStartContains applies the Contains predicate on the "checkpoint_start" field.
+func CheckpointStartContains(v string) predicate.Task {
+	return predicate.Task(sql.FieldContains(FieldCheckpointStart, v))
+}
+
+// CheckpointStartHasPrefix applies the HasPrefix predicate on the "checkpoint_start" field.
+func CheckpointStartHasPrefix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasPrefix(FieldCheckpointStart, v))
+}
+
+// CheckpointStartHasSuffix applies the HasSuffix predicate on the "checkpoint_start" field.
+func CheckpointStartHasSuffix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasSuffix(FieldCheckpointStart, v))
+}
+
+// CheckpointStartIsNil applies the IsNil predicate on the "checkpoint_start" field.
+func CheckpointStartIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldCheckpointStart))
+}
+
+// CheckpointStartNotNil applies the NotNil predicate on the "checkpoint_start" field.
+func CheckpointStartNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldCheckpointStart))
+}
+
+// CheckpointStartEqualFold applies the EqualFold predicate on the "checkpoint_start" field.
+func CheckpointStartEqualFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldEqualFold(FieldCheckpointStart, v))
+}
+
+// CheckpointStartContainsFold applies the ContainsFold predicate on the "checkpoint_start" field.
+func CheckpointStartContainsFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldContainsFold(FieldCheckpointStart, v))
+}
+
+// CheckpointEndEQ applies the EQ predicate on the "checkpoint_end" field.
+func CheckpointEndEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCheckpointEnd, v))
+}
+
+// CheckpointEndNEQ applies the NEQ predicate on the "checkpoint_end" field.
+func CheckpointEndNEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldCheckpointEnd, v))
+}
+
+// CheckpointEndIn applies the In predicate on the "checkpoint_end" field.
+func CheckpointEndIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldCheckpointEnd, vs...))
+}
+
+// CheckpointEndNotIn applies the NotIn predicate on the "checkpoint_end" field.
+func CheckpointEndNotIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldCheckpointEnd, vs...))
+}
+
+// CheckpointEndGT applies the GT predicate on the "checkpoint_end" field.
+func CheckpointEndGT(v string) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldCheckpointEnd, v))
+}
+
+// CheckpointEndGTE applies the GTE predicate on the "checkpoint_end" field.
+func CheckpointEndGTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldCheckpointEnd, v))
+}
+
+// CheckpointEndLT applies the LT predicate on the "checkpoint_end" field.
+func CheckpointEndLT(v string) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldCheckpointEnd, v))
+}
+
+// CheckpointEndLTE applies the LTE predicate on the "checkpoint_end" field.
+func CheckpointEndLTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldCheckpointEnd, v))
+}
+
+// CheckpointEndContains applies the Contains predicate on the "checkpoint_end" field.
+func CheckpointEndContains(v string) predicate.Task {
+	return predicate.Task(sql.FieldContains(FieldCheckpointEnd, v))
+}
+
+// CheckpointEndHasPrefix applies the HasPrefix predicate on the "checkpoint_end" field.
+func CheckpointEndHasPrefix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasPrefix(FieldCheckpointEnd, v))
+}
+
+// CheckpointEndHasSuffix applies the HasSuffix predicate on the "checkpoint_end" field.
+func CheckpointEndHasSuffix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasSuffix(FieldCheckpointEnd, v))
+}
+
+// CheckpointEndIsNil applies the IsNil predicate on the "checkpoint_end" field.
+func CheckpointEndIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldCheckpointEnd))
+}
+
+// CheckpointEndNotNil applies the NotNil predicate on the "checkpoint_end" field.
+func CheckpointEndNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldCheckpointEnd))
+}
+
+// CheckpointEndEqualFold applies the EqualFold predicate on the "checkpoint_end" field.
+func CheckpointEndEqualFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldEqualFold(FieldCheckpointEnd, v))
+}
+
+// CheckpointEndContainsFold applies the ContainsFold predicate on the "checkpoint_end" field.
+func CheckpointEndContainsFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldContainsFold(FieldCheckpointEnd, v))
+}
+
+// CheckpointErrorEQ applies the EQ predicate on the "checkpoint_error" field.
+func CheckpointErrorEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldCheckpointError, v))
+}
+
+// CheckpointErrorNEQ applies the NEQ predicate on the "checkpoint_error" field.
+func CheckpointErrorNEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldCheckpointError, v))
+}
+
+// CheckpointErrorIn applies the In predicate on the "checkpoint_error" field.
+func CheckpointErrorIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldCheckpointError, vs...))
+}
+
+// CheckpointErrorNotIn applies the NotIn predicate on the "checkpoint_error" field.
+func CheckpointErrorNotIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldCheckpointError, vs...))
+}
+
+// CheckpointErrorGT applies the GT predicate on the "checkpoint_error" field.
+func CheckpointErrorGT(v string) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldCheckpointError, v))
+}
+
+// CheckpointErrorGTE applies the GTE predicate on the "checkpoint_error" field.
+func CheckpointErrorGTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldCheckpointError, v))
+}
+
+// CheckpointErrorLT applies the LT predicate on the "checkpoint_error" field.
+func CheckpointErrorLT(v string) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldCheckpointError, v))
+}
+
+// CheckpointErrorLTE applies the LTE predicate on the "checkpoint_error" field.
+func CheckpointErrorLTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldCheckpointError, v))
+}
+
+// CheckpointErrorContains applies the Contains predicate on the "checkpoint_error" field.
+func CheckpointErrorContains(v string) predicate.Task {
+	return predicate.Task(sql.FieldContains(FieldCheckpointError, v))
+}
+
+// CheckpointErrorHasPrefix applies the HasPrefix predicate on the "checkpoint_error" field.
+func CheckpointErrorHasPrefix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasPrefix(FieldCheckpointError, v))
+}
+
+// CheckpointErrorHasSuffix applies the HasSuffix predicate on the "checkpoint_error" field.
+func CheckpointErrorHasSuffix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasSuffix(FieldCheckpointError, v))
+}
+
+// CheckpointErrorIsNil applies the IsNil predicate on the "checkpoint_error" field.
+func CheckpointErrorIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldCheckpointError))
+}
+
+// CheckpointErrorNotNil applies the NotNil predicate on the "checkpoint_error" field.
+func CheckpointErrorNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldCheckpointError))
+}
+
+// CheckpointErrorEqualFold applies the EqualFold predicate on the "checkpoint_error" field.
+func CheckpointErrorEqualFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldEqualFold(FieldCheckpointError, v))
+}
+
+// CheckpointErrorContainsFold applies the ContainsFold predicate on the "checkpoint_error" field.
+func CheckpointErrorContainsFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldContainsFold(FieldCheckpointError, v))
+}
+
+// RevertedAtEQ applies the EQ predicate on the "reverted_at" field.
+func RevertedAtEQ(v time.Time) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldRevertedAt, v))
+}
+
+// RevertedAtNEQ applies the NEQ predicate on the "reverted_at" field.
+func RevertedAtNEQ(v time.Time) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldRevertedAt, v))
+}
+
+// RevertedAtIn applies the In predicate on the "reverted_at" field.
+func RevertedAtIn(vs ...time.Time) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldRevertedAt, vs...))
+}
+
+// RevertedAtNotIn applies the NotIn predicate on the "reverted_at" field.
+func RevertedAtNotIn(vs ...time.Time) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldRevertedAt, vs...))
+}
+
+// RevertedAtGT applies the GT predicate on the "reverted_at" field.
+func RevertedAtGT(v time.Time) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldRevertedAt, v))
+}
+
+// RevertedAtGTE applies the GTE predicate on the "reverted_at" field.
+func RevertedAtGTE(v time.Time) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldRevertedAt, v))
+}
+
+// RevertedAtLT applies the LT predicate on the "reverted_at" field.
+func RevertedAtLT(v time.Time) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldRevertedAt, v))
+}
+
+// RevertedAtLTE applies the LTE predicate on the "reverted_at" field.
+func RevertedAtLTE(v time.Time) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldRevertedAt, v))
+}
+
+// RevertedAtIsNil applies the IsNil predicate on the "reverted_at" field.
+func RevertedAtIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldRevertedAt))
+}
+
+// RevertedAtNotNil applies the NotNil predicate on the "reverted_at" field.
+func RevertedAtNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldRevertedAt))
+}
+
+// RevertPreEQ applies the EQ predicate on the "revert_pre" field.
+func RevertPreEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldRevertPre, v))
+}
+
+// RevertPreNEQ applies the NEQ predicate on the "revert_pre" field.
+func RevertPreNEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldRevertPre, v))
+}
+
+// RevertPreIn applies the In predicate on the "revert_pre" field.
+func RevertPreIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldRevertPre, vs...))
+}
+
+// RevertPreNotIn applies the NotIn predicate on the "revert_pre" field.
+func RevertPreNotIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldRevertPre, vs...))
+}
+
+// RevertPreGT applies the GT predicate on the "revert_pre" field.
+func RevertPreGT(v string) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldRevertPre, v))
+}
+
+// RevertPreGTE applies the GTE predicate on the "revert_pre" field.
+func RevertPreGTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldRevertPre, v))
+}
+
+// RevertPreLT applies the LT predicate on the "revert_pre" field.
+func RevertPreLT(v string) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldRevertPre, v))
+}
+
+// RevertPreLTE applies the LTE predicate on the "revert_pre" field.
+func RevertPreLTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldRevertPre, v))
+}
+
+// RevertPreContains applies the Contains predicate on the "revert_pre" field.
+func RevertPreContains(v string) predicate.Task {
+	return predicate.Task(sql.FieldContains(FieldRevertPre, v))
+}
+
+// RevertPreHasPrefix applies the HasPrefix predicate on the "revert_pre" field.
+func RevertPreHasPrefix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasPrefix(FieldRevertPre, v))
+}
+
+// RevertPreHasSuffix applies the HasSuffix predicate on the "revert_pre" field.
+func RevertPreHasSuffix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasSuffix(FieldRevertPre, v))
+}
+
+// RevertPreIsNil applies the IsNil predicate on the "revert_pre" field.
+func RevertPreIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldRevertPre))
+}
+
+// RevertPreNotNil applies the NotNil predicate on the "revert_pre" field.
+func RevertPreNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldRevertPre))
+}
+
+// RevertPreEqualFold applies the EqualFold predicate on the "revert_pre" field.
+func RevertPreEqualFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldEqualFold(FieldRevertPre, v))
+}
+
+// RevertPreContainsFold applies the ContainsFold predicate on the "revert_pre" field.
+func RevertPreContainsFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldContainsFold(FieldRevertPre, v))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.

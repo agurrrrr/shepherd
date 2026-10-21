@@ -228,7 +228,7 @@ func init() {
 	// task.DefaultHandoffDepth holds the default value on creation for the handoff_depth field.
 	task.DefaultHandoffDepth = taskDescHandoffDepth.Default.(int)
 	// taskDescCreatedAt is the schema descriptor for created_at field.
-	taskDescCreatedAt := taskFields[15].Descriptor()
+	taskDescCreatedAt := taskFields[21].Descriptor()
 	// task.DefaultCreatedAt holds the default value on creation for the created_at field.
 	task.DefaultCreatedAt = taskDescCreatedAt.Default.(func() time.Time)
 	wikipageFields := schema.WikiPage{}.Fields()

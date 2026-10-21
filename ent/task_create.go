@@ -209,6 +209,90 @@ func (_c *TaskCreate) SetNillableCompletedAt(v *time.Time) *TaskCreate {
 	return _c
 }
 
+// SetCheckpointDir sets the "checkpoint_dir" field.
+func (_c *TaskCreate) SetCheckpointDir(v string) *TaskCreate {
+	_c.mutation.SetCheckpointDir(v)
+	return _c
+}
+
+// SetNillableCheckpointDir sets the "checkpoint_dir" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableCheckpointDir(v *string) *TaskCreate {
+	if v != nil {
+		_c.SetCheckpointDir(*v)
+	}
+	return _c
+}
+
+// SetCheckpointStart sets the "checkpoint_start" field.
+func (_c *TaskCreate) SetCheckpointStart(v string) *TaskCreate {
+	_c.mutation.SetCheckpointStart(v)
+	return _c
+}
+
+// SetNillableCheckpointStart sets the "checkpoint_start" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableCheckpointStart(v *string) *TaskCreate {
+	if v != nil {
+		_c.SetCheckpointStart(*v)
+	}
+	return _c
+}
+
+// SetCheckpointEnd sets the "checkpoint_end" field.
+func (_c *TaskCreate) SetCheckpointEnd(v string) *TaskCreate {
+	_c.mutation.SetCheckpointEnd(v)
+	return _c
+}
+
+// SetNillableCheckpointEnd sets the "checkpoint_end" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableCheckpointEnd(v *string) *TaskCreate {
+	if v != nil {
+		_c.SetCheckpointEnd(*v)
+	}
+	return _c
+}
+
+// SetCheckpointError sets the "checkpoint_error" field.
+func (_c *TaskCreate) SetCheckpointError(v string) *TaskCreate {
+	_c.mutation.SetCheckpointError(v)
+	return _c
+}
+
+// SetNillableCheckpointError sets the "checkpoint_error" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableCheckpointError(v *string) *TaskCreate {
+	if v != nil {
+		_c.SetCheckpointError(*v)
+	}
+	return _c
+}
+
+// SetRevertedAt sets the "reverted_at" field.
+func (_c *TaskCreate) SetRevertedAt(v time.Time) *TaskCreate {
+	_c.mutation.SetRevertedAt(v)
+	return _c
+}
+
+// SetNillableRevertedAt sets the "reverted_at" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableRevertedAt(v *time.Time) *TaskCreate {
+	if v != nil {
+		_c.SetRevertedAt(*v)
+	}
+	return _c
+}
+
+// SetRevertPre sets the "revert_pre" field.
+func (_c *TaskCreate) SetRevertPre(v string) *TaskCreate {
+	_c.mutation.SetRevertPre(v)
+	return _c
+}
+
+// SetNillableRevertPre sets the "revert_pre" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableRevertPre(v *string) *TaskCreate {
+	if v != nil {
+		_c.SetRevertPre(*v)
+	}
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *TaskCreate) SetCreatedAt(v time.Time) *TaskCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -455,6 +539,30 @@ func (_c *TaskCreate) createSpec() (*Task, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.CompletedAt(); ok {
 		_spec.SetField(task.FieldCompletedAt, field.TypeTime, value)
 		_node.CompletedAt = value
+	}
+	if value, ok := _c.mutation.CheckpointDir(); ok {
+		_spec.SetField(task.FieldCheckpointDir, field.TypeString, value)
+		_node.CheckpointDir = value
+	}
+	if value, ok := _c.mutation.CheckpointStart(); ok {
+		_spec.SetField(task.FieldCheckpointStart, field.TypeString, value)
+		_node.CheckpointStart = value
+	}
+	if value, ok := _c.mutation.CheckpointEnd(); ok {
+		_spec.SetField(task.FieldCheckpointEnd, field.TypeString, value)
+		_node.CheckpointEnd = value
+	}
+	if value, ok := _c.mutation.CheckpointError(); ok {
+		_spec.SetField(task.FieldCheckpointError, field.TypeString, value)
+		_node.CheckpointError = value
+	}
+	if value, ok := _c.mutation.RevertedAt(); ok {
+		_spec.SetField(task.FieldRevertedAt, field.TypeTime, value)
+		_node.RevertedAt = value
+	}
+	if value, ok := _c.mutation.RevertPre(); ok {
+		_spec.SetField(task.FieldRevertPre, field.TypeString, value)
+		_node.RevertPre = value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(task.FieldCreatedAt, field.TypeTime, value)

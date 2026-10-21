@@ -411,6 +411,72 @@ func StopTaskWithOutput(id int, reason string, output []string) error {
 	return nil
 }
 
+// SetTaskCheckpointStart records the start checkpoint of a task. dir is the
+// absolute directory the snapshot was taken in, sha is the snapshot commit
+// (empty when the snapshot was skipped), and errMsg explains a skip/failure.
+func SetTaskCheckpointStart(id int, dir, sha, errMsg string) error {
+	ctx := context.Background()
+	client := db.Client()
+
+	update := client.Task.Update().
+		Where(task.ID(id)).
+		SetCheckpointDir(dir).
+		SetCheckpointError(errMsg)
+	if sha != "" {
+		update = update.SetCheckpointStart(sha)
+	}
+
+	count, err := update.Save(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to save task checkpoint start: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("task #%d not found", id)
+	}
+	return nil
+}
+
+// SetTaskCheckpointEnd records the end checkpoint of a task. A non-empty errMsg
+// is appended to any existing checkpoint error so start and end failures are
+// both preserved.
+func SetTaskCheckpointEnd(id int, sha, errMsg string) error {
+	ctx := context.Background()
+	client := db.Client()
+
+	t, err := client.Task.Get(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to load task for checkpoint end: %w", err)
+	}
+
+	update := client.Task.Update().Where(task.ID(id))
+	if sha != "" {
+		update = update.SetCheckpointEnd(sha)
+	}
+	if errMsg != "" {
+		update = update.SetCheckpointError(appendCheckpointError(t.CheckpointError, errMsg))
+	}
+
+	count, err := update.Save(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to save task checkpoint end: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("task #%d not found", id)
+	}
+	return nil
+}
+
+// appendCheckpointError joins checkpoint messages without dropping earlier ones.
+func appendCheckpointError(existing, message string) string {
+	if existing == "" {
+		return message
+	}
+	if message == "" {
+		return existing
+	}
+	return existing + "; " + message
+}
+
 func issueHasCompletedAt(i *ent.Issue) bool {
 	return i != nil && i.CompletedAt != nil && !i.CompletedAt.IsZero()
 }
@@ -587,11 +653,18 @@ func RecoverStuckTasks() (int, error) {
 		if t.OwnerPid != 0 && t.OwnerPid != selfPID && daemon.IsPIDAlive(t.OwnerPid) {
 			continue
 		}
-		_, err := client.Task.UpdateOneID(t.ID).
+		update := client.Task.UpdateOneID(t.ID).
 			SetStatus(task.StatusFailed).
 			SetError("interrupted due to abnormal termination").
-			SetCompletedAt(now).
-			Save(ctx)
+			SetCompletedAt(now)
+		// A start snapshot without an end snapshot means the daemon died before
+		// finishCheckpoint could run. Record why so the diff UI does not show a
+		// silently incomplete checkpoint.
+		if t.CheckpointStart != "" && t.CheckpointEnd == "" {
+			update = update.SetCheckpointError(
+				appendCheckpointError(t.CheckpointError, "no end snapshot (daemon restarted)"))
+		}
+		_, err := update.Save(ctx)
 		if err != nil {
 			return runningCount, fmt.Errorf("failed to recover task #%d: %w", t.ID, err)
 		}

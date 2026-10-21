@@ -223,6 +223,12 @@ var (
 		{Name: "handoff_depth", Type: field.TypeInt, Nullable: true, Default: 0},
 		{Name: "started_at", Type: field.TypeTime, Nullable: true},
 		{Name: "completed_at", Type: field.TypeTime, Nullable: true},
+		{Name: "checkpoint_dir", Type: field.TypeString, Nullable: true},
+		{Name: "checkpoint_start", Type: field.TypeString, Nullable: true},
+		{Name: "checkpoint_end", Type: field.TypeString, Nullable: true},
+		{Name: "checkpoint_error", Type: field.TypeString, Nullable: true, Size: 2147483647},
+		{Name: "reverted_at", Type: field.TypeTime, Nullable: true},
+		{Name: "revert_pre", Type: field.TypeString, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "issue_tasks", Type: field.TypeInt, Nullable: true},
 		{Name: "project_tasks", Type: field.TypeInt, Nullable: true},
@@ -236,19 +242,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "tasks_issues_tasks",
-				Columns:    []*schema.Column{TasksColumns[17]},
+				Columns:    []*schema.Column{TasksColumns[23]},
 				RefColumns: []*schema.Column{IssuesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "tasks_projects_tasks",
-				Columns:    []*schema.Column{TasksColumns[18]},
+				Columns:    []*schema.Column{TasksColumns[24]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "tasks_sheep_tasks",
-				Columns:    []*schema.Column{TasksColumns[19]},
+				Columns:    []*schema.Column{TasksColumns[25]},
 				RefColumns: []*schema.Column{SheepColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -262,12 +268,12 @@ var (
 			{
 				Name:    "task_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{TasksColumns[16]},
+				Columns: []*schema.Column{TasksColumns[22]},
 			},
 			{
 				Name:    "task_status_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{TasksColumns[4], TasksColumns[16]},
+				Columns: []*schema.Column{TasksColumns[4], TasksColumns[22]},
 			},
 		},
 	}

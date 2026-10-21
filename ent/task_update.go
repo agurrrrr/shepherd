@@ -358,6 +358,126 @@ func (_u *TaskUpdate) ClearCompletedAt() *TaskUpdate {
 	return _u
 }
 
+// SetCheckpointDir sets the "checkpoint_dir" field.
+func (_u *TaskUpdate) SetCheckpointDir(v string) *TaskUpdate {
+	_u.mutation.SetCheckpointDir(v)
+	return _u
+}
+
+// SetNillableCheckpointDir sets the "checkpoint_dir" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableCheckpointDir(v *string) *TaskUpdate {
+	if v != nil {
+		_u.SetCheckpointDir(*v)
+	}
+	return _u
+}
+
+// ClearCheckpointDir clears the value of the "checkpoint_dir" field.
+func (_u *TaskUpdate) ClearCheckpointDir() *TaskUpdate {
+	_u.mutation.ClearCheckpointDir()
+	return _u
+}
+
+// SetCheckpointStart sets the "checkpoint_start" field.
+func (_u *TaskUpdate) SetCheckpointStart(v string) *TaskUpdate {
+	_u.mutation.SetCheckpointStart(v)
+	return _u
+}
+
+// SetNillableCheckpointStart sets the "checkpoint_start" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableCheckpointStart(v *string) *TaskUpdate {
+	if v != nil {
+		_u.SetCheckpointStart(*v)
+	}
+	return _u
+}
+
+// ClearCheckpointStart clears the value of the "checkpoint_start" field.
+func (_u *TaskUpdate) ClearCheckpointStart() *TaskUpdate {
+	_u.mutation.ClearCheckpointStart()
+	return _u
+}
+
+// SetCheckpointEnd sets the "checkpoint_end" field.
+func (_u *TaskUpdate) SetCheckpointEnd(v string) *TaskUpdate {
+	_u.mutation.SetCheckpointEnd(v)
+	return _u
+}
+
+// SetNillableCheckpointEnd sets the "checkpoint_end" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableCheckpointEnd(v *string) *TaskUpdate {
+	if v != nil {
+		_u.SetCheckpointEnd(*v)
+	}
+	return _u
+}
+
+// ClearCheckpointEnd clears the value of the "checkpoint_end" field.
+func (_u *TaskUpdate) ClearCheckpointEnd() *TaskUpdate {
+	_u.mutation.ClearCheckpointEnd()
+	return _u
+}
+
+// SetCheckpointError sets the "checkpoint_error" field.
+func (_u *TaskUpdate) SetCheckpointError(v string) *TaskUpdate {
+	_u.mutation.SetCheckpointError(v)
+	return _u
+}
+
+// SetNillableCheckpointError sets the "checkpoint_error" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableCheckpointError(v *string) *TaskUpdate {
+	if v != nil {
+		_u.SetCheckpointError(*v)
+	}
+	return _u
+}
+
+// ClearCheckpointError clears the value of the "checkpoint_error" field.
+func (_u *TaskUpdate) ClearCheckpointError() *TaskUpdate {
+	_u.mutation.ClearCheckpointError()
+	return _u
+}
+
+// SetRevertedAt sets the "reverted_at" field.
+func (_u *TaskUpdate) SetRevertedAt(v time.Time) *TaskUpdate {
+	_u.mutation.SetRevertedAt(v)
+	return _u
+}
+
+// SetNillableRevertedAt sets the "reverted_at" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableRevertedAt(v *time.Time) *TaskUpdate {
+	if v != nil {
+		_u.SetRevertedAt(*v)
+	}
+	return _u
+}
+
+// ClearRevertedAt clears the value of the "reverted_at" field.
+func (_u *TaskUpdate) ClearRevertedAt() *TaskUpdate {
+	_u.mutation.ClearRevertedAt()
+	return _u
+}
+
+// SetRevertPre sets the "revert_pre" field.
+func (_u *TaskUpdate) SetRevertPre(v string) *TaskUpdate {
+	_u.mutation.SetRevertPre(v)
+	return _u
+}
+
+// SetNillableRevertPre sets the "revert_pre" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableRevertPre(v *string) *TaskUpdate {
+	if v != nil {
+		_u.SetRevertPre(*v)
+	}
+	return _u
+}
+
+// ClearRevertPre clears the value of the "revert_pre" field.
+func (_u *TaskUpdate) ClearRevertPre() *TaskUpdate {
+	_u.mutation.ClearRevertPre()
+	return _u
+}
+
 // SetSheepID sets the "sheep" edge to the Sheep entity by ID.
 func (_u *TaskUpdate) SetSheepID(id int) *TaskUpdate {
 	_u.mutation.SetSheepID(id)
@@ -603,6 +723,42 @@ func (_u *TaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.CompletedAtCleared() {
 		_spec.ClearField(task.FieldCompletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.CheckpointDir(); ok {
+		_spec.SetField(task.FieldCheckpointDir, field.TypeString, value)
+	}
+	if _u.mutation.CheckpointDirCleared() {
+		_spec.ClearField(task.FieldCheckpointDir, field.TypeString)
+	}
+	if value, ok := _u.mutation.CheckpointStart(); ok {
+		_spec.SetField(task.FieldCheckpointStart, field.TypeString, value)
+	}
+	if _u.mutation.CheckpointStartCleared() {
+		_spec.ClearField(task.FieldCheckpointStart, field.TypeString)
+	}
+	if value, ok := _u.mutation.CheckpointEnd(); ok {
+		_spec.SetField(task.FieldCheckpointEnd, field.TypeString, value)
+	}
+	if _u.mutation.CheckpointEndCleared() {
+		_spec.ClearField(task.FieldCheckpointEnd, field.TypeString)
+	}
+	if value, ok := _u.mutation.CheckpointError(); ok {
+		_spec.SetField(task.FieldCheckpointError, field.TypeString, value)
+	}
+	if _u.mutation.CheckpointErrorCleared() {
+		_spec.ClearField(task.FieldCheckpointError, field.TypeString)
+	}
+	if value, ok := _u.mutation.RevertedAt(); ok {
+		_spec.SetField(task.FieldRevertedAt, field.TypeTime, value)
+	}
+	if _u.mutation.RevertedAtCleared() {
+		_spec.ClearField(task.FieldRevertedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.RevertPre(); ok {
+		_spec.SetField(task.FieldRevertPre, field.TypeString, value)
+	}
+	if _u.mutation.RevertPreCleared() {
+		_spec.ClearField(task.FieldRevertPre, field.TypeString)
 	}
 	if _u.mutation.SheepCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1037,6 +1193,126 @@ func (_u *TaskUpdateOne) ClearCompletedAt() *TaskUpdateOne {
 	return _u
 }
 
+// SetCheckpointDir sets the "checkpoint_dir" field.
+func (_u *TaskUpdateOne) SetCheckpointDir(v string) *TaskUpdateOne {
+	_u.mutation.SetCheckpointDir(v)
+	return _u
+}
+
+// SetNillableCheckpointDir sets the "checkpoint_dir" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableCheckpointDir(v *string) *TaskUpdateOne {
+	if v != nil {
+		_u.SetCheckpointDir(*v)
+	}
+	return _u
+}
+
+// ClearCheckpointDir clears the value of the "checkpoint_dir" field.
+func (_u *TaskUpdateOne) ClearCheckpointDir() *TaskUpdateOne {
+	_u.mutation.ClearCheckpointDir()
+	return _u
+}
+
+// SetCheckpointStart sets the "checkpoint_start" field.
+func (_u *TaskUpdateOne) SetCheckpointStart(v string) *TaskUpdateOne {
+	_u.mutation.SetCheckpointStart(v)
+	return _u
+}
+
+// SetNillableCheckpointStart sets the "checkpoint_start" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableCheckpointStart(v *string) *TaskUpdateOne {
+	if v != nil {
+		_u.SetCheckpointStart(*v)
+	}
+	return _u
+}
+
+// ClearCheckpointStart clears the value of the "checkpoint_start" field.
+func (_u *TaskUpdateOne) ClearCheckpointStart() *TaskUpdateOne {
+	_u.mutation.ClearCheckpointStart()
+	return _u
+}
+
+// SetCheckpointEnd sets the "checkpoint_end" field.
+func (_u *TaskUpdateOne) SetCheckpointEnd(v string) *TaskUpdateOne {
+	_u.mutation.SetCheckpointEnd(v)
+	return _u
+}
+
+// SetNillableCheckpointEnd sets the "checkpoint_end" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableCheckpointEnd(v *string) *TaskUpdateOne {
+	if v != nil {
+		_u.SetCheckpointEnd(*v)
+	}
+	return _u
+}
+
+// ClearCheckpointEnd clears the value of the "checkpoint_end" field.
+func (_u *TaskUpdateOne) ClearCheckpointEnd() *TaskUpdateOne {
+	_u.mutation.ClearCheckpointEnd()
+	return _u
+}
+
+// SetCheckpointError sets the "checkpoint_error" field.
+func (_u *TaskUpdateOne) SetCheckpointError(v string) *TaskUpdateOne {
+	_u.mutation.SetCheckpointError(v)
+	return _u
+}
+
+// SetNillableCheckpointError sets the "checkpoint_error" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableCheckpointError(v *string) *TaskUpdateOne {
+	if v != nil {
+		_u.SetCheckpointError(*v)
+	}
+	return _u
+}
+
+// ClearCheckpointError clears the value of the "checkpoint_error" field.
+func (_u *TaskUpdateOne) ClearCheckpointError() *TaskUpdateOne {
+	_u.mutation.ClearCheckpointError()
+	return _u
+}
+
+// SetRevertedAt sets the "reverted_at" field.
+func (_u *TaskUpdateOne) SetRevertedAt(v time.Time) *TaskUpdateOne {
+	_u.mutation.SetRevertedAt(v)
+	return _u
+}
+
+// SetNillableRevertedAt sets the "reverted_at" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableRevertedAt(v *time.Time) *TaskUpdateOne {
+	if v != nil {
+		_u.SetRevertedAt(*v)
+	}
+	return _u
+}
+
+// ClearRevertedAt clears the value of the "reverted_at" field.
+func (_u *TaskUpdateOne) ClearRevertedAt() *TaskUpdateOne {
+	_u.mutation.ClearRevertedAt()
+	return _u
+}
+
+// SetRevertPre sets the "revert_pre" field.
+func (_u *TaskUpdateOne) SetRevertPre(v string) *TaskUpdateOne {
+	_u.mutation.SetRevertPre(v)
+	return _u
+}
+
+// SetNillableRevertPre sets the "revert_pre" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableRevertPre(v *string) *TaskUpdateOne {
+	if v != nil {
+		_u.SetRevertPre(*v)
+	}
+	return _u
+}
+
+// ClearRevertPre clears the value of the "revert_pre" field.
+func (_u *TaskUpdateOne) ClearRevertPre() *TaskUpdateOne {
+	_u.mutation.ClearRevertPre()
+	return _u
+}
+
 // SetSheepID sets the "sheep" edge to the Sheep entity by ID.
 func (_u *TaskUpdateOne) SetSheepID(id int) *TaskUpdateOne {
 	_u.mutation.SetSheepID(id)
@@ -1312,6 +1588,42 @@ func (_u *TaskUpdateOne) sqlSave(ctx context.Context) (_node *Task, err error) {
 	}
 	if _u.mutation.CompletedAtCleared() {
 		_spec.ClearField(task.FieldCompletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.CheckpointDir(); ok {
+		_spec.SetField(task.FieldCheckpointDir, field.TypeString, value)
+	}
+	if _u.mutation.CheckpointDirCleared() {
+		_spec.ClearField(task.FieldCheckpointDir, field.TypeString)
+	}
+	if value, ok := _u.mutation.CheckpointStart(); ok {
+		_spec.SetField(task.FieldCheckpointStart, field.TypeString, value)
+	}
+	if _u.mutation.CheckpointStartCleared() {
+		_spec.ClearField(task.FieldCheckpointStart, field.TypeString)
+	}
+	if value, ok := _u.mutation.CheckpointEnd(); ok {
+		_spec.SetField(task.FieldCheckpointEnd, field.TypeString, value)
+	}
+	if _u.mutation.CheckpointEndCleared() {
+		_spec.ClearField(task.FieldCheckpointEnd, field.TypeString)
+	}
+	if value, ok := _u.mutation.CheckpointError(); ok {
+		_spec.SetField(task.FieldCheckpointError, field.TypeString, value)
+	}
+	if _u.mutation.CheckpointErrorCleared() {
+		_spec.ClearField(task.FieldCheckpointError, field.TypeString)
+	}
+	if value, ok := _u.mutation.RevertedAt(); ok {
+		_spec.SetField(task.FieldRevertedAt, field.TypeTime, value)
+	}
+	if _u.mutation.RevertedAtCleared() {
+		_spec.ClearField(task.FieldRevertedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.RevertPre(); ok {
+		_spec.SetField(task.FieldRevertPre, field.TypeString, value)
+	}
+	if _u.mutation.RevertPreCleared() {
+		_spec.ClearField(task.FieldRevertPre, field.TypeString)
 	}
 	if _u.mutation.SheepCleared() {
 		edge := &sqlgraph.EdgeSpec{

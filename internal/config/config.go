@@ -154,6 +154,9 @@ func Init() error {
 	viper.SetDefault("webpush_vapid_private", "")
 	viper.SetDefault("webpush_vapid_subject", "")
 
+	// 작업 체크포인트 — 작업 시작/종료 시 작업 트리를 숨은 git ref로 스냅샷
+	viper.SetDefault("task_checkpoint_enabled", true)
+
 	// 위키 자동 ingest — 작업 완료 후 위키 페이지 자동 업데이트
 	viper.SetDefault("wiki_enabled", true)
 	viper.SetDefault("wiki_auto_ingest", true)

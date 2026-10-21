@@ -45,6 +45,18 @@ const (
 	FieldStartedAt = "started_at"
 	// FieldCompletedAt holds the string denoting the completed_at field in the database.
 	FieldCompletedAt = "completed_at"
+	// FieldCheckpointDir holds the string denoting the checkpoint_dir field in the database.
+	FieldCheckpointDir = "checkpoint_dir"
+	// FieldCheckpointStart holds the string denoting the checkpoint_start field in the database.
+	FieldCheckpointStart = "checkpoint_start"
+	// FieldCheckpointEnd holds the string denoting the checkpoint_end field in the database.
+	FieldCheckpointEnd = "checkpoint_end"
+	// FieldCheckpointError holds the string denoting the checkpoint_error field in the database.
+	FieldCheckpointError = "checkpoint_error"
+	// FieldRevertedAt holds the string denoting the reverted_at field in the database.
+	FieldRevertedAt = "reverted_at"
+	// FieldRevertPre holds the string denoting the revert_pre field in the database.
+	FieldRevertPre = "revert_pre"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// EdgeSheep holds the string denoting the sheep edge name in mutations.
@@ -96,6 +108,12 @@ var Columns = []string{
 	FieldHandoffDepth,
 	FieldStartedAt,
 	FieldCompletedAt,
+	FieldCheckpointDir,
+	FieldCheckpointStart,
+	FieldCheckpointEnd,
+	FieldCheckpointError,
+	FieldRevertedAt,
+	FieldRevertPre,
 	FieldCreatedAt,
 }
 
@@ -241,6 +259,36 @@ func ByStartedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByCompletedAt orders the results by the completed_at field.
 func ByCompletedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCompletedAt, opts...).ToFunc()
+}
+
+// ByCheckpointDir orders the results by the checkpoint_dir field.
+func ByCheckpointDir(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCheckpointDir, opts...).ToFunc()
+}
+
+// ByCheckpointStart orders the results by the checkpoint_start field.
+func ByCheckpointStart(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCheckpointStart, opts...).ToFunc()
+}
+
+// ByCheckpointEnd orders the results by the checkpoint_end field.
+func ByCheckpointEnd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCheckpointEnd, opts...).ToFunc()
+}
+
+// ByCheckpointError orders the results by the checkpoint_error field.
+func ByCheckpointError(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCheckpointError, opts...).ToFunc()
+}
+
+// ByRevertedAt orders the results by the reverted_at field.
+func ByRevertedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRevertedAt, opts...).ToFunc()
+}
+
+// ByRevertPre orders the results by the revert_pre field.
+func ByRevertPre(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRevertPre, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

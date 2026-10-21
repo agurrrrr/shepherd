@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"runtime/debug"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/agurrrrr/shepherd/ent/sheep"
+	"github.com/agurrrrr/shepherd/internal/checkpoint"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/i18n"
@@ -31,6 +33,10 @@ const (
 	// trimmed to head + tail with a truncation marker, preserving both the
 	// beginning and the end of the task output.
 	maxOutputLinesBytes = 20 * 1024 * 1024 // 20 MB
+
+	// checkpointTimeout bounds a single start/end snapshot so a huge or wedged
+	// repository cannot stall the queue.
+	checkpointTimeout = 60 * time.Second
 )
 
 // capOutputLinesHeadTail trims an output lines slice to fit within
@@ -54,7 +60,7 @@ func capOutputLinesHeadTail(lines []string) ([]string, int) {
 
 	// Target: keep maxOutputLinesBytes worth of data.
 	// Split: head = 20%, tail = 80%.
-	headBudget := maxOutputLinesBytes / 5  // 4 MB
+	headBudget := maxOutputLinesBytes / 5          // 4 MB
 	tailBudget := maxOutputLinesBytes - headBudget // 16 MB
 
 	// Collect head lines (from the start).
@@ -380,8 +386,9 @@ func (p *Processor) checkAndExecutePendingTasks() {
 			continue
 		}
 
-		// Execute task (in goroutine)
-		go p.executeTask(s.Name, projectName, task.ID, task.Prompt)
+		// Execute task (in goroutine). The checkpoint uses the sheep's assigned
+		// project path because that is the directory ExecuteInteractive runs in.
+		go p.executeTask(s.Name, projectName, s.Edges.Project.Path, task.ID, task.Prompt)
 		dispatched++
 		dispatchedByGroup[gKey]++
 	}
@@ -394,12 +401,18 @@ func (p *Processor) checkAndExecutePendingTasks() {
 // A panic inside a task goroutine must never take down the whole daemon
 // (tasks #7812/#7845/#7854: unrecovered panics kill every sheep). Recover,
 // mark the task failed, restore the sheep to idle, and keep the process alive.
-func (p *Processor) executeTask(sheepName, projectName string, taskID int, prompt string) {
+func (p *Processor) executeTask(sheepName, projectName, projectPath string, taskID int, prompt string) {
 	// Drop ClaimDispatch placeholder if execute exits without registerRunningTask
 	// (early StartTask failure, or ExecuteInteractive error before process start).
 	// No-op once a real RunningTask (with Cancel/Cmd) replaced the placeholder
 	// and was unregistered normally.
 	defer worker.ReleaseDispatch(sheepName, taskID)
+
+	// finishCheckpoint is installed after the start snapshot succeeds. The panic
+	// recovery defer invokes it too, so a panicking task still records its end
+	// snapshot before the task row is marked failed.
+	var finishCheckpointOnce sync.Once
+	finishCheckpointFn := func() {}
 
 	// Isolate task panics from the daemon process. Go kills the entire process
 	// on an unrecovered panic in any goroutine; without this, a nil-pointer or
@@ -410,6 +423,7 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 			errMsg := fmt.Sprintf("task panic (recovered, daemon kept alive): %v", r)
 			log.Printf("[processor] %s sheep=%s task=#%d\n%s", errMsg, sheepName, taskID, stack)
 
+			finishCheckpointFn()
 			_ = worker.UpdateStatus(sheepName, sheep.StatusIdle)
 			if p.OnStatusChange != nil {
 				p.OnStatusChange(sheepName, "idle")
@@ -495,6 +509,22 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 		}
 	})
 
+	// Start checkpoint: snapshot the working tree before the agent runs. The
+	// snapshot is best effort — a failure is recorded on the task but never
+	// blocks execution.
+	checkpointStarted, checkpointErr := beginCheckpoint(context.Background(), taskID, projectPath, coalescer.Append)
+	if checkpointErr != nil {
+		log.Printf("[processor] task #%d checkpoint start: %v", taskID, checkpointErr)
+	}
+	finishCheckpointFn = func() {
+		finishCheckpointOnce.Do(func() {
+			if err := finishCheckpoint(context.Background(), taskID, projectPath, checkpointStarted, coalescer.Append); err != nil {
+				log.Printf("[processor] task #%d checkpoint end: %v", taskID, err)
+			}
+		})
+	}
+	defer finishCheckpointFn()
+
 	opts := worker.DefaultInteractiveOptions(
 		func(text string) {
 			coalescer.Append(text)
@@ -561,6 +591,11 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 	// Flush any remaining buffered content from the line coalescer so the
 	// final partial line is not lost (task #7209).
 	coalescer.Flush()
+
+	// Finish the checkpoint before the completion/failure/stop branches so
+	// every terminal path has an end snapshot. Completion callbacks can then
+	// query the diff immediately.
+	finishCheckpointFn()
 
 	// Handle error
 	if execErr != nil {
@@ -657,6 +692,97 @@ func (p *Processor) executeTask(sheepName, projectName string, taskID int, promp
 		emoji := worker.ProviderEmoji(provider)
 		p.OnTaskComplete(taskID, sheepName, projectName, result.Result+" "+emoji)
 	}
+}
+
+// beginCheckpoint deletes any stale refs for a reused task ID, takes the start
+// snapshot, and records it on the task row. It returns whether a start snapshot
+// exists so finishCheckpoint knows whether to take an end snapshot.
+func beginCheckpoint(ctx context.Context, taskID int, dir string, emit func(string)) (bool, error) {
+	if !config.GetBool("task_checkpoint_enabled") || dir == "" {
+		return false, nil
+	}
+
+	cpCtx, cancel := context.WithTimeout(ctx, checkpointTimeout)
+	defer cancel()
+
+	// Fresh databases can reuse task IDs, so remove old start/end refs before
+	// creating new ones. Skip the cleanup when dir is not a repository; Take
+	// below reports that case as a normal skip.
+	if _, _, probeErr := checkpoint.Probe(cpCtx, dir); probeErr == nil {
+		if err := checkpoint.DeleteTaskRefs(cpCtx, dir, taskID); err != nil {
+			log.Printf("[processor] task #%d checkpoint: delete stale refs: %v", taskID, err)
+		}
+	}
+
+	snap, err := checkpoint.Take(cpCtx, dir,
+		checkpoint.TaskRef(taskID, "start"),
+		fmt.Sprintf("shepherd checkpoint task #%d start", taskID))
+	if err != nil {
+		reason := checkpointErrorReason(cpCtx, err)
+		emitCheckpointLine(emit, "📸 checkpoint skipped: "+reason)
+		return false, SetTaskCheckpointStart(taskID, dir, "", reason)
+	}
+
+	if err := SetTaskCheckpointStart(taskID, dir, snap.Commit, ""); err != nil {
+		return false, err
+	}
+	emitCheckpointLine(emit, "📸 checkpoint start "+shortSHA(snap.Commit))
+	return true, nil
+}
+
+// finishCheckpoint takes the end snapshot and saves it. It is skipped when the
+// feature is disabled, no project path is known, or the start snapshot was not
+// taken.
+func finishCheckpoint(ctx context.Context, taskID int, dir string, started bool, emit func(string)) error {
+	if !config.GetBool("task_checkpoint_enabled") || !started || dir == "" {
+		return nil
+	}
+
+	cpCtx, cancel := context.WithTimeout(ctx, checkpointTimeout)
+	defer cancel()
+
+	snap, err := checkpoint.Take(cpCtx, dir,
+		checkpoint.TaskRef(taskID, "end"),
+		fmt.Sprintf("shepherd checkpoint task #%d end", taskID))
+	if err != nil {
+		reason := checkpointErrorReason(cpCtx, err)
+		emitCheckpointLine(emit, "📸 checkpoint skipped: "+reason)
+		return SetTaskCheckpointEnd(taskID, "", reason)
+	}
+
+	if err := SetTaskCheckpointEnd(taskID, snap.Commit, ""); err != nil {
+		return err
+	}
+	emitCheckpointLine(emit, "📸 checkpoint end "+shortSHA(snap.Commit))
+	return nil
+}
+
+// checkpointErrorReason maps checkpoint failures to the short reason stored in
+// checkpoint_error and shown in the task log.
+func checkpointErrorReason(ctx context.Context, err error) string {
+	switch {
+	case errors.Is(err, checkpoint.ErrNotGitRepo):
+		return "not a git repository"
+	case errors.Is(err, checkpoint.ErrTooLarge):
+		return err.Error()
+	case ctx.Err() == context.DeadlineExceeded, errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	default:
+		return err.Error()
+	}
+}
+
+func emitCheckpointLine(emit func(string), line string) {
+	if emit != nil {
+		emit(line + "\n")
+	}
+}
+
+func shortSHA(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
 }
 
 // calculateBackoff returns the delay for exponential backoff.
