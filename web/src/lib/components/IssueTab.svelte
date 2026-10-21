@@ -10,6 +10,7 @@
 	let page = 1;
 	let totalPages = 1;
 	const limit = 20;
+	let loadSeq = 0;
 
 	// Filters
 	let filterStatus = $state('');
@@ -57,6 +58,7 @@
 	};
 
 	async function loadIssues() {
+		const seq = ++loadSeq;
 		loading = true;
 		try {
 			let url = `/api/projects/${encodeURIComponent(projectName)}/issues?page=${page}&limit=${limit}`;
@@ -65,15 +67,18 @@
 			if (searchQ) url += `&q=${encodeURIComponent(searchQ)}`;
 
 			const res = await apiGet(url);
+			// Ignore stale responses so a slow earlier request cannot overwrite
+			// the results of the latest filter selection.
+			if (seq !== loadSeq) return;
 			if (res.success) {
 				issues = res.data || [];
 				total = res.total || 0;
 				totalPages = res.total_pages || 1;
 			}
 		} catch (e) {
-			console.error('Failed to load issues:', e);
+			if (seq === loadSeq) console.error('Failed to load issues:', e);
 		} finally {
-			loading = false;
+			if (seq === loadSeq) loading = false;
 		}
 	}
 
@@ -254,7 +259,7 @@
 			bind:value={searchQ}
 			oninput={applyFilters}
 		/>
-		<select bind:value={filterStatus} oninput={applyFilters}>
+		<select bind:value={filterStatus} onchange={applyFilters}>
 			<option value="">모든 상태</option>
 			<option value="todo">작업전</option>
 			<option value="in_progress">작업중</option>
@@ -262,7 +267,7 @@
 			<option value="failed">실패</option>
 			<option value="done">성공</option>
 		</select>
-		<select bind:value={filterType} oninput={applyFilters}>
+		<select bind:value={filterType} onchange={applyFilters}>
 			<option value="">모든 타입</option>
 			<option value="design">설계</option>
 			<option value="feature">기능</option>
