@@ -77,7 +77,7 @@ func InitializeDefaults() error {
 // GetAll returns all sheep names from the database.
 func GetAll() []string {
 	if client == nil {
-		return DefaultNames
+		return append([]string(nil), DefaultNames...)
 	}
 
 	ctx := context.Background()

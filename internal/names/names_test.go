@@ -36,7 +36,7 @@ func TestGetNext(t *testing.T) {
 		{"no used names", []string{}, "양동이"},
 		{"first used", []string{"양동이"}, "양말이"},
 		{"first two used", []string{"양동이", "양말이"}, "양철이"},
-		{"all used", DefaultNames, ""},
+		{"all used", DefaultNames, "양13"},
 	}
 
 	for _, tt := range tests {
