@@ -395,6 +395,55 @@ func CommitExists(ctx context.Context, dir, sha string) bool {
 	return err == nil && code == 0
 }
 
+// Parent returns the first parent of commit, or an empty string for a root
+// commit. It is used to locate the real HEAD range around a snapshot.
+func Parent(ctx context.Context, dir, commit string) string {
+	if commit == "" || strings.HasPrefix(commit, "-") {
+		return ""
+	}
+	out, _, code, err := runGit(ctx, dir, nil, nil, "rev-parse", "--verify", "-q", commit+"^")
+	if err != nil || code != 0 {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// CommitLog is one commit between two snapshots' parents.
+type CommitLog struct {
+	Hash    string
+	Subject string
+}
+
+// CommitsBetween lists commits reachable from to but not from, newest first.
+// The result is capped at limit when limit is positive.
+func CommitsBetween(ctx context.Context, dir, from, to string, limit int) ([]CommitLog, error) {
+	if from == "" || to == "" || strings.HasPrefix(from, "-") || strings.HasPrefix(to, "-") {
+		return nil, nil
+	}
+	args := []string{"log", "--format=%H%x00%s"}
+	if limit > 0 {
+		args = append(args, fmt.Sprintf("--max-count=%d", limit))
+	}
+	args = append(args, from+".."+to)
+	out, err := gitOutput(ctx, dir, nil, nil, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list commits during task: %w", err)
+	}
+
+	var commits []CommitLog
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x00", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		commits = append(commits, CommitLog{Hash: parts[0], Subject: parts[1]})
+	}
+	return commits, nil
+}
+
 // --- git execution ---
 
 func diffArgs(extra ...string) []string {

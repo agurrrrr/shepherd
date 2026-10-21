@@ -11,11 +11,20 @@ import (
 	entProject "github.com/agurrrrr/shepherd/ent/project"
 	entSheep "github.com/agurrrrr/shepherd/ent/sheep"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/internal/checkpoint"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/queue"
+	"github.com/agurrrrr/shepherd/internal/taskchanges"
 	"github.com/agurrrrr/shepherd/internal/worker"
+)
+
+const (
+	// maxTaskDiffBytes truncates a single-file diff in the JSON response.
+	maxTaskDiffBytes = 2 << 20
+	// maxTaskPatchBytes is the hard limit for the downloadable patch.
+	maxTaskPatchBytes = 20 << 20
 )
 
 // GET /api/tasks
@@ -292,6 +301,101 @@ func (s *Server) handleGetTask(c *fiber.Ctx) error {
 	}
 
 	return success(c, result)
+}
+
+// GET /api/tasks/:id/changes — checkpoint diff summary for a task.
+func (s *Server) handleTaskChanges(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid task ID")
+	}
+
+	t, err := queue.GetTask(id)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, err.Error())
+	}
+
+	return success(c, taskchanges.Build(context.Background(), t, c.QueryBool("live", false)))
+}
+
+// GET /api/tasks/:id/changes/diff?file=path — one file's unified diff.
+func (s *Server) handleTaskChangesDiff(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid task ID")
+	}
+
+	filePath := c.Query("file")
+	if !isValidFilePath(filePath) {
+		return fail(c, fiber.StatusBadRequest, "invalid file path")
+	}
+
+	t, err := queue.GetTask(id)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, err.Error())
+	}
+
+	cs := taskchanges.Build(context.Background(), t, c.QueryBool("live", false))
+	if !cs.Available {
+		return fail(c, fiber.StatusNotFound, "changes unavailable: "+cs.Reason)
+	}
+
+	found := false
+	for _, f := range cs.Files {
+		if f.Path == filePath || f.OldPath == filePath {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fail(c, fiber.StatusNotFound, "file not in task changes")
+	}
+
+	raw, err := checkpoint.FileDiff(context.Background(), cs.Dir, cs.Start, cs.End, filePath)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+	truncated := false
+	if len(raw) > maxTaskDiffBytes {
+		raw = raw[:maxTaskDiffBytes]
+		truncated = true
+	}
+
+	fd := parseUnifiedDiff(raw)
+	fd.Path = filePath
+	fd.Truncated = truncated
+	return success(c, fd)
+}
+
+// GET /api/tasks/:id/changes/patch — downloadable unified patch.
+func (s *Server) handleTaskChangesPatch(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid task ID")
+	}
+
+	t, err := queue.GetTask(id)
+	if err != nil {
+		return fail(c, fiber.StatusNotFound, err.Error())
+	}
+
+	cs := taskchanges.Build(context.Background(), t, c.QueryBool("live", false))
+	if !cs.Available {
+		return fail(c, fiber.StatusNotFound, "changes unavailable: "+cs.Reason)
+	}
+
+	patch, truncated, err := checkpoint.Patch(context.Background(), cs.Dir, cs.Start, cs.End, maxTaskPatchBytes)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+	if truncated {
+		return fail(c, fiber.StatusRequestEntityTooLarge, "patch exceeds 20 MB")
+	}
+
+	c.Set(fiber.HeaderContentType, "text/x-diff")
+	c.Set(fiber.HeaderContentDisposition,
+		"attachment; filename=task-"+strconv.Itoa(id)+".patch")
+	return c.SendString(patch)
 }
 
 // POST /api/tasks/:id/stop

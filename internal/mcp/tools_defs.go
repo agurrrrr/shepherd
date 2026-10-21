@@ -59,7 +59,7 @@ func ListCoreToolDefs() []Tool {
 		},
 		{
 			Name:        "get_task_detail",
-			Description: "작업 상세 정보(요청 프롬프트, 결과 요약, 에러, 수정 파일, 비용, 타임스탬프, 출력 로그)를 전체 조회합니다. get_history로 ID를 얻은 뒤 task_id로 호출하세요. 숫자·숫자 문자열·id 별칭을 받습니다.",
+			Description: "작업 상세 정보(요청 프롬프트, 결과 요약, 에러, 수정 파일, 체크포인트 변경 통계, 비용, 타임스탬프, 출력 로그)를 전체 조회합니다. 변경 통계에는 파일별 추가/삭제와 작업 중 커밋이 포함되며, 전체 diff는 `shepherd task diff <id> --patch`로 확인합니다. get_history로 ID를 얻은 뒤 task_id로 호출하세요. 숫자·숫자 문자열·id 별칭을 받습니다.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{

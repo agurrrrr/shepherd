@@ -21,6 +21,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/apiclient"
 	"github.com/agurrrrr/shepherd/internal/browser"
+	"github.com/agurrrrr/shepherd/internal/checkpoint"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/daemon"
 	"github.com/agurrrrr/shepherd/internal/db"
@@ -35,6 +36,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/server"
 	"github.com/agurrrrr/shepherd/internal/skill"
 	"github.com/agurrrrr/shepherd/internal/spec"
+	"github.com/agurrrrr/shepherd/internal/taskchanges"
 	"github.com/agurrrrr/shepherd/internal/wiki"
 	"github.com/agurrrrr/shepherd/internal/worker"
 	"github.com/chzyer/readline"
@@ -1028,12 +1030,14 @@ Subcommands:
   stop <id>       Stop a running task
   cancel-all      Cancel all running and pending tasks
   detail <id>     Show detailed information about a task
+  diff <id>       Show the checkpoint diff of a task
 
 Examples:
   shepherd task "Fix the bug"
   shepherd task stop 123
   shepherd task cancel-all
-  shepherd task detail 123`,
+  shepherd task detail 123
+  shepherd task diff 123 --patch`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
 			cmd.Help()
@@ -1300,6 +1304,115 @@ var taskDetailCmd = &cobra.Command{
 		}
 		printTaskDetail(id)
 	},
+}
+
+var taskDiffCmd = &cobra.Command{
+	Use:   "diff <id>",
+	Short: "Show the checkpoint diff of a task",
+	Long: `Shows the files a task changed between its start and end checkpoint snapshots.
+Works without the daemon because it reads the database and runs git directly.
+
+By default a per-file summary (like git diff --stat) is printed.
+Use --patch to print a patch that can be fed to git apply, --file to print one
+file's unified diff, or --live to compare a running task with the current
+working tree.
+
+Examples:
+  shepherd task diff 123
+  shepherd task diff 123 --patch
+  shepherd task diff 123 --file internal/server/server.go
+  shepherd task diff 123 --live`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		id, err := strconv.Atoi(args[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid task ID: %s\n", args[0])
+			os.Exit(1)
+		}
+		live, _ := cmd.Flags().GetBool("live")
+		patch, _ := cmd.Flags().GetBool("patch")
+		file, _ := cmd.Flags().GetString("file")
+		if patch && file != "" {
+			fmt.Fprintln(os.Stderr, "--patch and --file cannot be used together")
+			os.Exit(1)
+		}
+
+		t, err := queue.GetTask(id)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Task not found: %v\n", err)
+			os.Exit(1)
+		}
+
+		cs := taskchanges.Build(context.Background(), t, live)
+		if !cs.Available {
+			fmt.Fprintf(os.Stderr, "Changes unavailable: %s\n", cs.Reason)
+			os.Exit(1)
+		}
+
+		if cs.Warning != "" {
+			fmt.Fprintf(os.Stderr, "⚠️  %s\n", cs.Warning)
+		}
+
+		if patch {
+			raw, _, err := checkpoint.Patch(context.Background(), cs.Dir, cs.Start, cs.End, 0)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to build patch: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Print(raw)
+			return
+		}
+
+		if file != "" {
+			found := false
+			for _, f := range cs.Files {
+				if f.Path == file || f.OldPath == file {
+					found = true
+					break
+				}
+			}
+			if !found {
+				fmt.Fprintf(os.Stderr, "File not in task changes: %s\n", file)
+				os.Exit(1)
+			}
+			raw, err := checkpoint.FileDiff(context.Background(), cs.Dir, cs.Start, cs.End, file)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to read diff: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Print(raw)
+			return
+		}
+
+		printTaskDiffStat(cs)
+	},
+}
+
+func printTaskDiffStat(cs *taskchanges.ChangeSet) {
+	for _, f := range cs.Files {
+		counts := fmt.Sprintf("+%d -%d", f.Additions, f.Deletions)
+		if f.Binary {
+			counts = "binary"
+		}
+		path := f.Path
+		if f.OldPath != "" {
+			path = f.OldPath + " -> " + f.Path
+		}
+		fmt.Printf(" %s | %s (%s)\n", path, counts, f.Status)
+	}
+	fmt.Printf("\n%d file(s) changed, +%d -%d (checkpoint)\n",
+		len(cs.Files), cs.Additions, cs.Deletions)
+
+	if len(cs.Commits) > 0 {
+		fmt.Println("\nCommits during task:")
+		for _, commit := range cs.Commits {
+			short := commit.Hash
+			if len(short) > 7 {
+				short = short[:7]
+			}
+			fmt.Printf("  %s %s\n", short, commit.Subject)
+		}
+	}
 }
 
 var taskCancelAllCmd = &cobra.Command{
@@ -1579,6 +1692,13 @@ func printTaskDetail(taskID int) {
 	}
 	if len(task.FilesModified) > 0 {
 		fmt.Printf("📁 Modified files: %s\n", strings.Join(task.FilesModified, ", "))
+	}
+	changes := taskchanges.Build(context.Background(), task, false)
+	if changes.Available {
+		fmt.Printf("📸 Changes: %d files, +%d −%d (checkpoint)\n",
+			len(changes.Files), changes.Additions, changes.Deletions)
+	} else {
+		fmt.Printf("📸 Changes: %s\n", changes.Reason)
 	}
 	if task.Error != "" {
 		fmt.Println("❌ Error:")
@@ -3502,8 +3622,12 @@ func init() {
 	rootCmd.AddCommand(schedCmd)
 
 	// Register task command
+	taskDiffCmd.Flags().Bool("patch", false, "print the full patch (usable with git apply)")
+	taskDiffCmd.Flags().String("file", "", "print the diff of a single file")
+	taskDiffCmd.Flags().Bool("live", false, "compare a running task with the current working tree")
 	taskCmd.AddCommand(taskStopCmd)
 	taskCmd.AddCommand(taskDetailCmd)
+	taskCmd.AddCommand(taskDiffCmd)
 	taskCmd.AddCommand(taskCancelAllCmd)
 	rootCmd.AddCommand(taskCmd)
 

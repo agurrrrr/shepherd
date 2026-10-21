@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/skill"
+	"github.com/agurrrrr/shepherd/internal/taskchanges"
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
 
@@ -324,6 +326,8 @@ func handleGetTaskDetail(args map[string]interface{}) (string, error) {
 		}
 	}
 
+	writeCheckpointChanges(&sb, t)
+
 	output := t.Output
 	if t.Status == task.StatusRunning && t.Edges.Sheep != nil {
 		output = worker.MergeRunningOutput(t.Edges.Sheep.Name, t.ID, t.Output)
@@ -335,6 +339,57 @@ func handleGetTaskDetail(args map[string]interface{}) (string, error) {
 	}
 
 	return sb.String(), nil
+}
+
+// writeCheckpointChanges adds the checkpoint change summary to a task detail
+// response. It is omitted entirely when no end snapshot is available so old
+// tasks keep the previous output shape.
+func writeCheckpointChanges(sb *strings.Builder, t *ent.Task) {
+	cs := taskchanges.Build(context.Background(), t, false)
+	if !cs.Available {
+		return
+	}
+
+	sb.WriteString("\n--- 변경 통계 (체크포인트) ---\n")
+	const maxFiles = 100
+	shown := 0
+	for _, f := range cs.Files {
+		if shown == maxFiles {
+			break
+		}
+		switch {
+		case f.Binary:
+			if f.OldPath != "" {
+				sb.WriteString(fmt.Sprintf("  %s binary %s -> %s\n", f.Status, f.OldPath, f.Path))
+			} else {
+				sb.WriteString(fmt.Sprintf("  %s binary %s\n", f.Status, f.Path))
+			}
+		case f.OldPath != "":
+			sb.WriteString(fmt.Sprintf("  %s +%d -%d %s -> %s\n",
+				f.Status, f.Additions, f.Deletions, f.OldPath, f.Path))
+		default:
+			sb.WriteString(fmt.Sprintf("  %s +%d -%d %s\n",
+				f.Status, f.Additions, f.Deletions, f.Path))
+		}
+		shown++
+	}
+	if len(cs.Files) > shown {
+		sb.WriteString(fmt.Sprintf("  ... 외 %d개\n", len(cs.Files)-shown))
+	}
+	sb.WriteString(fmt.Sprintf("  합계: %d files, +%d -%d\n",
+		len(cs.Files), cs.Additions, cs.Deletions))
+
+	if len(cs.Commits) > 0 {
+		sb.WriteString("  작업 중 커밋:\n")
+		for _, commit := range cs.Commits {
+			short := commit.Hash
+			if len(short) > 7 {
+				short = short[:7]
+			}
+			sb.WriteString(fmt.Sprintf("    %s %s\n", short, commit.Subject))
+		}
+	}
+	sb.WriteString(fmt.Sprintf("  전체 diff는 `shepherd task diff %d --patch`로 확인할 수 있습니다.\n", t.ID))
 }
 
 func handleGetStatus(args map[string]interface{}) (string, error) {

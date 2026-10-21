@@ -612,6 +612,7 @@ type fileDiff struct {
 	Deletions int        `json:"deletions"`
 	Hunks     []diffHunk `json:"hunks"`
 	IsBinary  bool       `json:"is_binary"`
+	Truncated bool       `json:"truncated,omitempty"`
 }
 
 // parseUnifiedDiff parses git unified diff output into structured data.
