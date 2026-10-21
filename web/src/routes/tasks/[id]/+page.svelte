@@ -1,7 +1,7 @@
 <script>
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
-	import { apiGet, apiPost } from '$lib/api.js';
+	import { apiGet, apiPost, apiDownload } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
 	import { appendLiveOutput } from '$lib/liveOutput.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -9,6 +9,7 @@
 	import MagiStreamPanel from '$lib/components/MagiStreamPanel.svelte';
 	import SubagentStreamPanel from '$lib/components/SubagentStreamPanel.svelte';
 	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
+	import DiffView from '$lib/components/DiffView.svelte';
 
 	let task = $state(null);
 	let loading = $state(true);
@@ -18,6 +19,18 @@
 
 	let cancelling = $state(false);
 	let cancelError = $state('');
+
+	// Task changes (checkpoint diff)
+	const MAX_VISIBLE_FILES = 200;
+	let changes = $state(null);
+	let changesLoading = $state(false);
+	let changesError = $state('');
+	let changesLive = $state(false);
+	let showAllFiles = $state(false);
+	let expandedFile = $state('');
+	let fileDiff = $state(null);
+	let fileDiffLoading = $state(false);
+	let fileDiffError = $state('');
 
 	let taskId = $derived.by(() => $page.params.id);
 	let from = $derived.by(() => $page.url.searchParams.get('from'));
@@ -33,6 +46,7 @@
 			task = res.data;
 			liveOutput = task.output || [];
 			liveOutputOpen = false;
+			await loadChanges(false);
 		}
 		loading = false;
 
@@ -50,6 +64,7 @@
 		unsubs.push(onSSE('task_complete', (data) => {
 			if (task && data.task_id === task.id) {
 				task = { ...task, status: 'completed', summary: data.summary };
+				loadChanges(false);
 			}
 		}));
 
@@ -67,6 +82,95 @@
 	});
 
 	onDestroy(() => unsubs.forEach(fn => fn()));
+
+	const reasonLabels = {
+		'checkpoint disabled': '체크포인트가 비활성화되어 변경 사항을 볼 수 없습니다.',
+		'not a git repository': 'git 저장소가 아니라서 변경 사항을 볼 수 없습니다.',
+		'too large': '변경 사항이 너무 커서 스냅샷을 만들지 못했습니다.',
+		'no end snapshot': '작업 종료 스냅샷이 없어 변경 사항을 볼 수 없습니다.',
+		'snapshot pruned': '스냅샷이 정리되어 변경 사항을 볼 수 없습니다.',
+		running: '작업이 실행 중입니다. "현재까지 변경 보기"를 눌러 지금까지의 변경을 확인하세요.',
+	};
+
+	function reasonText(reason) {
+		return reasonLabels[reason] || reason || '변경 사항을 볼 수 없습니다.';
+	}
+
+	async function loadChanges(live = false) {
+		if (!taskId) return;
+		changesLoading = true;
+		changesError = '';
+		try {
+			const res = await apiGet(`/api/tasks/${taskId}/changes${live ? '?live=1' : ''}`);
+			if (res?.data) {
+				changes = res.data;
+				changesLive = !!res.data.live;
+				if (!live) showAllFiles = false;
+			} else {
+				changesError = res?.message || 'Failed to load changes';
+			}
+		} catch (err) {
+			changesError = err?.message || 'Failed to load changes';
+		} finally {
+			changesLoading = false;
+		}
+	}
+
+	async function toggleFileDiff(file) {
+		if (expandedFile === file.path) {
+			expandedFile = '';
+			fileDiff = null;
+			fileDiffError = '';
+			return;
+		}
+		expandedFile = file.path;
+		fileDiff = null;
+		fileDiffError = '';
+		fileDiffLoading = true;
+		try {
+			const live = changesLive ? '&live=1' : '';
+			const res = await apiGet(
+				`/api/tasks/${taskId}/changes/diff?file=${encodeURIComponent(file.path)}${live}`
+			);
+			if (res?.data) {
+				fileDiff = res.data;
+			} else {
+				fileDiffError = res?.message || 'Failed to load diff';
+			}
+		} catch (err) {
+			fileDiffError = err?.message || 'Failed to load diff';
+		} finally {
+			fileDiffLoading = false;
+		}
+	}
+
+	async function downloadPatch() {
+		if (!changes?.available) return;
+		const blob = await apiDownload(
+			`/api/tasks/${taskId}/changes/patch${changesLive ? '?live=1' : ''}`
+		);
+		if (!blob) return;
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `task-${taskId}.patch`;
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		URL.revokeObjectURL(url);
+	}
+
+	function displayPath(file) {
+		if (file.status === 'renamed' && file.old_path) {
+			return `${file.old_path} → ${file.path}`;
+		}
+		return file.path;
+	}
+
+	let visibleFiles = $derived.by(() => {
+		const files = changes?.files || [];
+		return showAllFiles ? files : files.slice(0, MAX_VISIBLE_FILES);
+	});
 
 	function formatDuration(start, end) {
 		if (!start || !end) return '-';
@@ -195,16 +299,109 @@
 				</div>
 			{/if}
 
-			{#if task.files_modified?.length}
-				<div class="section card">
-					<h3>Files Modified ({task.files_modified.length})</h3>
-					<ul class="files-list mono">
-						{#each task.files_modified as file}
-							<li>{file}</li>
-						{/each}
-					</ul>
+			<div class="section card changes-card">
+				<div class="changes-header">
+					<h3>
+						변경 사항
+						{#if changes?.available}
+							<span class="changes-summary">{changes.files.length} files · +{changes.additions} −{changes.deletions}</span>
+						{/if}
+					</h3>
+					<div class="changes-actions">
+						{#if changes?.commits_during_task?.length}
+							<span class="commit-badge">커밋 {changes.commits_during_task.length}개 포함</span>
+						{/if}
+						{#if changes?.available}
+							<button type="button" class="link-btn" onclick={downloadPatch}>패치 내려받기</button>
+						{/if}
+						{#if task.status === 'running'}
+							<button
+								type="button"
+								class="btn btn-sm live-btn"
+								onclick={() => loadChanges(true)}
+								disabled={changesLoading}
+							>
+								{changesLive ? '현재까지 변경 다시 보기' : '현재까지 변경 보기'}
+							</button>
+						{/if}
+					</div>
 				</div>
-			{/if}
+
+				{#if changesLoading && !changes}
+					<p class="text-muted">Loading changes...</p>
+				{:else if changesError}
+					<p class="changes-error">{changesError}</p>
+				{:else if changes}
+					{#if changes.warning}
+						<p class="changes-warning">{changes.warning}</p>
+					{/if}
+
+					{#if changes.available}
+						<p class="changes-notice">작업이 실행되는 동안 이 디렉터리에서 생긴 모든 변경이 포함됩니다.</p>
+						{#if changes.files.length === 0}
+							<p class="text-muted">변경된 파일이 없습니다.</p>
+						{:else}
+							<div class="change-list">
+								{#each visibleFiles as f (f.path)}
+									<button
+										type="button"
+										class="change-row"
+										class:active={expandedFile === f.path}
+										onclick={() => toggleFileDiff(f)}
+									>
+										<span class="status-badge status-{f.status}">{f.status}</span>
+										<span class="change-path mono">{displayPath(f)}</span>
+										<span class="change-stat">
+											{#if f.binary}
+												<span class="stat-binary">binary</span>
+											{:else}
+												{#if f.additions > 0}<span class="stat-add">+{f.additions}</span>{/if}
+												{#if f.deletions > 0}<span class="stat-del">−{f.deletions}</span>{/if}
+											{/if}
+										</span>
+									</button>
+									{#if expandedFile === f.path}
+										<div class="change-diff">
+											{#if fileDiffError}
+												<p class="changes-error">{fileDiffError}</p>
+											{/if}
+											<DiffView diff={fileDiff} loading={fileDiffLoading} />
+										</div>
+									{/if}
+								{/each}
+							</div>
+							{#if !showAllFiles && changes.files.length > MAX_VISIBLE_FILES}
+								<button type="button" class="btn btn-sm more-files" onclick={() => showAllFiles = true}>
+									더 보기 ({changes.files.length - MAX_VISIBLE_FILES}개 더)
+								</button>
+							{/if}
+						{/if}
+
+						{#if changes.files_modified_mismatch?.length}
+							<details class="mismatch">
+								<summary>보고했지만 실제 변경이 없는 파일 ({changes.files_modified_mismatch.length})</summary>
+								<ul class="files-list mono">
+									{#each changes.files_modified_mismatch as file}
+										<li>{file}</li>
+									{/each}
+								</ul>
+							</details>
+						{/if}
+					{:else}
+						<p class="changes-reason">{reasonText(changes.reason)}</p>
+						{#if task.files_modified?.length}
+							<div class="reported-files">
+								<h4>에이전트가 보고한 파일 ({task.files_modified.length})</h4>
+								<ul class="files-list mono">
+									{#each task.files_modified as file}
+										<li>{file}</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+					{/if}
+				{/if}
+			</div>
 
 			{#if providerIsMagi}
 				<div class="section">
@@ -318,6 +515,199 @@
 		word-break: break-word;
 		margin: 0;
 		font-size: 13px;
+	}
+
+	.changes-header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 12px;
+		flex-wrap: wrap;
+		margin-bottom: 8px;
+	}
+
+	.changes-header h3 {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+		margin: 0;
+	}
+
+	.changes-summary {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		font-weight: 400;
+		color: var(--text-secondary);
+	}
+
+	.changes-actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+
+	.commit-badge {
+		font-size: 11px;
+		padding: 2px 8px;
+		border-radius: var(--radius-full);
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+
+	.link-btn {
+		background: none;
+		border: none;
+		padding: 0;
+		color: var(--accent);
+		font-size: 12px;
+		cursor: pointer;
+	}
+
+	.link-btn:hover {
+		color: var(--accent-hover);
+		text-decoration: underline;
+	}
+
+	.live-btn {
+		font-size: 12px;
+	}
+
+	.btn-sm {
+		padding: 4px 10px;
+		font-size: 12px;
+	}
+
+	.changes-notice {
+		font-size: 12px;
+		color: var(--text-tertiary);
+		margin: 0 0 10px;
+	}
+
+	.changes-warning {
+		font-size: 12px;
+		color: var(--warning);
+		background: var(--warning-soft);
+		padding: 6px 10px;
+		border-radius: var(--radius);
+		margin: 0 0 10px;
+	}
+
+	.changes-error {
+		font-size: 12px;
+		color: var(--danger);
+		margin: 6px 0;
+	}
+
+	.changes-reason {
+		font-size: 13px;
+		color: var(--text-secondary);
+		margin: 0 0 10px;
+	}
+
+	.change-list {
+		border-top: 1px solid var(--border);
+	}
+
+	.change-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		padding: 6px 4px;
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid var(--border-subtle);
+		color: var(--text-primary);
+		font-size: 12px;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.change-row:hover,
+	.change-row.active {
+		background: var(--bg-tertiary);
+	}
+
+	.status-badge {
+		flex-shrink: 0;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		text-transform: uppercase;
+		padding: 1px 6px;
+		border-radius: 3px;
+		background: var(--bg-tertiary);
+		color: var(--text-secondary);
+	}
+
+	.status-badge.status-added {
+		background: var(--success-soft);
+		color: var(--success);
+	}
+
+	.status-badge.status-deleted {
+		background: var(--danger-soft);
+		color: var(--danger);
+	}
+
+	.status-badge.status-modified {
+		background: var(--warning-soft);
+		color: var(--warning);
+	}
+
+	.status-badge.status-renamed {
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+
+	.change-path {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.change-stat {
+		flex-shrink: 0;
+		display: flex;
+		gap: 6px;
+		font-family: var(--font-mono);
+		font-size: 11px;
+	}
+
+	.stat-add { color: var(--success); }
+	.stat-del { color: var(--danger); }
+	.stat-binary { color: var(--text-tertiary); }
+
+	.change-diff {
+		padding-left: 12px;
+	}
+
+	.more-files {
+		margin-top: 10px;
+	}
+
+	.mismatch {
+		margin-top: 12px;
+		font-size: 12px;
+		color: var(--text-secondary);
+	}
+
+	.mismatch summary {
+		cursor: pointer;
+	}
+
+	.reported-files {
+		margin-top: 8px;
+	}
+
+	.reported-files h4 {
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--text-secondary);
+		margin: 0 0 6px;
 	}
 
 	.files-list {

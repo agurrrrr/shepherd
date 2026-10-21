@@ -22,6 +22,7 @@
 	// Detail view
 	let selectedTask = null;
 	let showDetail = false;
+	let detailChanges = null;
 
 	onMount(async () => {
 		await loadTasks();
@@ -72,12 +73,22 @@
 		if (res?.data) {
 			selectedTask = res.data;
 			showDetail = true;
+			detailChanges = null;
+			loadDetailChanges(taskId);
+		}
+	}
+
+	async function loadDetailChanges(taskId) {
+		const res = await apiGet(`/api/tasks/${taskId}/changes`);
+		if (res?.data && selectedTask?.id === taskId) {
+			detailChanges = res.data;
 		}
 	}
 
 	function closeDetail() {
 		showDetail = false;
 		selectedTask = null;
+		detailChanges = null;
 	}
 
 	function truncate(str, max) {
@@ -268,16 +279,20 @@
 	
 				</div>
 
-				{#if selectedTask.files_modified?.length}
-					<div class="detail-section">
-						<div class="detail-label">Files Modified ({selectedTask.files_modified.length})</div>
-						<div class="files-list mono">
-							{#each selectedTask.files_modified as f}
-								<div>{f}</div>
-							{/each}
+				<div class="detail-section changes-detail">
+					<div class="detail-label">Changes</div>
+					{#if detailChanges?.available}
+						<div class="changes-summary">
+							{detailChanges.files.length} files · +{detailChanges.additions} −{detailChanges.deletions}
+							{#if detailChanges.commits_during_task?.length}
+								<span class="commit-badge">커밋 {detailChanges.commits_during_task.length}개 포함</span>
+							{/if}
 						</div>
-					</div>
-				{/if}
+					{:else if detailChanges}
+						<div class="changes-hint">{detailChanges.reason || '변경 사항을 볼 수 없습니다.'}</div>
+					{/if}
+					<a class="detail-link" href={`/tasks/${selectedTask.id}`}>변경 사항 상세 보기 →</a>
+				</div>
 
 				{#if selectedTask.output?.length}
 					<div class="detail-section">
@@ -538,9 +553,39 @@
 		margin-right: 4px;
 	}
 
-	.files-list {
+	.changes-summary {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--text-secondary);
+	}
+
+	.commit-badge {
+		font-size: 11px;
+		padding: 1px 6px;
+		border-radius: var(--radius-full);
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+
+	.changes-hint {
+		font-size: 12px;
+		color: var(--text-tertiary);
+	}
+
+	.detail-link {
+		display: inline-block;
+		margin-top: 6px;
 		font-size: 12px;
 		color: var(--accent);
+	}
+
+	.detail-link:hover {
+		color: var(--accent-hover);
+		text-decoration: underline;
 	}
 
 	.output-container {
