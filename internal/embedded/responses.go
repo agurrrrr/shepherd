@@ -29,16 +29,25 @@ func isResponsesURL(raw string) bool {
 }
 
 type responsesRequest struct {
-	Model           string          `json:"model"`
-	Instructions    string          `json:"instructions,omitempty"`
-	Input           []interface{}   `json:"input"`
-	Tools           []responsesTool `json:"tools,omitempty"`
-	ToolChoice      interface{}     `json:"tool_choice,omitempty"`
-	MaxOutputTokens int             `json:"max_output_tokens,omitempty"`
-	Stream          bool            `json:"stream"`
+	Model           string              `json:"model"`
+	Instructions    string              `json:"instructions,omitempty"`
+	Input           []interface{}       `json:"input"`
+	Tools           []responsesTool     `json:"tools,omitempty"`
+	ToolChoice      interface{}         `json:"tool_choice,omitempty"`
+	MaxOutputTokens int                 `json:"max_output_tokens,omitempty"`
+	Stream          bool                `json:"stream"`
+	Reasoning       *responsesReasoning `json:"reasoning,omitempty"`
 	// Store=false keeps Copilot stateless; shepherd replays the conversation
 	// itself, so the server does not need to retain responses.
 	Store bool `json:"store"`
+}
+
+// responsesReasoning opts into readable reasoning. Reasoning text is never
+// returned raw, and providers (Copilot included) emit no summary at all unless
+// summary is requested — without this GPT-6.1 Sol streams no thinking.
+type responsesReasoning struct {
+	Effort  string `json:"effort,omitempty"`
+	Summary string `json:"summary,omitempty"`
 }
 
 type responsesTool struct {
@@ -69,6 +78,11 @@ func buildResponsesRequest(req *ChatRequest, stream bool) *responsesRequest {
 		Stream:          stream,
 		MaxOutputTokens: req.MaxTokens,
 		Store:           false,
+		// Ask for a reasoning summary on every Responses call. The API exposes
+		// no raw chain of thought, and it returns an empty reasoning item unless
+		// summary is set, which made GPT-6.1 Sol look like it never thought.
+		// Effort is left unset so the model's own default applies.
+		Reasoning: &responsesReasoning{Summary: "auto"},
 	}
 	if req.ToolChoice != nil {
 		out.ToolChoice = req.ToolChoice

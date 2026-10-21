@@ -67,6 +67,19 @@ func TestBuildResponsesRequest(t *testing.T) {
 			t.Errorf("responses request must not carry %q", key)
 		}
 	}
+	var reasoning struct {
+		Effort  string `json:"effort"`
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal(body["reasoning"], &reasoning); err != nil {
+		t.Fatalf("reasoning field = %s: %v", body["reasoning"], err)
+	}
+	if reasoning.Summary != "auto" {
+		t.Errorf("reasoning.summary = %q, want auto so thinking is streamed", reasoning.Summary)
+	}
+	if reasoning.Effort != "" {
+		t.Errorf("reasoning.effort = %q, want unset (model default)", reasoning.Effort)
+	}
 
 	if len(out.Input) != 5 {
 		t.Fatalf("input = %d items, want 5: %+v", len(out.Input), out.Input)
