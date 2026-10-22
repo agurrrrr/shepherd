@@ -39,6 +39,11 @@ const (
 	checkpointTimeout = 60 * time.Second
 )
 
+// outputTruncationMarker separates the preserved head from the tail in
+// capOutputLinesHeadTail output. Its presence at the front of the slice marks
+// a slice that has already been trimmed once.
+const outputTruncationMarker = "...[output truncated — head + tail preserved]..."
+
 // capOutputLinesHeadTail trims an output lines slice to fit within
 // maxOutputLinesBytes, keeping the first ~20% (head) and the last ~80%
 // (tail) with a truncation marker inserted between them. Returns the
@@ -47,6 +52,11 @@ const (
 // The head/tail split ratio favors the tail because the end of the output
 // typically contains the task result and summary, which are more valuable
 // for debugging than the beginning.
+//
+// The first trim caps the tail at the full tail budget. Later trims keep the
+// already-decided head (+ marker) untouched and shrink only the tail to 80%
+// of its budget, so trimming runs at multi-MB intervals instead of every few
+// lines once the slice sits right at the limit.
 func capOutputLinesHeadTail(lines []string) ([]string, int) {
 	// Calculate total bytes.
 	totalBytes := 0
@@ -58,12 +68,36 @@ func capOutputLinesHeadTail(lines []string) ([]string, int) {
 		return lines, totalBytes
 	}
 
-	// Target: keep maxOutputLinesBytes worth of data.
-	// Split: head = 20%, tail = 80%.
 	headBudget := maxOutputLinesBytes / 5          // 4 MB
 	tailBudget := maxOutputLinesBytes - headBudget // 16 MB
 
-	// Collect head lines (from the start).
+	// If the slice was trimmed before, the head is already fixed as
+	// lines[:markerIdx]. Keep it verbatim and only re-trim the tail,
+	// leaving 20% headroom so the next trim is not triggered immediately.
+	markerIdx := -1
+	for i, l := range lines {
+		if l == outputTruncationMarker {
+			markerIdx = i
+			break
+		}
+	}
+	if markerIdx >= 0 {
+		// Head is lines[:markerIdx]; the old marker is replaced by exactly
+		// one new marker so duplicate markers never accumulate.
+		headBytes := 0
+		for _, l := range lines[:markerIdx] {
+			headBytes += len(l)
+		}
+		tail, tailBytes := keepTail(lines, markerIdx+1, tailBudget*4/5)
+		result := make([]string, 0, markerIdx+len(tail)+1)
+		result = append(result, lines[:markerIdx]...)
+		result = append(result, outputTruncationMarker)
+		result = append(result, tail...)
+		return result, headBytes + len(outputTruncationMarker) + tailBytes
+	}
+
+	// First trim: collect head lines (from the start) and tail lines
+	// (from the end) within their budgets, ensuring no overlap.
 	headEnd := 0
 	headBytes := 0
 	for i, l := range lines {
@@ -74,32 +108,31 @@ func capOutputLinesHeadTail(lines []string) ([]string, int) {
 		headEnd = i + 1
 	}
 
-	// Collect tail lines (from the end).
+	// Reserve room for the marker so the first trim stays within the budget.
+	tail, tailBytes := keepTail(lines, headEnd, tailBudget-len(outputTruncationMarker))
+
+	result := make([]string, 0, headEnd+len(tail)+1)
+	result = append(result, lines[:headEnd]...)
+	result = append(result, outputTruncationMarker)
+	result = append(result, tail...)
+	return result, headBytes + len(outputTruncationMarker) + tailBytes
+}
+
+// keepTail returns lines[from:] trimmed from the front so the kept bytes stay
+// within budget. from is the index just after the head region (or after the
+// previous marker). When even one tail line exceeds the budget, the newest
+// (last) line is still kept.
+func keepTail(lines []string, from, budget int) ([]string, int) {
 	tailStart := len(lines)
 	tailBytes := 0
-	for i := len(lines) - 1; i >= 0; i-- {
-		if tailBytes+len(lines[i]) > tailBudget {
+	for i := len(lines) - 1; i >= from; i-- {
+		if tailBytes > 0 && tailBytes+len(lines[i]) > budget {
 			break
 		}
 		tailBytes += len(lines[i])
 		tailStart = i
 	}
-
-	// Ensure no overlap between head and tail.
-	if headEnd >= tailStart {
-		// Edge case: head and tail overlap. Just keep the tail.
-		headEnd = 0
-		headBytes = 0
-	}
-
-	marker := "...[output truncated — head + tail preserved]..."
-	result := make([]string, 0, headEnd+(len(lines)-tailStart)+1)
-	result = append(result, lines[:headEnd]...)
-	result = append(result, marker)
-	result = append(result, lines[tailStart:]...)
-
-	totalKept := headBytes + tailBytes + len(marker)
-	return result, totalKept
+	return lines[tailStart:], tailBytes
 }
 
 // Processor handles automatic execution of pending tasks.
@@ -566,12 +599,14 @@ func (p *Processor) executeTask(sheepName, projectName, projectPath string, task
 			retryCount++
 			delay := calculateBackoff(retryCount)
 
-			// Notify user of retry
+			// Notify user of retry. Flush first so the retry notice starts
+			// on its own line instead of merging with a partial line left by
+			// the failed attempt, then route it through the coalescer so byte
+			// accounting, AppendOutput, and OnOutput all see it (otherwise the
+			// notice vanishes from MergeRunningOutput after a live refresh).
 			retryMsg := fmt.Sprintf("⏳ Rate limit hit, retrying in %v (attempt %d/%d)\n", delay, retryCount, MaxRateLimitRetries)
-			outputLines = append(outputLines, retryMsg)
-			if p.OnOutput != nil {
-				p.OnOutput(sheepName, projectName, retryMsg)
-			}
+			coalescer.Flush()
+			coalescer.Append(retryMsg)
 
 			log.Printf("[processor] %s: rate limit, retry %d/%d after %v", sheepName, retryCount, MaxRateLimitRetries, delay)
 

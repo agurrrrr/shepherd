@@ -113,3 +113,69 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+func markerIndex(lines []string) int {
+	for i, l := range lines {
+		if strings.Contains(l, "[output truncated") {
+			return i
+		}
+	}
+	return -1
+}
+
+// TestCapOutputLinesHeadTail_RepeatedTrimKeepsHeadAndSingleMarker ensures that
+// re-trimming a slice that already carries a marker preserves the original
+// head verbatim and never accumulates duplicate markers.
+func TestCapOutputLinesHeadTail_RepeatedTrimKeepsHeadAndSingleMarker(t *testing.T) {
+	var lines []string
+	for i := 0; i < 1000; i++ {
+		lines = append(lines, strings.Repeat(fmt.Sprintf("H%d ", i), 6000)) // ~30 KB
+	}
+
+	got, bytes := capOutputLinesHeadTail(lines)
+	idx := markerIndex(got)
+	if idx <= 0 {
+		t.Fatalf("expected a marker after some head lines, markerIdx=%d", idx)
+	}
+	if bytes > maxOutputLinesBytes {
+		t.Fatalf("first trim exceeds budget: %d", bytes)
+	}
+	head := append([]string(nil), got[:idx]...)
+
+	// Grow the tail by ~10 MB and trim again.
+	for i := 0; i < 1000; i++ {
+		got = append(got, strings.Repeat("tail ", 2500)) // 12.5 KB
+	}
+	got, bytes = capOutputLinesHeadTail(got)
+
+	idx2 := markerIndex(got)
+	if idx2 != len(head) {
+		t.Fatalf("head length changed: marker at %d, want %d", idx2, len(head))
+	}
+	for i := range head {
+		if got[i] != head[i] {
+			t.Fatalf("head line %d changed after re-trim", i)
+		}
+	}
+	if count := strings.Count(strings.Join(got, "\n"), "[output truncated"); count != 1 {
+		t.Fatalf("expected exactly 1 marker, got %d", count)
+	}
+	if bytes > maxOutputLinesBytes {
+		t.Fatalf("re-trim exceeds budget: %d > %d", bytes, maxOutputLinesBytes)
+	}
+
+	// A second re-trim must behave the same way.
+	for i := 0; i < 1000; i++ {
+		got = append(got, strings.Repeat("tail ", 2500))
+	}
+	got, bytes = capOutputLinesHeadTail(got)
+	if idx3 := markerIndex(got); idx3 != len(head) {
+		t.Fatalf("head length changed on second re-trim: %d != %d", idx3, len(head))
+	}
+	if count := strings.Count(strings.Join(got, "\n"), "[output truncated"); count != 1 {
+		t.Fatalf("expected exactly 1 marker after second re-trim, got %d", count)
+	}
+	if bytes > maxOutputLinesBytes {
+		t.Fatalf("second re-trim exceeds budget: %d > %d", bytes, maxOutputLinesBytes)
+	}
+}

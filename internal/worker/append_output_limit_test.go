@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestAppendOutputByteLimit verifies that RunningTask.OutputLines is capped
@@ -122,5 +123,76 @@ func TestMergeRunningOutput_PrefersLiveWhenTaskMatches(t *testing.T) {
 
 	if empty := MergeRunningOutput("no-such-sheep", 77, []string{"db"}); len(empty) != 1 || empty[0] != "db" {
 		t.Fatalf("missing sheep should keep db output, got %#v", empty)
+	}
+}
+
+// TestAppendOutputTrimIntervals verifies that once the buffer crosses the
+// byte budget, trimming runs at multi-hundred-KB intervals rather than on
+// every appended line, that exactly one truncation marker remains, and that
+// the measured 100B × 60,000 line case finishes well under a second.
+func TestAppendOutputTrimIntervals(t *testing.T) {
+	const name = "test-sheep-trim-interval"
+	unregisterRunningTask(name, runningTasks[name])
+
+	token := registerRunningTask(name, nil, exec.Command("true"))
+	defer unregisterRunningTask(name, token)
+
+	runningOutputTrimCount.Store(0)
+
+	line := strings.Repeat("z", 99) + "\n" // 100 bytes
+	start := time.Now()
+	for i := 0; i < 60000; i++ {
+		AppendOutput(name, line)
+	}
+	elapsed := time.Since(start)
+	if elapsed > time.Second {
+		t.Fatalf("60000 append took %v, want < 1s", elapsed)
+	}
+
+	trims := runningOutputTrimCount.Load()
+	if trims != 1 {
+		t.Fatalf("expected exactly 1 trim after crossing the budget, got %d", trims)
+	}
+
+	_, lines := GetRunningTaskOutput(name)
+
+	markers := 0
+	totalBytes := 0
+	for _, l := range lines {
+		totalBytes += len(l)
+		if strings.Contains(l, "[output truncated") {
+			markers++
+		}
+	}
+	if markers != 1 {
+		t.Fatalf("expected exactly 1 truncation marker, got %d", markers)
+	}
+	if totalBytes > maxRunningTaskOutputBytes {
+		t.Fatalf("output exceeds budget: %d > %d", totalBytes, maxRunningTaskOutputBytes)
+	}
+
+	// Another 1000 lines (~100 KB) must not trigger another trim thanks to
+	// the 80% target leaving ~1 MB of headroom.
+	for i := 0; i < 1000; i++ {
+		AppendOutput(name, line)
+	}
+	if got := runningOutputTrimCount.Load(); got != 1 {
+		t.Fatalf("expected no further trim within headroom, got %d trims", got)
+	}
+}
+
+// BenchmarkAppendOutput measures steady-state appends including periodic
+// trimming at the 5 MB running-task budget.
+func BenchmarkAppendOutput(b *testing.B) {
+	const name = "bench-sheep-append-output"
+	unregisterRunningTask(name, runningTasks[name])
+	token := registerRunningTask(name, nil, exec.Command("true"))
+	defer unregisterRunningTask(name, token)
+
+	line := strings.Repeat("x", 99) + "\n"
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		AppendOutput(name, line)
 	}
 }

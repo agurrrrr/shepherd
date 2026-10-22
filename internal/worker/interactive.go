@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -82,6 +83,7 @@ type RunningTask struct {
 	Cmd         *exec.Cmd
 	TaskID      int
 	OutputLines []string
+	outputBytes int // bytes held in OutputLines; guarded by outputMu
 	outputMu    sync.Mutex
 	InjectCh    chan string // Prompt injection channel (nil for non-embedded providers)
 }
@@ -306,48 +308,79 @@ func (c *LineCoalescer) Flush() {
 	c.buf.Reset()
 }
 
+const runningOutputTruncationMarker = "...[output truncated — showing tail only]..."
+
+// runningOutputTrimCount counts how many times AppendOutput trimmed its
+// buffer. It exists so tests can assert that trimming happens at intervals,
+// not on every appended line.
+var runningOutputTrimCount atomic.Int64
+
 // AppendOutput appends output text to the running task's output buffer.
 // The buffer is capped at maxRunningTaskOutputBytes: when the limit is
 // exceeded, the oldest entries are dropped and a truncation marker is
 // inserted once. This prevents unbounded memory growth during long-running
 // tasks with large outputs (e.g. ADB logcat, base64 screenshots).
+//
+// Byte accounting is kept incrementally in RunningTask.outputBytes so each
+// append is O(1) instead of a full scan. Trimming targets 80% of the budget
+// (with an early keep-window bound to the marker), so the next trim only runs
+// after several hundred KB more output instead of on the very next line.
 func AppendOutput(sheepName string, text string) {
 	runningTasksMu.RLock()
 	task, ok := runningTasks[sheepName]
 	runningTasksMu.RUnlock()
-	if ok {
-		task.outputMu.Lock()
-		task.OutputLines = append(task.OutputLines, text)
-
-		// Enforce byte budget: if exceeded, keep only the tail and
-		// insert a marker once.
-		totalBytes := 0
-		for _, l := range task.OutputLines {
-			totalBytes += len(l)
-		}
-		if totalBytes > maxRunningTaskOutputBytes {
-			// Walk from the end, accumulating bytes until we have
-			// ~maxRunningTaskOutputBytes worth of tail lines.
-			cutoff := maxRunningTaskOutputBytes
-			startIdx := len(task.OutputLines)
-			for i := len(task.OutputLines) - 1; i >= 0; i-- {
-				cutoff -= len(task.OutputLines[i])
-				if cutoff <= 0 {
-					startIdx = i
-					break
-				}
-			}
-			// Insert marker at the front of the kept slice.
-			marker := "...[output truncated — showing tail only]..."
-			tailCount := len(task.OutputLines) - startIdx
-			kept := make([]string, 0, tailCount+1)
-			kept = append(kept, marker)
-			kept = append(kept, task.OutputLines[startIdx:]...)
-			task.OutputLines = kept
-		}
-
-		task.outputMu.Unlock()
+	if !ok {
+		return
 	}
+
+	task.outputMu.Lock()
+	task.OutputLines = append(task.OutputLines, text)
+	task.outputBytes += len(text)
+
+	if task.outputBytes > maxRunningTaskOutputBytes {
+		trimRunningOutputLocked(task)
+	}
+	task.outputMu.Unlock()
+}
+
+// trimRunningOutputLocked keeps the newest lines that fit in 80% of the byte
+// budget, prefixed by exactly one truncation marker. The ring is walked only
+// when trimming, and task.outputBytes is recomputed from that walk.
+func trimRunningOutputLocked(task *RunningTask) {
+	if len(task.OutputLines) == 0 {
+		task.outputBytes = 0
+		return
+	}
+
+	target := maxRunningTaskOutputBytes * 4 / 5
+	lines := task.OutputLines
+	hasMarker := lines[0] == runningOutputTruncationMarker
+
+	// Never keep a previous marker inside the tail; it is re-added at the
+	// front. Skipping it also means the marker bytes are not double counted.
+	limit := 0
+	if hasMarker {
+		limit = 1
+	}
+
+	startIdx := len(lines)
+	keptBytes := 0
+	for i := len(lines) - 1; i >= limit; i-- {
+		// Always keep at least one (possibly oversized) line so the newest
+		// output is never dropped entirely.
+		if keptBytes > 0 && keptBytes+len(lines[i]) > target {
+			break
+		}
+		keptBytes += len(lines[i])
+		startIdx = i
+	}
+
+	kept := make([]string, 0, len(lines)-startIdx+1)
+	kept = append(kept, runningOutputTruncationMarker)
+	kept = append(kept, lines[startIdx:]...)
+	task.OutputLines = kept
+	task.outputBytes = keptBytes + len(runningOutputTruncationMarker)
+	runningOutputTrimCount.Add(1)
 }
 
 // GetRunningTaskOutput returns the collected output for a running task.
