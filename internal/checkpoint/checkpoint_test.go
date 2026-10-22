@@ -637,3 +637,35 @@ func TestRenamedFileDiff(t *testing.T) {
 		t.Fatalf("FileDiff(new.txt) = %q; want rename headers", diff)
 	}
 }
+
+func TestResolveRefAndDeleteRefs(t *testing.T) {
+	dir := newRepo(t)
+	writeFile(t, dir, "f.txt", "one\n")
+	gitRun(t, dir, "add", "f.txt")
+	gitRun(t, dir, "commit", "-qm", "initial")
+
+	ctx := context.Background()
+	snap, err := Take(ctx, dir, TaskRef(9, "start"), "start")
+	if err != nil {
+		t.Fatalf("Take: %v", err)
+	}
+
+	got, ok := ResolveRef(ctx, dir, TaskRef(9, "start"))
+	if !ok || got != snap.Commit {
+		t.Fatalf("ResolveRef = %q, %v; want %q", got, ok, snap.Commit)
+	}
+	if _, ok := ResolveRef(ctx, dir, TaskRef(9, "missing")); ok {
+		t.Error("ResolveRef reported a missing ref")
+	}
+
+	// Only task refs may be deleted.
+	if err := DeleteRefs(ctx, dir, "refs/heads/main", TaskRef(9, "start")); err != nil {
+		t.Fatalf("DeleteRefs: %v", err)
+	}
+	if _, ok := ResolveRef(ctx, dir, TaskRef(9, "start")); ok {
+		t.Error("task ref was not deleted")
+	}
+	if got := gitRun(t, dir, "rev-parse", "refs/heads/main"); got == "" {
+		t.Error("branch was deleted")
+	}
+}

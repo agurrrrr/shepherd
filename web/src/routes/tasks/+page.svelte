@@ -31,6 +31,13 @@
 		unsubs.push(onSSE('task_start', () => loadTasks()));
 		unsubs.push(onSSE('task_fail', () => loadTasks()));
 		unsubs.push(onSSE('task_stop', () => loadTasks()));
+		unsubs.push(onSSE('task_update', (data) => {
+			loadTasks();
+			if (selectedTask && data.task_id === selectedTask.id) {
+				selectedTask = { ...selectedTask, reverted_at: data.reverted_at || '' };
+				loadDetailChanges(selectedTask.id);
+			}
+		}));
 	});
 
 	onDestroy(() => unsubs.forEach(fn => fn()));
@@ -194,6 +201,9 @@
 							{#if t.sheep}
 								<span class="tag tag-sheep">{t.sheep}</span>
 							{/if}
+							{#if t.reverted_at}
+								<span class="tag tag-reverted" title={`되돌림 ${t.reverted_at}`}>되돌림</span>
+							{/if}
 						</div>
 					</div>
 					<div class="row-metrics">
@@ -231,6 +241,9 @@
 					<div class="modal-title-row">
 						<h2>Task #{selectedTask.id}</h2>
 						<StatusBadge status={selectedTask.status} />
+						{#if selectedTask.reverted_at}
+							<span class="tag tag-reverted">되돌림</span>
+						{/if}
 					</div>
 					<button class="btn btn-sm" onclick={closeDetail}>Close</button>
 				</div>
@@ -435,6 +448,11 @@
 	.tag-sheep {
 		background: var(--bg-tertiary);
 		color: var(--text-secondary);
+	}
+
+	.tag-reverted {
+		background: var(--warning-soft);
+		color: var(--warning);
 	}
 
 	.row-metrics {

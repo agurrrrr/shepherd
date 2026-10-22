@@ -395,6 +395,34 @@ func CommitExists(ctx context.Context, dir, sha string) bool {
 	return err == nil && code == 0
 }
 
+// ResolveRef returns the commit SHA a checkpoint ref points at. It reports
+// false when the ref does not exist or is not a commit.
+func ResolveRef(ctx context.Context, dir, ref string) (string, bool) {
+	if ref == "" || strings.HasPrefix(ref, "-") {
+		return "", false
+	}
+	out, _, code, err := runGit(ctx, dir, nil, nil, "rev-parse", "--verify", "-q", ref+"^{commit}")
+	if err != nil || code != 0 {
+		return "", false
+	}
+	return strings.TrimSpace(string(out)), true
+}
+
+// DeleteRefs deletes specific checkpoint refs. Only refs below
+// refs/shepherd/tasks/ are accepted so a caller bug cannot remove a user's
+// branch or tag. Missing refs are ignored.
+func DeleteRefs(ctx context.Context, dir string, refs ...string) error {
+	for _, ref := range refs {
+		if !strings.HasPrefix(ref, "refs/shepherd/tasks/") {
+			continue
+		}
+		if _, err := gitOutput(ctx, dir, nil, nil, "update-ref", "-d", ref); err != nil {
+			return fmt.Errorf("delete checkpoint ref %s: %w", ref, err)
+		}
+	}
+	return nil
+}
+
 // Parent returns the first parent of commit, or an empty string for a root
 // commit. It is used to locate the real HEAD range around a snapshot.
 func Parent(ctx context.Context, dir, commit string) string {

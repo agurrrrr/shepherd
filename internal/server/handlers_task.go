@@ -88,6 +88,7 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 			entTask.FieldModel,
 			entTask.FieldStartedAt,
 			entTask.FieldCompletedAt,
+			entTask.FieldRevertedAt,
 			entTask.FieldCreatedAt,
 		).
 		Order(orderFunc).
@@ -114,6 +115,7 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 		Model            string  `json:"model,omitempty"`
 		Sheep            string  `json:"sheep,omitempty"`
 		Project          string  `json:"project,omitempty"`
+		RevertedAt       string  `json:"reverted_at,omitempty"`
 		CreatedAt        string  `json:"created_at"`
 	}
 
@@ -138,6 +140,9 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 		}
 		if t.Edges.Project != nil {
 			item.Project = t.Edges.Project.Name
+		}
+		if !t.RevertedAt.IsZero() {
+			item.RevertedAt = t.RevertedAt.Format("2006-01-02 15:04:05")
 		}
 		items = append(items, item)
 	}
@@ -278,6 +283,8 @@ func (s *Server) handleGetTask(c *fiber.Ctx) error {
 		"prompt_tokens":     t.PromptTokens,
 		"completion_tokens": t.CompletionTokens,
 		"total_tokens":      t.PromptTokens + t.CompletionTokens,
+		"reverted_at":       "",
+		"revert_pre":        t.RevertPre,
 		"model":             t.Model,
 		"duration_sec":      taskDurationSec(t),
 		"created_at":        t.CreatedAt.Format("2006-01-02 15:04:05"),
@@ -287,6 +294,9 @@ func (s *Server) handleGetTask(c *fiber.Ctx) error {
 	}
 	if !t.CompletedAt.IsZero() {
 		result["completed_at"] = t.CompletedAt.Format("2006-01-02 15:04:05")
+	}
+	if !t.RevertedAt.IsZero() {
+		result["reverted_at"] = t.RevertedAt.Format("2006-01-02 15:04:05")
 	}
 	if t.Edges.Sheep != nil {
 		result["sheep"] = t.Edges.Sheep.Name

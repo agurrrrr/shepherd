@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	cryptoRand "crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,6 +39,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/skill"
 	"github.com/agurrrrr/shepherd/internal/spec"
 	"github.com/agurrrrr/shepherd/internal/taskchanges"
+	"github.com/agurrrrr/shepherd/internal/taskrevert"
 	"github.com/agurrrrr/shepherd/internal/wiki"
 	"github.com/agurrrrr/shepherd/internal/worker"
 	"github.com/chzyer/readline"
@@ -1031,13 +1034,15 @@ Subcommands:
   cancel-all      Cancel all running and pending tasks
   detail <id>     Show detailed information about a task
   diff <id>       Show the checkpoint diff of a task
+  revert <id>     Revert a finished task's changes (--dry-run, --undo, --yes)
 
 Examples:
   shepherd task "Fix the bug"
   shepherd task stop 123
   shepherd task cancel-all
   shepherd task detail 123
-  shepherd task diff 123 --patch`,
+  shepherd task diff 123 --patch
+  shepherd task revert 123 --dry-run`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
 			cmd.Help()
@@ -1386,6 +1391,255 @@ Examples:
 
 		printTaskDiffStat(cs)
 	},
+}
+
+var taskRevertCmd = &cobra.Command{
+	Use:   "revert <id>",
+	Short: "Revert a finished task's working-tree changes",
+	Long: `Reverts the changes a finished task made, using a 3-way merge so edits made
+after the task on other lines survive. Only the working tree changes; commits,
+the index, and HEAD are untouched. The result stays uncommitted for you to
+review.
+
+Use --dry-run to see the files without changing anything, --undo to restore
+the state before the revert, or --yes to skip the confirmation prompt.`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		id, err := strconv.Atoi(args[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid task ID: %s\n", args[0])
+			os.Exit(1)
+		}
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		yes, _ := cmd.Flags().GetBool("yes")
+		undo, _ := cmd.Flags().GetBool("undo")
+		if undo && (dryRun || yes) {
+			fmt.Fprintln(os.Stderr, "--undo cannot be combined with --dry-run or --yes")
+			os.Exit(1)
+		}
+		runTaskRevert(id, dryRun, yes, undo)
+	},
+}
+
+type revertFileInfo struct {
+	Path      string
+	OldPath   string
+	Status    string
+	Additions int
+	Deletions int
+	Binary    bool
+}
+
+func runTaskRevert(id int, dryRun, yes, undo bool) {
+	if daemon.IsRunning() {
+		runTaskRevertRemote(id, dryRun, yes, undo)
+		return
+	}
+
+	t, err := queue.GetTask(id)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Task not found: %v\n", err)
+		os.Exit(1)
+	}
+
+	if undo {
+		result, err := taskrevert.Undo(context.Background(), t)
+		if err != nil {
+			reportRevertFailure(err)
+			os.Exit(1)
+		}
+		fmt.Printf("✅ Task #%d 되돌리기 취소 완료\n", id)
+		printRevertFiles(convertCheckpointFiles(result))
+		fmt.Println("ℹ️ 변경은 커밋되지 않은 상태로 작업 트리에 남아 있습니다.")
+		return
+	}
+
+	if dryRun {
+		result, err := taskrevert.Revert(context.Background(), t, true)
+		if err != nil {
+			reportRevertFailure(err)
+			os.Exit(1)
+		}
+		fmt.Printf("🔍 Task #%d 되돌리기 미리보기 (파일은 바뀌지 않았습니다)\n", id)
+		printRevertFiles(convertCheckpointFiles(result))
+		return
+	}
+
+	if !yes {
+		preview, err := taskrevert.Revert(context.Background(), t, true)
+		if err != nil {
+			reportRevertFailure(err)
+			os.Exit(1)
+		}
+		if !preview.Changed {
+			fmt.Println("바뀔 파일이 없습니다.")
+			return
+		}
+		printRevertPreview(preview)
+		if !confirmRevert() {
+			fmt.Println("취소했습니다.")
+			return
+		}
+	}
+
+	result, err := taskrevert.Revert(context.Background(), t, false)
+	if err != nil {
+		reportRevertFailure(err)
+		os.Exit(1)
+	}
+	fmt.Printf("✅ Task #%d 되돌리기 완료\n", id)
+	printRevertFiles(convertCheckpointFiles(result))
+	fmt.Println("ℹ️ 변경은 커밋하지 않은 상태로 작업 트리에 남아 있습니다.")
+}
+
+func runTaskRevertRemote(id int, dryRun, yes, undo bool) {
+	client := newCLIAPIClient()
+
+	if undo {
+		result, err := client.UndoRevertTask(id)
+		if err != nil {
+			reportRevertFailure(err)
+			os.Exit(1)
+		}
+		fmt.Printf("✅ Task #%d 되돌리기 취소 완료\n", id)
+		printRevertFiles(convertAPIFiles(result.Files))
+		fmt.Println("ℹ️ 변경은 커밋되지 않은 상태로 작업 트리에 남아 있습니다.")
+		return
+	}
+
+	if dryRun {
+		result, err := client.RevertTask(id, true)
+		if err != nil {
+			reportRevertFailure(err)
+			os.Exit(1)
+		}
+		fmt.Printf("🔍 Task #%d 되돌리기 미리보기 (파일은 바뀌지 않았습니다)\n", id)
+		printRevertFiles(convertAPIFiles(result.Files))
+		return
+	}
+
+	if !yes {
+		preview, err := client.RevertTask(id, true)
+		if err != nil {
+			reportRevertFailure(err)
+			os.Exit(1)
+		}
+		if len(preview.Files) > 0 {
+			printRevertPreviewRemote(preview)
+		} else {
+			fmt.Println("바뀔 파일이 없습니다.")
+			return
+		}
+		if !confirmRevert() {
+			fmt.Println("취소했습니다.")
+			return
+		}
+	}
+
+	result, err := client.RevertTask(id, false)
+	if err != nil {
+		reportRevertFailure(err)
+		os.Exit(1)
+	}
+	fmt.Printf("✅ Task #%d 되돌리기 완료\n", id)
+	printRevertFiles(convertAPIFiles(result.Files))
+	fmt.Println("ℹ️ 변경은 커밋하지 않은 상태로 작업 트리에 남아 있습니다.")
+}
+
+func newCLIAPIClient() *apiclient.Client {
+	client := apiclient.New()
+	if secret := config.GetString("auth_jwt_secret"); secret != "" {
+		if token, err := server.GenerateAccessToken(config.GetString("auth_username"), secret, time.Hour); err == nil {
+			client.SetToken(token)
+		}
+	}
+	return client
+}
+
+func printRevertPreview(result *taskrevert.Result) {
+	fmt.Printf("다음 파일이 원래 상태로 돌아갑니다:\n")
+	printRevertFiles(convertCheckpointFiles(result))
+	fmt.Println("ℹ️ 변경은 커밋하지 않은 상태로 작업 트리에 남아 있습니다.")
+}
+
+func printRevertPreviewRemote(result *apiclient.RevertResult) {
+	fmt.Printf("다음 파일이 원래 상태로 돌아갑니다:\n")
+	printRevertFiles(convertAPIFiles(result.Files))
+	fmt.Println("ℹ️ 변경은 커밋하지 않은 상태로 작업 트리에 남아 있습니다.")
+}
+
+func printRevertFiles(files []revertFileInfo) {
+	if len(files) == 0 {
+		fmt.Println("변경되는 파일이 없습니다.")
+		return
+	}
+	for _, f := range files {
+		path := f.Path
+		if f.OldPath != "" {
+			path = f.OldPath + " -> " + f.Path
+		}
+		counts := fmt.Sprintf("+%d -%d", f.Additions, f.Deletions)
+		if f.Binary {
+			counts = "binary"
+		}
+		fmt.Printf(" %s | %s (%s)\n", path, counts, f.Status)
+	}
+}
+
+func convertCheckpointFiles(result *taskrevert.Result) []revertFileInfo {
+	files := make([]revertFileInfo, 0, len(result.Files))
+	for _, f := range result.Files {
+		files = append(files, revertFileInfo{
+			Path: f.Path, OldPath: f.OldPath, Status: f.Status,
+			Additions: f.Additions, Deletions: f.Deletions, Binary: f.Binary,
+		})
+	}
+	return files
+}
+
+func convertAPIFiles(files []apiclient.RevertFile) []revertFileInfo {
+	out := make([]revertFileInfo, 0, len(files))
+	for _, f := range files {
+		out = append(out, revertFileInfo{
+			Path: f.Path, OldPath: f.OldPath, Status: f.Status,
+			Additions: f.Additions, Deletions: f.Deletions, Binary: f.Binary,
+		})
+	}
+	return out
+}
+
+func confirmRevert() bool {
+	fmt.Print("되돌릴까요? [y/N]: ")
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && line == "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
+func reportRevertFailure(err error) {
+	fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+	var apiErr *apiclient.RevertError
+	if errors.As(err, &apiErr) && len(apiErr.Conflicts) > 0 {
+		printConflictFiles(apiErr.Conflicts)
+		return
+	}
+	var localErr *taskrevert.Error
+	if errors.As(err, &localErr) && len(localErr.Conflicts) > 0 {
+		printConflictFiles(localErr.Conflicts)
+	}
+}
+
+func printConflictFiles(paths []string) {
+	fmt.Fprintln(os.Stderr, "충돌한 파일:")
+	for _, path := range paths {
+		fmt.Fprintf(os.Stderr, "  %s\n", path)
+	}
 }
 
 func printTaskDiffStat(cs *taskchanges.ChangeSet) {
@@ -3625,9 +3879,13 @@ func init() {
 	taskDiffCmd.Flags().Bool("patch", false, "print the full patch (usable with git apply)")
 	taskDiffCmd.Flags().String("file", "", "print the diff of a single file")
 	taskDiffCmd.Flags().Bool("live", false, "compare a running task with the current working tree")
+	taskRevertCmd.Flags().Bool("dry-run", false, "show files that would change without touching the working tree")
+	taskRevertCmd.Flags().Bool("yes", false, "skip the confirmation prompt")
+	taskRevertCmd.Flags().Bool("undo", false, "undo a previous revert")
 	taskCmd.AddCommand(taskStopCmd)
 	taskCmd.AddCommand(taskDetailCmd)
 	taskCmd.AddCommand(taskDiffCmd)
+	taskCmd.AddCommand(taskRevertCmd)
 	taskCmd.AddCommand(taskCancelAllCmd)
 	rootCmd.AddCommand(taskCmd)
 

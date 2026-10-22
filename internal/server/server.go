@@ -214,6 +214,8 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/tasks/:id/changes", s.handleTaskChanges)
 	api.Get("/tasks/:id/changes/diff", s.handleTaskChangesDiff)
 	api.Get("/tasks/:id/changes/patch", s.handleTaskChangesPatch)
+	api.Post("/tasks/:id/revert", s.handleRevertTask)
+	api.Post("/tasks/:id/revert/undo", s.handleUndoRevertTask)
 	api.Post("/tasks/:id/stop", s.handleStopTask)
 	api.Post("/tasks/:id/cancel", s.handleCancelTask)
 	api.Post("/tasks/:id/retry", s.handleRetryTask)

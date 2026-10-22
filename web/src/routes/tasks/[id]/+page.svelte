@@ -32,7 +32,24 @@
 	let fileDiffLoading = $state(false);
 	let fileDiffError = $state('');
 
+	// Revert / undo
+	let revertOpen = $state(false);
+	let revertLoading = $state(false);
+	let revertPreview = $state(null);
+	let revertConflicts = $state([]);
+	let revertError = $state('');
+	let reverting = $state(false);
+	let undoLoading = $state(false);
+	let actionError = $state('');
+
 	let taskId = $derived.by(() => $page.params.id);
+	let canRevert = $derived(
+		task &&
+			['completed', 'failed', 'stopped'].includes(task.status) &&
+			changes?.available &&
+			!task.reverted_at
+	);
+	let isReverted = $derived(!!task?.reverted_at);
 	let from = $derived.by(() => $page.url.searchParams.get('from'));
 	let backFromProject = $derived(from === 'project' && task?.project);
 	let backLink = $derived(backFromProject
@@ -77,6 +94,13 @@
 		unsubs.push(onSSE('task_stop', (data) => {
 			if (task && data.task_id === task.id) {
 				task = { ...task, status: 'stopped', error: data.reason };
+			}
+		}));
+
+		unsubs.push(onSSE('task_update', (data) => {
+			if (task && data.task_id === task.id) {
+				task = { ...task, reverted_at: data.reverted_at || '' };
+				loadChanges(false);
 			}
 		}));
 	});
@@ -160,6 +184,82 @@
 		URL.revokeObjectURL(url);
 	}
 
+	async function refreshTask() {
+		const res = await apiGet(`/api/tasks/${taskId}`);
+		if (res?.data) task = res.data;
+	}
+
+	async function openRevertModal() {
+		if (revertLoading || reverting) return;
+		revertOpen = true;
+		revertLoading = true;
+		revertPreview = null;
+		revertConflicts = [];
+		revertError = '';
+		try {
+			const res = await apiPost(`/api/tasks/${taskId}/revert`, { dry_run: true });
+			if (res?.success) {
+				revertPreview = res.data;
+			} else {
+				revertError = res?.message || '되돌리기 미리보기를 불러오지 못했습니다.';
+				revertConflicts = res?.conflicts || [];
+			}
+		} catch (err) {
+			revertError = err?.message || '되돌리기 미리보기를 불러오지 못했습니다.';
+		} finally {
+			revertLoading = false;
+		}
+	}
+
+	function closeRevertModal() {
+		if (reverting) return;
+		revertOpen = false;
+		revertPreview = null;
+		revertConflicts = [];
+		revertError = '';
+	}
+
+	async function confirmRevert() {
+		if (reverting || !revertPreview?.changed) return;
+		reverting = true;
+		revertError = '';
+		try {
+			const res = await apiPost(`/api/tasks/${taskId}/revert`, { dry_run: false });
+			if (res?.success) {
+				revertOpen = false;
+				await refreshTask();
+				await loadChanges(false);
+			} else {
+				revertError = res?.message || '되돌리지 못했습니다.';
+				revertConflicts = res?.conflicts || [];
+			}
+		} catch (err) {
+			revertError = err?.message || '되돌리지 못했습니다.';
+		} finally {
+			reverting = false;
+		}
+	}
+
+	async function undoRevert() {
+		if (undoLoading) return;
+		if (!confirm('되돌리기 취소를 실행할까요? 되돌린 뒤 생긴 다른 변경은 보존됩니다.')) return;
+		undoLoading = true;
+		actionError = '';
+		try {
+			const res = await apiPost(`/api/tasks/${taskId}/revert/undo`, {});
+			if (res?.success) {
+				await refreshTask();
+				await loadChanges(false);
+			} else {
+				actionError = res?.message || '되돌리기 취소에 실패했습니다.';
+			}
+		} catch (err) {
+			actionError = err?.message || '되돌리기 취소에 실패했습니다.';
+		} finally {
+			undoLoading = false;
+		}
+	}
+
 	function displayPath(file) {
 		if (file.status === 'renamed' && file.old_path) {
 			return `${file.old_path} → ${file.path}`;
@@ -223,6 +323,9 @@
 			<div class="detail-header">
 				<h1>Task #{task.id}</h1>
 				<StatusBadge status={task.status} />
+				{#if task.reverted_at}
+					<span class="reverted-badge">되돌림 ({task.reverted_at})</span>
+				{/if}
 				{#if task.status === 'pending'}
 					<button class="btn btn-danger cancel-pending" onclick={cancelPending} disabled={cancelling}>
 						{cancelling ? '...' : 'Cancel'}
@@ -324,8 +427,26 @@
 								{changesLive ? '현재까지 변경 다시 보기' : '현재까지 변경 보기'}
 							</button>
 						{/if}
+						{#if canRevert}
+							<button type="button" class="btn btn-sm revert-btn" onclick={openRevertModal}>
+								이 작업 되돌리기
+							</button>
+						{/if}
+						{#if isReverted}
+							<button
+								type="button"
+								class="btn btn-sm"
+								onclick={undoRevert}
+								disabled={undoLoading}
+							>
+								{undoLoading ? '...' : '되돌리기 취소'}
+							</button>
+						{/if}
 					</div>
 				</div>
+				{#if actionError}
+					<p class="changes-error">{actionError}</p>
+				{/if}
 
 				{#if changesLoading && !changes}
 					<p class="text-muted">Loading changes...</p>
@@ -420,6 +541,55 @@
 				</div>
 			{/if}
 		</div>
+
+	{#if revertOpen}
+		<div class="modal-overlay">
+			<div class="revert-modal card">
+				<div class="modal-header">
+					<h3>Task #{task.id} 되돌리기</h3>
+					<button class="btn btn-sm" onclick={closeRevertModal} disabled={reverting}>Close</button>
+				</div>
+
+				{#if revertLoading}
+					<p class="text-muted">바뀔 파일을 확인하는 중...</p>
+				{:else if revertConflicts.length}
+					<p class="revert-error">충돌이 있어 되돌릴 수 없습니다. 작업 트리는 바뀌지 않았습니다.</p>
+					<ul class="revert-file-list mono">
+						{#each revertConflicts as path}
+							<li class="conflict-path">{path}</li>
+						{/each}
+					</ul>
+				{:else if revertError}
+					<p class="revert-error">{revertError}</p>
+				{:else if revertPreview}
+					<p class="revert-notice">다음 파일이 이 작업 이전 상태로 돌아갑니다.</p>
+					{#if revertPreview.files?.length}
+						<ul class="revert-file-list mono">
+							{#each revertPreview.files as f (f.path)}
+								<li>
+									<span class="status-badge status-{f.status}">{f.status}</span>
+									<span>{f.old_path ? `${f.old_path} → ${f.path}` : f.path}</span>
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<p class="text-muted">바뀔 파일이 없습니다.</p>
+					{/if}
+					<p class="revert-warning">되돌린 변경은 커밋되지 않은 변경으로 작업 트리에 남습니다. 직접 확인한 뒤 커밋하세요.</p>
+					<div class="modal-actions">
+						<button class="btn" onclick={closeRevertModal} disabled={reverting}>취소</button>
+						<button
+							class="btn btn-danger"
+							onclick={confirmRevert}
+							disabled={reverting || !revertPreview.changed}
+						>
+							{reverting ? '되돌리는 중...' : '되돌리기'}
+						</button>
+					</div>
+				{/if}
+			</div>
+		</div>
+	{/if}
 	{/if}
 </div>
 
@@ -719,4 +889,99 @@
 	.files-list li {
 		padding: 2px 0;
 	}
+
+	.reverted-badge {
+		font-size: 11px;
+		padding: 2px 8px;
+		border-radius: var(--radius-full);
+		background: var(--warning-soft);
+		color: var(--warning);
+	}
+
+	.revert-btn {
+		font-size: 12px;
+	}
+
+	.modal-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 100;
+		padding: 20px;
+	}
+
+	.revert-modal {
+		width: 100%;
+		max-width: 560px;
+		max-height: 80vh;
+		overflow-y: auto;
+		padding: 20px;
+	}
+
+	.modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 14px;
+	}
+
+	.modal-header h3 {
+		margin: 0;
+		font-size: 16px;
+	}
+
+	.revert-notice {
+		font-size: 13px;
+		color: var(--text-secondary);
+		margin: 0 0 10px;
+	}
+
+	.revert-file-list {
+		list-style: none;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		max-height: 240px;
+		overflow-y: auto;
+		margin: 0 0 12px;
+		padding: 4px 0;
+		font-size: 12px;
+	}
+
+	.revert-file-list li {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 10px;
+		overflow-wrap: anywhere;
+	}
+
+	.conflict-path {
+		color: var(--danger);
+	}
+
+	.revert-warning {
+		font-size: 12px;
+		color: var(--warning);
+		background: var(--warning-soft);
+		padding: 8px 10px;
+		border-radius: var(--radius);
+		margin: 0 0 12px;
+	}
+
+	.revert-error {
+		font-size: 13px;
+		color: var(--danger);
+		margin: 0 0 12px;
+	}
+
+	.modal-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+	}
+
 </style>

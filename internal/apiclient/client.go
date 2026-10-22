@@ -113,7 +113,7 @@ func (c *Client) Login(username, password string) error {
 // ListSheep returns the list of sheep from the daemon.
 func (c *Client) ListSheep() ([]SheepInfo, error) {
 	var apiResp struct {
-		Success bool       `json:"success"`
+		Success bool        `json:"success"`
 		Data    []SheepInfo `json:"data"`
 	}
 	if err := c.get("/api/sheep", &apiResp); err != nil {
@@ -370,4 +370,100 @@ func (c *Client) post(path string, body []byte, result interface{}) error {
 	}
 
 	return json.NewDecoder(resp.Body).Decode(result)
+}
+
+// --- Task revert ---
+
+// RevertFile is one path a revert would change.
+type RevertFile struct {
+	Path      string `json:"path"`
+	OldPath   string `json:"old_path,omitempty"`
+	Status    string `json:"status"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Binary    bool   `json:"binary"`
+}
+
+// RevertResult is the response of /api/tasks/:id/revert and its undo.
+type RevertResult struct {
+	Changed   bool         `json:"changed"`
+	Files     []RevertFile `json:"files"`
+	Conflicts []string     `json:"conflicts"`
+}
+
+// RevertError is a structured revert failure. Conflicts holds the paths that
+// blocked the 3-way merge.
+type RevertError struct {
+	StatusCode int
+	Message    string
+	Conflicts  []string
+}
+
+func (e *RevertError) Error() string { return e.Message }
+
+// RevertTask asks the daemon to revert a task. When dryRun is true nothing in
+// the working tree changes.
+func (c *Client) RevertTask(id int, dryRun bool) (*RevertResult, error) {
+	body, _ := json.Marshal(map[string]bool{"dry_run": dryRun})
+	return c.postRevert(fmt.Sprintf("/api/tasks/%d/revert", id), body)
+}
+
+// UndoRevertTask asks the daemon to undo a previous revert.
+func (c *Client) UndoRevertTask(id int) (*RevertResult, error) {
+	return c.postRevert(fmt.Sprintf("/api/tasks/%d/revert/undo", id), []byte("{}"))
+}
+
+func (c *Client) postRevert(path string, body []byte) (*RevertResult, error) {
+	req, err := http.NewRequest("POST", c.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var envelope struct {
+		Success   bool         `json:"success"`
+		Data      RevertResult `json:"data"`
+		Message   string       `json:"message"`
+		Conflicts []string     `json:"conflicts"`
+	}
+	if err := json.Unmarshal(respBody, &envelope); err != nil {
+		if resp.StatusCode >= 400 {
+			return nil, &RevertError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(respBody))}
+		}
+		return nil, fmt.Errorf("decode revert response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 || !envelope.Success {
+		msg := envelope.Message
+		if msg == "" {
+			msg = fmt.Sprintf("revert failed (status %d)", resp.StatusCode)
+		}
+		return nil, &RevertError{
+			StatusCode: resp.StatusCode,
+			Message:    msg,
+			Conflicts:  envelope.Conflicts,
+		}
+	}
+	result := envelope.Data
+	if result.Files == nil {
+		result.Files = []RevertFile{}
+	}
+	if result.Conflicts == nil {
+		result.Conflicts = []string{}
+	}
+	return &result, nil
 }
