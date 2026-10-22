@@ -231,9 +231,9 @@
 	}
 
 	.type-btn.active {
-		background: var(--accent);
-		color: #fff;
-		border-color: var(--accent);
+		background: var(--accent-soft);
+		color: var(--accent);
+		border-color: var(--accent-line);
 	}
 
 	.presets {
@@ -259,9 +259,9 @@
 	}
 
 	.preset-btn.active {
-		background: var(--accent);
-		color: #fff;
-		border-color: var(--accent);
+		background: var(--accent-soft);
+		color: var(--accent);
+		border-color: var(--accent-line);
 	}
 
 	.cron-input-row {
@@ -319,17 +319,6 @@
 		padding-top: 8px;
 	}
 
-	.btn-primary {
-		background: var(--accent);
-		color: #fff;
-		border-color: var(--accent);
-	}
 
-	.btn-primary:hover {
-		opacity: 0.9;
-	}
 
-	.btn-primary:disabled {
-		opacity: 0.5;
-	}
 </style>

@@ -1,11 +1,16 @@
 <script>
-	let { title = '', eyebrow = '', subtitle = '', tone = 'default', children } = $props();
+	// Section heading inside a page. `index` prints an editorial ordinal
+	// ("01") before the eyebrow; `tone` tints the eyebrow (live, accent).
+	let { title = '', eyebrow = '', subtitle = '', tone = 'default', index = '', children } = $props();
 </script>
 
 <header class="section-header" data-tone={tone}>
 	<div class="text">
-		{#if eyebrow}
-			<span class="eyebrow">{eyebrow}</span>
+		{#if eyebrow || index}
+			<span class="eyebrow-row">
+				{#if index}<span class="index">{index}</span>{/if}
+				{#if eyebrow}<span class="eyebrow">{eyebrow}</span>{/if}
+			</span>
 		{/if}
 		<h2 class="title">{title}</h2>
 		{#if subtitle}
@@ -24,42 +29,66 @@
 		display: flex;
 		align-items: flex-end;
 		justify-content: space-between;
-		gap: var(--space-3);
-		margin: 0 0 var(--space-3);
+		gap: var(--space-3) var(--space-4);
+		flex-wrap: wrap;
+		margin: 0 0 var(--space-4);
 	}
 
 	.text {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: 6px;
 		min-width: 0;
 	}
 
-	.eyebrow {
-		font-size: var(--fs-2xs);
-		font-weight: var(--fw-semibold);
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--text-tertiary);
+	.eyebrow-row {
+		display: inline-flex;
+		align-items: center;
+		gap: 10px;
 	}
 
-	.section-header[data-tone="live"] .eyebrow {
+	.index {
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		color: var(--accent);
+		letter-spacing: 0.04em;
+	}
+
+	.index::after {
+		content: '';
+		display: inline-block;
+		width: 18px;
+		height: 1px;
+		margin-left: 10px;
+		vertical-align: middle;
+		background: var(--accent-line);
+	}
+
+	.section-header[data-tone="live"] .eyebrow,
+	.section-header[data-tone="live"] .index {
 		color: var(--live);
 	}
 
+	.section-header[data-tone="live"] .index::after {
+		background: var(--live-line);
+	}
+
 	.title {
-		font-size: var(--fs-lg);
-		font-weight: var(--fw-semibold);
-		line-height: var(--lh-tight);
-		letter-spacing: -0.01em;
+		font-family: var(--font-display);
+		font-size: 30px;
+		font-weight: 400;
+		line-height: 1;
+		letter-spacing: -0.015em;
 		color: var(--text-primary);
 		margin: 0;
 	}
 
 	.subtitle {
 		font-size: var(--fs-xs);
-		color: var(--text-secondary);
+		font-family: var(--font-mono);
+		color: var(--text-tertiary);
 		margin: 0;
+		letter-spacing: -0.01em;
 	}
 
 	.actions {
@@ -67,15 +96,16 @@
 		display: flex;
 		gap: var(--space-2);
 		align-items: center;
+		flex-wrap: wrap;
 	}
 
 	@media (max-width: 480px) {
 		.section-header {
-			margin: 0 0 var(--space-2);
+			margin: 0 0 var(--space-3);
 		}
 
 		.title {
-			font-size: var(--fs-md);
+			font-size: 26px;
 		}
 	}
 </style>

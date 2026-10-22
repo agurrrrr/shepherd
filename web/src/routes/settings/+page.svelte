@@ -14,6 +14,8 @@
 	import SkillSyncSection from '$lib/components/Settings/SkillSyncSection.svelte';
 	import DataManagement from '$lib/components/Settings/DataManagement.svelte';
 	import AccountSettings from '$lib/components/Settings/AccountSettings.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	// NOTE: 이 컴포넌트는 아래 $derived 사용으로 Svelte 5 runes 모드다.
 	// runes 모드에서는 평범한 let 변수가 반응형이 아니므로 반드시 $state로 선언해야 한다.
@@ -38,13 +40,13 @@
 	// Tab state
 	let activeTab = $state('common');
 	const settingsTabs = [
-		{ value: 'common', label: '공통' },
-		{ value: 'claude', label: 'Claude' },
-		{ value: 'opencode', label: 'OpenCode' },
-		{ value: 'pi', label: 'Pi' },
-		{ value: 'grok', label: 'Grok' },
-		{ value: 'embedded', label: 'Embedded' },
-		{ value: 'magi', label: 'MAGI 🧠' }
+		{ value: 'common', label: '공통', hint: 'Daemon, prompts, wiki, alerts' },
+		{ value: 'claude', label: 'Claude', hint: 'Claude Code CLI' },
+		{ value: 'opencode', label: 'OpenCode', hint: 'OpenCode CLI' },
+		{ value: 'pi', label: 'Pi', hint: 'Pi coding agent' },
+		{ value: 'grok', label: 'Grok', hint: 'Grok CLI' },
+		{ value: 'embedded', label: 'Embedded', hint: 'Local & hosted endpoints' },
+		{ value: 'magi', label: 'MAGI', hint: 'Three-model deliberation' }
 	];
 
 	// 모든 탭을 항상 노출한다. 사용유무 토글이 각 provider 탭 안으로 이동했으므로,
@@ -197,226 +199,367 @@
 </script>
 
 <div class="page">
-	<h1 class="page-title">Settings</h1>
+	<PageHeader
+		eyebrow="Configure · Daemon"
+		title="Settings"
+		subtitle="Providers, prompts, notifications and housekeeping for this Shepherd daemon. Changes apply after Save; some need a restart."
+	/>
 
 	{#if loadError}
-		<div class="error-banner">{loadError}</div>
+		<div class="error-banner" role="alert"><Icon name="alert-triangle" size={15} /> {loadError}</div>
 	{/if}
 
 	{#if !loaded}
-		<p class="text-muted">Loading...</p>
-	{:else}
-		<!-- Tab Navigation -->
-		<div class="settings-tabs">
-			{#each visibleTabs as tab}
-				<button
-					class="settings-tab"
-					class:active={activeTab === tab.value}
-					onclick={() => activeTab = tab.value}
-				>
-					{tab.label}
-					{#if tab.value !== 'common'}
-						{#if !providerEnabled[tab.value]}
-							<span class="tab-badge tab-badge-off">OFF</span>
-						{:else}
-							<span class="tab-badge tab-badge-on">ON</span>
-						{/if}
-					{/if}
-				</button>
-			{/each}
+		<div class="settings-layout" aria-busy="true">
+			<div class="settings-nav">
+				{#each Array(7) as _}<div class="skeleton" style="height: 38px; margin-bottom: 4px"></div>{/each}
+			</div>
+			<div class="card"><div class="skeleton" style="height: 360px"></div></div>
 		</div>
+	{:else}
+		<div class="settings-layout">
+			<!-- Section navigation -->
+			<nav class="settings-nav" aria-label="Settings sections">
+				<span class="nav-caption">General</span>
+				{#each visibleTabs as tab, i}
+					{#if i === 1}<span class="nav-caption">Providers</span>{/if}
+					<button
+						class="settings-tab"
+						class:active={activeTab === tab.value}
+						aria-current={activeTab === tab.value ? 'page' : undefined}
+						onclick={() => activeTab = tab.value}
+					>
+						<span class="tab-text">
+							<span class="tab-label">{tab.label}</span>
+							<span class="tab-hint">{tab.hint}</span>
+						</span>
+						{#if tab.value !== 'common'}
+							<span
+								class="tab-state"
+								class:on={providerEnabled[tab.value]}
+								title={providerEnabled[tab.value] ? 'Enabled' : 'Disabled'}
+							>{providerEnabled[tab.value] ? 'On' : 'Off'}</span>
+						{/if}
+					</button>
+				{/each}
+			</nav>
 
-		<div class="settings-form card">
-			{#if activeTab === 'common'}
-				<CommonSettings {configData} />
-			{/if}
-			{#if activeTab === 'claude'}
-				<ClaudeSettings {configData} {providerEnabled} modelOptions={modelOptions.claude} />
-			{/if}
-			{#if activeTab === 'opencode'}
-				<OpenCodeSettings {configData} {providerEnabled} modelOptions={modelOptions.opencode} />
-			{/if}
-			{#if activeTab === 'pi'}
-				<PiSettings {configData} {providerEnabled} modelOptions={modelOptions.pi} />
-			{/if}
-			{#if activeTab === 'grok'}
-				<GrokSettings {configData} {providerEnabled} modelOptions={modelOptions.grok} {grokModelInfo} />
-			{/if}
-			{#if activeTab === 'embedded'}
-				<EmbeddedSettings {configData} {providerEnabled} reloadEndpoints={reloadEmbeddedEndpoints} />
-			{/if}
-			{#if activeTab === 'magi'}
-				<MagiSettings {configData} {providerEnabled} {modelOptions} />
-			{/if}
+			<div class="settings-main">
+				{#key activeTab}
+					<div class="settings-form card">
+						<header class="form-head">
+							<h2>{settingsTabs.find((t) => t.value === activeTab)?.label}</h2>
+							<span class="form-hint">{settingsTabs.find((t) => t.value === activeTab)?.hint}</span>
+						</header>
 
-			<!-- Save/Restart actions -->
-			<div class="setting-actions">
-				<button class="btn btn-primary" onclick={save} disabled={saving}>
-					{saving ? 'Saving...' : 'Save Settings'}
-				</button>
-				<button class="btn btn-restart" onclick={restart} disabled={restarting}>
-					{restarting ? 'Restarting...' : 'Restart Server'}
-				</button>
-				{#if saveMsg}
-					<span class="save-msg" class:error={saveMsg.startsWith('Error')}>{saveMsg}</span>
+						{#if activeTab === 'common'}
+							<CommonSettings {configData} />
+						{/if}
+						{#if activeTab === 'claude'}
+							<ClaudeSettings {configData} {providerEnabled} modelOptions={modelOptions.claude} />
+						{/if}
+						{#if activeTab === 'opencode'}
+							<OpenCodeSettings {configData} {providerEnabled} modelOptions={modelOptions.opencode} />
+						{/if}
+						{#if activeTab === 'pi'}
+							<PiSettings {configData} {providerEnabled} modelOptions={modelOptions.pi} />
+						{/if}
+						{#if activeTab === 'grok'}
+							<GrokSettings {configData} {providerEnabled} modelOptions={modelOptions.grok} {grokModelInfo} />
+						{/if}
+						{#if activeTab === 'embedded'}
+							<EmbeddedSettings {configData} {providerEnabled} reloadEndpoints={reloadEmbeddedEndpoints} />
+						{/if}
+						{#if activeTab === 'magi'}
+							<MagiSettings {configData} {providerEnabled} {modelOptions} />
+						{/if}
+
+						<!-- Save/Restart actions -->
+						<div class="setting-actions">
+							{#if saveMsg}
+								<span class="save-msg" class:error={saveMsg.startsWith('Error')} role="status">
+									<Icon name={saveMsg.startsWith('Error') ? 'alert-triangle' : 'check'} size={14} />
+									{saveMsg}
+								</span>
+							{/if}
+							<button class="btn btn-ghost" onclick={restart} disabled={restarting}>
+								<Icon name="refresh-cw" size={13} />
+								{restarting ? 'Restarting…' : 'Restart server'}
+							</button>
+							<button class="btn btn-primary" onclick={save} disabled={saving}>
+								{saving ? 'Saving…' : 'Save settings'}
+							</button>
+						</div>
+					</div>
+				{/key}
+
+				<!-- System Prompt Preview — provider 탭별로 표시 -->
+				{#if ['claude', 'opencode', 'pi', 'grok'].includes(activeTab)}
+					<div class="extra">
+						<PreviewSection provider={activeTab} />
+					</div>
+				{/if}
+
+				<!-- 공통 관리 섹션 — 공통 탭에만 표시 -->
+				{#if activeTab === 'common'}
+					<div class="extra"><AccountSettings /></div>
+					<div class="extra"><MCPSection {mcpStatus} {mcpLoaded} /></div>
+					<div class="extra"><SkillSyncSection /></div>
+					<div class="extra"><DataManagement {projectsList} /></div>
 				{/if}
 			</div>
 		</div>
-
-		<!-- System Prompt Preview — provider 탭별로 표시 -->
-		{#if activeTab === 'claude'}
-			<div style="margin-top:24px">
-				<PreviewSection provider="claude" />
-			</div>
-		{/if}
-		{#if activeTab === 'opencode'}
-			<div style="margin-top:24px">
-				<PreviewSection provider="opencode" />
-			</div>
-		{/if}
-		{#if activeTab === 'pi'}
-			<div style="margin-top:24px">
-				<PreviewSection provider="pi" />
-			</div>
-		{/if}
-		{#if activeTab === 'grok'}
-			<div style="margin-top:24px">
-				<PreviewSection provider="grok" />
-			</div>
-		{/if}
-
-		<!-- 공통 관리 섹션 — 공통 탭에만 표시 -->
-		{#if activeTab === 'common'}
-			<div style="margin-top:24px">
-				<AccountSettings />
-			</div>
-			<div style="margin-top:24px">
-				<MCPSection {mcpStatus} {mcpLoaded} />
-			</div>
-			<div style="margin-top:24px">
-				<SkillSyncSection />
-			</div>
-			<div style="margin-top:24px">
-				<DataManagement {projectsList} />
-			</div>
-		{/if}
 	{/if}
 </div>
 
 <style>
-	.page-title { font-size: 20px; font-weight: 600; margin-bottom: 20px; }
-	.text-muted { color: var(--text-secondary); }
+	.page { max-width: var(--content-max); }
+
+	.settings-layout {
+		display: grid;
+		grid-template-columns: 220px minmax(0, 820px);
+		gap: 28px;
+		align-items: start;
+	}
+
+	/* — Section nav — */
+	.settings-nav {
+		position: sticky;
+		top: 24px;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.nav-caption {
+		padding: 14px 12px 6px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
+
+	.nav-caption:first-child {
+		padding-top: 0;
+	}
+
+	.settings-tab {
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+		width: 100%;
+		padding: 8px 12px;
+		border: none;
+		border-radius: var(--radius);
+		background: transparent;
+		color: var(--text-secondary);
+		text-align: left;
+		cursor: pointer;
+		transition: background var(--dur-1) ease, color var(--dur-1) ease;
+	}
+
+	.settings-tab:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.settings-tab.active {
+		background:
+			linear-gradient(90deg, rgba(244, 184, 96, 0.1), rgba(244, 184, 96, 0.02)),
+			rgba(237, 230, 218, 0.03);
+		box-shadow: inset 0 0 0 1px rgba(244, 184, 96, 0.12);
+		color: var(--text-primary);
+	}
+
+	.settings-tab.active::before {
+		content: '';
+		position: absolute;
+		left: -10px;
+		top: 10px;
+		bottom: 10px;
+		width: 2px;
+		border-radius: 2px;
+		background: var(--accent);
+		box-shadow: 0 0 10px var(--accent-glow);
+	}
+
+	.tab-text {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.tab-label {
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+	}
+
+	.tab-hint {
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.tab-state {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
+
+	.tab-state::before {
+		content: '';
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		box-shadow: inset 0 0 0 1.5px var(--text-tertiary);
+	}
+
+	.tab-state.on {
+		color: var(--success);
+	}
+
+	.tab-state.on::before {
+		background: var(--success);
+		box-shadow: 0 0 8px rgba(159, 214, 133, 0.5);
+	}
+
+	/* — Form — */
+	.settings-main {
+		min-width: 0;
+	}
 
 	.settings-form {
-		max-width: 640px;
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
+		padding: 24px 26px 0;
+		animation: rise-in var(--dur-3) var(--ease-out) backwards;
 	}
 
+	.form-head {
+		display: flex;
+		align-items: baseline;
+		gap: 14px;
+		padding-bottom: 16px;
+		margin-bottom: 4px;
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.form-head h2 {
+		font-family: var(--font-display);
+		font-size: 32px;
+		font-weight: 400;
+		letter-spacing: -0.015em;
+	}
+
+	.form-hint {
+		font-size: var(--fs-xs);
+		color: var(--text-tertiary);
+	}
+
+	/* Action bar sticks to the bottom of the viewport while the form scrolls */
 	.setting-actions {
+		position: sticky;
+		bottom: 0;
+		z-index: 2;
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		margin-top: 8px;
-		padding-top: 16px;
+		justify-content: flex-end;
+		gap: 8px;
+		margin: 8px -26px 0;
+		padding: 14px 26px;
 		border-top: 1px solid var(--border);
+		border-radius: 0 0 var(--radius-md) var(--radius-md);
+		background: rgba(20, 20, 22, 0.88);
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
 	}
 
 	.save-msg {
-		font-size: 13px;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		margin-right: auto;
+		font-size: var(--fs-sm);
 		color: var(--success);
+		animation: rise-in var(--dur-2) var(--ease-out) backwards;
 	}
+
 	.save-msg.error {
 		color: var(--danger);
 	}
 
-	.btn-restart {
-		padding: 6px 16px;
-		font-size: 13px;
-		font-weight: 600;
-		background: var(--bg-tertiary);
-		color: var(--text-primary);
-		border: 1px solid var(--border);
-		border-radius: 6px;
-		cursor: pointer;
-		transition: background 0.15s, border-color 0.15s;
-	}
-	.btn-restart:hover {
-		border-color: var(--accent);
-		background: var(--bg-secondary);
-	}
-	.btn-restart:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
+	.extra {
+		margin-top: 20px;
 	}
 
 	.error-banner {
-		background: color-mix(in srgb, var(--danger) 15%, transparent);
-		color: var(--danger);
-		padding: 10px 16px;
-		border-radius: 8px;
-		margin-bottom: 16px;
-		font-size: 14px;
-	}
-
-	/* — Tab bar — */
-	.settings-tabs {
-		display: flex;
-		gap: 4px;
-		margin-bottom: 16px;
-		border-bottom: 2px solid var(--border);
-		padding-bottom: 0;
-	}
-	.settings-tab {
-		padding: 8px 16px;
-		font-size: 14px;
-		font-weight: 500;
-		background: transparent;
-		color: var(--text-secondary);
-		border: none;
-		border-bottom: 2px solid transparent;
-		margin-bottom: -2px;
-		cursor: pointer;
-		transition: color 0.15s, border-color 0.15s;
 		display: flex;
 		align-items: center;
-		gap: 6px;
-	}
-	.settings-tab:hover {
-		color: var(--text-primary);
-	}
-	.settings-tab.active {
-		color: var(--accent);
-		border-bottom-color: var(--accent);
-		font-weight: 600;
-	}
-	.tab-badge {
-		font-size: 10px;
-		font-weight: 700;
-		padding: 1px 6px;
-		border-radius: 8px;
-		letter-spacing: 0.5px;
-	}
-	.tab-badge-on {
-		background: color-mix(in srgb, var(--success) 20%, transparent);
-		color: var(--success);
-	}
-	.tab-badge-off {
-		background: color-mix(in srgb, var(--danger) 20%, transparent);
+		gap: 8px;
+		background: var(--danger-soft);
+		box-shadow: inset 0 0 0 1px var(--danger-line);
 		color: var(--danger);
+		padding: 10px 16px;
+		border-radius: var(--radius);
+		margin-bottom: 16px;
+		font-size: var(--fs-sm);
+	}
+
+	@media (max-width: 960px) {
+		.settings-layout {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 16px;
+		}
+
+		.settings-nav {
+			position: static;
+			flex-direction: row;
+			overflow-x: auto;
+			scrollbar-width: none;
+			gap: 4px;
+			padding-bottom: 2px;
+		}
+
+		.settings-nav::-webkit-scrollbar {
+			display: none;
+		}
+
+		.nav-caption,
+		.tab-hint {
+			display: none;
+		}
+
+		.settings-tab {
+			width: auto;
+			flex-shrink: 0;
+			white-space: nowrap;
+		}
+
+		.settings-tab.active::before {
+			display: none;
+		}
 	}
 
 	@media (max-width: 768px) {
-		.settings-tabs {
-			overflow-x: auto;
-			-webkit-overflow-scrolling: touch;
-			padding-bottom: 4px;
+		.settings-form {
+			padding: 18px 16px 0;
 		}
-		.settings-tab {
-			white-space: nowrap;
-			padding: 6px 10px;
-			font-size: 13px;
+
+		.setting-actions {
+			margin: 8px -16px 0;
+			padding: 12px 16px;
 		}
 	}
 </style>

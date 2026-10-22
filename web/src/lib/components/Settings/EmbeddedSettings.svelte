@@ -392,7 +392,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	<textarea
 		class="input textarea"
 		bind:value={configData.custom_prompt_embedded}
-		rows="4"
+		rows="6"
 		placeholder="임베디드 프로바이더 실행 시 추가로 전달할 지시문을 입력하세요."
 	></textarea>
 </div>
@@ -685,14 +685,15 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	}
 
 	.setting-row > label:not(.toggle) {
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 500;
-		flex: 0 0 140px;
+		flex: 0 0 180px;
+		color: var(--text-primary);
 	}
 
 	.setting-row .input {
 		flex: 1 1 200px;
-		max-width: 240px;
+		max-width: 340px;
 		min-width: 0;
 	}
 
@@ -706,7 +707,10 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		flex: none;
 	}
 
+	/* Column rows stack vertically, so the row's 200px flex-basis would become
+	   the field's height; let the field size itself instead. */
 	.setting-row.column .input {
+		flex: none;
 		max-width: none;
 	}
 
@@ -720,7 +724,8 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 
 	.hint {
 		font-size: 12px;
-		color: var(--text-secondary);
+		color: var(--text-tertiary);
+		line-height: 1.55;
 	}
 
 	.toggle {
@@ -917,19 +922,6 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		color: var(--accent);
 	}
 
-	.btn-sm {
-		padding: 4px 12px;
-		font-size: 12px;
-		font-weight: 600;
-		background: var(--accent);
-		color: white;
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: opacity 0.15s;
-	}
-	.btn-sm:hover { opacity: 0.85; }
-	.btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
 
 	.btn-outline {
 		background: transparent;

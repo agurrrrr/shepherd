@@ -236,8 +236,9 @@
 	.text-muted { color: var(--text-secondary); }
 	.hint {
 		font-size: 12px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		margin: 4px 0 0;
+		line-height: 1.55;
 	}
 
 	.mcp-section {

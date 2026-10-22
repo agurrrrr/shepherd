@@ -1,5 +1,6 @@
 <script>
 	import { apiPost, apiGet, apiUpload } from '$lib/api.js';
+	import Icon from './Icon.svelte';
 
 	// `thinking`: tri-state — true/false override the server default, null means
 	// "do not include the field" so the server applies opencode_thinking_default.
@@ -14,11 +15,28 @@
 	let lastResult = $state(null);
 	let attachedFiles = $state([]);
 	let fileInputEl = $state(null);
+	let fieldEl = $state(null);
 
 	// Show Stop/Inject when the sheep reports working OR a task is still marked
 	// running — the latter covers the desync where sheepStatus drops to 'idle'
 	// while a task is genuinely running (server restart, missed SSE event).
 	let isWorking = $derived(sheepStatus === 'working' || hasRunningTask);
+
+	// A textarea placeholder can't ellipsize, so phones get a shorter hint.
+	let compact = $state(false);
+	$effect(() => {
+		const mq = window.matchMedia('(max-width: 640px)');
+		compact = mq.matches;
+		const onChange = (e) => (compact = e.matches);
+		mq.addEventListener('change', onChange);
+		return () => mq.removeEventListener('change', onChange);
+	});
+
+	let placeholder = $derived.by(() => {
+		if (injectMode) return '추가 지시를 입력하세요...';
+		if (projectName) return compact ? 'Send a task…' : `Send a task to ${projectName}…`;
+		return compact ? 'Tell the flock what to do…' : 'Tell the flock what to do — “shepherd: fix the flaky test”';
+	});
 	let hasAttachments = $derived(attachedFiles.length > 0);
 
 	function openFilePicker() {
@@ -89,6 +107,17 @@
 		if (e.key !== 'Enter') return;
 		if (e.shiftKey) return; // Shift+Enter = newline
 		e.preventDefault();
+		await submit();
+	}
+
+	function autosize() {
+		if (!fieldEl) return;
+		fieldEl.style.height = 'auto';
+		fieldEl.style.height = Math.min(fieldEl.scrollHeight, 160) + 'px';
+	}
+
+	async function submit() {
+		if (loading) return;
 		if (!prompt.trim() && !hasAttachments) return;
 
 		// Inject mode: send via inject API instead of creating a new task
@@ -102,8 +131,7 @@
 		const text = prompt;
 		prompt = '';
 		// Reset textarea height
-		const ta = e.target;
-		if (ta) ta.style.height = 'auto';
+		if (fieldEl) fieldEl.style.height = 'auto';
 		const filesToUpload = [...attachedFiles];
 		attachedFiles = [];
 		injectMode = false;
@@ -162,8 +190,7 @@
 		lastResult = null;
 		const savedPrompt = text;
 		prompt = '';
-		const ta = document.querySelector('.command-field');
-		if (ta) ta.style.height = 'auto';
+		if (fieldEl) fieldEl.style.height = 'auto';
 		injectMode = false;
 
 		try {
@@ -214,22 +241,22 @@
 				{#if a.preview}
 					<img src={a.preview} alt={a.file.name} class="attachment-thumb" />
 				{:else}
-					<span class="attachment-file-icon">📄</span>
+					<span class="attachment-file-icon"><Icon name="file-text" size={14} /></span>
 				{/if}
 				<span class="attachment-name">{a.file.name}</span>
-				<span class="attachment-size">{formatSize(a.file.size)}</span>
-				<button class="attachment-remove" onclick={() => removeFile(i)} title="Remove">&times;</button>
+				<span class="attachment-size mono">{formatSize(a.file.size)}</span>
+				<button class="attachment-remove" onclick={() => removeFile(i)} title="Remove" aria-label="Remove {a.file.name}">
+					<Icon name="x" size={12} />
+				</button>
 			</div>
 		{/each}
 	</div>
 {/if}
 
-<div class="command-input">
+<div class="command-input" class:inject={injectMode} class:busy={loading}>
 	{#if projectName}
-		<button class="btn-attach" onclick={openFilePicker} title="Attach file" disabled={loading}>
-			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-				<path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
-			</svg>
+		<button class="btn-attach" onclick={openFilePicker} title="Attach file" aria-label="Attach file" disabled={loading}>
+			<Icon name="paperclip" size={17} stroke={1.8} />
 		</button>
 		<input
 			type="file"
@@ -239,210 +266,336 @@
 			onchange={handleFileSelect}
 			accept="image/*,.txt,.md,.json,.yaml,.yml,.csv,.log,.py,.js,.go,.rs,.java,.c,.cpp,.h,.ts,.svelte,.html,.css,.sql,.sh,.toml,.xml,.pdf"
 		/>
+	{:else}
+		<span class="prompt-glyph" aria-hidden="true">
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 6 13 12 7 18"/><line x1="15" y1="18" x2="19" y2="18"/></svg>
+		</span>
 	{/if}
 	<textarea
-		class="input command-field"
-		:class:inject={injectMode}
+		class="command-field"
+		bind:this={fieldEl}
 		bind:value={prompt}
 		onkeydown={handleKeydown}
 		onpaste={handlePaste}
-		placeholder={injectMode ? '추가 지시를 입력하세요...' : (projectName ? `Send a task to ${projectName}...` : 'Enter a command...')}
+		oninput={autosize}
+		{placeholder}
+		aria-label={injectMode ? '추가 지시' : 'Command'}
 		disabled={loading}
 		rows="1"
-		oninput={(e) => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
 	></textarea>
-	{#if isWorking}
+	<div class="command-actions">
+		{#if !prompt && !loading && !isWorking}
+			<span class="hint" aria-hidden="true"><kbd>↵</kbd> send <kbd>⇧↵</kbd> newline</span>
+		{/if}
+		{#if isWorking}
+			<button
+				class="btn btn-sm btn-live btn-inject"
+				class:active={injectMode}
+				onclick={() => { injectMode = !injectMode; fieldEl?.focus(); }}
+				disabled={loading || stopping}
+				aria-pressed={injectMode}
+				title="추가 지시 주입"
+			>
+				<Icon name="message-square" size={13} />
+				주입
+			</button>
+			<button class="btn btn-sm btn-danger btn-stop" onclick={handleStop} disabled={stopping} title="Stop the running task">
+				<Icon name="square" size={11} stroke={2.6} />
+				{stopping ? 'Stopping…' : 'Stop'}
+			</button>
+		{/if}
 		<button
-			class="btn btn-inject"
-			class:active={injectMode}
-			onclick={() => { injectMode = !injectMode; }}
-			disabled={loading || stopping}
-			title="추가 지시 주입"
+			class="send"
+			class:ready={!!prompt.trim() || hasAttachments}
+			onclick={submit}
+			disabled={loading || (!prompt.trim() && !hasAttachments)}
+			aria-label={injectMode ? 'Send instruction' : 'Send'}
+			title={injectMode ? 'Send instruction' : 'Send (Enter)'}
 		>
-			💬 주입
+			{#if loading}
+				<span class="spinner" aria-hidden="true"></span>
+			{:else}
+				<Icon name="arrow-up-right" size={16} stroke={2.2} />
+			{/if}
 		</button>
-		<button class="btn btn-stop" onclick={handleStop} disabled={stopping}>
-			{stopping ? '...' : 'Stop'}
-		</button>
-	{/if}
-	{#if loading}
-		<span class="command-status">Processing...</span>
-	{/if}
-	{#if lastResult?.message && !lastResult?.success}
-		<span class="command-status error">{lastResult.message}</span>
-	{/if}
+	</div>
 </div>
+{#if lastResult?.message && !lastResult?.success}
+	<p class="command-status error" role="alert">{lastResult.message}</p>
+{:else if lastResult?.success && lastResult?.message}
+	<p class="command-status success" role="status">{lastResult.message}</p>
+{/if}
 
 <style>
 	.file-input-hidden {
 		display: none;
 	}
+
+	.command-input {
+		display: flex;
+		align-items: flex-end;
+		gap: 6px;
+		min-height: 48px;
+		padding: 6px 6px 6px 8px;
+		border-radius: 12px;
+		background: var(--bg-input);
+		box-shadow: inset 0 0 0 1px var(--border-subtle), inset 0 1px 3px rgba(0, 0, 0, 0.4);
+		transition: box-shadow var(--dur-2) ease;
+	}
+
+	.command-input.inject {
+		box-shadow: inset 0 0 0 1px var(--live-line), inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 3px var(--live-soft);
+	}
+
+	.prompt-glyph,
 	.btn-attach {
 		flex-shrink: 0;
-		background: none;
-		border: none;
-		color: var(--text-secondary);
-		cursor: pointer;
-		padding: 4px;
-		border-radius: 4px;
-		display: flex;
-		align-items: center;
-		transition: color 0.15s, background 0.15s;
+		display: grid;
+		place-items: center;
+		width: 36px;
+		height: 36px;
+		color: var(--accent);
 	}
+
+	.btn-attach {
+		border: none;
+		border-radius: 9px;
+		background: none;
+		color: var(--text-tertiary);
+		cursor: pointer;
+		transition: color var(--dur-1) ease, background var(--dur-1) ease;
+	}
+
 	.btn-attach:hover {
 		color: var(--accent);
-		background: var(--bg-tertiary);
+		background: var(--bg-hover);
 	}
+
 	.btn-attach:disabled {
 		opacity: 0.4;
 		cursor: not-allowed;
 	}
+
+	.command-field {
+		flex: 1;
+		min-width: 0;
+		min-height: 36px;
+		max-height: 160px;
+		padding: 8px 4px;
+		border: none;
+		border-radius: 0;
+		background: transparent;
+		box-shadow: none;
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: 15px;
+		line-height: 20px;
+		letter-spacing: -0.005em;
+		resize: none;
+		overflow-y: auto;
+		outline: none;
+	}
+
+	.command-field:hover,
+	.command-field:focus {
+		border: none;
+		box-shadow: none;
+	}
+
+	.command-field::placeholder {
+		color: var(--text-tertiary);
+	}
+
+	/* Keep the hint on one line — a wrapped hint is clipped by the one-row
+	   field. Only applies while empty, so typed text still wraps. */
+	.command-field:placeholder-shown {
+		white-space: nowrap;
+		overflow: hidden;
+	}
+
+	.command-field:disabled {
+		opacity: 0.6;
+	}
+
+	.command-actions {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		height: 36px;
+	}
+
+	.hint {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		margin-right: 6px;
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+		white-space: nowrap;
+	}
+
+	.hint kbd + kbd,
+	.hint kbd:nth-of-type(2) {
+		margin-left: 6px;
+	}
+
+	.btn-inject.active {
+		background: var(--live);
+		border-color: var(--live);
+		color: var(--live-ink);
+	}
+
+	.send {
+		display: grid;
+		place-items: center;
+		width: 36px;
+		height: 36px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		background: var(--bg-3);
+		color: var(--text-tertiary);
+		cursor: pointer;
+		transition: background var(--dur-2) ease, color var(--dur-1) ease, border-color var(--dur-1) ease, box-shadow var(--dur-2) ease, transform var(--dur-1) ease;
+	}
+
+	.send.ready {
+		border-color: rgba(255, 214, 150, 0.6);
+		background: linear-gradient(180deg, #ffc977, var(--accent));
+		color: var(--accent-ink);
+		box-shadow: inset 0 1px 0 rgba(255, 244, 220, 0.55), 0 6px 18px -8px var(--accent-glow);
+	}
+
+	.inject .send.ready {
+		border-color: var(--live);
+		background: var(--live);
+		color: var(--live-ink);
+		box-shadow: 0 6px 18px -8px var(--live-glow);
+	}
+
+	.send.ready:hover {
+		transform: translateY(-1px);
+	}
+
+	.send:disabled {
+		cursor: default;
+	}
+
+	.send:disabled:not(.ready) {
+		opacity: 0.7;
+	}
+
+	.spinner {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		border: 2px solid rgba(26, 18, 6, 0.25);
+		border-top-color: currentColor;
+		animation: spin 700ms linear infinite;
+	}
+
+	.command-status {
+		margin: 8px 4px 0;
+		font-size: var(--fs-xs);
+		color: var(--text-secondary);
+	}
+
+	.command-status.success {
+		color: var(--success);
+	}
+
+	.command-status.error {
+		color: var(--danger);
+	}
+
+	/* Attachments */
 	.attachments-bar {
 		display: flex;
 		gap: 6px;
 		flex-wrap: wrap;
-		margin-bottom: 6px;
+		margin-bottom: 8px;
 	}
+
 	.attachment-chip {
 		display: flex;
 		align-items: center;
-		gap: 4px;
-		background: var(--bg-tertiary);
+		gap: 6px;
+		padding: 4px 6px 4px 4px;
 		border: 1px solid var(--border);
-		border-radius: 6px;
-		padding: 3px 6px;
-		font-size: 11px;
+		border-radius: 9px;
+		background: var(--bg-3);
+		font-size: var(--fs-2xs);
+		animation: rise-in var(--dur-2) var(--ease-out) backwards;
 	}
+
 	.attachment-thumb {
-		width: 24px;
-		height: 24px;
+		width: 26px;
+		height: 26px;
 		object-fit: cover;
-		border-radius: 3px;
+		border-radius: 6px;
 	}
+
 	.attachment-file-icon {
-		font-size: 14px;
+		display: grid;
+		place-items: center;
+		width: 26px;
+		height: 26px;
+		border-radius: 6px;
+		background: var(--bg-4);
+		color: var(--text-secondary);
 	}
+
 	.attachment-name {
-		max-width: 120px;
+		max-width: 140px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--text-primary);
 	}
+
 	.attachment-size {
-		color: var(--text-secondary);
+		color: var(--text-tertiary);
 	}
+
 	.attachment-remove {
-		background: none;
+		display: grid;
+		place-items: center;
+		width: 18px;
+		height: 18px;
 		border: none;
-		color: var(--text-secondary);
+		border-radius: 50%;
+		background: none;
+		color: var(--text-tertiary);
 		cursor: pointer;
-		font-size: 14px;
-		line-height: 1;
-		padding: 0 2px;
 	}
+
 	.attachment-remove:hover {
 		color: var(--danger);
-	}
-	.command-input {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		flex-wrap: wrap;
-	}
-	.command-field {
-		flex: 1;
-		min-width: 200px;
-		font-family: var(--font-mono);
-		resize: none;
-		overflow-y: hidden;
-		line-height: 1.4;
-	}
-	.command-field.inject {
-		border-color: var(--live, #22c55e);
-		box-shadow: 0 0 0 1px var(--live, #22c55e44);
-	}
-	.command-status {
-		font-size: 12px;
-		color: var(--text-secondary);
-	}
-	.command-status.success {
-		color: var(--success);
-	}
-	.command-status.error {
-		color: var(--danger);
-	}
-	.btn-stop {
-		flex-shrink: 0;
-		padding: 4px 12px;
-		font-size: 12px;
-		font-weight: 600;
-		background: var(--danger, #e53e3e);
-		color: #fff;
-		border: none;
-		border-radius: 4px;
-		cursor: pointer;
-		transition: opacity 0.15s;
-	}
-	.btn-stop:hover {
-		opacity: 0.85;
-	}
-	.btn-stop:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-	.btn-inject {
-		flex-shrink: 0;
-		padding: 4px 12px;
-		font-size: 12px;
-		font-weight: 600;
-		background: var(--live, #22c55e);
-		color: #fff;
-		border: none;
-		border-radius: 4px;
-		cursor: pointer;
-		transition: opacity 0.15s, background 0.15s;
-	}
-	.btn-inject:hover {
-		opacity: 0.85;
-	}
-	.btn-inject.active {
-		background: var(--live, #22c55e);
-		box-shadow: 0 0 0 2px var(--live, #22c55e88);
-	}
-	.btn-inject:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
+		background: var(--danger-soft);
 	}
 
 	@media (max-width: 768px) {
 		.command-field {
-			min-width: 0;
 			font-size: 16px;
 		}
 
-		.btn-attach {
-			padding: 8px;
-			min-width: 44px;
-			min-height: 44px;
-			display: flex;
-			align-items: center;
-			justify-content: center;
+		.hint {
+			display: none;
+		}
+
+		.btn-attach,
+		.send {
+			width: 40px;
+			height: 40px;
+		}
+
+		.command-actions {
+			height: 40px;
 		}
 
 		.attachment-thumb {
 			width: 32px;
 			height: 32px;
-		}
-
-		.btn-stop {
-			padding: 8px 14px;
-			font-size: 13px;
-		}
-
-		.btn-inject {
-			padding: 8px 14px;
-			font-size: 13px;
 		}
 	}
 </style>

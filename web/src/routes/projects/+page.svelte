@@ -4,14 +4,17 @@
 	import { sheep, projects as projectsStore } from '$lib/stores.js';
 	import { onSSE } from '$lib/sse.js';
 	import Icon from '$lib/components/Icon.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
 
-	let projects = [];
-	let loaded = false;
-	let showAdd = false;
-	let newName = '';
-	let newPath = '';
-	let newDesc = '';
-	let adding = false;
+	let projects = $state([]);
+	let loaded = $state(false);
+	let showAdd = $state(false);
+	let newName = $state('');
+	let newPath = $state('');
+	let newDesc = $state('');
+	let adding = $state(false);
+	let query = $state('');
 	let unsubs = [];
 
 	onMount(async () => {
@@ -40,10 +43,8 @@
 		if (res?.data) sheep.set(res.data);
 	}
 
-	function getSheepStatus(projectName) {
-		const list = $sheep || [];
-		const s = list.find(s => s.project === projectName);
-		return s?.status || 'idle';
+	function sheepFor(projectName) {
+		return ($sheep || []).find(s => s.project === projectName);
 	}
 
 	async function addProject() {
@@ -74,85 +75,139 @@
 		await apiDelete(`/api/projects/${encodeURIComponent(name)}`);
 		await loadProjects();
 	}
+
+	let filtered = $derived.by(() => {
+		const q = query.trim().toLowerCase();
+		if (!q) return projects;
+		return projects.filter((p) =>
+			[p.name, p.description, p.path, p.sheep].some((v) => (v || '').toLowerCase().includes(q))
+		);
+	});
+
+	let workingCount = $derived(projects.filter((p) => sheepFor(p.name)?.status === 'working').length);
+	let hiddenCount = $derived(projects.filter((p) => p.hidden).length);
 </script>
 
 <div class="page">
-	<div class="page-header">
-		<div class="page-header-left">
-			<h1>Projects</h1>
-			<span class="count-badge">{projects.length}</span>
-		</div>
-		<button class="btn btn-primary" onclick={() => showAdd = !showAdd}>
-			{showAdd ? 'Cancel' : '+ Add'}
+	<PageHeader
+		eyebrow="Watch · Pastures"
+		title="Projects"
+		count={projects.length}
+		subtitle={`Every repository the flock tends${workingCount ? ` — ${workingCount} being worked on right now` : ''}. Hidden projects (${hiddenCount}) stay here but leave the sidebar.`}
+	>
+		<input
+			class="input input-search filter"
+			type="search"
+			bind:value={query}
+			placeholder="Filter projects…"
+			aria-label="Filter projects"
+		/>
+		<button class="btn" class:btn-primary={!showAdd} onclick={() => showAdd = !showAdd} aria-expanded={showAdd}>
+			<Icon name={showAdd ? 'x' : 'plus'} size={14} stroke={2.2} />
+			{showAdd ? 'Cancel' : 'Add project'}
 		</button>
-	</div>
+	</PageHeader>
 
 	{#if showAdd}
-		<div class="card add-form">
+		<form class="card add-form" onsubmit={(e) => { e.preventDefault(); addProject(); }}>
+			<div class="add-head">
+				<h2 class="add-title">A new pasture</h2>
+				<p class="text-muted">Point Shepherd at a directory on this machine. A sheep can be assigned afterwards.</p>
+			</div>
 			<div class="form-row">
 				<div class="form-group">
-					<label>Name</label>
-					<input class="input" bind:value={newName} placeholder="my-project" />
+					<label for="np-name">Name</label>
+					<input id="np-name" class="input" bind:value={newName} placeholder="my-project" />
 				</div>
 				<div class="form-group">
-					<label>Path</label>
-					<input class="input" bind:value={newPath} placeholder="/home/user/code/my-project" />
+					<label for="np-path">Path</label>
+					<input id="np-path" class="input mono" bind:value={newPath} placeholder="/home/user/code/my-project" />
 				</div>
 			</div>
 			<div class="form-group">
-				<label>Description</label>
-				<input class="input" bind:value={newDesc} placeholder="Optional description" />
+				<label for="np-desc">Description</label>
+				<input id="np-desc" class="input" bind:value={newDesc} placeholder="Optional description" />
 			</div>
-			<button class="btn btn-primary" onclick={addProject} disabled={adding || !newName || !newPath}>
-				{adding ? 'Adding...' : 'Create Project'}
-			</button>
-		</div>
+			<div class="add-actions">
+				<button type="submit" class="btn btn-primary" disabled={adding || !newName || !newPath}>
+					{adding ? 'Adding…' : 'Create project'}
+				</button>
+			</div>
+		</form>
 	{/if}
 
 	{#if !loaded}
-		<p class="text-muted">Loading...</p>
+		<div class="project-grid" aria-busy="true">
+			{#each Array(9) as _}
+				<div class="card project-card">
+					<div class="skeleton" style="height: 14px; width: 45%"></div>
+					<div class="skeleton" style="height: 10px; width: 30%; margin-top: 10px"></div>
+					<div class="skeleton" style="height: 10px; width: 70%; margin-top: 18px"></div>
+				</div>
+			{/each}
+		</div>
 	{:else if projects.length === 0}
-		<div class="card empty-state">
-			<p>No projects yet.</p>
-			<p class="text-muted">Add a project to get started.</p>
+		<div class="card">
+			<EmptyState icon="sheep" title="No pastures yet" description="Add a project to give the flock somewhere to work." />
+		</div>
+	{:else if filtered.length === 0}
+		<div class="card">
+			<EmptyState icon="list" title="Nothing matches" description={`No project name, path or description contains “${query}”.`} />
 		</div>
 	{:else}
 		<div class="project-grid">
-			{#each projects as p}
-				{@const status = getSheepStatus(p.name)}
-				<a href="/projects/{encodeURIComponent(p.name)}" class="project-card card" class:working={status === 'working'} class:hidden-project={p.hidden}>
+			{#each filtered as p, i (p.name)}
+				{@const sh = sheepFor(p.name)}
+				{@const status = sh?.status || 'idle'}
+				<a
+					href="/projects/{encodeURIComponent(p.name)}"
+					class="project-card card reveal"
+					class:working={status === 'working'}
+					class:error={status === 'error'}
+					class:hidden-project={p.hidden}
+					style="--i: {i}"
+				>
 					<div class="card-top">
-						<div class="card-name-row">
-							<span class="status-dot {status}"></span>
-							<span class="project-name">{p.name}</span>
-							{#if p.hidden}
-								<span class="hidden-tag">hidden</span>
-							{/if}
-						</div>
+						<span class="project-name">{p.name}</span>
 						<div class="card-actions">
 							<button
-								class="btn-icon"
+								class="act"
 								class:pinned={p.hidden}
 								title={p.hidden ? 'Show in sidebar' : 'Hide from sidebar'}
 								aria-label={p.hidden ? 'Show in sidebar' : 'Hide from sidebar'}
 								onclick={(e) => { e.preventDefault(); e.stopPropagation(); toggleHidden(p.name, !p.hidden); }}
-							><Icon name={p.hidden ? 'eye-off' : 'eye'} size={15} /></button>
+							><Icon name={p.hidden ? 'eye-off' : 'eye'} size={14} /></button>
 							<button
-								class="btn-remove"
+								class="act act-danger"
 								title="Remove"
+								aria-label="Remove {p.name}"
 								onclick={(e) => { e.preventDefault(); e.stopPropagation(); removeProject(p.name); }}
-							>&times;</button>
+							><Icon name="trash" size={14} /></button>
 						</div>
 					</div>
-					{#if p.sheep}
-						<span class="sheep-tag">{p.sheep}</span>
-					{:else}
-						<span class="sheep-tag unassigned">no sheep</span>
-					{/if}
+
+					<div class="sheep-row">
+						{#if p.sheep}
+							<span class="sheep-ava" aria-hidden="true">{[...p.sheep][0]}</span>
+							<span class="sheep-name">{p.sheep}</span>
+							{#if sh?.provider}<span class="provider mono">{sh.provider}</span>{/if}
+						{:else}
+							<span class="sheep-name unassigned">No sheep</span>
+						{/if}
+						{#if status === 'working'}
+							<span class="state live"><span class="live-dot"></span>Working</span>
+						{:else if status === 'error'}
+							<span class="state bad">Error</span>
+						{:else if p.hidden}
+							<span class="state">Hidden</span>
+						{/if}
+					</div>
+
 					{#if p.description}
 						<p class="project-desc">{p.description}</p>
 					{/if}
-					<span class="project-path">{p.path}</span>
+					<span class="project-path mono" title={p.path}>{p.path}</span>
+					<span class="go" aria-hidden="true"><Icon name="arrow-up-right" size={14} /></span>
 				</a>
 			{/each}
 		</div>
@@ -160,219 +215,268 @@
 </div>
 
 <style>
-	.page { max-width: 1200px; }
+	.page { max-width: var(--content-max); }
 
-	.page-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 16px;
+	.filter {
+		width: 220px;
+		padding-top: 6px;
+		padding-bottom: 6px;
+		font-size: var(--fs-sm);
 	}
 
-	.page-header-left {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-	}
-
-	.page-header h1 { font-size: 20px; font-weight: 600; }
-
-	.count-badge {
-		font-size: 12px;
-		font-family: var(--font-mono);
-		background: var(--bg-tertiary);
-		padding: 2px 8px;
-		border-radius: 10px;
-		color: var(--text-secondary);
-	}
-
-	.text-muted { color: var(--text-secondary); }
-
+	/* Add form */
 	.add-form {
-		margin-bottom: 16px;
+		margin-bottom: var(--space-6);
+		padding: 22px;
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
+		gap: 14px;
+		border-color: var(--accent-line);
+		animation: rise-in var(--dur-3) var(--ease-out) backwards;
+	}
+
+	.add-head {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		margin-bottom: 4px;
+	}
+
+	.add-title {
+		font-family: var(--font-display);
+		font-size: 28px;
+		font-weight: 400;
+	}
+
+	.add-head p {
+		font-size: var(--fs-sm);
 	}
 
 	.form-row {
 		display: grid;
 		grid-template-columns: 1fr 2fr;
-		gap: 10px;
+		gap: 12px;
 	}
 
 	.form-group {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: 6px;
 	}
 
 	.form-group label {
-		font-size: 12px;
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
 		color: var(--text-secondary);
 	}
 
-	.form-group .input { width: 100%; }
+	.form-group .input { width: 100%; font-size: var(--fs-sm); }
 
-	/* Project Grid */
+	.add-actions {
+		display: flex;
+		justify-content: flex-end;
+	}
+
+	/* Grid */
 	.project-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-		gap: 10px;
+		grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+		gap: 12px;
 	}
 
 	.project-card {
+		position: relative;
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
-		padding: 12px 14px;
-		text-decoration: none;
-		color: inherit;
-		transition: border-color 0.15s;
+		gap: 8px;
+		min-height: 128px;
+		padding: 16px 16px 14px;
+		overflow: hidden;
 	}
 
 	.project-card:hover {
-		border-color: var(--accent);
-		text-decoration: none;
-		color: inherit;
+		transform: translateY(-2px);
+		box-shadow: var(--sheen), var(--shadow-2);
 	}
 
 	.project-card.working {
-		border-color: var(--accent);
+		border-color: var(--live-line);
+		background:
+			radial-gradient(100% 80% at 0% 0%, rgba(95, 224, 194, 0.09), transparent 60%),
+			var(--bg-2);
+	}
+
+	.project-card.error {
+		border-color: var(--danger-line);
 	}
 
 	.card-top {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-	}
-
-	.card-name-row {
-		display: flex;
-		align-items: center;
-		gap: 6px;
+		gap: 8px;
 	}
 
 	.project-name {
-		font-weight: 600;
-		font-size: 14px;
-	}
-
-	/* Status dot */
-	.status-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	.status-dot.idle { background: var(--text-secondary); }
-	.status-dot.working {
-		background: var(--accent);
-		animation: pulse 1.5s ease-in-out infinite;
-	}
-	.status-dot.error { background: var(--danger); }
-
-	@keyframes pulse {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.4; }
+		min-width: 0;
+		font-weight: var(--fw-semibold);
+		font-size: 15px;
+		letter-spacing: -0.012em;
+		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.card-actions {
 		display: flex;
 		align-items: center;
 		gap: 2px;
+		margin-right: -6px;
 	}
 
-	.btn-remove,
-	.btn-icon {
-		background: none;
+	.act {
+		display: grid;
+		place-items: center;
+		width: 26px;
+		height: 26px;
 		border: none;
-		color: var(--text-secondary);
-		font-size: 16px;
+		border-radius: 7px;
+		background: none;
+		color: var(--text-tertiary);
 		cursor: pointer;
-		padding: 0 4px;
 		opacity: 0;
-		transition: opacity 0.15s, color 0.15s;
+		transition: opacity var(--dur-1) ease, color var(--dur-1) ease, background var(--dur-1) ease;
 	}
 
-	.btn-icon {
-		display: flex;
-		align-items: center;
-	}
-
-	.project-card:hover .btn-remove,
-	.project-card:hover .btn-icon {
+	.project-card:hover .act,
+	.project-card:focus-within .act,
+	.act:focus-visible {
 		opacity: 1;
 	}
 
+	.act:hover {
+		color: var(--text-primary);
+		background: var(--bg-hover);
+	}
+
+	.act-danger:hover {
+		color: var(--danger);
+		background: var(--danger-soft);
+	}
+
 	/* Hidden projects keep the toggle visible so it can be undone at a glance. */
-	.btn-icon.pinned {
+	.act.pinned {
 		opacity: 1;
 		color: var(--accent);
 	}
 
-	.btn-remove:hover {
-		color: var(--danger);
+	.sheep-row {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		min-width: 0;
+		font-size: var(--fs-xs);
 	}
 
-	.btn-icon:hover {
+	.sheep-ava {
+		display: grid;
+		place-items: center;
+		width: 18px;
+		height: 18px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: var(--wool-soft);
+		color: var(--wool);
+		font-size: 10px;
+		font-weight: var(--fw-semibold);
+	}
+
+	.working .sheep-ava {
+		background: var(--live-soft);
+		color: var(--live);
+	}
+
+	.sheep-name {
+		color: var(--text-secondary);
+		white-space: nowrap;
+	}
+
+	.sheep-name.unassigned {
+		color: var(--text-tertiary);
+		font-style: italic;
+	}
+
+	.provider {
+		font-size: 10px;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
+
+	.state {
+		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+	}
+
+	.state.live { color: var(--live); }
+	.state.bad { color: var(--danger); }
+
+	.project-desc {
+		font-size: var(--fs-xs);
+		line-height: 1.5;
+		color: var(--text-secondary);
+		margin: 0;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.project-path {
+		margin-top: auto;
+		padding-right: 22px;
+		font-size: 10.5px;
+		color: var(--text-tertiary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.go {
+		position: absolute;
+		right: 14px;
+		bottom: 12px;
+		color: var(--text-tertiary);
+		opacity: 0;
+		transform: translate(-4px, 4px);
+		transition: opacity var(--dur-2) ease, transform var(--dur-2) var(--ease-out), color var(--dur-1) ease;
+	}
+
+	.project-card:hover .go {
+		opacity: 1;
+		transform: none;
 		color: var(--accent);
 	}
 
 	.hidden-project {
-		opacity: 0.55;
+		opacity: 0.5;
 	}
 
 	.hidden-project:hover {
 		opacity: 1;
 	}
 
-	.hidden-tag {
-		font-size: 10px;
-		font-family: var(--font-mono);
-		color: var(--text-secondary);
-		background: var(--bg-tertiary);
-		border-radius: 8px;
-		padding: 1px 6px;
-	}
-
-	.sheep-tag {
-		font-size: 11px;
-		color: var(--accent);
-		font-family: var(--font-mono);
-	}
-
-	.sheep-tag.unassigned {
-		color: var(--text-secondary);
-		font-style: italic;
-	}
-
-	.project-desc {
-		font-size: 12px;
-		color: var(--text-secondary);
-		margin: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.project-path {
-		font-size: 11px;
-		color: var(--text-secondary);
-		font-family: var(--font-mono);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		opacity: 0.6;
-	}
-
-	.empty-state {
-		text-align: center;
-		padding: 40px 20px;
-	}
-
 	@media (max-width: 768px) {
+		.filter {
+			flex: 1;
+			width: auto;
+		}
+
 		.form-row {
 			grid-template-columns: 1fr;
 		}
@@ -381,8 +485,7 @@
 			grid-template-columns: 1fr;
 		}
 
-		.btn-remove,
-		.btn-icon {
+		.act {
 			opacity: 1;
 		}
 	}

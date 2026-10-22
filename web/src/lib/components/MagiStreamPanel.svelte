@@ -14,9 +14,10 @@
 
 	// Persona metadata per slot — defaults, overridden by 🧩 announcement lines
 	const defaultPersonaInfo = [
-		{ emoji: '🔬', name: 'MELCHIOR-1', color: '#58a6ff' },
-		{ emoji: '📜', name: 'BALTHASAR-2', color: '#f0883e' },
-		{ emoji: '⚡', name: 'CASPER-3', color: '#56d364' },
+		// Slot colours come from the Nocturne palette (--info / --warning / --success)
+		{ emoji: '🔬', name: 'MELCHIOR-1', color: '#8fc1ff' },
+		{ emoji: '📜', name: 'BALTHASAR-2', color: '#ff9a5c' },
+		{ emoji: '⚡', name: 'CASPER-3', color: '#9fd685' },
 	];
 
 	// Dynamic persona info — updated when the orchestrator emits 🧩 lines
@@ -269,13 +270,13 @@
 	}
 
 	.proposer-status.done {
-		color: var(--success, #56d364);
-		background: rgba(86, 211, 100, 0.15);
+		color: var(--success);
+		background: var(--success-soft);
 	}
 
 	.proposer-status.streaming {
-		color: var(--warning, #f0883e);
-		background: rgba(240, 136, 62, 0.15);
+		color: var(--warning);
+		background: var(--warning-soft);
 		animation: pulse 1.5s ease-in-out infinite;
 	}
 
@@ -378,7 +379,7 @@
 	}
 
 	.proposer-summary.fail {
-		color: var(--danger, #f85149);
+		color: var(--danger);
 	}
 
 	/* ── Unified panel ── */

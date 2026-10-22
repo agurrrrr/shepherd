@@ -45,9 +45,10 @@
 
 	function statusColor(status) {
 		switch (status) {
-			case 'done': return '#22c55e';
-			case 'error': return '#ef4444';
-			default: return '#3b82f6';
+			// Nocturne palette: --success / --danger / --live (running = alive)
+			case 'done': return '#9fd685';
+			case 'error': return '#ff6b61';
+			default: return '#5fe0c2';
 		}
 	}
 
@@ -202,19 +203,19 @@
 	}
 
 	.status-running {
-		color: #3b82f6;
-		background: rgba(59, 130, 246, 0.15);
+		color: var(--live);
+		background: var(--live-soft);
 		animation: subagent-pulse 1.5s ease-in-out infinite;
 	}
 
 	.status-done {
-		color: #22c55e;
-		background: rgba(34, 197, 94, 0.15);
+		color: var(--success);
+		background: var(--success-soft);
 	}
 
 	.status-error {
-		color: #ef4444;
-		background: rgba(239, 68, 68, 0.15);
+		color: var(--danger);
+		background: var(--danger-soft);
 	}
 
 	@keyframes subagent-pulse {

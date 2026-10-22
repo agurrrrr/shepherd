@@ -126,18 +126,21 @@
 
 <style>
 	.card {
-		max-width: 640px;
+		max-width: none;
 	}
 	.section-title {
-		font-size: 16px;
-		font-weight: 600;
-		margin-bottom: 16px;
+		font-family: var(--font-display);
+		font-size: 26px;
+		font-weight: 400;
+		letter-spacing: -0.01em;
+		margin-bottom: 12px;
 	}
 	.sync-desc {
 		font-size: 13px;
 		color: var(--text-secondary);
 		line-height: 1.5;
 		margin-bottom: 12px;
+		max-width: 70ch;
 	}
 	.account-form {
 		display: flex;
@@ -168,13 +171,14 @@
 	}
 	.setting-row > label,
 	.setting-row > .row-label {
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 500;
-		flex: 0 0 140px;
+		flex: 0 0 180px;
+		color: var(--text-primary);
 	}
 	.setting-row .input {
 		flex: 1 1 200px;
-		max-width: 240px;
+		max-width: 340px;
 		min-width: 0;
 	}
 	.setting-row.readonly {
@@ -189,8 +193,10 @@
 		}
 		.setting-row > label,
 		.setting-row > .row-label {
-			flex: none;
-		}
+			flex: 0 0 180px;
+		font-size: 13px;
+		color: var(--text-primary);
+	}
 		.setting-row .input {
 			flex: none;
 			max-width: none;

@@ -4,6 +4,7 @@
 	import { groupLines } from '$lib/outputLines.js';
 	import { createMdStreamCache } from '$lib/mdStream.js';
 	import { cartaSoftBreaks } from '$lib/markdown.js';
+	import Icon from './Icon.svelte';
 
 	// embedded: nest inside SubagentStreamPanel/Magi cards — no chrome, no
 	// own scroll (parent panel scrolls). Plain: standalone Live Output pane.
@@ -73,16 +74,18 @@
 		// Lowercased so it matches both PascalCase (Claude/opencode: Bash, Read)
 		// and the embedded provider's snake_case names (bash, read_file, ...).
 		const t = text.toLowerCase();
-		if (t.includes('todowrite')) return '☑️';
-		if (t.includes('bash')) return '⌨️';
-		if (t.includes('read')) return '📖';
-		if (t.includes('edit')) return '✏️';
-		if (t.includes('write')) return '📝';
-		if (t.includes('grep')) return '🔍';
-		if (t.includes('glob')) return '📂';
-		if (t.includes('task')) return '📋';
-		if (t.includes('askuserquestion')) return '❓';
-		return '🔧';
+		if (t.includes('todowrite')) return 'list-checks';
+		if (t.includes('bash')) return 'terminal';
+		if (t.includes('read')) return 'book-open';
+		if (t.includes('edit')) return 'edit';
+		if (t.includes('write')) return 'file-text';
+		if (t.includes('grep')) return 'search';
+		if (t.includes('glob')) return 'folder';
+		if (t.includes('task')) return 'layers';
+		if (t.includes('askuserquestion')) return 'message-square';
+		if (t.includes('mcp__')) return 'command';
+		if (t.includes('web') || t.includes('browser')) return 'monitor';
+		return 'zap';
 	}
 
 	function getToolLabel(text) {
@@ -108,7 +111,7 @@
 		{:else if block.type === 'tool'}
 			{@const tool = getToolLabel(block.text)}
 			<div class="block-tool">
-				<span class="tool-icon">{getToolIcon(block.text)}</span>
+				<span class="tool-icon"><Icon name={getToolIcon(block.text)} size={13} stroke={2} /></span>
 				<span class="tool-name">{tool.name}</span>
 				{#if tool.detail}
 					<span class="tool-detail">{tool.detail}</span>
@@ -118,7 +121,7 @@
 		{:else if block.type === 'question'}
 			<div class="block-question">
 				<div class="question-header">
-					<span class="question-icon">❓</span>
+					<span class="question-icon"><Icon name="message-square" size={14} /></span>
 					{#if block.header}
 						<span class="question-tag">{block.header}</span>
 					{/if}
@@ -145,7 +148,7 @@
 			{@const view = viewFor('thinking:' + i, block.text)}
 			<details class="block-thinking">
 				<summary class="thinking-summary">
-					<span class="thinking-icon">💭</span>
+					<span class="thinking-icon"><Icon name="sparkles" size={13} /></span>
 					<span class="thinking-label">Thinking</span>
 					<span class="thinking-hint">{block.text.trim().length.toLocaleString()} chars</span>
 				</summary>
@@ -180,18 +183,27 @@
 
 <style>
 	.output-viewer {
-		background: var(--bg-primary);
-		font-size: 13px;
-		overflow-y: auto;
-		overflow-x: hidden;
-		max-height: 500px;
-		padding: 12px;
-		border-radius: var(--radius);
-		border: 1px solid var(--border);
+		--rail-x: 15px;
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
 		min-width: 0;
+		max-height: 500px;
+		padding: 16px 18px 18px 38px;
+		overflow-y: auto;
+		overflow-x: hidden;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-subtle);
+		/* Layer 1: the transcript rail, painted on the scrolled content
+		   (attachment: local) so it runs the full height of the log. */
+		background:
+			linear-gradient(rgba(237, 230, 218, 0.075), rgba(237, 230, 218, 0.075)) var(--rail-x) 0 / 1px 100% no-repeat local,
+			linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.3)),
+			var(--bg-1);
+		box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.4);
+		font-size: 13px;
+		scroll-behavior: smooth;
 	}
 
 	/* Nested in a demux panel card: parent provides chrome + scroll. */
@@ -199,48 +211,91 @@
 		background: transparent;
 		border: none;
 		border-radius: 0;
+		box-shadow: none;
 		padding: 0;
 		overflow: visible;
 		max-height: none;
 	}
 
+	/* --- Transcript rail: blocks hang off one vertical thread; nodes are
+	   drawn just outside each block, so those blocks must not clip. --- */
+	.output-viewer:not(.embedded) > * {
+		position: relative;
+	}
+
 	.block-sheep {
-		font-weight: 600;
-		font-size: 14px;
-		padding: 4px 0;
+		font-weight: var(--fw-semibold);
+		font-size: var(--fs-base);
+		padding: 2px 0 4px;
 		color: var(--text-primary);
 	}
 
 	.block-status {
-		font-size: 12px;
-		color: var(--text-secondary);
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
 		padding: 2px 0;
+		letter-spacing: -0.01em;
 	}
 
+	.output-viewer:not(.embedded) > .block-status::before,
+	.output-viewer:not(.embedded) > .block-sheep::before {
+		content: '';
+		position: absolute;
+		left: calc(var(--rail-x) - 38px - 2.5px);
+		top: 50%;
+		width: 6px;
+		height: 6px;
+		margin-top: -3px;
+		border-radius: 50%;
+		background: var(--text-tertiary);
+		z-index: 1;
+	}
+
+	/* Tool call: a node on the rail + name + one-line detail */
 	.block-tool {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		padding: 6px 10px;
+		gap: 8px;
+		min-width: 0;
+		min-height: 28px;
 		margin-top: 6px;
-		background: var(--bg-tertiary);
-		border-left: 3px solid var(--accent);
-		border-radius: 0 var(--radius) var(--radius) 0;
+		padding: 5px 10px;
+		border-radius: var(--radius);
+		background: rgba(237, 230, 218, 0.03);
+		box-shadow: inset 0 0 0 1px var(--border-subtle);
 		font-family: var(--font-mono);
 		font-size: 12px;
-		min-height: 28px;
-		min-width: 0;
 		flex-shrink: 0;
-		overflow: hidden;
+		transition: background var(--dur-1) ease;
+	}
+
+	.block-tool:hover {
+		background: rgba(237, 230, 218, 0.05);
+	}
+
+	.output-viewer:not(.embedded) > .block-tool::before {
+		content: '';
+		position: absolute;
+		left: calc(var(--rail-x) - 38px - 4px);
+		top: 50%;
+		width: 9px;
+		height: 9px;
+		margin-top: -4.5px;
+		border-radius: 50%;
+		background: var(--bg-1);
+		box-shadow: inset 0 0 0 2px var(--accent);
+		z-index: 1;
 	}
 
 	.tool-icon {
-		font-size: 13px;
+		display: inline-flex;
 		flex-shrink: 0;
+		color: var(--text-tertiary);
 	}
 
 	.tool-name {
-		font-weight: 600;
+		font-weight: var(--fw-semibold);
 		color: var(--accent);
 		flex-shrink: 0;
 	}
@@ -256,71 +311,86 @@
 
 	/* Question card */
 	.block-question {
-		margin-top: 4px;
-		padding: 10px 12px;
-		background: var(--bg-tertiary);
-		border-left: 3px solid var(--warning);
-		border-radius: 0 var(--radius) var(--radius) 0;
+		margin-top: 6px;
+		padding: 12px 14px;
+		border-radius: var(--radius);
+		background: var(--warning-soft);
+		box-shadow: inset 0 0 0 1px var(--warning-line);
 		min-width: 0;
-		overflow: hidden;
 		flex-shrink: 0;
+	}
+
+	.output-viewer:not(.embedded) > .block-question::before {
+		content: '';
+		position: absolute;
+		left: calc(var(--rail-x) - 38px - 4px);
+		top: 16px;
+		width: 9px;
+		height: 9px;
+		border-radius: 50%;
+		background: var(--warning);
+		z-index: 1;
 	}
 
 	.question-header {
 		display: flex;
-		align-items: baseline;
-		gap: 6px;
+		align-items: center;
+		gap: 8px;
 		flex-wrap: wrap;
 	}
 
 	.question-icon {
-		font-size: 14px;
+		display: inline-flex;
+		color: var(--warning);
 		flex-shrink: 0;
 	}
 
 	.question-tag {
-		font-size: 11px;
-		font-weight: 600;
+		font-size: var(--fs-2xs);
+		font-weight: var(--fw-semibold);
 		color: var(--warning);
-		background: rgba(210, 153, 34, 0.15);
-		padding: 1px 6px;
-		border-radius: 3px;
+		background: var(--warning-soft);
+		padding: 1px 7px;
+		border-radius: var(--radius-full);
 		flex-shrink: 0;
 	}
 
 	.question-text {
-		font-size: 13px;
-		font-weight: 600;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-semibold);
 		color: var(--text-primary);
 		line-height: 1.4;
 	}
 
 	.question-options {
-		margin-top: 8px;
+		margin-top: 10px;
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: 5px;
 		padding-left: 22px;
 	}
 
 	.question-option {
 		display: flex;
 		align-items: baseline;
-		gap: 6px;
-		font-size: 12px;
-		line-height: 1.4;
+		gap: 8px;
+		font-size: var(--fs-xs);
+		line-height: 1.45;
 	}
 
 	.question-option::before {
-		content: '▸';
-		color: var(--warning);
+		content: '';
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: var(--warning);
 		flex-shrink: 0;
-		font-weight: 600;
+		transform: translateY(-2px);
 	}
 
 	.option-label {
-		font-weight: 600;
-		color: var(--accent);
+		font-weight: var(--fw-semibold);
+		color: var(--text-primary);
 		flex-shrink: 0;
 	}
 
@@ -328,15 +398,18 @@
 		color: var(--text-secondary);
 	}
 
+	/* Tool output — indented under its call */
 	.block-result {
-		margin: 0;
-		padding: 8px 12px;
-		background: var(--bg-secondary);
-		border-left: 3px solid var(--border);
-		border-radius: 0 var(--radius) var(--radius) 0;
+		margin: 2px 0 2px 20px;
+		padding: 10px 14px;
+		max-height: 340px;
+		overflow: auto;
+		border-radius: var(--radius);
+		background: rgba(0, 0, 0, 0.32);
+		box-shadow: inset 0 0 0 1px var(--border-subtle);
 		font-family: var(--font-mono);
 		font-size: 12px;
-		line-height: 1.5;
+		line-height: 1.6;
 		white-space: pre-wrap;
 		word-break: break-word;
 		overflow-wrap: break-word;
@@ -344,6 +417,10 @@
 		min-width: 0;
 		max-width: 100%;
 		flex-shrink: 0;
+	}
+
+	.embedded .block-result {
+		margin-left: 0;
 	}
 
 	.block-result code {
@@ -355,31 +432,48 @@
 		overflow-wrap: inherit;
 	}
 
-	/* Reasoning / thinking (💭) — collapsible, dimmed, markdown body.
-	   A warm wool rail + tint distinguishes private reasoning from the cool
-	   accent rail of tool calls at a glance. */
+	/* Reasoning / thinking — collapsible, dimmed, warm wool tint so private
+	   reasoning reads apart from tool calls at a glance. */
 	.block-thinking {
 		margin-top: 6px;
 		padding: 0;
-		background: color-mix(in srgb, var(--wool) 7%, var(--bg-secondary));
-		border-left: 3px solid color-mix(in srgb, var(--wool) 60%, var(--border));
-		border-radius: 0 var(--radius) var(--radius) 0;
+		border-radius: var(--radius);
+		background: rgba(203, 188, 163, 0.05);
+		box-shadow: inset 0 0 0 1px rgba(203, 188, 163, 0.12);
 		min-width: 0;
-		overflow: hidden;
 		flex-shrink: 0;
+	}
+
+	.output-viewer:not(.embedded) > .block-thinking::before {
+		content: '';
+		position: absolute;
+		left: calc(var(--rail-x) - 38px - 4px);
+		top: 13px;
+		width: 9px;
+		height: 9px;
+		border-radius: 50%;
+		background: var(--bg-1);
+		box-shadow: inset 0 0 0 2px var(--wool);
+		z-index: 1;
 	}
 
 	.thinking-summary {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		padding: 6px 10px;
+		gap: 8px;
+		padding: 7px 12px;
 		cursor: pointer;
 		user-select: none;
 		list-style: none;
-		color: var(--text-secondary);
-		font-size: 12px;
-		font-weight: 600;
+		color: var(--wool);
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
+		border-radius: var(--radius);
+		transition: background var(--dur-1) ease;
+	}
+
+	.thinking-summary:hover {
+		background: rgba(203, 188, 163, 0.05);
 	}
 
 	.thinking-summary::-webkit-details-marker {
@@ -387,10 +481,14 @@
 	}
 
 	.thinking-summary::before {
-		content: '▸';
-		font-size: 10px;
-		color: var(--text-secondary);
-		transition: transform 0.12s ease;
+		content: '';
+		width: 0;
+		height: 0;
+		border-left: 4px solid currentColor;
+		border-top: 3.5px solid transparent;
+		border-bottom: 3.5px solid transparent;
+		opacity: 0.7;
+		transition: transform var(--dur-2) var(--ease-out);
 	}
 
 	.block-thinking[open] > .thinking-summary::before {
@@ -398,25 +496,30 @@
 	}
 
 	.thinking-icon {
-		font-size: 13px;
+		display: inline-flex;
 		flex-shrink: 0;
 	}
 
 	.thinking-label {
-		letter-spacing: 0.02em;
+		font-family: var(--font-display);
+		font-style: italic;
+		font-size: 15px;
+		font-weight: 400;
+		letter-spacing: 0;
 	}
 
 	.thinking-hint {
 		margin-left: auto;
-		font-size: 11px;
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
 		font-weight: 400;
 		color: var(--text-tertiary);
 	}
 
 	.thinking-body {
-		padding: 0 12px 10px;
+		padding: 2px 14px 12px;
 		font-size: 12.5px;
-		line-height: 1.55;
+		line-height: 1.6;
 		/* color + transparent bg: do not let github-markdown light scheme
 		   paint a white strip under --text-secondary (OS light mode). */
 		color: var(--text-secondary);
@@ -429,17 +532,17 @@
 	.thinking-body :global(p) { margin: 3px 0; }
 	.thinking-body :global(strong) { color: var(--text-primary); font-weight: 600; }
 	.thinking-body :global(code) {
-		background: var(--bg-tertiary);
+		background: rgba(237, 230, 218, 0.07);
 		padding: 1px 4px;
-		border-radius: 3px;
+		border-radius: 4px;
 		font-size: 11.5px;
 	}
 	.thinking-body :global(pre) {
-		background: var(--bg-tertiary);
-		border: 1px solid var(--border);
+		background: rgba(0, 0, 0, 0.3);
+		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius);
-		padding: 6px 10px;
-		margin: 4px 0;
+		padding: 8px 12px;
+		margin: 6px 0;
 		font-size: 11.5px;
 		overflow-x: auto;
 	}
@@ -454,19 +557,19 @@
 	}
 
 	.thinking-body-raw {
-		padding: 0 12px 10px;
+		padding: 2px 14px 12px;
 		font-size: 12.5px;
-		line-height: 1.55;
+		line-height: 1.6;
 		color: var(--text-secondary);
 		white-space: pre-wrap;
 		word-break: break-word;
 	}
 
-	/* AI text: markdown rendered */
+	/* AI narration: markdown rendered */
 	.block-text {
-		padding: 4px 0;
-		font-size: 13px;
-		line-height: 1.6;
+		padding: 6px 0 4px;
+		font-size: 13.5px;
+		line-height: 1.65;
 		color: var(--text-primary);
 		background: transparent;
 		overflow-x: hidden;
@@ -475,22 +578,34 @@
 		flex-shrink: 0;
 	}
 
+	.output-viewer:not(.embedded) > .block-text-raw::before {
+		content: '';
+		position: absolute;
+		left: calc(var(--rail-x) - 38px - 2.5px);
+		top: 14px;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--text-tertiary);
+		z-index: 1;
+	}
+
 	.block-text :global(p) { margin: 4px 0; }
 
 	.block-text :global(pre) {
-		background: var(--bg-secondary);
-		border: 1px solid var(--border);
+		background: rgba(0, 0, 0, 0.3);
+		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius);
-		padding: 8px 12px;
-		margin: 6px 0;
+		padding: 10px 14px;
+		margin: 8px 0;
 		font-size: 12px;
 		overflow-x: auto;
 	}
 
 	.block-text :global(code) {
-		background: var(--bg-tertiary);
-		padding: 1px 4px;
-		border-radius: 3px;
+		background: rgba(237, 230, 218, 0.07);
+		padding: 1px 5px;
+		border-radius: 4px;
 		font-size: 12px;
 	}
 
@@ -511,8 +626,11 @@
 	.block-text :global(h2),
 	.block-text :global(h3),
 	.block-text :global(h4) {
-		margin: 8px 0 4px;
+		margin: 12px 0 4px;
 		font-size: 14px;
+		font-weight: 600;
+		border: none;
+		padding: 0;
 	}
 
 	.block-text :global(h1) { font-size: 16px; }
@@ -521,15 +639,15 @@
 	.block-text :global(a) { color: var(--accent); }
 
 	.block-text :global(blockquote) {
-		border-left: 3px solid var(--border);
+		border-left: 2px solid var(--accent-line);
 		padding-left: 12px;
 		color: var(--text-secondary);
-		margin: 4px 0;
+		margin: 6px 0;
 	}
 
 	.block-text :global(table) {
 		border-collapse: collapse;
-		margin: 6px 0;
+		margin: 8px 0;
 		font-size: 12px;
 		display: block;
 		overflow-x: auto;
@@ -538,19 +656,20 @@
 	.block-text :global(th),
 	.block-text :global(td) {
 		border: 1px solid var(--border);
-		padding: 4px 8px;
+		padding: 5px 10px;
 	}
 
 	.block-text :global(th) {
-		background: var(--bg-tertiary);
+		background: rgba(237, 230, 218, 0.05);
+		font-weight: 600;
 	}
 
 	/* AI text: raw fallback */
 	.block-text-raw {
-		padding: 4px 0;
-		line-height: 1.6;
+		padding: 6px 0 4px;
+		line-height: 1.65;
 		color: var(--text-primary);
-		font-size: 13px;
+		font-size: 13.5px;
 		white-space: pre-wrap;
 		word-break: break-word;
 		flex-shrink: 0;
@@ -564,7 +683,32 @@
 	}
 
 	.empty-output {
-		color: var(--text-secondary);
-		font-size: 12px;
+		align-self: center;
+		margin: auto;
+		padding: 40px 0;
+		font-family: var(--font-display);
+		font-style: italic;
+		font-size: 20px;
+		color: var(--text-tertiary);
+	}
+
+	@media (max-width: 768px) {
+		.output-viewer {
+			--rail-x: 11px;
+			padding: 12px 12px 14px 28px;
+		}
+
+		.output-viewer:not(.embedded) > .block-tool::before,
+		.output-viewer:not(.embedded) > .block-thinking::before,
+		.output-viewer:not(.embedded) > .block-question::before,
+		.output-viewer:not(.embedded) > .block-text-raw::before,
+		.output-viewer:not(.embedded) > .block-status::before,
+		.output-viewer:not(.embedded) > .block-sheep::before {
+			margin-left: 10px;
+		}
+
+		.block-result {
+			margin-left: 8px;
+		}
 	}
 </style>

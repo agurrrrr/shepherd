@@ -34,18 +34,21 @@
 
 <style>
 	.card {
-		max-width: 500px;
+		max-width: none;
 	}
 	.section-title {
-		font-size: 16px;
-		font-weight: 600;
-		margin-bottom: 16px;
+		font-family: var(--font-display);
+		font-size: 26px;
+		font-weight: 400;
+		letter-spacing: -0.01em;
+		margin-bottom: 12px;
 	}
 	.sync-desc {
 		font-size: 13px;
 		color: var(--text-secondary);
 		line-height: 1.5;
 		margin-bottom: 12px;
+		max-width: 70ch;
 	}
 	.sync-desc code {
 		background: var(--bg-tertiary, #2a2a2a);
@@ -65,17 +68,4 @@
 	.sync-msg.error {
 		color: var(--danger);
 	}
-	.btn-sm {
-		padding: 4px 12px;
-		font-size: 12px;
-		font-weight: 600;
-		background: var(--accent);
-		color: white;
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: opacity 0.15s;
-	}
-	.btn-sm:hover { opacity: 0.85; }
-	.btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

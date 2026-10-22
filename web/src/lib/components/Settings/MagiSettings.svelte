@@ -338,18 +338,6 @@ select.input { cursor: pointer; }
 	padding: 8px 10px;
 }
 
-.btn-primary {
-	padding: 6px 16px;
-	font-size: 13px;
-	font-weight: 600;
-	background: var(--accent);
-	color: white;
-	border: none;
-	border-radius: 6px;
-	cursor: pointer;
-}
-.btn-primary:hover { opacity: 0.85; }
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .magi-section {
 	margin-top: 8px;
@@ -459,14 +447,15 @@ select.input { cursor: pointer; }
 }
 
 .setting-row > label:not(.toggle) {
-	font-size: 14px;
+	font-size: 13px;
 	font-weight: 500;
-	flex: 0 0 140px;
+	flex: 0 0 180px;
+	color: var(--text-primary);
 }
 
 .setting-row .input {
 	flex: 1 1 200px;
-	max-width: 240px;
+	max-width: 340px;
 	min-width: 0;
 }
 

@@ -27,7 +27,7 @@
 			<Icon name="chevron-right" size={14} />
 		</button>
 
-		<span class="page-info">{total} items ({limit}/page)</span>
+		<span class="page-info mono">{total.toLocaleString()} items · {limit}/page</span>
 	</div>
 {/if}
 
@@ -36,7 +36,7 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		margin-top: 16px;
+		margin-top: var(--space-5);
 		flex-wrap: wrap;
 	}
 
@@ -44,21 +44,30 @@
 		min-width: 32px;
 		height: 32px;
 		padding: 0 8px;
-		font-size: 13px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		font-size: var(--fs-sm);
+		font-variant-numeric: tabular-nums;
+		background: transparent;
+		border-color: transparent;
+		box-shadow: none;
+		color: var(--text-secondary);
+	}
+
+	.page-btn:hover:not(:disabled) {
+		background: var(--bg-hover);
+		border-color: var(--border);
+		color: var(--text-primary);
 	}
 
 	.page-btn.active {
-		background: var(--accent);
-		border-color: var(--accent);
-		color: #fff;
+		background: var(--accent-soft);
+		border-color: var(--accent-line);
+		color: var(--accent);
+		font-weight: var(--fw-semibold);
 	}
 
 	.page-info {
 		margin-left: 12px;
-		font-size: 12px;
-		color: var(--text-secondary);
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
 	}
 </style>

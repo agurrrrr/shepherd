@@ -2,6 +2,9 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { apiGet, apiPost, apiDelete, apiPatch } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	let sheepList = [];
 	let loaded = false;
@@ -55,23 +58,28 @@
 </script>
 
 <div class="page">
-	<div class="page-header">
-		<h1>Sheep</h1>
-		<button class="btn btn-primary" onclick={() => showAdd = !showAdd}>
-			{showAdd ? 'Cancel' : '+ Spawn Sheep'}
+	<PageHeader
+		eyebrow="Watch · Flock"
+		title="Sheep"
+		count={sheepList.length}
+		subtitle="Each sheep is one agent bound to one project. Switch its provider here, or spawn a new one."
+	>
+		<button class="btn" class:btn-primary={!showAdd} onclick={() => showAdd = !showAdd} aria-expanded={showAdd}>
+			<Icon name={showAdd ? 'x' : 'plus'} size={14} stroke={2.2} />
+			{showAdd ? 'Cancel' : 'Spawn sheep'}
 		</button>
-	</div>
+	</PageHeader>
 
 	{#if showAdd}
-		<div class="card add-form">
+		<form class="card add-form" onsubmit={(e) => { e.preventDefault(); addSheep(); }}>
 			<div class="form-row">
 				<div class="form-group">
-					<label>Name (optional)</label>
-					<input class="input" bind:value={newName} placeholder="Auto-assign" />
+					<label for="ns-name">Name (optional)</label>
+					<input id="ns-name" class="input" bind:value={newName} placeholder="Auto-assign" />
 				</div>
 				<div class="form-group">
-					<label>Provider</label>
-					<select class="input" bind:value={newProvider}>
+					<label for="ns-provider">Provider</label>
+					<select id="ns-provider" class="input" bind:value={newProvider}>
 						<option value="claude">Claude</option>
 						<option value="opencode">OpenCode</option>
 						<option value="pi">Pi</option>
@@ -81,33 +89,41 @@
 						<option value="auto">Auto</option>
 					</select>
 				</div>
+				<button type="submit" class="btn btn-primary" disabled={adding}>
+					{adding ? 'Spawning…' : 'Spawn'}
+				</button>
 			</div>
-			<button class="btn btn-primary" onclick={addSheep} disabled={adding}>
-				{adding ? 'Spawning...' : 'Spawn'}
-			</button>
-		</div>
+		</form>
 	{/if}
 
 	{#if !loaded}
-		<p class="text-muted">Loading...</p>
+		<div class="sheep-grid" aria-busy="true">
+			{#each Array(12) as _}
+				<div class="card sheep-card"><div class="skeleton" style="height: 28px; width: 28px; border-radius: 50%"></div><div class="skeleton" style="height: 10px; width: 60%; margin-top: 12px"></div></div>
+			{/each}
+		</div>
 	{:else if sheepList.length === 0}
-		<div class="card empty-state">
-			<p>No sheep yet.</p>
-			<p class="text-muted">Spawn a sheep to start processing tasks.</p>
+		<div class="card">
+			<EmptyState icon="sheep" title="An empty pasture" description="Spawn a sheep to start processing tasks." />
 		</div>
 	{:else}
 		<div class="sheep-grid">
-			{#each sheepList as s}
-				<div class="card sheep-card">
+			{#each sheepList as s, i (s.name)}
+				<div class="card sheep-card reveal" class:working={s.status === 'working'} class:error={s.status === 'error'} style="--i: {i}">
 					<div class="sheep-header">
-						<span class="sheep-name">{s.name}</span>
+						<span class="ava" aria-hidden="true">{[...s.name][0]}</span>
+						<div class="who">
+							<span class="sheep-name">{s.name}</span>
+							{#if s.project}
+								<a class="sheep-project" href="/projects/{encodeURIComponent(s.project)}">{s.project}</a>
+							{:else}
+								<span class="sheep-project none">No project</span>
+							{/if}
+						</div>
 						<span class="badge badge-{s.status}">{s.status}</span>
 					</div>
-					{#if s.project}
-						<div class="sheep-project">{s.project}</div>
-					{/if}
 					<div class="sheep-meta">
-						<select class="input provider-select" value={s.provider}
+						<select class="input provider-select" value={s.provider} aria-label="Provider for {s.name}"
 							onchange={(e) => changeProvider(s.name, e.target.value)}>
 							<option value="claude">Claude</option>
 							<option value="opencode">OpenCode</option>
@@ -117,7 +133,9 @@
 							<option value="magi">MAGI 🧠</option>
 							<option value="auto">Auto</option>
 						</select>
-						<button class="btn btn-danger btn-sm" onclick={() => removeSheep(s.name)}>Remove</button>
+						<button class="btn btn-sm btn-ghost btn-icon del" onclick={() => removeSheep(s.name)} title="Remove" aria-label="Remove {s.name}">
+							<Icon name="trash" size={14} />
+						</button>
 					</div>
 				</div>
 			{/each}
@@ -126,104 +144,144 @@
 </div>
 
 <style>
-	.page-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 20px;
-	}
-
-	.page-header h1 { font-size: 24px; font-weight: 600; }
-	.text-muted { color: var(--text-secondary); }
+	.page { max-width: var(--content-max); }
 
 	.add-form {
 		margin-bottom: 20px;
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
+		padding: 18px 20px;
+		border-color: var(--accent-line);
+		animation: rise-in var(--dur-3) var(--ease-out) backwards;
 	}
 
 	.form-row {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: 1fr 1fr auto;
+		align-items: end;
 		gap: 12px;
 	}
 
 	.form-group {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: 6px;
 	}
 
 	.form-group label {
-		font-size: 12px;
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
 		color: var(--text-secondary);
-		font-weight: 500;
 	}
 
-	.form-group .input { width: 100%; }
+	.form-group .input {
+		width: 100%;
+		font-size: var(--fs-sm);
+	}
 
 	.sheep-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
 		gap: 12px;
 	}
 
 	.sheep-card {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 14px;
+		padding: 14px;
+	}
+
+	.sheep-card.working {
+		border-color: var(--live-line);
+		background:
+			radial-gradient(100% 80% at 0% 0%, rgba(95, 224, 194, 0.09), transparent 60%),
+			var(--bg-2);
+	}
+
+	.sheep-card.error {
+		border-color: var(--danger-line);
 	}
 
 	.sheep-header {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		gap: 10px;
 	}
 
-	.sheep-name { font-weight: 600; font-size: 15px; }
-	.sheep-project { font-size: 13px; color: var(--accent); }
+	.ava {
+		display: grid;
+		place-items: center;
+		width: 32px;
+		height: 32px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: var(--wool-soft);
+		box-shadow: inset 0 0 0 1px rgba(203, 188, 163, 0.18);
+		color: var(--wool);
+		font-weight: var(--fw-semibold);
+		font-size: var(--fs-sm);
+	}
+
+	.working .ava {
+		background: var(--live-soft);
+		box-shadow: inset 0 0 0 1px var(--live-line), 0 0 16px -4px var(--live-glow);
+		color: var(--live);
+	}
+
+	.who {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		flex: 1;
+	}
+
+	.sheep-name {
+		font-weight: var(--fw-semibold);
+		font-size: var(--fs-sm);
+		color: var(--text-primary);
+	}
+
+	.sheep-project {
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	a.sheep-project:hover {
+		color: var(--accent);
+		text-decoration: none;
+	}
+
+	.sheep-project.none {
+		font-family: var(--font-sans);
+		font-style: italic;
+	}
 
 	.sheep-meta {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		margin-top: 4px;
+		gap: 6px;
 	}
 
 	.provider-select {
 		flex: 1;
-		padding: 4px 8px;
-		font-size: 12px;
+		min-width: 0;
+		height: 30px;
+		padding-top: 0;
+		padding-bottom: 0;
+		font-size: var(--fs-xs);
 	}
 
-	.btn-sm { padding: 4px 10px; font-size: 12px; }
-
-	.empty-state {
-		text-align: center;
-		padding: 40px 20px;
+	.del:hover {
+		color: var(--danger);
+		background: var(--danger-soft);
 	}
 
 	@media (max-width: 768px) {
-		.sheep-grid {
-			grid-template-columns: 1fr;
-		}
-
 		.form-row {
 			grid-template-columns: 1fr;
-		}
-
-		.provider-select {
-			padding: 6px 10px;
-			font-size: 13px;
-		}
-
-		.btn-sm {
-			padding: 6px 12px;
-		}
-
-		.page-header h1 {
-			font-size: 20px;
 		}
 	}
 </style>

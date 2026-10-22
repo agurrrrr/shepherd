@@ -86,11 +86,11 @@
 	}
 
 	.diff-line.diff-add {
-		background: rgba(63, 185, 80, 0.15);
+		background: var(--success-soft);
 	}
 
 	.diff-line.diff-delete {
-		background: rgba(248, 81, 73, 0.15);
+		background: var(--danger-soft);
 	}
 
 	.diff-line.diff-context {
@@ -117,11 +117,11 @@
 	}
 
 	.diff-add .diff-prefix {
-		color: #81c784;
+		color: var(--success);
 	}
 
 	.diff-delete .diff-prefix {
-		color: #e57373;
+		color: var(--danger);
 	}
 
 	.diff-code {

@@ -1,4 +1,5 @@
 <script>
+	import Icon from './Icon.svelte';
 	import { onMount } from 'svelte';
 	import { apiGet, apiUpload } from '$lib/api.js';
 	import { accessToken } from '$lib/stores.js';
@@ -292,19 +293,23 @@
 		return `/api/projects/${encodeURIComponent(projectName)}/files/download/${entry.path}?token=${encodeURIComponent(token)}`;
 	}
 
-	function fileIcon(entry) {
-		if (entry.is_dir) return '\uD83D\uDCC1';
+	// File kind → line icon + tint class (fb-k-*). Kinds stay coarse on purpose:
+	// the listing should read as one calm column, not a sticker sheet.
+	const KIND_BY_EXT = {
+		go: 'code', py: 'code', js: 'code', ts: 'code', svelte: 'code', html: 'code',
+		css: 'code', sh: 'code', sql: 'code', rs: 'code', java: 'code', c: 'code',
+		cpp: 'code', h: 'code', rb: 'code', kt: 'code', swift: 'code',
+		md: 'doc', txt: 'doc', pdf: 'doc',
+		json: 'config', yaml: 'config', yml: 'config', toml: 'config', ini: 'config', xml: 'config', env: 'config',
+		png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', svg: 'image',
+		bmp: 'image', ico: 'image', avif: 'image',
+	};
+	const ICON_BY_KIND = { dir: 'folder', code: 'code', doc: 'file-text', config: 'braces', image: 'image', file: 'file' };
+
+	function fileKind(entry) {
+		if (entry.is_dir) return 'dir';
 		const ext = entry.name.includes('.') ? entry.name.split('.').pop().toLowerCase() : '';
-		const iconMap = {
-			go: '\uD83D\uDC39', py: '\uD83D\uDC0D', js: '\uD83D\uDFE8', ts: '\uD83D\uDD35',
-			md: '\uD83D\uDCDD', json: '{}', yaml: '\u2699\uFE0F', yml: '\u2699\uFE0F',
-			svelte: '\uD83D\uDD36', html: '\uD83C\uDF10', css: '\uD83C\uDFA8',
-			sh: '\uD83D\uDCBB', sql: '\uD83D\uDDC4\uFE0F', rs: '\uD83E\uDD80',
-			png: '\uD83D\uDDBC\uFE0F', jpg: '\uD83D\uDDBC\uFE0F', jpeg: '\uD83D\uDDBC\uFE0F',
-			gif: '\uD83D\uDDBC\uFE0F', webp: '\uD83D\uDDBC\uFE0F', svg: '\uD83D\uDDBC\uFE0F',
-			bmp: '\uD83D\uDDBC\uFE0F', ico: '\uD83D\uDDBC\uFE0F', avif: '\uD83D\uDDBC\uFE0F',
-		};
-		return iconMap[ext] || '\uD83D\uDCC4';
+		return KIND_BY_EXT[ext] || 'file';
 	}
 </script>
 
@@ -314,7 +319,7 @@
 		<div class="fb-viewer">
 			<div class="fb-viewer-header">
 				<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-				<span class="fb-back" onclick={closeFile}>&larr; Back</span>
+				<span class="fb-back" onclick={closeFile}><Icon name="arrow-left" size={13} /> Back</span>
 				<span class="fb-viewer-title mono">{selectedFile.path}</span>
 				{#if renderedMarkdown}
 					<button class="fb-pdf-btn" onclick={downloadPDF} disabled={pdfExporting}>
@@ -323,7 +328,7 @@
 				{/if}
 				<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 				<span class="fb-dl-btn" onclick={() => downloadFile(selectedFile)} title="Download">
-					<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75z"/><path d="M7.25 7.689V2a.75.75 0 011.5 0v5.689l1.97-1.969a.749.749 0 111.06 1.06l-3.25 3.25a.749.749 0 01-1.06 0L4.22 6.78a.749.749 0 111.06-1.06l1.97 1.969z"/></svg>
+					<Icon name="download" size={15} />
 				</span>
 			</div>
 			<div class="fb-viewer-content">
@@ -374,7 +379,8 @@
 						<span class="fb-crumb-current">{crumb.name}</span>
 					{/if}
 				{/each}
-				<button class="fb-upload-btn" onclick={triggerUpload} disabled={uploading}>
+				<button class="btn btn-sm fb-upload-btn" onclick={triggerUpload} disabled={uploading}>
+					<Icon name="upload" size={13} />
 					{uploading ? 'Uploading…' : 'Upload'}
 				</button>
 				<input bind:this={fileInputEl} type="file" multiple hidden onchange={handleUploadSelect} />
@@ -393,9 +399,10 @@
 			{:else}
 				<div class="fb-list">
 					{#each entries as entry}
+						{@const kind = fileKind(entry)}
 						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 						<div class="fb-entry" onclick={() => handleEntryClick(entry)}>
-							<span class="fb-icon">{fileIcon(entry)}</span>
+							<span class="fb-icon fb-k-{kind}" aria-hidden="true"><Icon name={ICON_BY_KIND[kind]} size={15} /></span>
 							<span class="fb-name" class:fb-dir={entry.is_dir}>{entry.name}</span>
 							<span class="fb-size text-muted">{entry.is_dir ? '' : formatFileSize(entry.size)}</span>
 							<span class="fb-time text-muted">{entry.modified_at || ''}</span>
@@ -450,19 +457,7 @@
 	.fb-pad { padding: 8px 12px; }
 	.fb-upload-btn {
 		margin-left: auto;
-		padding: 3px 12px;
-		font-size: 12px;
-		font-weight: 600;
-		background: var(--accent);
-		color: white;
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		white-space: nowrap;
-		transition: opacity 0.15s;
 	}
-	.fb-upload-btn:hover { opacity: 0.85; }
-	.fb-upload-btn:disabled { opacity: 0.5; cursor: default; }
 	.fb-upload-msg {
 		padding: 6px 12px;
 		font-size: 12px;
@@ -477,17 +472,21 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		padding: 8px 12px;
-		font-size: 13px;
+		min-height: 46px;
+		padding: 8px 12px 8px 16px;
+		font-family: var(--font-mono);
+		font-size: 12.5px;
 		border-bottom: 1px solid var(--border);
 		flex-shrink: 0;
 		flex-wrap: wrap;
 	}
-	.fb-sep { color: var(--text-secondary); }
+	.fb-sep { color: var(--text-tertiary); padding: 0 2px; }
 	.fb-crumb-link {
-		color: var(--accent);
+		color: var(--text-secondary);
 		cursor: pointer;
+		transition: color var(--dur-1) ease;
 	}
+	.fb-crumb-link:hover { color: var(--accent); }
 	.fb-crumb-link:hover { text-decoration: underline; }
 	.fb-crumb-current {
 		color: var(--text-primary);
@@ -503,19 +502,33 @@
 		display: grid;
 		grid-template-columns: 28px 1fr auto auto;
 		align-items: center;
-		gap: 6px;
-		padding: 6px 12px;
+		gap: 10px;
+		padding: 7px 16px;
 		cursor: pointer;
-		border-bottom: 1px solid var(--border-light, rgba(255,255,255,0.04));
+		border-bottom: 1px solid var(--border-subtle);
 		font-size: 13px;
-		transition: background 0.1s;
+		transition: background var(--dur-1) ease;
 	}
-	.fb-entry:hover { background: var(--bg-hover, rgba(255,255,255,0.04)); }
-	.fb-icon { font-size: 15px; text-align: center; }
-	.fb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.fb-dir { font-weight: 600; }
-	.fb-size { font-size: 12px; min-width: 60px; text-align: right; }
-	.fb-time { font-size: 12px; min-width: 130px; text-align: right; }
+	.fb-entry:hover { background: var(--bg-hover); }
+	.fb-entry:hover .fb-name { color: var(--text-primary); }
+	.fb-icon {
+		display: grid;
+		place-items: center;
+		width: 26px;
+		height: 26px;
+		border-radius: 7px;
+		color: var(--text-tertiary);
+	}
+	.fb-k-dir { color: var(--accent); background: var(--accent-soft); }
+	.fb-k-code { color: var(--live); }
+	.fb-k-doc { color: var(--wool); }
+	.fb-k-config { color: var(--queued); }
+	.fb-k-image { color: var(--info); }
+	.fb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); transition: color var(--dur-1) ease; }
+	.fb-dir { font-weight: var(--fw-medium); color: var(--text-primary); }
+	.fb-size, .fb-time { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; text-align: right; }
+	.fb-size { min-width: 64px; }
+	.fb-time { min-width: 140px; }
 
 	/* File viewer */
 	.fb-viewer {
@@ -533,13 +546,17 @@
 		flex-shrink: 0;
 	}
 	.fb-back {
-		color: var(--accent);
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		color: var(--text-secondary);
 		cursor: pointer;
 		font-size: 13px;
-		font-weight: 600;
+		font-weight: var(--fw-medium);
 		white-space: nowrap;
+		transition: color var(--dur-1) ease;
 	}
-	.fb-back:hover { text-decoration: underline; }
+	.fb-back:hover { color: var(--accent); }
 	.fb-viewer-title {
 		flex: 1;
 		font-size: 13px;
@@ -561,7 +578,7 @@
 		font-size: 11px;
 		font-weight: 600;
 		background: var(--accent);
-		color: white;
+		color: var(--accent-ink);
 		border: none;
 		border-radius: 4px;
 		cursor: pointer;
@@ -620,18 +637,6 @@
 		margin-top: 8px;
 	}
 
-	.btn-sm {
-		padding: 4px 12px;
-		font-size: 12px;
-		font-weight: 600;
-		background: var(--accent);
-		color: white;
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: opacity 0.15s;
-	}
-	.btn-sm:hover { opacity: 0.85; }
 
 	.text-muted { color: var(--text-secondary); }
 	.mono { font-family: 'SF Mono', 'Fira Code', monospace; }

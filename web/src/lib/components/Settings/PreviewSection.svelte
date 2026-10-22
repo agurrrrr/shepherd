@@ -131,9 +131,11 @@
 		font-size: 13px;
 	}
 	.section-title {
-		font-size: 16px;
-		font-weight: 600;
-		margin-bottom: 16px;
+		font-family: var(--font-display);
+		font-size: 26px;
+		font-weight: 400;
+		letter-spacing: -0.01em;
+		margin-bottom: 12px;
 	}
 	.btn-outline {
 		background: transparent;
@@ -144,16 +146,4 @@
 		border-color: var(--accent);
 		color: var(--accent);
 	}
-	.btn-sm {
-		padding: 4px 12px;
-		font-size: 12px;
-		font-weight: 600;
-		background: var(--accent);
-		color: white;
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: opacity 0.15s;
-	}
-	.btn-sm:hover { opacity: 0.85; }
 </style>

@@ -25,6 +25,34 @@
 	let loading = $state(true);
 	let activeTab = $state('output');
 
+	const PROJECT_TABS = [
+		{ id: 'output', label: 'Live Output', icon: 'terminal' },
+		{ id: 'history', label: 'Task History', icon: 'clock' },
+		{ id: 'files', label: 'Files', icon: 'folder' },
+		{ id: 'git', label: 'Git', icon: 'git-branch' },
+		{ id: 'schedules', label: 'Schedules', icon: 'alarm-clock' },
+		{ id: 'skills', label: 'Skills', icon: 'book-open' },
+		{ id: 'issues', label: 'Issues', icon: 'list-checks' },
+		{ id: 'wiki', label: 'Wiki', icon: 'file-text' },
+		{ id: 'settings', label: 'Settings', icon: 'settings' }
+	];
+
+	// Underline that slides to the active tab.
+	let tabsEl = $state(null);
+	let tabInk = $state({ x: 0, w: 0, ready: false });
+	$effect(() => {
+		activeTab;
+		if (!tabsEl) return;
+		const measure = () => {
+			const el = tabsEl?.querySelector('.tab.active');
+			if (el) tabInk = { x: el.offsetLeft, w: el.offsetWidth, ready: true };
+		};
+		requestAnimationFrame(measure);
+		const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+		ro?.observe(tabsEl);
+		return () => ro?.disconnect();
+	});
+
 	// Live output
 	let liveOutput = $state([]);
 	// Tracks whether the last liveOutput entry is an incomplete stream chunk
@@ -574,13 +602,15 @@
 		return label;
 	}
 
+	// Compact, fixed-width stamp for list columns: "22 Oct 23:26".
 	function formatTime(ts) {
 		if (!ts) return '';
-		try {
-			return new Date(ts).toLocaleString();
-		} catch {
-			return ts;
-		}
+		const d = new Date(String(ts).replace(' ', 'T'));
+		if (isNaN(d)) return ts;
+		const sameYear = d.getFullYear() === new Date().getFullYear();
+		const date = d.toLocaleDateString('en-GB', sameYear ? { day: '2-digit', month: 'short' } : { day: '2-digit', month: 'short', year: '2-digit' });
+		const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+		return `${date} ${time}`;
 	}
 
 	// Schedule functions
@@ -704,99 +734,91 @@
 	</div>
 {:else}
 	<div class="project-page">
-		<!-- Compact header: name + path inline -->
-		<div class="project-header-bar">
-			<div class="header-title-row">
-				<a href="/projects" class="back-link" title="Back to Projects">&larr;</a>
-				<h1 class="project-title">{project.name}</h1>
-				<span class="header-path mono">{project.path}</span>
-				{#if project.repo_url}
-					<a href={project.repo_url} target="_blank" rel="noopener noreferrer" class="github-link" title="Open on GitHub">
-						<svg class="github-icon" viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
-							<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-						</svg>
-					</a>
-				{/if}
-				{#if project.description}
-					<span class="header-desc">— {project.description}</span>
-				{/if}
+		<!-- Header: breadcrumb, serif name, path · sheep + provider controls -->
+		<header class="project-head">
+			<div class="ph-main">
+				<a href="/projects" class="crumb">
+					<Icon name="arrow-left" size={13} />
+					<span>Projects</span>
+				</a>
+				<div class="ph-title-row">
+					<h1 class="project-title">{project.name}</h1>
+					{#if project.repo_url}
+						<a href={project.repo_url} target="_blank" rel="noopener noreferrer" class="icon-link" title="Open on GitHub" aria-label="Open on GitHub">
+							<Icon name="github" size={15} />
+						</a>
+					{/if}
+				</div>
+				<p class="ph-meta">
+					<span class="header-path mono" title={project.path}>{project.path}</span>
+					{#if project.description}
+						<span class="header-desc" title={project.description}>{project.description}</span>
+					{/if}
+				</p>
 			</div>
 			<div class="header-status">
 				{#if sheepName}
-					<select class="provider-select" value={sheepProvider}
-						onchange={(e) => changeProvider(e.target.value)}>
-						{#each PROVIDER_OPTIONS as opt}
-							{#if providerEnabled[opt.value] || sheepProvider === opt.value}
-								<option value={opt.value}>{opt.label}{!providerEnabled[opt.value] ? ' (off)' : ''}</option>
-							{/if}
-						{/each}
-					</select>
-					{#if providerHasThinking}
-						<label class="thinking-toggle" title="Enable reasoning for this project">
-							<input
-								type="checkbox"
-								checked={thinkingChecked}
-								onchange={toggleThinking}
-							/>
-							<span>Thinking</span>
+					<div class="sheep-pill" class:working={sheepStatus === 'working'}>
+						<span class="sheep-ava" aria-hidden="true">{[...sheepName][0]}</span>
+						<span class="sheep-label">{sheepName}</span>
+						<StatusBadge status={sheepStatus} taskId={runningTaskId} />
+					</div>
+					<div class="controls">
+						<label class="ctl" title="Provider">
+							<span class="ctl-label">Provider</span>
+							<select class="provider-select" value={sheepProvider}
+								onchange={(e) => changeProvider(e.target.value)}>
+								{#each PROVIDER_OPTIONS as opt}
+									{#if providerEnabled[opt.value] || sheepProvider === opt.value}
+										<option value={opt.value}>{opt.label}{!providerEnabled[opt.value] ? ' (off)' : ''}</option>
+									{/if}
+								{/each}
+							</select>
 						</label>
-					{/if}
-					{#if providerHasModel}
-						<select class="provider-select" value={modelSelected} onchange={changeModel}
-							title="Override model for this project">
-							<option value="">Default</option>
-							{#each activeModelOptions as opt}
-								<option value={opt.id} title={opt.label}>{truncateModel(opt.label)}</option>
-							{/each}
-						</select>
-					{/if}
-					<span class="sheep-label">{sheepName}</span>
-					<StatusBadge status={sheepStatus} taskId={runningTaskId} />
+						{#if providerHasModel}
+							<label class="ctl" title="Override model for this project">
+								<span class="ctl-label">Model</span>
+								<select class="provider-select model-select" value={modelSelected} onchange={changeModel}>
+									<option value="">Default</option>
+									{#each activeModelOptions as opt}
+										<option value={opt.id} title={opt.label}>{truncateModel(opt.label)}</option>
+									{/each}
+								</select>
+							</label>
+						{/if}
+						{#if providerHasThinking}
+							<label class="thinking-toggle" title="Enable reasoning for this project">
+								<input
+									type="checkbox"
+									class="switch"
+									checked={thinkingChecked}
+									onchange={toggleThinking}
+								/>
+								<span>Thinking</span>
+							</label>
+						{/if}
+					</div>
 				{:else}
-					<span class="no-sheep">No sheep</span>
+					<span class="no-sheep">No sheep assigned</span>
 				{/if}
 			</div>
-		</div>
+		</header>
 
 		<!-- Tabs -->
-		<div class="tabs">
-			<button class="tab" class:active={activeTab === 'output'}
-				onclick={() => switchTab('output')}>
-				Live Output
-			</button>
-			<button class="tab" class:active={activeTab === 'history'}
-				onclick={() => switchTab('history')}>
-				Task History
-			</button>
-			<button class="tab" class:active={activeTab === 'files'}
-				onclick={() => switchTab('files')}>
-				Files
-			</button>
-			<button class="tab" class:active={activeTab === 'git'}
-				onclick={() => switchTab('git')}>
-				Git
-			</button>
-			<button class="tab" class:active={activeTab === 'schedules'}
-				onclick={() => switchTab('schedules')}>
-				Schedules
-			</button>
-			<button class="tab" class:active={activeTab === 'skills'}
-				onclick={() => switchTab('skills')}>
-				Skills
-			</button>
-			<button class="tab" class:active={activeTab === 'issues'}
-				onclick={() => switchTab('issues')}>
-				Issues
-			</button>
-			<button class="tab" class:active={activeTab === 'wiki'}
-				onclick={() => switchTab('wiki')}>
-				Wiki
-			</button>
-			<button class="tab" class:active={activeTab === 'settings'}
-				onclick={() => switchTab('settings')}>
-				Settings
-			</button>
-		</div>
+		<nav class="tabs" role="tablist" aria-label="Project sections" bind:this={tabsEl}>
+			<span class="tab-ink" style="--x: {tabInk.x}px; --w: {tabInk.w}px" class:ready={tabInk.ready} aria-hidden="true"></span>
+			{#each PROJECT_TABS as t (t.id)}
+				<button class="tab" class:active={activeTab === t.id}
+					role="tab" aria-selected={activeTab === t.id}
+					onclick={() => switchTab(t.id)}>
+					<Icon name={t.icon} size={14} stroke={1.9} />
+					<span>{t.label}</span>
+					{#if t.id === 'output' && sheepStatus === 'working'}
+						<span class="live-dot tab-live" aria-label="live"></span>
+					{/if}
+				</button>
+			{/each}
+		</nav>
 
 		<!-- Content area -->
 		<div class="content-area" class:has-input={activeTab === 'output'}>
@@ -821,7 +843,7 @@
 				<div class="history-fill">
 					<div class="task-search">
 						<input
-							class="input task-search-input"
+							class="input input-search task-search-input"
 							type="text"
 							placeholder="Search tasks..."
 							bind:value={taskSearchQuery}
@@ -835,49 +857,59 @@
 					{:else}
 						<div class="task-list">
 							{#each tasks as t (t.id)}
-								<a href="/tasks/{t.id}?from=project" class="card task-history-item">
+								{@const canRetry = t.status === 'failed' || t.status === 'stopped'}
+								<a href="/tasks/{t.id}?from=project" class="task-history-item">
 									<div class="task-row">
-										<span class="task-id mono">#{t.id}</span>
-										<StatusBadge status={t.status} />
-										<span class="task-prompt-text">{truncate(t.prompt, 80)}</span>
-										{#if t.status === 'pending'}
-											<button class="cancel-btn" onclick={(e) => cancelPendingTask(e, t.id)}
-												disabled={cancellingId === t.id}>
-												{cancellingId === t.id ? '...' : 'Cancel'}
-											</button>
-										{/if}
-										{#if t.status === 'failed' || t.status === 'stopped'}
-											<button class="retry-btn" onclick={(e) => retryTask(e, t.id)}
-												disabled={retryingId === t.id}>
-												{retryingId === t.id ? '...' : 'Retry'}
-											</button>
-											<button class="retry-from-btn" onclick={(e) => retryFromTask(e, t.id)}
-												disabled={retryFromId === t.id}>
-												{retryFromId === t.id ? '...' : 'Retry All'}
-											</button>
-											<button class="delete-btn" onclick={(e) => deleteTask(e, t.id)}
-												disabled={deletingId === t.id}>
-												{deletingId === t.id ? '...' : 'Delete'}
-											</button>
-										{/if}
-										{#if t.duration_sec > 0}
-											{@const dur = t.duration_sec}
-											{@const hh = String(Math.floor(dur / 3600)).padStart(2, '0')}
-											{@const mm = String(Math.floor((dur % 3600) / 60)).padStart(2, '0')}
-											{@const ss = String(dur % 60).padStart(2, '0')}
-											<span class="task-duration mono" title="Execution time">{hh}:{mm}:{ss}</span>
-										{/if}
-										{#if t.prompt_tokens > 0 || t.completion_tokens > 0}
-											{@const totalTok = (t.prompt_tokens || 0) + (t.completion_tokens || 0)}
-											<span class="task-tokens mono">{totalTok.toLocaleString()} tokens</span>
-										{/if}
-										{#if t.model}
-											<span class="task-model mono" title={t.model}>{truncateModel(t.model)}</span>
-										{/if}
-										<span class="task-time mono">{formatTime(t.created_at)}</span>
+										<span class="task-id mono num">#{t.id}</span>
+										<span class="task-status"><StatusBadge status={t.status} /></span>
+										<span class="task-prompt-text">{truncate(t.prompt, 120)}</span>
+										<span class="task-duration mono num" title="Execution time">
+											{#if t.duration_sec > 0}
+												{@const dur = t.duration_sec}
+												{String(Math.floor(dur / 3600)).padStart(2, '0')}:{String(Math.floor((dur % 3600) / 60)).padStart(2, '0')}:{String(dur % 60).padStart(2, '0')}
+											{/if}
+										</span>
+										<span class="task-tokens mono num" title="Tokens">
+											{#if t.prompt_tokens > 0 || t.completion_tokens > 0}
+												{((t.prompt_tokens || 0) + (t.completion_tokens || 0)).toLocaleString()}
+											{/if}
+										</span>
+										<span class="task-model-cell">
+											{#if t.model}
+												<span class="task-model mono" title={t.model}>{truncateModel(t.model)}</span>
+											{/if}
+										</span>
+										<span class="task-time mono num" title={t.created_at}>{formatTime(t.created_at)}</span>
 									</div>
-									{#if t.summary}
-										<div class="task-summary-text">{truncate(t.summary, 120)}</div>
+									{#if t.summary || canRetry || t.status === 'pending'}
+										<div class="task-sub">
+											<span class="task-summary-text">{t.summary ? truncate(t.summary, 160) : ''}</span>
+											<span class="task-actions">
+												{#if t.status === 'pending'}
+													<button class="cancel-btn" onclick={(e) => cancelPendingTask(e, t.id)}
+														disabled={cancellingId === t.id}>
+														{cancellingId === t.id ? '…' : 'Cancel'}
+													</button>
+												{/if}
+												{#if canRetry}
+													<span class="retry-group" class:busy={retryingId === t.id || retryFromId === t.id || deletingId === t.id}>
+														<button class="retry-btn" onclick={(e) => retryTask(e, t.id)}
+															disabled={retryingId === t.id}>
+															<Icon name="rotate-ccw" size={11} stroke={2.2} />
+															{retryingId === t.id ? '…' : 'Retry'}
+														</button>
+														<button class="retry-from-btn" onclick={(e) => retryFromTask(e, t.id)}
+															disabled={retryFromId === t.id}>
+															{retryFromId === t.id ? '…' : 'Retry All'}
+														</button>
+														<button class="delete-btn" onclick={(e) => deleteTask(e, t.id)}
+															disabled={deletingId === t.id} title="Delete task" aria-label="Delete task #{t.id}">
+															{#if deletingId === t.id}…{:else}<Icon name="trash" size={12} />{/if}
+														</button>
+													</span>
+												{/if}
+											</span>
+										</div>
 									{/if}
 								</a>
 							{/each}
@@ -1077,7 +1109,7 @@
 									<div class="sc-row">
 										<span class="sc-name">{sk.name}</span>
 										{#if sk.bundled}
-											<span class="sc-badge" style="background:rgba(163,113,247,0.15);color:#a371f7">bundled</span>
+											<span class="sc-badge sc-bundled">bundled</span>
 										{/if}
 										<div class="sc-actions">
 											<button class="btn btn-xs" onclick={() => toggleSkill(sk)}>{sk.enabled ? 'Off' : 'On'}</button>
@@ -1093,7 +1125,7 @@
 									<div class="sc-meta">
 										{#if sk.tags?.length > 0}
 											{#each sk.tags as tag}
-												<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--bg-tertiary)">{tag}</span>
+												<span class="sc-tag">{tag}</span>
 											{/each}
 										{/if}
 									</div>
@@ -1151,169 +1183,311 @@
 {/if}
 
 <style>
+	/* Full-height app page: header + tabs + scroll pane + command bar.
+	   The layout shrinks its own padding for this route (see +layout). */
 	.project-page {
 		display: flex;
 		flex-direction: column;
-		height: calc(100vh - 48px);
+		height: calc(100dvh - var(--page-pad-top) - var(--page-pad-bottom));
+		min-height: 420px;
 		overflow: hidden;
 	}
 
-	.text-muted { color: var(--text-secondary); }
-
-	/* Compact header */
-	.project-header-bar {
+	/* ---------- Header ---------- */
+	.project-head {
 		display: flex;
-		align-items: center;
+		align-items: flex-end;
 		justify-content: space-between;
-		padding: 8px 0;
+		gap: 12px 24px;
 		flex-shrink: 0;
-		gap: 12px;
-		min-height: 0;
+		padding-bottom: 18px;
+		animation: rise-in var(--dur-3) var(--ease-out) backwards;
 	}
 
-	.header-title-row {
+	.ph-main {
 		display: flex;
-		align-items: baseline;
+		flex-direction: column;
 		gap: 8px;
 		min-width: 0;
 		flex: 1;
-		overflow: hidden;
 	}
 
-	.back-link {
-		color: var(--text-secondary);
+	.crumb {
+		align-self: flex-start;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		color: var(--text-tertiary);
 		text-decoration: none;
-		font-size: 16px;
-		flex-shrink: 0;
+		transition: color var(--dur-1) ease, gap var(--dur-2) var(--ease-out);
 	}
 
-	.back-link:hover {
+	.crumb:hover {
 		color: var(--accent);
+		text-decoration: none;
+		gap: 9px;
 	}
 
-	.project-title {
-		font-size: 18px;
-		font-weight: 600;
-		margin: 0;
-		flex-shrink: 0;
-	}
-
-	.header-path {
-		font-size: 12px;
-		color: var(--text-secondary);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+	.ph-title-row {
+		display: flex;
+		align-items: center;
+		gap: 12px;
 		min-width: 0;
 	}
 
-	.header-desc {
-		font-size: 12px;
-		color: var(--text-secondary);
-		flex-shrink: 0;
+	.project-title {
+		font-family: var(--font-display);
+		font-size: clamp(34px, 3.4vw, 46px);
+		font-weight: 400;
+		line-height: 0.95;
+		letter-spacing: -0.02em;
+		margin: 0;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
-	.github-link {
+	.icon-link {
 		flex-shrink: 0;
-		color: var(--text-secondary);
-		display: flex;
-		align-items: center;
-		transition: color 0.15s;
+		display: grid;
+		place-items: center;
+		width: 30px;
+		height: 30px;
+		border-radius: 50%;
+		color: var(--text-tertiary);
+		box-shadow: inset 0 0 0 1px var(--border);
+		transition: color var(--dur-1) ease, box-shadow var(--dur-1) ease, background var(--dur-1) ease;
 	}
 
-	.github-link:hover {
+	.icon-link:hover {
 		color: var(--text-primary);
+		background: var(--bg-hover);
+		box-shadow: inset 0 0 0 1px var(--border-strong);
 	}
 
-	.github-icon {
-		width: 16px;
-		height: 16px;
+	.ph-meta {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
+		min-width: 0;
+		font-size: var(--fs-xs);
+		color: var(--text-tertiary);
+	}
+
+	.header-path {
+		flex-shrink: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--fs-2xs);
+	}
+
+	.header-desc {
+		flex-shrink: 2;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--text-secondary);
+	}
+
+	.header-desc::before {
+		content: '';
+		display: inline-block;
+		width: 3px;
+		height: 3px;
+		margin: 0 10px 2px 0;
+		border-radius: 50%;
+		background: var(--text-tertiary);
+		vertical-align: middle;
 	}
 
 	.header-status {
 		display: flex;
-		align-items: center;
-		gap: 6px;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 10px;
 		flex-shrink: 0;
 	}
 
-	.provider-select {
-		padding: 2px 6px;
-		font-size: 12px;
-		border-radius: var(--radius);
-		background: var(--bg-tertiary);
-		color: var(--text-primary);
-		border: 1px solid var(--border);
-		cursor: pointer;
+	.sheep-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 3px 4px 3px 3px;
+		border-radius: var(--radius-full);
+		background: rgba(237, 230, 218, 0.03);
+		box-shadow: inset 0 0 0 1px var(--border);
 	}
 
-	.provider-select:hover {
-		border-color: var(--accent);
+	.sheep-pill.working {
+		box-shadow: inset 0 0 0 1px var(--live-line), 0 0 24px -8px var(--live-glow);
+	}
+
+	.sheep-ava {
+		display: grid;
+		place-items: center;
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		background: var(--wool-soft);
+		color: var(--wool);
+		font-size: var(--fs-2xs);
+		font-weight: var(--fw-semibold);
+	}
+
+	.sheep-pill.working .sheep-ava {
+		background: var(--live-soft);
+		color: var(--live);
+	}
+
+	.sheep-label {
+		font-weight: var(--fw-medium);
+		font-size: var(--fs-sm);
+		color: var(--text-primary);
+	}
+
+	.controls {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.ctl {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.ctl-label {
+		position: absolute;
+		left: 10px;
+		top: 50%;
+		transform: translateY(-50%);
+		font-family: var(--font-mono);
+		font-size: 9.5px;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+		pointer-events: none;
+	}
+
+	.provider-select {
+		height: 30px;
+		padding: 0 28px 0 72px;
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
+		border-radius: 9px;
+		background-color: rgba(237, 230, 218, 0.03);
+		background-position: right 9px center;
+		max-width: 260px;
+	}
+
+	.model-select {
+		padding-left: 58px;
 	}
 
 	.thinking-toggle {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
-		padding: 2px 6px;
-		font-size: 12px;
-		border-radius: var(--radius);
-		background: var(--bg-tertiary);
-		border: 1px solid var(--border);
+		gap: 8px;
+		height: 30px;
+		padding: 0 10px;
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
+		color: var(--text-secondary);
+		border-radius: 9px;
+		box-shadow: inset 0 0 0 1px var(--border);
+		background: rgba(237, 230, 218, 0.03);
 		cursor: pointer;
 		user-select: none;
-	}
-
-	.thinking-toggle input {
-		margin: 0;
-		cursor: pointer;
+		transition: box-shadow var(--dur-1) ease, color var(--dur-1) ease;
 	}
 
 	.thinking-toggle:hover {
-		border-color: var(--accent);
-	}
-
-		.sheep-label {
-		font-weight: 500;
-		font-size: 13px;
-		color: var(--accent);
+		color: var(--text-primary);
+		box-shadow: inset 0 0 0 1px var(--border-strong);
 	}
 
 	.no-sheep {
-		font-size: 12px;
-		color: var(--text-secondary);
+		font-size: var(--fs-xs);
+		color: var(--text-tertiary);
+		font-style: italic;
 	}
 
-	/* Tabs */
+	/* ---------- Tabs ---------- */
 	.tabs {
+		position: relative;
 		display: flex;
-		gap: 0;
-		border-bottom: 1px solid var(--border);
+		gap: 2px;
 		flex-shrink: 0;
+		margin-bottom: 14px;
+		border-bottom: 1px solid var(--border);
 		overflow-x: auto;
+		scrollbar-width: none;
 		-webkit-overflow-scrolling: touch;
 	}
 
+	.tabs::-webkit-scrollbar {
+		display: none;
+	}
+
+	.tab-ink {
+		position: absolute;
+		left: 0;
+		bottom: 0;
+		height: 2px;
+		width: var(--w);
+		transform: translateX(var(--x));
+		border-radius: 2px 2px 0 0;
+		background: var(--accent);
+		box-shadow: 0 0 12px var(--accent-glow);
+		pointer-events: none;
+	}
+
+	.tab-ink.ready {
+		transition: transform 380ms var(--ease-out), width 380ms var(--ease-out);
+	}
+
 	.tab {
-		background: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
+		padding: 9px 12px 11px;
 		border: none;
-		color: var(--text-secondary);
-		font-size: 13px;
-		padding: 6px 14px;
-		cursor: pointer;
-		border-bottom: 2px solid transparent;
-		transition: color 0.15s, border-color 0.15s;
+		background: none;
+		color: var(--text-tertiary);
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
 		white-space: nowrap;
 		flex-shrink: 0;
+		cursor: pointer;
+		border-radius: var(--radius) var(--radius) 0 0;
+		transition: color var(--dur-1) ease, background var(--dur-1) ease;
 	}
 
 	.tab:hover {
 		color: var(--text-primary);
+		background: rgba(237, 230, 218, 0.03);
 	}
 
 	.tab.active {
+		color: var(--text-primary);
+	}
+
+	.tab.active :global(.icon) {
 		color: var(--accent);
-		border-bottom-color: var(--accent);
+	}
+
+	.tab-live {
+		width: 5px;
+		height: 5px;
 	}
 
 	/* Content area: fills remaining space */
@@ -1341,154 +1515,243 @@
 
 	.task-search {
 		flex-shrink: 0;
-		padding: 8px 0;
+		padding: 2px 0 12px;
 	}
 
 	.task-search-input {
 		width: 100%;
-		font-size: 13px;
+		max-width: 420px;
+		font-size: var(--fs-sm);
+		padding-top: 7px;
+		padding-bottom: 7px;
 	}
 
 	.history-fill {
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
-		padding: 8px 0;
+		padding: 2px 2px 8px;
 	}
 
-	/* Task list */
+	/* Task list — one quiet surface, rows divided by hairlines */
 	.task-list {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		padding: 4px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		background: var(--bg-2);
 	}
 
 	.task-history-item {
-		text-decoration: none;
+		display: block;
+		padding: 11px 14px;
+		border: none;
+		border-radius: var(--radius);
+		background: transparent;
+		box-shadow: none;
 		color: inherit;
-		transition: border-color 0.15s;
-		padding: 10px 14px;
+		text-decoration: none;
+		transition: background var(--dur-1) ease;
+	}
+
+	.task-history-item + .task-history-item {
+		box-shadow: 0 -1px 0 var(--border-subtle);
 	}
 
 	.task-history-item:hover {
-		border-color: var(--accent);
+		background: rgba(237, 230, 218, 0.035);
+		color: inherit;
 		text-decoration: none;
 	}
 
 	.task-row {
-		display: flex;
+		display: grid;
+		grid-template-columns: 52px 100px minmax(0, 1fr) 62px 88px 150px 96px;
 		align-items: center;
-		gap: 10px;
-		flex-wrap: wrap;
+		gap: 12px;
 	}
 
 	.task-id {
-		font-size: 12px;
-		color: var(--accent);
-		font-weight: 600;
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+	}
+
+	.task-status {
+		display: flex;
+	}
+
+	.task-duration,
+	.task-tokens,
+	.task-time {
+		text-align: right;
+	}
+
+	.task-model-cell {
+		display: flex;
+		justify-content: flex-end;
+		min-width: 0;
+	}
+
+	.task-sub {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin: 6px 0 0 164px;
+		min-width: 0;
+	}
+
+	.task-actions {
+		display: inline-flex;
+		gap: 4px;
+		margin-left: auto;
 		flex-shrink: 0;
 	}
 
 	.task-prompt-text {
 		flex: 1;
-		font-size: 13px;
+		font-size: var(--fs-sm);
+		color: var(--text-primary);
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-	.task-duration {
-		font-size: 11px;
-		color: var(--text-secondary);
+	.task-duration,
+	.task-tokens,
+	.task-model,
+	.task-time {
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
 		flex-shrink: 0;
-		background: rgba(230, 126, 34, 0.1);
-		padding: 1px 6px;
-		border-radius: 8px;
-	}
-
-	.task-tokens {
-		font-size: 11px;
-		color: var(--text-secondary);
-		flex-shrink: 0;
-		background: rgba(46, 204, 113, 0.1);
-		padding: 1px 6px;
-		border-radius: 8px;
 	}
 
 	.task-model {
-		font-size: 11px;
-		color: var(--text-secondary);
-		flex-shrink: 0;
-		background: rgba(155, 89, 182, 0.12);
-		padding: 1px 6px;
-		border-radius: 8px;
 		max-width: 160px;
+		padding: 0 7px;
+		line-height: 18px;
+		border-radius: var(--radius-full);
+		background: rgba(237, 230, 218, 0.04);
+		box-shadow: inset 0 0 0 1px var(--border-subtle);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-	.task-time {
-		font-size: 11px;
+	.task-summary-text {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--fs-xs);
+		line-height: 1.45;
 		color: var(--text-secondary);
-		flex-shrink: 0;
 	}
 
-	.task-summary-text {
-		font-size: 12px;
-		color: var(--text-secondary);
-		margin-top: 4px;
-		line-height: 1.4;
+	/* Retry controls repeat on every failed row, so on pointer devices they stay
+	   out of the way until the row is hovered or focused. */
+	.retry-group {
+		display: inline-flex;
+		gap: 4px;
+	}
+
+	@media (hover: hover) {
+		.retry-group {
+			opacity: 0;
+			transform: translateX(4px);
+			transition: opacity var(--dur-2) ease, transform var(--dur-2) var(--ease-out);
+		}
+
+		.task-history-item:hover .retry-group,
+		.task-history-item:focus-within .retry-group,
+		.retry-group.busy {
+			opacity: 1;
+			transform: none;
+		}
 	}
 
 	.retry-btn, .retry-from-btn, .cancel-btn, .delete-btn {
-		padding: 2px 8px;
-		font-size: 11px;
-		font-weight: 600;
-		border: 1px solid var(--border-color, #444);
-		border-radius: 4px;
-		background: transparent;
-		color: var(--accent);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		height: 22px;
+		padding: 0 8px;
+		font-size: var(--fs-2xs);
+		font-weight: var(--fw-medium);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--bg-3);
+		color: var(--text-primary);
 		cursor: pointer;
 		flex-shrink: 0;
-		transition: background 0.15s, opacity 0.15s;
+		transition: background var(--dur-1) ease, border-color var(--dur-1) ease, color var(--dur-1) ease;
 	}
-	.retry-btn:hover, .retry-from-btn:hover, .cancel-btn:hover, .delete-btn:hover {
-		background: var(--bg-tertiary, #2a2a2a);
+	.retry-btn:hover, .retry-from-btn:hover {
+		background: var(--bg-4);
+		border-color: var(--border-strong);
+	}
+	.retry-btn {
+		color: var(--accent);
+		border-color: var(--accent-line);
+		background: var(--accent-soft);
 	}
 	.retry-btn:disabled, .retry-from-btn:disabled, .cancel-btn:disabled, .delete-btn:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}
 	.retry-from-btn {
-		color: var(--text-secondary, #888);
+		color: var(--text-secondary);
 	}
-	.cancel-btn {
-		color: var(--danger);
-		border-color: var(--danger);
-	}
+	.cancel-btn,
 	.delete-btn {
 		color: var(--danger);
-		border-color: var(--danger);
+		border-color: var(--danger-line);
+		background: transparent;
 	}
 
-	/* Command bar: fixed at bottom */
+	.delete-btn {
+		padding: 0 6px;
+	}
+	.cancel-btn:hover,
+	.delete-btn:hover {
+		background: var(--danger-soft);
+	}
+
+	/* Command bar: pinned under the output */
 	.command-bar {
 		flex-shrink: 0;
-		margin-top: 0;
-		border-top: 1px solid var(--border);
+		margin-top: 12px;
+		padding: 8px;
+		border-radius: var(--radius-lg);
+		border-color: var(--border);
+		background:
+			linear-gradient(180deg, rgba(255, 250, 240, 0.03), rgba(255, 250, 240, 0.01)),
+			var(--bg-2);
+		box-shadow: var(--sheen), var(--shadow-2);
+		transition: border-color var(--dur-2) ease, box-shadow var(--dur-3) ease;
+	}
+
+	.command-bar:focus-within {
+		border-color: var(--accent-line);
+		box-shadow: var(--sheen), var(--shadow-2), 0 0 0 4px rgba(244, 184, 96, 0.06);
 	}
 
 	.command-disabled-text {
 		text-align: center;
 		margin: 0;
-		font-size: 13px;
+		padding: 10px;
+		font-size: var(--fs-sm);
 	}
 
 	.empty-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 16px;
 		text-align: center;
-		padding: 40px 20px;
+		padding: 56px 20px;
 	}
 
 	/* Git tab */
@@ -1509,56 +1772,104 @@
 		flex-direction: column;
 	}
 
+	@media (max-width: 1200px) {
+		.task-row {
+			grid-template-columns: 52px 100px minmax(0, 1fr) 62px 88px 96px;
+		}
+
+		.task-model-cell {
+			display: none;
+		}
+	}
+
+	@media (max-width: 960px) {
+		.project-head {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.header-status {
+			flex-direction: row;
+			flex-wrap: wrap;
+			align-items: center;
+			justify-content: space-between;
+		}
+	}
+
 	@media (max-width: 768px) {
 		.project-page {
-			height: calc(100dvh - 12px);
-			margin-top: -44px;
+			height: calc(100dvh - var(--mobile-topbar-h) - var(--page-pad-top) - var(--page-pad-bottom));
+			min-height: 360px;
 			overflow-x: hidden;
 		}
 
-		.project-header-bar {
-			flex-wrap: wrap;
-			gap: 4px;
-			padding: 4px 0 4px 56px;
-			box-sizing: border-box;
-			width: 100%;
-		}
-
-		.header-title-row {
-			align-items: center;
-			flex-wrap: nowrap;
-			gap: 6px;
-			min-width: 0;
+		.project-head {
+			gap: 10px;
+			padding-bottom: 12px;
 		}
 
 		.project-title {
-			font-size: 16px;
-		}
-
-		.header-path {
-			display: none;
+			font-size: 32px;
 		}
 
 		.header-desc {
 			display: none;
 		}
 
-		.header-status {
-			width: 100%;
+		.controls {
+			flex-wrap: wrap;
 		}
 
 		.provider-select {
-			padding: 6px 10px;
-			font-size: 13px;
+			height: 34px;
+			max-width: 46vw;
+		}
+
+		.tabs {
+			margin-bottom: 10px;
 		}
 
 		.tab {
-			padding: 8px 10px;
-			font-size: 12px;
+			padding: 8px 10px 10px;
+			font-size: var(--fs-xs);
 		}
 
 		.task-history-item {
-			padding: 8px 10px;
+			padding: 10px;
+		}
+
+		.task-row {
+			grid-template-columns: auto auto minmax(0, 1fr);
+			gap: 8px;
+		}
+
+		.task-row .task-prompt-text {
+			grid-column: 1 / -1;
+			white-space: normal;
+			display: -webkit-box;
+			-webkit-line-clamp: 2;
+			-webkit-box-orient: vertical;
+		}
+
+		.task-duration,
+		.task-tokens,
+		.task-model-cell {
+			display: none;
+		}
+
+		.task-time {
+			grid-row: 1;
+			grid-column: 3;
+		}
+
+		.task-sub {
+			margin-left: 0;
+			flex-wrap: wrap;
+		}
+
+		.command-bar {
+			margin-top: 8px;
+			padding: 6px;
 		}
 	}
 
@@ -1567,7 +1878,14 @@
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
-		padding: 8px 0;
+		padding: 2px 2px 8px;
+	}
+
+	.schedules-fill > h3 {
+		margin: 4px 0 16px;
+		font-family: var(--font-display);
+		font-size: 28px;
+		font-weight: 400;
 	}
 
 	.schedules-header {
@@ -1576,109 +1894,109 @@
 		margin-bottom: 12px;
 	}
 
-	.btn-primary {
-		background: var(--accent);
-		color: #fff;
-		border-color: var(--accent);
-	}
-
 	.schedule-list-compact {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 8px;
 	}
 
 	.schedule-card {
-		transition: border-color 0.15s;
+		padding: 14px 16px;
+		transition: border-color var(--dur-1) ease, opacity var(--dur-2) ease;
 	}
 
 	.schedule-card:hover {
-		border-color: var(--accent);
+		border-color: var(--border-strong);
 	}
 
 	.disabled-card {
-		opacity: 0.5;
+		opacity: 0.55;
 	}
 
 	.sc-row {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		margin-bottom: 4px;
+		gap: 10px;
+		margin-bottom: 6px;
 		flex-wrap: wrap;
 	}
 
 	.sc-name {
-		font-weight: 600;
-		font-size: 13px;
+		font-weight: var(--fw-semibold);
+		font-size: var(--fs-sm);
 	}
 
 	.sc-badge {
-		font-size: 10px;
-		padding: 1px 5px;
-		border-radius: 8px;
-		background: var(--bg-tertiary);
+		font-family: var(--font-mono);
+		font-size: 9.5px;
+		padding: 0 7px;
+		line-height: 17px;
+		border-radius: var(--radius-full);
+		background: rgba(237, 230, 218, 0.05);
+		box-shadow: inset 0 0 0 1px var(--border-subtle);
 		color: var(--text-secondary);
 		text-transform: uppercase;
-		font-weight: 600;
+		letter-spacing: 0.08em;
 	}
 
 	.cron-badge {
-		background: rgba(56, 139, 253, 0.15);
-		color: var(--accent);
+		background: var(--info-soft);
+		box-shadow: inset 0 0 0 1px rgba(143, 193, 255, 0.2);
+		color: var(--info);
+	}
+
+	.sc-bundled {
+		background: var(--queued-soft);
+		box-shadow: inset 0 0 0 1px var(--queued-line);
+		color: var(--queued);
 	}
 
 	.sc-expr {
-		font-size: 11px;
-		color: var(--text-secondary);
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
 	}
 
 	.sc-actions {
 		margin-left: auto;
 		display: flex;
-		gap: 3px;
-	}
-
-	.btn-xs {
-		padding: 2px 6px;
-		font-size: 10px;
+		gap: 4px;
 	}
 
 	.btn-danger-xs {
 		color: var(--danger);
+		border-color: var(--danger-line);
+		background: transparent;
+	}
+
+	.btn-danger-xs:hover {
+		color: var(--danger-hover);
 		border-color: var(--danger);
+		background: var(--danger-soft);
 	}
 
 	.sc-prompt {
-		font-size: 12px;
-		color: var(--text-primary);
-		margin-bottom: 4px;
+		font-size: var(--fs-xs);
+		line-height: 1.5;
+		color: var(--text-secondary);
+		margin-bottom: 6px;
 	}
 
 	.sc-meta {
 		display: flex;
-		gap: 10px;
-		font-size: 11px;
+		flex-wrap: wrap;
+		gap: 6px 14px;
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+	}
+
+	.sc-tag {
+		font-family: var(--font-sans);
+		padding: 0 7px;
+		line-height: 17px;
+		border-radius: var(--radius-full);
+		background: rgba(237, 230, 218, 0.05);
 		color: var(--text-secondary);
-	}
-
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 100;
-		padding: 20px;
-	}
-
-	.modal-content {
-		width: 100%;
-		max-width: 600px;
-		max-height: 85vh;
-		overflow-y: auto;
-		padding: 24px;
 	}
 
 	.modal-hdr {
@@ -1689,7 +2007,9 @@
 	}
 
 	.modal-hdr h2 {
-		font-size: 16px;
+		font-family: var(--font-display);
+		font-size: 28px;
+		font-weight: 400;
 	}
 
 	/* Issues tab */
@@ -1801,9 +2121,9 @@
 	}
 
 	.wiki-page-item.active {
-		background: rgba(56, 139, 253, 0.08);
+		background: var(--accent-soft);
 		border-left-color: var(--accent);
-		color: var(--accent);
+		color: var(--text-primary);
 		font-weight: 600;
 	}
 
@@ -1830,8 +2150,11 @@
 	}
 
 	.wiki-page-title {
-		font-size: 20px;
-		font-weight: 600;
+		font-family: var(--font-display);
+		font-size: 34px;
+		font-weight: 400;
+		line-height: 1.05;
+		letter-spacing: -0.015em;
 		margin: 0;
 	}
 
@@ -1854,9 +2177,9 @@
 
 	.wiki-tag {
 		font-size: 10px;
-		padding: 1px 6px;
-		border-radius: 8px;
-		background: rgba(56, 139, 253, 0.12);
+		padding: 1px 7px;
+		border-radius: var(--radius-full);
+		background: var(--accent-soft);
 		color: var(--accent);
 	}
 

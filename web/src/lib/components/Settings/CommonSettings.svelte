@@ -25,9 +25,8 @@
 		<option value="embedded">Embedded (로컬 LLM)</option>
 		<option value="auto">Auto</option>
 	</select>
+	<span class="hint">각 Provider의 사용유무 · 모델 · Custom Prompt · 동시 실행 제한은 해당 Provider 탭에서 설정합니다.</span>
 </div>
-
-<p class="hint">각 Provider의 사용유무 · 모델 · Custom Prompt · 동시 실행 제한은 위쪽의 해당 Provider 탭에서 설정합니다.</p>
 
 <!-- Max Sheep -->
 <div class="setting-row">
@@ -205,20 +204,21 @@
 	}
 
 	.setting-row > label:not(.toggle) {
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 500;
-		flex: 0 0 140px;
+		flex: 0 0 180px;
+		color: var(--text-primary);
 	}
 
 	.setting-row .input {
 		flex: 1 1 200px;
-		max-width: 240px;
+		max-width: 340px;
 		min-width: 0;
 	}
 
 	.setting-row:not(.column) > .hint {
-		flex: 0 0 calc(100% - 156px);
-		margin-left: 156px;
+		flex: 0 0 calc(100% - 196px);
+		margin-left: 196px;
 		min-width: 0;
 	}
 
@@ -232,7 +232,10 @@
 		flex: none;
 	}
 
+	/* Column rows stack vertically, so the row's 200px flex-basis would become
+	   the field's height; let the field size itself instead. */
 	.setting-row.column .input {
+		flex: none;
 		max-width: none;
 	}
 
@@ -246,7 +249,8 @@
 
 	.hint {
 		font-size: 12px;
-		color: var(--text-secondary);
+		color: var(--text-tertiary);
+		line-height: 1.55;
 	}
 
 	.setting-row.readonly {
@@ -254,13 +258,15 @@
 	}
 
 	.setting-section {
-		font-size: 12px;
-		font-weight: 600;
-		color: var(--text-secondary);
+		margin-top: 10px;
+		padding-top: 22px;
+		border-top: 1px solid var(--border-subtle);
+		font-family: var(--font-mono);
+		font-size: 11px;
+		font-weight: 500;
+		letter-spacing: 0.12em;
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
-		padding-top: 12px;
-		border-top: 1px solid var(--border);
+		color: var(--accent);
 	}
 
 	.setting-section-title {

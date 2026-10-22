@@ -10,6 +10,7 @@
 	import SubagentStreamPanel from '$lib/components/SubagentStreamPanel.svelte';
 	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
 	import DiffView from '$lib/components/DiffView.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	let task = $state(null);
 	let loading = $state(true);
@@ -55,7 +56,7 @@
 	let backLink = $derived(backFromProject
 		? `/projects/${encodeURIComponent(task.project)}?tab=history`
 		: '/tasks');
-	let backLabel = $derived(backFromProject ? `← Back to ${task.project}` : '← Back to Tasks');
+	let backLabel = $derived(backFromProject ? task.project : 'Tasks');
 
 	onMount(async () => {
 		const res = await apiGet(`/api/tasks/${taskId}`);
@@ -302,6 +303,14 @@
 
 	let providerIsMagi = $derived(task?.provider === 'magi');
 
+	// Balance the fact strip: up to 6 facts sit on one row, more split into two
+	// even rows instead of leaving a mostly empty second row.
+	let metaCols = $derived.by(() => {
+		if (!task) return 4;
+		const n = 4 + (task.started_at ? 1 : 0) + (task.completed_at ? 2 : 0) + (task.total_tokens > 0 ? 1 : 0) + (task.cost_usd > 0 ? 1 : 0);
+		return n <= 6 ? n : Math.ceil(n / 2);
+	});
+
 	// Detect subagent output: any line starting with [SUB: triggers the panel.
 	// Same routing pattern as MAGI ([MAGI: prefix → MagiStreamPanel).
 	let hasSubagentOutput = $derived(
@@ -311,100 +320,109 @@
 
 <div class="page">
 	<div class="page-nav">
-		<a href={backLink}>{backLabel}</a>
+		<a href={backLink} class="crumb"><Icon name="arrow-left" size={13} /><span>{backLabel}</span></a>
 	</div>
 
 	{#if loading}
-		<p class="text-muted">Loading...</p>
+		<div class="skeleton" style="height: 52px; width: 280px; margin-bottom: 24px"></div>
+		<div class="skeleton" style="height: 74px; margin-bottom: 18px"></div>
+		<div class="skeleton" style="height: 180px"></div>
 	{:else if !task}
-		<p class="text-muted">Task not found</p>
+		<div class="card"><p class="text-muted">Task not found</p></div>
 	{:else}
 		<div class="task-detail">
-			<div class="detail-header">
-				<h1>Task #{task.id}</h1>
-				<StatusBadge status={task.status} />
-				{#if task.reverted_at}
-					<span class="reverted-badge">되돌림 ({task.reverted_at})</span>
-				{/if}
+			<header class="detail-header">
+				<div class="dh-text">
+					<span class="eyebrow">{task.project || 'Task'}{task.sheep ? ` · ${task.sheep}` : ''}</span>
+					<div class="dh-title-row">
+						<h1><span class="hash">#</span>{task.id}</h1>
+						<StatusBadge status={task.status} />
+						{#if task.reverted_at}
+							<span class="chip chip-queued" title={task.reverted_at}>되돌림 · {task.reverted_at}</span>
+						{/if}
+					</div>
+				</div>
 				{#if task.status === 'pending'}
 					<button class="btn btn-danger cancel-pending" onclick={cancelPending} disabled={cancelling}>
-						{cancelling ? '...' : 'Cancel'}
+						<Icon name="x" size={14} />
+						{cancelling ? 'Cancelling…' : 'Cancel'}
 					</button>
 				{/if}
-			</div>
+			</header>
 			{#if cancelError}
 				<p class="cancel-error">{cancelError}</p>
 			{/if}
 
-			<div class="meta-grid card">
+			<dl class="meta-grid" style="--meta-cols: {metaCols}">
 				<div class="meta-item">
-					<span class="meta-label">Project</span>
-					<span>{task.project || '-'}</span>
+					<dt class="meta-label">Project</dt>
+					<dd>{#if task.project}<a href="/projects/{encodeURIComponent(task.project)}">{task.project}</a>{:else}–{/if}</dd>
 				</div>
 				<div class="meta-item">
-					<span class="meta-label">Sheep</span>
-					<span>{task.sheep || '-'}</span>
+					<dt class="meta-label">Sheep</dt>
+					<dd>{task.sheep || '–'}</dd>
 				</div>
 				<div class="meta-item">
-					<span class="meta-label">Provider</span>
-					<span>{task.provider || '-'}</span>
+					<dt class="meta-label">Provider</dt>
+					<dd class="mono">{task.provider || '–'}</dd>
 				</div>
 				<div class="meta-item">
-					<span class="meta-label">Created</span>
-					<span>{task.created_at || '-'}</span>
+					<dt class="meta-label">Created</dt>
+					<dd class="mono num">{task.created_at || '–'}</dd>
 				</div>
 				{#if task.started_at}
 					<div class="meta-item">
-						<span class="meta-label">Started</span>
-						<span>{task.started_at}</span>
+						<dt class="meta-label">Started</dt>
+						<dd class="mono num">{task.started_at}</dd>
 					</div>
 				{/if}
 				{#if task.completed_at}
 					<div class="meta-item">
-						<span class="meta-label">Completed</span>
-						<span>{task.completed_at}</span>
+						<dt class="meta-label">Completed</dt>
+						<dd class="mono num">{task.completed_at}</dd>
 					</div>
 					<div class="meta-item">
-						<span class="meta-label">Duration</span>
-						<span>{formatDuration(task.started_at, task.completed_at)}</span>
+						<dt class="meta-label">Duration</dt>
+						<dd class="mono num">{formatDuration(task.started_at, task.completed_at)}</dd>
 					</div>
 				{/if}
 				{#if task.total_tokens > 0}
 					<div class="meta-item">
-						<span class="meta-label">Tokens</span>
-						<span>{task.total_tokens.toLocaleString()} <span class="meta-sub">({(task.prompt_tokens ?? 0).toLocaleString()} in / {(task.completion_tokens ?? 0).toLocaleString()} out)</span></span>
+						<dt class="meta-label">Tokens</dt>
+						<dd class="mono num">{task.total_tokens.toLocaleString()}</dd>
+						<dd class="mono num meta-sub">{(task.prompt_tokens ?? 0).toLocaleString()} in · {(task.completion_tokens ?? 0).toLocaleString()} out</dd>
 					</div>
 				{/if}
 				{#if task.cost_usd > 0}
 					<div class="meta-item">
-						<span class="meta-label">Cost</span>
-						<span>${task.cost_usd.toFixed(4)}</span>
+						<dt class="meta-label">Cost</dt>
+						<dd class="mono num">${task.cost_usd.toFixed(4)}</dd>
 					</div>
 				{/if}
-			</div>
+			</dl>
 
 			<div class="section card">
-				<h3>Prompt</h3>
+				<h3 class="section-label">Prompt</h3>
 				<pre class="mono prompt-text">{task.prompt}</pre>
 			</div>
 
 			{#if task.error}
 				<div class="section card error-section">
-					<h3>Error</h3>
+					<h3 class="section-label"><Icon name="alert-triangle" size={12} /> Error</h3>
 					<pre class="mono">{task.error}</pre>
 				</div>
 			{/if}
 
 			{#if task.summary}
 				<div class="section card">
-					<h3>Summary</h3>
+					<h3 class="section-label">Summary</h3>
 					<MarkdownBody text={task.summary} />
 				</div>
 			{/if}
 
 			<div class="section card changes-card">
 				<div class="changes-header">
-					<h3>
+					<h3 class="section-label ko">
 						변경 사항
 						{#if changes?.available}
 							<span class="changes-summary">{changes.files.length} files · +{changes.additions} −{changes.deletions}</span>
@@ -415,7 +433,7 @@
 							<span class="commit-badge">커밋 {changes.commits_during_task.length}개 포함</span>
 						{/if}
 						{#if changes?.available}
-							<button type="button" class="link-btn" onclick={downloadPatch}>패치 내려받기</button>
+							<button type="button" class="link-btn" onclick={downloadPatch}><Icon name="arrow-up-right" size={12} /> 패치 내려받기</button>
 						{/if}
 						{#if task.status === 'running'}
 							<button
@@ -429,6 +447,7 @@
 						{/if}
 						{#if canRevert}
 							<button type="button" class="btn btn-sm revert-btn" onclick={openRevertModal}>
+								<Icon name="rotate-ccw" size={12} />
 								이 작업 되돌리기
 							</button>
 						{/if}
@@ -526,17 +545,17 @@
 
 			{#if providerIsMagi}
 				<div class="section">
-					<h3>MAGI 심의 Output</h3>
+					<h3 class="section-label ko">MAGI 심의 Output</h3>
 					<MagiStreamPanel lines={liveOutput} maxHeight="600px" />
 				</div>
 			{:else if hasSubagentOutput}
 				<div class="section">
-					<h3>서브에이전트 Output</h3>
+					<h3 class="section-label ko">서브에이전트 Output</h3>
 					<SubagentStreamPanel lines={liveOutput} maxHeight="600px" />
 				</div>
 			{:else}
 				<div class="section">
-					<h3>Output ({liveOutput.length} lines)</h3>
+					<h3 class="section-label">Output <span class="label-count">{liveOutput.length.toLocaleString()} lines</span></h3>
 					<OutputViewer lines={liveOutput} />
 				</div>
 			{/if}
@@ -544,10 +563,10 @@
 
 	{#if revertOpen}
 		<div class="modal-overlay">
-			<div class="revert-modal card">
+			<div class="modal-content revert-modal card" role="dialog" aria-modal="true" aria-label="되돌리기">
 				<div class="modal-header">
 					<h3>Task #{task.id} 되돌리기</h3>
-					<button class="btn btn-sm" onclick={closeRevertModal} disabled={reverting}>Close</button>
+					<button class="btn btn-sm btn-ghost btn-icon" onclick={closeRevertModal} disabled={reverting} aria-label="Close"><Icon name="x" size={15} /></button>
 				</div>
 
 				{#if revertLoading}
@@ -579,7 +598,7 @@
 					<div class="modal-actions">
 						<button class="btn" onclick={closeRevertModal} disabled={reverting}>취소</button>
 						<button
-							class="btn btn-danger"
+							class="btn btn-danger-solid"
 							onclick={confirmRevert}
 							disabled={reverting || !revertPreview.changed}
 						>
@@ -594,89 +613,185 @@
 </div>
 
 <style>
+	.page {
+		max-width: var(--content-max);
+	}
+
 	.page-nav {
-		margin-bottom: 16px;
+		margin-bottom: 22px;
 	}
 
-	.page-nav a {
-		color: var(--text-secondary);
-		font-size: 13px;
+	.crumb {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+		transition: color var(--dur-1) ease, gap var(--dur-2) var(--ease-out);
 	}
 
-	.page-nav a:hover {
+	.crumb:hover {
 		color: var(--accent);
+		text-decoration: none;
+		gap: 9px;
 	}
-
-	.text-muted { color: var(--text-secondary); }
 
 	.detail-header {
 		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: 16px;
+		margin-bottom: 22px;
+		animation: rise-in var(--dur-3) var(--ease-out) backwards;
+	}
+
+	.dh-text {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		min-width: 0;
+	}
+
+	.dh-title-row {
+		display: flex;
 		align-items: center;
-		gap: 12px;
-		margin-bottom: 20px;
+		gap: 14px;
+		flex-wrap: wrap;
 	}
 
 	.detail-header h1 {
-		font-size: 22px;
-		font-weight: 600;
+		font-family: var(--font-display);
+		font-size: clamp(40px, 4.4vw, 56px);
+		font-weight: 400;
+		line-height: 0.95;
+		letter-spacing: -0.02em;
 	}
 
-	.cancel-pending {
-		margin-left: auto;
+	.hash {
+		color: var(--text-tertiary);
+		margin-right: 0.04em;
 	}
 
 	.cancel-error {
 		color: var(--danger);
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		margin: 0 0 16px;
 	}
 
+	/* Fact strip */
 	.meta-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-		gap: 12px;
-		margin-bottom: 16px;
+		grid-template-columns: repeat(var(--meta-cols, 4), minmax(0, 1fr));
+		margin: 0 0 20px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		background: var(--bg-2);
+		overflow: hidden;
+		animation: rise-in var(--dur-3) var(--ease-out) 60ms backwards;
 	}
 
 	.meta-item {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: 4px;
+		padding: 14px 16px;
+		box-shadow: -1px 0 0 var(--border-subtle), 0 -1px 0 var(--border-subtle);
+		min-width: 0;
+	}
+
+	.meta-item dd {
+		margin: 0;
+		font-size: var(--fs-sm);
+		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.meta-item dd.mono {
+		font-size: var(--fs-xs);
+	}
+
+	.meta-item a {
+		color: var(--text-primary);
+	}
+
+	.meta-item a:hover {
+		color: var(--accent);
 	}
 
 	.meta-label {
-		font-size: 11px;
-		color: var(--text-secondary);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		font-weight: 500;
+		color: var(--text-tertiary);
 	}
 
-	.meta-sub {
+	.meta-item dd.meta-sub {
 		color: var(--text-tertiary);
-		font-size: 12px;
+		font-size: var(--fs-2xs);
 	}
 
 	.section {
-		margin-bottom: 16px;
+		margin-bottom: 18px;
+		animation: rise-in var(--dur-3) var(--ease-out) 120ms backwards;
 	}
 
-	.section h3 {
-		font-size: 14px;
-		font-weight: 600;
-		margin-bottom: 8px;
-		color: var(--text-secondary);
+	.section.card {
+		padding: 18px 20px;
+	}
+
+	.section-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 0 0 12px;
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		font-weight: var(--fw-medium);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
+
+	/* Hangul does not take wide caps tracking */
+	.section-label.ko {
+		font-family: var(--font-sans);
+		font-size: var(--fs-xs);
+		letter-spacing: 0;
+	}
+
+	.label-count {
+		letter-spacing: 0;
+		text-transform: none;
+		color: var(--text-tertiary);
+		opacity: 0.8;
 	}
 
 	.prompt-text {
 		white-space: pre-wrap;
 		word-break: break-word;
-		font-size: 13px;
-		line-height: 1.5;
+		font-size: var(--fs-xs);
+		line-height: 1.65;
 		margin: 0;
+		max-height: 420px;
+		overflow: auto;
+		color: var(--text-primary);
 	}
 
 	.error-section {
-		border-color: var(--danger);
+		border-color: var(--danger-line);
+		background:
+			linear-gradient(180deg, rgba(255, 107, 97, 0.06), transparent 80px),
+			var(--bg-2);
+	}
+
+	.error-section .section-label {
+		color: var(--danger);
 	}
 
 	.error-section pre {
@@ -684,7 +799,8 @@
 		white-space: pre-wrap;
 		word-break: break-word;
 		margin: 0;
-		font-size: 13px;
+		font-size: var(--fs-xs);
+		line-height: 1.6;
 	}
 
 	.changes-header {
@@ -697,17 +813,16 @@
 	}
 
 	.changes-header h3 {
-		display: flex;
-		align-items: center;
-		gap: 8px;
 		flex-wrap: wrap;
 		margin: 0;
 	}
 
 	.changes-summary {
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--fs-2xs);
 		font-weight: 400;
+		letter-spacing: 0;
+		text-transform: none;
 		color: var(--text-secondary);
 	}
 
@@ -727,11 +842,15 @@
 	}
 
 	.link-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 		background: none;
 		border: none;
 		padding: 0;
 		color: var(--accent);
-		font-size: 12px;
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
 		cursor: pointer;
 	}
 
@@ -741,11 +860,6 @@
 	}
 
 	.live-btn {
-		font-size: 12px;
-	}
-
-	.btn-sm {
-		padding: 4px 10px;
 		font-size: 12px;
 	}
 
@@ -777,37 +891,41 @@
 	}
 
 	.change-list {
-		border-top: 1px solid var(--border);
+		border-top: 1px solid var(--border-subtle);
 	}
 
 	.change-row {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: 10px;
 		width: 100%;
-		padding: 6px 4px;
+		padding: 8px 8px;
 		background: transparent;
 		border: none;
 		border-bottom: 1px solid var(--border-subtle);
 		color: var(--text-primary);
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		text-align: left;
 		cursor: pointer;
+		transition: background var(--dur-1) ease;
 	}
 
 	.change-row:hover,
 	.change-row.active {
-		background: var(--bg-tertiary);
+		background: rgba(237, 230, 218, 0.04);
 	}
 
 	.status-badge {
 		flex-shrink: 0;
+		min-width: 64px;
+		text-align: center;
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: 9.5px;
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
 		padding: 1px 6px;
-		border-radius: 3px;
-		background: var(--bg-tertiary);
+		border-radius: var(--radius-full);
+		background: rgba(237, 230, 218, 0.05);
 		color: var(--text-secondary);
 	}
 
@@ -827,8 +945,8 @@
 	}
 
 	.status-badge.status-renamed {
-		background: var(--accent-soft);
-		color: var(--accent);
+		background: var(--info-soft);
+		color: var(--info);
 	}
 
 	.change-path {
@@ -882,43 +1000,16 @@
 
 	.files-list {
 		list-style: none;
-		font-size: 12px;
-		color: var(--accent);
+		font-size: var(--fs-xs);
+		color: var(--text-secondary);
 	}
 
 	.files-list li {
 		padding: 2px 0;
 	}
 
-	.reverted-badge {
-		font-size: 11px;
-		padding: 2px 8px;
-		border-radius: var(--radius-full);
-		background: var(--warning-soft);
-		color: var(--warning);
-	}
-
-	.revert-btn {
-		font-size: 12px;
-	}
-
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 100;
-		padding: 20px;
-	}
-
 	.revert-modal {
-		width: 100%;
-		max-width: 560px;
-		max-height: 80vh;
-		overflow-y: auto;
-		padding: 20px;
+		max-width: 580px;
 	}
 
 	.modal-header {
@@ -931,7 +1022,9 @@
 
 	.modal-header h3 {
 		margin: 0;
-		font-size: 16px;
+		font-family: var(--font-display);
+		font-size: 28px;
+		font-weight: 400;
 	}
 
 	.revert-notice {
@@ -984,4 +1077,24 @@
 		gap: 8px;
 	}
 
+	@media (max-width: 1100px) {
+		.meta-grid {
+			grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+		}
+	}
+
+	@media (max-width: 768px) {
+		.detail-header {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+
+		.meta-grid {
+			grid-template-columns: 1fr 1fr;
+		}
+
+		.section.card {
+			padding: 14px;
+		}
+	}
 </style>

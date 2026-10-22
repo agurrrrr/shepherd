@@ -44,11 +44,12 @@
 	// Graph computation
 	let graphData = $state([]);
 
-	// Colors for graph lanes
+	// Colors for graph lanes — the mainline carries the lantern amber, side
+	// branches take the rest of the Nocturne palette (see app.css tokens).
 	const LANE_COLORS = [
-		'#4fc3f7', '#81c784', '#ffb74d', '#e57373',
-		'#ba68c8', '#4dd0e1', '#fff176', '#f06292',
-		'#aed581', '#90a4ae',
+		'#f4b860', '#5fe0c2', '#aea3ff', '#8fc1ff',
+		'#ff9a5c', '#9fd685', '#cbbca3', '#ff8fa3',
+		'#7fd3e6', '#d8c3ff',
 	];
 
 	const ROW_HEIGHT = 32;
@@ -787,12 +788,13 @@
 	}
 
 	.commit-row:hover {
-		background: var(--bg-tertiary);
+		background: var(--bg-hover);
 	}
 
 	.commit-row.selected {
-		background: var(--bg-tertiary);
-		border-bottom-color: var(--border);
+		background: var(--accent-soft);
+		border-bottom-color: transparent;
+		box-shadow: inset 2px 0 0 var(--accent);
 	}
 
 	.graph-svg {
@@ -810,8 +812,13 @@
 
 	.commit-hash {
 		font-size: 12px;
-		color: var(--accent);
+		color: var(--text-tertiary);
 		flex-shrink: 0;
+	}
+
+	.commit-row:hover .commit-hash,
+	.commit-row.selected .commit-hash {
+		color: var(--accent);
 	}
 
 	.commit-refs {
@@ -821,25 +828,27 @@
 	}
 
 	.ref-badge {
+		font-family: var(--font-mono);
 		font-size: 10px;
-		padding: 1px 6px;
-		border-radius: 3px;
-		background: var(--bg-tertiary);
+		line-height: 16px;
+		padding: 0 7px;
+		border-radius: var(--radius-full);
+		background: rgba(237, 230, 218, 0.05);
 		color: var(--text-secondary);
 		border: 1px solid var(--border);
 		white-space: nowrap;
 	}
 
 	.ref-badge.head {
-		background: #2d4a22;
-		color: #81c784;
-		border-color: #4caf50;
+		background: var(--accent-soft);
+		color: var(--accent);
+		border-color: var(--accent-line);
 	}
 
 	.ref-badge.remote {
-		background: #1a3a4a;
-		color: #4fc3f7;
-		border-color: #29b6f6;
+		background: var(--live-soft);
+		color: var(--live);
+		border-color: var(--live-line);
 	}
 
 	.commit-subject {
@@ -1009,13 +1018,13 @@
 	}
 
 	.stat-add {
-		color: #81c784;
+		color: var(--success);
 		font-size: 11px;
 		font-family: var(--font-mono), monospace;
 	}
 
 	.stat-del {
-		color: #e57373;
+		color: var(--danger);
 		font-size: 11px;
 		font-family: var(--font-mono), monospace;
 	}
@@ -1075,22 +1084,22 @@
 	}
 
 	.branch-counter.ahead {
-		background: rgba(63, 185, 80, 0.18);
-		color: #81c784;
+		background: var(--success-soft);
+		color: var(--success);
 	}
 
 	.branch-counter.behind {
-		background: rgba(248, 81, 73, 0.18);
-		color: #e57373;
+		background: var(--danger-soft);
+		color: var(--danger);
 	}
 
 	.push-result {
 		font-size: 11px;
-		color: #81c784;
+		color: var(--success);
 	}
 
 	.push-result.error {
-		color: #e57373;
+		color: var(--danger);
 	}
 
 	.changes-sections {
@@ -1143,9 +1152,9 @@
 		flex-shrink: 0;
 	}
 
-	.change-status.modified { color: #ffb74d; }
-	.change-status.added { color: #81c784; }
-	.change-status.deleted { color: #e57373; }
+	.change-status.modified { color: var(--warning); }
+	.change-status.added { color: var(--success); }
+	.change-status.deleted { color: var(--danger); }
 	.change-status.untracked { color: var(--text-secondary); }
 
 	.change-path {
@@ -1204,7 +1213,7 @@
 
 	.commit-error {
 		font-size: 11px;
-		color: #e57373;
+		color: var(--danger);
 		flex: 1;
 		min-width: 0;
 	}
@@ -1317,7 +1326,7 @@
 	}
 
 	.current-marker {
-		color: #81c784;
+		color: var(--accent);
 		font-weight: 700;
 		flex-shrink: 0;
 		width: 10px;

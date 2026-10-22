@@ -4,6 +4,10 @@
 	import { onSSE } from '$lib/sse.js';
 	import { projects } from '$lib/stores.js';
 	import SkillForm from '$lib/components/SkillForm.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
+	import Tabs from '$lib/components/Tabs.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	let skills = $state([]);
 	let loaded = $state(false);
@@ -15,6 +19,7 @@
 
 	// Filter
 	let filterScope = $state('all');
+	let query = $state('');
 
 	onMount(async () => {
 		await loadSkills();
@@ -34,11 +39,19 @@
 		loaded = true;
 	}
 
-	let filteredSkills = $derived(
-		filterScope === 'all'
-			? skills
-			: skills.filter(sk => sk.scope === filterScope)
-	);
+	let filteredSkills = $derived.by(() => {
+		const q = query.trim().toLowerCase();
+		return skills.filter((sk) =>
+			(filterScope === 'all' || sk.scope === filterScope) &&
+			(!q || [sk.name, sk.description, sk.project, ...(sk.tags || [])].some((v) => (v || '').toLowerCase().includes(q)))
+		);
+	});
+
+	let scopeTabs = $derived([
+		{ value: 'all', label: 'All', count: skills.length },
+		{ value: 'global', label: 'Global', count: skills.filter((s) => s.scope === 'global').length },
+		{ value: 'project', label: 'Project', count: skills.filter((s) => s.scope === 'project').length }
+	]);
 
 	function openCreate() {
 		editingSkill = null;
@@ -119,68 +132,70 @@
 </script>
 
 <div class="page">
-	<div class="page-header">
-		<h1 class="page-title">Skills</h1>
-		<div class="header-actions">
-			<button class="btn" onclick={handleImport}>Import .md</button>
-			<button class="btn btn-primary" onclick={openCreate}>+ New Skill</button>
-		</div>
-	</div>
+	<PageHeader
+		eyebrow="Configure · Know-how"
+		title="Skills"
+		count={skills.length}
+		subtitle="Reusable instructions the flock loads on demand — checklists, procedures, house rules. Global skills reach every project."
+	>
+		<button class="btn" onclick={handleImport}>
+			<Icon name="arrow-up-right" size={13} /> Import .md
+		</button>
+		<button class="btn btn-primary" onclick={openCreate}>
+			<Icon name="plus" size={14} stroke={2.2} /> New skill
+		</button>
+	</PageHeader>
 
-	<!-- Filter -->
-	<div class="filter-bar">
-		<button class="filter-btn" class:active={filterScope === 'all'} onclick={() => filterScope = 'all'}>All</button>
-		<button class="filter-btn" class:active={filterScope === 'global'} onclick={() => filterScope = 'global'}>Global</button>
-		<button class="filter-btn" class:active={filterScope === 'project'} onclick={() => filterScope = 'project'}>Project</button>
+	<div class="toolbar">
+		<Tabs tabs={scopeTabs} value={filterScope} onChange={(v) => (filterScope = v)} ariaLabel="Scope filter" />
+		<input class="input input-search search" type="search" bind:value={query} placeholder="Search skills, tags, projects…" aria-label="Search skills" />
 	</div>
 
 	{#if !loaded}
-		<p class="text-muted">Loading...</p>
+		<div class="skill-list" aria-busy="true">
+			{#each Array(9) as _}
+				<div class="card skill-item"><div class="skeleton" style="height: 14px; width: 50%"></div><div class="skeleton" style="height: 10px; width: 90%; margin-top: 16px"></div><div class="skeleton" style="height: 10px; width: 70%; margin-top: 8px"></div></div>
+			{/each}
+		</div>
 	{:else if filteredSkills.length === 0 && !showForm}
-		<div class="card empty-state">
-			<p>No skills found.</p>
-			<p class="text-muted">Create a skill to enhance AI capabilities for your projects.</p>
+		<div class="card">
+			<EmptyState icon="list" title={query ? 'Nothing matches' : 'No skills yet'} description={query ? `No skill mentions “${query}”.` : 'Create a skill to teach the flock a procedure once and reuse it everywhere.'} />
 		</div>
 	{:else}
 		<div class="skill-list">
-			{#each filteredSkills as sk (sk.id)}
-				<div class="card skill-item" class:disabled={!sk.enabled}>
+			{#each filteredSkills as sk, i (sk.id)}
+				<article class="card skill-item reveal" class:disabled={!sk.enabled} style="--i: {i}">
 					<div class="skill-header">
-						<div class="skill-name-row">
-							<span class="skill-name">{sk.name}</span>
-							<span class="badge" class:global={sk.scope === 'global'}>{sk.scope}</span>
-							{#if sk.bundled}
-								<span class="badge bundled">bundled</span>
-							{/if}
-						</div>
-						<div class="skill-actions">
-							<button class="btn btn-sm" onclick={() => toggleEnabled(sk)}>
-								{sk.enabled ? 'Disable' : 'Enable'}
-							</button>
-							<button class="btn btn-sm" onclick={() => openEdit(sk)}>Edit</button>
-							<button class="btn btn-sm" onclick={() => exportSkill(sk)} title="Export as .md">Export</button>
-							{#if !sk.bundled}
-								<button class="btn btn-sm btn-danger" onclick={() => deleteSkill(sk)}>Delete</button>
-							{/if}
-						</div>
+						<span class="skill-name mono">{sk.name}</span>
+						<label class="enable" title={sk.enabled ? 'Disable' : 'Enable'}>
+							<input type="checkbox" class="switch" checked={sk.enabled} onchange={() => toggleEnabled(sk)} aria-label={sk.enabled ? `Disable ${sk.name}` : `Enable ${sk.name}`} />
+						</label>
 					</div>
-					{#if sk.description}
-						<div class="skill-desc">{sk.description}</div>
-					{/if}
-					<div class="skill-content-preview">{truncate(sk.content, 80)}</div>
-					<div class="skill-meta">
+					<div class="badges">
+						<span class="chip" class:chip-accent={sk.scope === 'global'}>{sk.scope}</span>
+						{#if sk.bundled}
+							<span class="chip chip-queued">bundled</span>
+						{/if}
 						{#if sk.project}
-							<span class="meta-project">{sk.project}</span>
-						{/if}
-						{#if sk.tags?.length > 0}
-							<span class="skill-tags">
-								{#each sk.tags as tag}
-									<span class="tag">{tag}</span>
-								{/each}
-							</span>
+							<span class="chip chip-mono">{sk.project}</span>
 						{/if}
 					</div>
-				</div>
+					<p class="skill-desc">{sk.description || truncate(sk.content, 160)}</p>
+					{#if sk.tags?.length > 0}
+						<div class="skill-tags">
+							{#each sk.tags as tag}
+								<span class="tag">#{tag}</span>
+							{/each}
+						</div>
+					{/if}
+					<div class="skill-actions">
+						<button class="btn btn-xs btn-ghost" onclick={() => openEdit(sk)}><Icon name="edit" size={12} /> Edit</button>
+						<button class="btn btn-xs btn-ghost" onclick={() => exportSkill(sk)} title="Export as .md"><Icon name="arrow-up-right" size={12} /> Export</button>
+						{#if !sk.bundled}
+							<button class="btn btn-xs btn-ghost del" onclick={() => deleteSkill(sk)}><Icon name="trash" size={12} /> Delete</button>
+						{/if}
+					</div>
+				</article>
 			{/each}
 		</div>
 	{/if}
@@ -188,10 +203,10 @@
 	<!-- Create/Edit Modal — only Close/Cancel closes (no outside-click dismiss) -->
 	{#if showForm}
 		<div class="modal-overlay">
-			<div class="modal-content card">
+			<div class="modal-content card" role="dialog" aria-modal="true" aria-label={editingSkill ? 'Edit skill' : 'New skill'}>
 				<div class="modal-header">
-					<h2>{editingSkill ? 'Edit Skill' : 'New Skill'}</h2>
-					<button class="btn" onclick={closeForm}>Close</button>
+					<h2>{editingSkill ? 'Edit skill' : 'New skill'}</h2>
+					<button class="btn btn-sm btn-ghost btn-icon" onclick={closeForm} aria-label="Close"><Icon name="x" size={15} /></button>
 				</div>
 				<SkillForm
 					skill={editingSkill}
@@ -205,233 +220,152 @@
 </div>
 
 <style>
-	.page-header {
+	.page { max-width: var(--content-max); }
+
+	.toolbar {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 16px;
+		gap: 12px;
+		flex-wrap: wrap;
+		margin-bottom: 18px;
 	}
 
-	.page-title { font-size: 20px; font-weight: 600; }
-	.text-muted { color: var(--text-secondary); }
-
-	.header-actions {
-		display: flex;
-		gap: 8px;
-	}
-
-	.btn-primary {
-		background: var(--accent);
-		color: #fff;
-		border-color: var(--accent);
-	}
-
-	.filter-bar {
-		display: flex;
-		gap: 4px;
-		margin-bottom: 16px;
-	}
-
-	.filter-btn {
-		padding: 4px 12px;
-		border: 1px solid var(--border);
-		background: var(--bg-primary);
-		color: var(--text-secondary);
-		border-radius: 12px;
-		cursor: pointer;
-		font-size: 12px;
-		transition: all 0.15s;
-	}
-
-	.filter-btn:hover {
-		border-color: var(--accent);
-		color: var(--accent);
-	}
-
-	.filter-btn.active {
-		background: var(--accent);
-		color: #fff;
-		border-color: var(--accent);
+	.search {
+		flex: 1;
+		min-width: 200px;
+		max-width: 380px;
+		margin-left: auto;
+		padding-top: 7px;
+		padding-bottom: 7px;
+		font-size: var(--fs-sm);
 	}
 
 	.skill-list {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-		gap: 8px;
+		grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+		gap: 12px;
 	}
 
 	.skill-item {
-		transition: border-color 0.15s;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		padding: 16px 16px 10px;
+		transition: border-color var(--dur-1) ease, opacity var(--dur-2) ease;
 	}
 
 	.skill-item:hover {
-		border-color: var(--accent);
+		border-color: var(--border-strong);
 	}
 
 	.skill-item.disabled {
-		opacity: 0.5;
+		opacity: 0.55;
+	}
+
+	.skill-item.disabled:hover {
+		opacity: 0.9;
 	}
 
 	.skill-header {
 		display: flex;
+		align-items: center;
 		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 6px;
-		gap: 8px;
-	}
-
-	.skill-name-row {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		flex-wrap: wrap;
-		min-width: 0;
+		gap: 10px;
 	}
 
 	.skill-name {
-		font-weight: 600;
-		font-size: 14px;
+		min-width: 0;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-semibold);
+		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
-	.badge {
-		font-size: 10px;
-		padding: 2px 6px;
-		border-radius: 8px;
-		background: var(--bg-tertiary);
-		color: var(--text-secondary);
-		text-transform: uppercase;
-		font-weight: 600;
+	.enable {
+		display: inline-flex;
+		cursor: pointer;
 	}
 
-	.badge.global {
-		background: rgba(56, 139, 253, 0.15);
-		color: var(--accent);
-	}
-
-	.badge.bundled {
-		background: rgba(163, 113, 247, 0.15);
-		color: #a371f7;
-	}
-
-	.skill-actions {
+	.badges {
 		display: flex;
-		gap: 4px;
-		flex-shrink: 0;
-	}
-
-	.btn-sm {
-		padding: 3px 8px;
-		font-size: 11px;
-	}
-
-	.btn-danger {
-		color: var(--danger);
-		border-color: var(--danger);
-	}
-
-	.btn-danger:hover {
-		background: rgba(248, 81, 73, 0.1);
+		gap: 6px;
+		flex-wrap: wrap;
 	}
 
 	.skill-desc {
-		font-size: 13px;
+		font-size: var(--fs-xs);
+		line-height: 1.55;
 		color: var(--text-secondary);
-		margin-bottom: 4px;
-	}
-
-	.skill-content-preview {
-		font-size: 12px;
-		color: var(--text-primary);
-		margin-bottom: 6px;
-		line-height: 1.4;
-		font-family: var(--font-mono);
-		opacity: 0.7;
-	}
-
-	.skill-meta {
-		display: flex;
-		gap: 12px;
-		font-size: 12px;
-		color: var(--text-secondary);
-		align-items: center;
-	}
-
-	.meta-project {
-		color: var(--accent);
+		display: -webkit-box;
+		-webkit-line-clamp: 3;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		word-break: break-word;
 	}
 
 	.skill-tags {
 		display: flex;
-		gap: 4px;
+		gap: 4px 10px;
 		flex-wrap: wrap;
 	}
 
 	.tag {
-		font-size: 10px;
-		padding: 1px 6px;
-		border-radius: 8px;
-		background: var(--bg-tertiary);
-		color: var(--text-secondary);
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: var(--text-tertiary);
 	}
 
-	.empty-state {
-		text-align: center;
-		padding: 40px 20px;
-	}
-
-	/* Modal */
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
+	.skill-actions {
 		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 100;
-		padding: 20px;
+		gap: 2px;
+		margin: auto -6px 0;
+		padding-top: 8px;
+		border-top: 1px solid var(--border-subtle);
+		opacity: 0.55;
+		transition: opacity var(--dur-1) ease;
+	}
+
+	.skill-item:hover .skill-actions,
+	.skill-item:focus-within .skill-actions {
+		opacity: 1;
+	}
+
+	.del:hover {
+		color: var(--danger);
+		background: var(--danger-soft);
 	}
 
 	.modal-content {
-		width: 100%;
-		max-width: 700px;
-		max-height: 85vh;
-		overflow-y: auto;
-		padding: 24px;
+		max-width: 760px;
 	}
 
 	.modal-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 20px;
+		margin-bottom: 18px;
 	}
 
-	.modal-header h2 { font-size: 18px; }
+	.modal-header h2 {
+		font-family: var(--font-display);
+		font-size: 30px;
+		font-weight: 400;
+	}
 
 	@media (max-width: 768px) {
-		.page-header {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 12px;
+		.search {
+			max-width: none;
+			margin-left: 0;
 		}
 
-		.skill-header {
-			flex-direction: column;
-			align-items: flex-start;
+		.skill-list {
+			grid-template-columns: 1fr;
 		}
 
 		.skill-actions {
-			flex-wrap: wrap;
-		}
-
-		.skill-meta {
-			flex-wrap: wrap;
-			gap: 6px;
-		}
-
-		.modal-content {
-			padding: 16px;
-			max-height: 90vh;
+			opacity: 1;
 		}
 	}
 </style>

@@ -5,9 +5,17 @@
 	import { logout, apiGet } from '$lib/api.js';
 	import { connectSSE, disconnectSSE, onSSE } from '$lib/sse.js';
 	import { syncPushSubscription } from '$lib/push.js';
-	import { goto } from '$app/navigation';
+	import { goto, onNavigate } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
+	import BrandMark from '$lib/components/BrandMark.svelte';
+	import '@fontsource-variable/geist';
+	import '@fontsource-variable/geist-mono';
+	import '@fontsource/instrument-serif/400.css';
+	import '@fontsource/instrument-serif/400-italic.css';
+	import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 	import '../app.css';
+
+	let { children } = $props();
 
 	let unsubscribers = [];
 	let projectsExpanded = $state(false);
@@ -42,6 +50,33 @@
 		completed: $systemStatus?.tasks?.completed ?? 0,
 		failed: $systemStatus?.tasks?.failed ?? 0
 	});
+
+	// Share of finished tasks that succeeded — drives the sidebar flock meter.
+	let finished = $derived(stats.completed + stats.failed);
+	let successRate = $derived(finished > 0 ? stats.completed / finished : 0);
+	let initial = $derived(($username || '?').trim().charAt(0).toUpperCase());
+
+	// Cross-fade the main pane between routes (sidebar stays put). Query-only
+	// changes (tabs, filters) skip the transition so they feel instant.
+	// The main pane is named only while a transition runs: a view-transition-name
+	// makes the element a stacking context, which would otherwise trap every
+	// modal overlay inside <main> underneath the fixed sidebar.
+	onNavigate((navigation) => {
+		if (typeof document === 'undefined' || !document.startViewTransition) return;
+		if (navigation.from?.url.pathname === navigation.to?.url.pathname) return;
+		const root = document.documentElement;
+		root.classList.add('vt-page');
+		return new Promise((resolve) => {
+			const transition = document.startViewTransition(async () => {
+				resolve();
+				await navigation.complete;
+			});
+			transition.finished.finally(() => root.classList.remove('vt-page'));
+		});
+	});
+
+	// Full-height app routes (project workspace) trade page padding for room.
+	let fillRoute = $derived(/^\/projects\/[^/]+\/?$/.test($page.url.pathname));
 
 	// Projects flagged hidden are left out of the sidebar (still reachable via /projects)
 	let visibleProjects = $derived(($projects || []).filter(p => !p.hidden));
@@ -103,17 +138,35 @@
 	}
 </script>
 
+{#snippet navLink(href, icon, label, active)}
+	<a {href} class="nav-item" class:active aria-current={active ? 'page' : undefined}>
+		<Icon name={icon} size={17} stroke={1.75} />
+		<span>{label}</span>
+	</a>
+{/snippet}
+
 {#if $page.url.pathname === '/login'}
-	<slot />
+	{@render children?.()}
 {:else if $accessToken}
 	<div class="app-layout">
-		<!-- Mobile hamburger -->
-		<button class="mobile-toggle"
-			aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
-			aria-expanded={sidebarOpen}
-			onclick={() => sidebarOpen = !sidebarOpen}>
-			<Icon name="menu" size={22} />
-		</button>
+		<!-- Mobile top bar -->
+		<header class="mobile-topbar">
+			<button class="mobile-toggle"
+				aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
+				aria-expanded={sidebarOpen}
+				onclick={() => sidebarOpen = !sidebarOpen}>
+				<Icon name={sidebarOpen ? 'x' : 'menu'} size={20} />
+			</button>
+			<a href="/" class="mobile-brand">
+				<BrandMark size={24} live={stats.working > 0} />
+				<span class="brand-word">Shepherd</span>
+			</a>
+			{#if stats.working > 0}
+				<span class="mobile-live" title="Working sheep">
+					<span class="live-dot"></span>{stats.working}
+				</span>
+			{/if}
+		</header>
 
 		<!-- Mobile backdrop -->
 		{#if sidebarOpen}
@@ -123,19 +176,14 @@
 
 		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 		<aside class="sidebar" class:open={sidebarOpen} onclick={() => sidebarOpen = false}>
-			<div class="sidebar-brand">
-				<svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
-					<path d="M12 3c2.5 0 4.5 2 4.5 4.5S14.5 12 12 12" />
-					<line x1="12" y1="12" x2="12" y2="22" />
-				</svg>
-				<span class="brand-text">Shepherd</span>
-			</div>
+			<a href="/" class="sidebar-brand">
+				<BrandMark size={30} live={stats.working > 0} />
+				<span class="brand-word">Shepherd</span>
+			</a>
 
-			<nav class="sidebar-nav">
-				<a href="/" class="nav-item" class:active={$page.url.pathname === '/'}>
-					<Icon name="layout-dashboard" size={18} />
-					<span>Dashboard</span>
-				</a>
+			<nav class="sidebar-nav" aria-label="Primary">
+				<span class="nav-label">Watch</span>
+				{@render navLink('/', 'layout-dashboard', 'Dashboard', $page.url.pathname === '/')}
 
 				<!-- Projects accordion -->
 				<div class="nav-group">
@@ -144,8 +192,9 @@
 						aria-expanded={projectsExpanded}
 						aria-controls="projects-submenu"
 						onclick={(e) => { e.stopPropagation(); projectsExpanded = !projectsExpanded; }}>
-						<Icon name="folder" size={18} />
+						<Icon name="folder" size={17} stroke={1.75} />
 						<span class="nav-group-label">Projects</span>
+						<span class="nav-count mono">{visibleProjects.length}</span>
 						<span class="nav-chevron" class:expanded={projectsExpanded}>
 							<Icon name="chevron-right" size={14} />
 						</span>
@@ -153,11 +202,11 @@
 
 					{#if projectsExpanded}
 						<div class="nav-sub-items" id="projects-submenu">
-							<a href="/projects" class="nav-sub-item"
+							<a href="/projects" class="nav-sub-item manage"
 								class:active={$page.url.pathname === '/projects'}
 								onclick={(e) => e.stopPropagation()}>
-								<Icon name="settings" size={14} />
-								<span>Manage</span>
+								<Icon name="settings" size={13} />
+								<span>Manage all</span>
 							</a>
 							{#each visibleProjects as p}
 								<a href="/projects/{encodeURIComponent(p.name)}" class="nav-sub-item"
@@ -174,63 +223,64 @@
 					{/if}
 				</div>
 
-				<a href="/tasks" class="nav-item" class:active={$page.url.pathname === '/tasks'}>
-					<Icon name="list-checks" size={18} />
-					<span>Tasks</span>
-				</a>
-				<a href="/schedules" class="nav-item" class:active={$page.url.pathname.startsWith('/schedules')}>
-					<Icon name="alarm-clock" size={18} />
-					<span>Schedules</span>
-				</a>
-				<a href="/skills" class="nav-item" class:active={$page.url.pathname.startsWith('/skills')}>
-					<Icon name="book-open" size={18} />
-					<span>Skills</span>
-				</a>
-				<a href="/settings" class="nav-item" class:active={$page.url.pathname.startsWith('/settings')}>
-					<Icon name="settings" size={18} />
-					<span>Settings</span>
-				</a>
+				{@render navLink('/tasks', 'list-checks', 'Tasks', $page.url.pathname.startsWith('/tasks'))}
+				{@render navLink('/schedules', 'alarm-clock', 'Schedules', $page.url.pathname.startsWith('/schedules'))}
+
+				<span class="nav-label">Configure</span>
+				{@render navLink('/skills', 'book-open', 'Skills', $page.url.pathname.startsWith('/skills'))}
+				{@render navLink('/settings', 'settings', 'Settings', $page.url.pathname.startsWith('/settings'))}
 			</nav>
 
-			<!-- Sidebar stats -->
-			<div class="sidebar-stats">
-				<div class="stats-title">Stats</div>
-				<div class="stat-row">
-					<span class="stat-label">Working</span>
-					<span class="stat-val working">{stats.working}</span>
+			<!-- Flock meter -->
+			<section class="flock-meter" aria-label="Task statistics">
+				<div class="meter-head">
+					<span class="meter-title">Flock</span>
+					<span class="meter-rate mono" title="Completed ÷ (completed + failed)">
+						{Math.round(successRate * 100)}<span class="pct">%</span> ok
+					</span>
 				</div>
-				<div class="stat-row">
-					<span class="stat-label">Pending</span>
-					<span class="stat-val pending">{stats.pending}</span>
+				<div class="meter-bar" aria-hidden="true">
+					<span class="meter-fill" style="--ratio: {successRate}"></span>
 				</div>
-				<div class="stat-row">
-					<span class="stat-label">Completed</span>
-					<span class="stat-val completed">{stats.completed}</span>
-				</div>
-				<div class="stat-row">
-					<span class="stat-label">Failed</span>
-					<span class="stat-val failed">{stats.failed}</span>
-				</div>
-			</div>
+				<dl class="meter-grid">
+					<div class="meter-cell" data-tone="live">
+						<dt>Working</dt>
+						<dd class="mono">{#if stats.working > 0}<span class="live-dot"></span>{/if}{stats.working}</dd>
+					</div>
+					<div class="meter-cell" data-tone="queued">
+						<dt>Pending</dt>
+						<dd class="mono">{stats.pending}</dd>
+					</div>
+					<div class="meter-cell" data-tone="success">
+						<dt>Done</dt>
+						<dd class="mono">{stats.completed.toLocaleString()}</dd>
+					</div>
+					<div class="meter-cell" data-tone="danger">
+						<dt>Failed</dt>
+						<dd class="mono">{stats.failed.toLocaleString()}</dd>
+					</div>
+				</dl>
+			</section>
 
 			<div class="sidebar-footer">
 				<div class="user-info">
-					<Icon name="user" size={14} />
-					<span>{$username || 'anonymous'}</span>
+					<span class="avatar" aria-hidden="true">{initial}</span>
+					<span class="user-name">{$username || 'anonymous'}</span>
 				</div>
-				<button class="btn-logout" aria-label="Sign out" onclick={logout}>
-					<Icon name="log-out" size={14} />
-					<span>Logout</span>
+				<button class="btn-logout" aria-label="Sign out" title="Sign out" onclick={logout}>
+					<Icon name="log-out" size={15} />
 				</button>
 			</div>
 		</aside>
 
-		<main class="main-content">
-			<slot />
+		<main class="main-content" class:fill={fillRoute}>
+			{@render children?.()}
 		</main>
 	</div>
 {:else}
-	<div class="loading-screen">Loading...</div>
+	<div class="loading-screen">
+		<BrandMark size={40} live />
+	</div>
 {/if}
 
 <style>
@@ -239,10 +289,15 @@
 		min-height: 100vh;
 	}
 
+	/* ================= Sidebar ================= */
 	.sidebar {
 		width: var(--sidebar-w);
-		background: var(--bg-2);
-		border-right: 1px solid var(--border);
+		background:
+			linear-gradient(180deg, rgba(244, 184, 96, 0.035), transparent 220px),
+			rgba(12, 12, 14, 0.82);
+		backdrop-filter: blur(18px) saturate(140%);
+		-webkit-backdrop-filter: blur(18px) saturate(140%);
+		border-right: 1px solid var(--border-subtle);
 		display: flex;
 		flex-direction: column;
 		position: fixed;
@@ -251,52 +306,77 @@
 		bottom: 0;
 		z-index: 50;
 		overflow-y: auto;
+		scrollbar-width: thin;
 	}
 
 	.sidebar-backdrop {
 		display: none;
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
+		background: rgba(5, 5, 6, 0.6);
 		z-index: 49;
-		backdrop-filter: blur(2px);
-		-webkit-backdrop-filter: blur(2px);
+		backdrop-filter: blur(4px);
+		-webkit-backdrop-filter: blur(4px);
+		animation: fade-in var(--dur-2) ease backwards;
 	}
 
 	.sidebar-brand {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-4);
-		font-size: var(--fs-md);
-		font-weight: var(--fw-semibold);
-		letter-spacing: -0.01em;
-		border-bottom: 1px solid var(--border);
+		gap: 10px;
+		padding: 22px 20px 18px;
+		color: var(--text-primary);
+		text-decoration: none;
 	}
 
-	.brand-icon {
-		flex-shrink: 0;
-		color: var(--accent);
+	.sidebar-brand:hover {
+		text-decoration: none;
+		color: var(--text-primary);
+	}
+
+	.brand-word {
+		font-family: var(--font-display);
+		font-size: 27px;
+		line-height: 1;
+		letter-spacing: -0.01em;
+		padding-top: 2px;
 	}
 
 	.sidebar-nav {
 		flex: 1;
-		padding: var(--space-2);
+		padding: 4px 12px 12px;
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: 1px;
+	}
+
+	.nav-label {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: var(--fw-medium);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-caps);
+		color: var(--text-tertiary);
+		padding: 14px 10px 6px;
+	}
+
+	.nav-label:first-child {
+		padding-top: 6px;
 	}
 
 	.nav-item {
+		position: relative;
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
+		gap: 10px;
+		padding: 7px 10px;
 		border-radius: var(--radius);
 		color: var(--text-secondary);
 		text-decoration: none;
 		font-size: var(--fs-base);
-		transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+		font-weight: var(--fw-medium);
+		letter-spacing: -0.005em;
+		transition: background var(--dur-1) ease, color var(--dur-1) ease;
 		/* Reset for <button> variant (nav-group-toggle) */
 		background: none;
 		border: none;
@@ -306,26 +386,41 @@
 	}
 
 	.nav-item:hover {
-		background: var(--bg-3);
+		background: var(--bg-hover);
 		color: var(--text-primary);
 		text-decoration: none;
 	}
 
 	.nav-item.active {
-		background: var(--bg-3);
-		color: var(--accent);
-		font-weight: var(--fw-medium);
-		box-shadow: inset 2px 0 0 var(--accent);
+		background:
+			linear-gradient(90deg, rgba(244, 184, 96, 0.11), rgba(244, 184, 96, 0.02)),
+			rgba(237, 230, 218, 0.03);
+		color: var(--text-primary);
+		box-shadow: inset 0 0 0 1px rgba(244, 184, 96, 0.12);
+	}
+
+	.nav-item.active::before {
+		content: '';
+		position: absolute;
+		left: -12px;
+		top: 8px;
+		bottom: 8px;
+		width: 3px;
+		border-radius: 0 3px 3px 0;
+		background: var(--accent);
+		box-shadow: 0 0 12px var(--accent-glow);
 	}
 
 	.nav-item :global(.icon) {
 		flex-shrink: 0;
 		color: currentColor;
-		opacity: 0.85;
+		opacity: 0.8;
+		transition: color var(--dur-1) ease, opacity var(--dur-1) ease;
 	}
 
 	.nav-item.active :global(.icon) {
 		opacity: 1;
+		color: var(--accent);
 	}
 
 	/* Projects accordion */
@@ -343,9 +438,18 @@
 		flex: 1;
 	}
 
+	.nav-count {
+		font-size: 10.5px;
+		color: var(--text-tertiary);
+		padding: 0 6px;
+		border-radius: var(--radius-full);
+		background: rgba(237, 230, 218, 0.05);
+		line-height: 18px;
+	}
+
 	.nav-chevron {
 		display: inline-flex;
-		transition: transform 0.2s ease;
+		transition: transform var(--dur-2) var(--ease-out);
 		color: var(--text-tertiary);
 	}
 
@@ -354,133 +458,219 @@
 	}
 
 	.nav-sub-items {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		gap: 1px;
-		padding-left: 8px;
+		margin: 2px 0 6px 18px;
+		padding-left: 10px;
+		border-left: 1px solid var(--border-subtle);
+		animation: rise-in var(--dur-2) var(--ease-out) backwards;
 	}
 
 	.nav-sub-item {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
-		padding: 5px var(--space-3);
-		border-radius: var(--radius);
+		gap: 9px;
+		padding: 4px 10px;
+		border-radius: var(--radius-sm);
 		color: var(--text-secondary);
 		text-decoration: none;
 		font-size: var(--fs-sm);
-		transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+		transition: background var(--dur-1) ease, color var(--dur-1) ease;
 	}
 
 	.nav-sub-item:hover {
-		background: var(--bg-3);
+		background: var(--bg-hover);
 		color: var(--text-primary);
 		text-decoration: none;
 	}
 
 	.nav-sub-item.active {
-		background: var(--bg-3);
-		color: var(--accent);
-		font-weight: var(--fw-medium);
+		background: rgba(244, 184, 96, 0.08);
+		color: var(--text-primary);
 	}
 
-	.nav-sub-item :global(.icon) {
-		opacity: 0.75;
+	.nav-sub-item.manage {
+		color: var(--text-tertiary);
+		font-size: var(--fs-xs);
+	}
+
+	.nav-sub-item.manage:hover,
+	.nav-sub-item.manage.active {
+		color: var(--text-primary);
 	}
 
 	.nav-sub-label {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		max-width: 140px;
+		max-width: 160px;
 	}
 
 	.nav-sub-empty {
 		font-size: 12px;
-		color: var(--text-secondary);
-		padding: 4px 12px;
+		color: var(--text-tertiary);
+		padding: 4px 10px;
 		font-style: italic;
 	}
 
 	/* Status dot */
 	.status-dot {
-		width: 8px;
-		height: 8px;
+		width: 6px;
+		height: 6px;
 		border-radius: 50%;
 		flex-shrink: 0;
 	}
 
 	.status-dot.idle {
-		background: var(--text-secondary);
+		background: rgba(237, 230, 218, 0.22);
 	}
 
 	.status-dot.working {
 		background: var(--live);
-		box-shadow: 0 0 0 3px var(--live-soft);
-		animation: pulse 1.5s ease-in-out infinite;
+		animation: pulse-ring 1.8s var(--ease-out) infinite;
 	}
 
 	.status-dot.error {
 		background: var(--danger);
+		box-shadow: 0 0 6px rgba(255, 107, 97, 0.6);
 	}
 
-	@keyframes pulse {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.4; }
+	.live-dot {
+		display: inline-block;
+		width: 6px;
+		height: 6px;
+		margin-right: 6px;
+		border-radius: 50%;
+		background: var(--live);
+		vertical-align: middle;
+		animation: pulse-ring 1.8s var(--ease-out) infinite;
 	}
 
-	/* Sidebar stats */
-	.sidebar-stats {
-		padding: 12px 16px;
-		border-top: 1px solid var(--border);
+	/* ================= Flock meter ================= */
+	.flock-meter {
+		margin: 0 12px 12px;
+		padding: 14px 14px 12px;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		background:
+			radial-gradient(120% 90% at 0% 0%, rgba(95, 224, 194, 0.05), transparent 60%),
+			rgba(237, 230, 218, 0.02);
 	}
 
-	.stats-title {
-		font-size: 11px;
-		color: var(--text-secondary);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		margin-bottom: 8px;
-	}
-
-	.stat-row {
+	.meter-head {
 		display: flex;
+		align-items: baseline;
 		justify-content: space-between;
-		padding: 2px 0;
-		font-size: 13px;
+		margin-bottom: 10px;
 	}
 
-	.stat-label {
-		color: var(--text-secondary);
+	.meter-title {
+		font-family: var(--font-display);
+		font-style: italic;
+		font-size: 19px;
+		line-height: 1;
+		color: var(--text-primary);
 	}
 
-	.stat-val {
-		font-weight: 600;
-		font-family: var(--font-mono);
-		font-size: 13px;
+	.meter-rate {
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
 	}
 
-	.stat-val.working { color: var(--live); }
-	.stat-val.pending { color: var(--warning); }
-	.stat-val.completed { color: var(--success); }
-	.stat-val.failed { color: var(--danger); }
+	.meter-rate .pct {
+		color: var(--text-tertiary);
+	}
 
-	/* Sidebar footer */
+	.meter-bar {
+		position: relative;
+		height: 4px;
+		border-radius: 4px;
+		background: rgba(255, 107, 97, 0.5);
+		overflow: hidden;
+		margin-bottom: 12px;
+	}
+
+	.meter-fill {
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(90deg, #7fc46a, var(--success));
+		transform-origin: left center;
+		transform: scaleX(var(--ratio, 0));
+		transition: transform 0.8s var(--ease-out);
+		border-right: 2px solid var(--bg-2);
+	}
+
+	.meter-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 8px 10px;
+	}
+
+	.meter-cell {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		min-width: 0;
+	}
+
+	.meter-cell dt {
+		font-size: 10.5px;
+		color: var(--text-tertiary);
+		letter-spacing: 0.01em;
+	}
+
+	.meter-cell dd {
+		font-size: var(--fs-md);
+		font-weight: var(--fw-medium);
+		line-height: 1.2;
+		color: var(--text-primary);
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.meter-cell[data-tone="live"] dd { color: var(--live); }
+	.meter-cell[data-tone="queued"] dd { color: var(--queued); }
+	.meter-cell[data-tone="danger"] dd { color: var(--danger); }
+
+	/* ================= Footer ================= */
 	.sidebar-footer {
-		padding: 12px;
-		border-top: 1px solid var(--border);
+		padding: 12px 14px 14px 16px;
+		border-top: 1px solid var(--border-subtle);
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: 8px;
 	}
 
 	.user-info {
 		display: inline-flex;
 		align-items: center;
-		gap: 6px;
+		gap: 10px;
+		min-width: 0;
+	}
+
+	.avatar {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		font-family: var(--font-display);
+		font-size: 16px;
+		color: var(--accent-ink);
+		background: radial-gradient(circle at 30% 25%, #ffd99c, var(--accent) 70%);
+		box-shadow: 0 0 0 1px rgba(255, 214, 150, 0.4), 0 4px 12px -4px var(--accent-glow);
+	}
+
+	.user-name {
 		font-size: var(--fs-sm);
 		color: var(--text-secondary);
-		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -489,27 +679,38 @@
 	.btn-logout {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		justify-content: center;
+		width: 30px;
+		height: 30px;
 		background: none;
-		border: none;
-		color: var(--text-secondary);
-		font-size: var(--fs-xs);
-		padding: 4px 8px;
+		border: 1px solid transparent;
+		color: var(--text-tertiary);
 		border-radius: var(--radius);
-		transition: color 0.15s, background 0.15s;
+		transition: color var(--dur-1) ease, background var(--dur-1) ease, border-color var(--dur-1) ease;
 	}
 
 	.btn-logout:hover {
 		color: var(--danger);
 		background: var(--danger-soft);
+		border-color: rgba(255, 107, 97, 0.2);
 	}
 
+	/* ================= Main ================= */
 	.main-content {
 		flex: 1;
 		min-width: 0;
 		margin-left: var(--sidebar-w);
-		padding: var(--space-6);
+		padding: var(--page-pad-top) clamp(20px, 3.4vw, 48px) var(--page-pad-bottom);
 		overflow-x: hidden;
+	}
+
+	:global(html.vt-page) .main-content {
+		view-transition-name: page;
+	}
+
+	.main-content.fill {
+		--page-pad-top: 26px;
+		--page-pad-bottom: 20px;
 	}
 
 	.loading-screen {
@@ -517,32 +718,60 @@
 		align-items: center;
 		justify-content: center;
 		min-height: 100vh;
-		color: var(--text-secondary);
 	}
 
-	/* Mobile toggle */
-	.mobile-toggle {
+	/* ================= Mobile top bar ================= */
+	.mobile-topbar {
 		display: none;
+	}
+
+	.mobile-toggle {
+		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		position: fixed;
-		top: var(--space-2);
-		left: var(--space-2);
-		z-index: 60;
-		background: var(--bg-2);
+		background: transparent;
 		border: 1px solid var(--border);
 		color: var(--text-primary);
 		padding: 0;
 		border-radius: var(--radius);
-		min-width: 44px;
-		min-height: 44px;
-		box-shadow: var(--shadow-1);
-		transition: background 0.15s, border-color 0.15s;
+		width: 40px;
+		height: 40px;
+		transition: background var(--dur-1) ease, border-color var(--dur-1) ease;
 	}
 
 	.mobile-toggle:hover {
-		background: var(--bg-3);
+		background: var(--bg-hover);
 		border-color: var(--border-strong);
+	}
+
+	.mobile-brand {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		color: var(--text-primary);
+		text-decoration: none;
+	}
+
+	.mobile-brand:hover {
+		color: var(--text-primary);
+		text-decoration: none;
+	}
+
+	.mobile-brand .brand-word {
+		font-size: 23px;
+	}
+
+	.mobile-live {
+		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		padding: 3px 10px;
+		border-radius: var(--radius-full);
+		background: var(--live-soft);
+		border: 1px solid rgba(95, 224, 194, 0.22);
+		color: var(--live);
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
 	}
 
 	/* === Responsive ===
@@ -551,8 +780,21 @@
 	   - ≤768px : tablet portrait / standard mobile
 	*/
 	@media (max-width: 768px) {
-		.mobile-toggle {
-			display: inline-flex;
+		.mobile-topbar {
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			height: var(--mobile-topbar-h);
+			padding: 0 12px;
+			z-index: 45;
+			background: rgba(13, 13, 15, 0.78);
+			backdrop-filter: blur(16px) saturate(140%);
+			-webkit-backdrop-filter: blur(16px) saturate(140%);
+			border-bottom: 1px solid var(--border-subtle);
 		}
 
 		.sidebar-backdrop {
@@ -561,8 +803,9 @@
 
 		.sidebar {
 			transform: translateX(-100%);
-			transition: transform 0.2s ease;
+			transition: transform var(--dur-3) var(--ease-out);
 			box-shadow: var(--shadow-3);
+			background: rgba(14, 14, 16, 0.96);
 		}
 
 		.sidebar.open {
@@ -571,17 +814,17 @@
 
 		.main-content {
 			margin-left: 0;
-			padding: var(--space-3);
-			padding-top: calc(var(--mobile-topbar-h) + var(--space-2));
+			padding: var(--space-4);
+			padding-top: calc(var(--mobile-topbar-h) + var(--page-pad-top));
 		}
 
 		.nav-item {
-			padding: 10px var(--space-3);
+			padding: 10px 10px;
 			min-height: 40px;
 		}
 
 		.nav-sub-item {
-			padding: var(--space-2) var(--space-3);
+			padding: var(--space-2) 10px;
 			min-height: 36px;
 		}
 
@@ -589,47 +832,25 @@
 			max-width: none;
 		}
 
-		.btn-logout {
-			padding: var(--space-2) var(--space-3);
-			min-height: 36px;
+		.main-content.fill {
+			--page-pad-top: 12px;
+			--page-pad-bottom: 12px;
 		}
 	}
 
 	/* Titan 2 (1440x1440 square @ ~3 DPR ≈ 480 CSS px) and very small screens */
 	@media (max-width: 480px) {
 		.sidebar {
-			/* Full-width drawer on tiny screens (less swipeable target on a square viewport) */
-			width: min(280px, 88vw);
+			width: min(288px, 88vw);
 		}
 
 		.main-content {
-			padding: var(--space-2);
-			padding-top: calc(var(--mobile-topbar-h) + var(--space-1));
+			padding: var(--space-3);
+			padding-top: calc(var(--mobile-topbar-h) + var(--page-pad-top));
 		}
 
 		.sidebar-brand {
-			padding: var(--space-3);
-			font-size: var(--fs-md);
-		}
-
-		.sidebar-nav {
-			padding: var(--space-2) 6px;
-		}
-
-		.sidebar-stats {
-			padding: var(--space-2) var(--space-3);
-		}
-
-		.sidebar-footer {
-			padding: var(--space-2) var(--space-3);
-		}
-
-		.mobile-toggle {
-			top: 6px;
-			left: 6px;
-			padding: 8px 12px;
-			min-width: 40px;
-			min-height: 40px;
+			padding: 18px 16px 14px;
 		}
 	}
 </style>

@@ -181,9 +181,10 @@
 	}
 
 	.setting-row > label:not(.toggle) {
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 500;
-		flex: 0 0 140px;
+		flex: 0 0 180px;
+		color: var(--text-primary);
 	}
 
 	.setting-row.column {
@@ -198,7 +199,8 @@
 
 	.hint {
 		font-size: 12px;
-		color: var(--text-secondary);
+		color: var(--text-tertiary);
+		line-height: 1.55;
 	}
 
 	.hint.intro {

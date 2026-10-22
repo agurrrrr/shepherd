@@ -179,7 +179,10 @@
 		flex: none;
 	}
 
+	/* Column rows stack vertically, so the row's 200px flex-basis would become
+	   the field's height; let the field size itself instead. */
 	.setting-row.column .input {
+		flex: none;
 		max-width: none;
 	}
 

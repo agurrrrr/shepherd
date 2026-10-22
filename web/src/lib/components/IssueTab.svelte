@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { apiGet, apiPost, apiPatch, apiDelete } from '$lib/api.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import Icon from '$lib/components/Icon.svelte';
+	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
 
 	let { projectName }: { projectName: string } = $props();
 
 	let issues = $state([]);
 	let loading = $state(false);
 	let total = 0;
-	let page = 1;
-	let totalPages = 1;
+	let page = $state(1);
+	let totalPages = $state(1);
 	const limit = 20;
 	let loadSeq = 0;
 
@@ -52,9 +54,9 @@
 	};
 
 	const typeIcons = {
-		design: '🎨',
-		feature: '✨',
-		bug: '🐛'
+		design: 'layers',
+		feature: 'sparkles',
+		bug: 'bug'
 	};
 
 	async function loadIssues() {
@@ -247,7 +249,7 @@
 	<!-- Header -->
 	<div class="issue-header">
 		<h2>이슈트래커</h2>
-		<button class="btn btn-primary" onclick={openCreate}>+ 이슈 생성</button>
+		<button class="btn btn-primary" onclick={openCreate}><Icon name="plus" size={14} stroke={2.2} /> 이슈 생성</button>
 	</div>
 
 	<!-- Filters -->
@@ -255,11 +257,11 @@
 		<input
 			type="text"
 			placeholder="제목 검색..."
-			class="search-input"
+			class="input input-search search-input"
 			bind:value={searchQ}
 			oninput={applyFilters}
 		/>
-		<select bind:value={filterStatus} onchange={applyFilters}>
+		<select class="input" bind:value={filterStatus} onchange={applyFilters} aria-label="상태 필터">
 			<option value="">모든 상태</option>
 			<option value="todo">작업전</option>
 			<option value="in_progress">작업중</option>
@@ -267,13 +269,13 @@
 			<option value="failed">실패</option>
 			<option value="done">성공</option>
 		</select>
-		<select bind:value={filterType} onchange={applyFilters}>
+		<select class="input" bind:value={filterType} onchange={applyFilters} aria-label="타입 필터">
 			<option value="">모든 타입</option>
 			<option value="design">설계</option>
 			<option value="feature">기능</option>
 			<option value="bug">버그</option>
 		</select>
-		<button class="btn btn-sm" onclick={resetFilters}>초기화</button>
+		<button class="btn btn-ghost" onclick={resetFilters}><Icon name="rotate-ccw" size={13} /> 초기화</button>
 	</div>
 
 	<!-- Create Form Modal — only Cancel/× close (no outside-click dismiss; avoid data loss while typing) -->
@@ -282,7 +284,7 @@
 		<div class="modal modal-lg">
 			<div class="modal-header">
 				<h3>새 이슈 생성</h3>
-				<button class="btn-close" onclick={closeCreate}>×</button>
+				<button class="btn btn-ghost btn-icon btn-sm" onclick={closeCreate} aria-label="닫기"><Icon name="x" size={15} /></button>
 			</div>
 			<div class="modal-body">
 				<div class="form-group">
@@ -331,7 +333,7 @@
 		<div class="modal modal-xl" onclick={(e) => e.stopPropagation()}>
 			<div class="modal-header">
 				<div class="detail-header-left">
-					<span class="type-badge">{typeIcons[selectedIssue.type] || '📋'} {typeLabels[selectedIssue.type] || selectedIssue.type}</span>
+					<span class="type-badge {selectedIssue.type}"><Icon name={typeIcons[selectedIssue.type] || 'file-text'} size={12} /> {typeLabels[selectedIssue.type] || selectedIssue.type}</span>
 					{#if editingField === 'title'}
 						<input type="text" class="edit-input" bind:value={editValue} onkeydown={(e) => e.key === 'Enter' && saveEdit()} />
 					{:else}
@@ -342,14 +344,14 @@
 				</div>
 				<div class="detail-header-right">
 					{#if selectedIssue.status === 'testing'}
-						<button class="btn btn-sm btn-success" onclick={() => updateIssueStatus(selectedIssue.id, 'done')}>✅ 성공</button>
-						<button class="btn btn-sm btn-danger" onclick={() => updateIssueStatus(selectedIssue.id, 'failed')}>❌ 실패</button>
+						<button class="btn btn-sm btn-success" onclick={() => updateIssueStatus(selectedIssue.id, 'done')}><Icon name="check" size={13} stroke={2.4} /> 성공</button>
+						<button class="btn btn-sm btn-danger" onclick={() => updateIssueStatus(selectedIssue.id, 'failed')}><Icon name="x" size={13} stroke={2.4} /> 실패</button>
 					{/if}
 					{#if (selectedIssue.status === 'todo' || selectedIssue.status === 'testing' || selectedIssue.status === 'failed')}
-						<button class="btn btn-sm btn-primary" onclick={() => executeIssue(selectedIssue.id)}>▶ 수행</button>
+						<button class="btn btn-sm btn-primary" onclick={() => executeIssue(selectedIssue.id)}><Icon name="play" size={11} stroke={2.4} /> 수행</button>
 					{/if}
-					<button class="btn btn-sm" onclick={() => deleteIssue(selectedIssue.id)}>🗑</button>
-					<button class="btn-close" onclick={closeDetail}>×</button>
+					<button class="btn btn-sm btn-ghost btn-icon btn-del" onclick={() => deleteIssue(selectedIssue.id)} title="삭제" aria-label="이슈 삭제"><Icon name="trash" size={14} /></button>
+					<button class="btn btn-sm btn-ghost btn-icon" onclick={closeDetail} aria-label="닫기"><Icon name="x" size={15} /></button>
 				</div>
 			</div>
 			<div class="modal-body detail-body">
@@ -383,7 +385,11 @@
 							<button class="btn btn-sm" onclick={cancelEdit}>취소</button>
 						</div>
 					{:else}
-						<div class="detail-content">{selectedIssue.body || '내용이 없습니다.'}</div>
+						{#if selectedIssue.body}
+							<div class="detail-markdown"><MarkdownBody text={selectedIssue.body} /></div>
+						{:else}
+							<div class="detail-content empty">내용이 없습니다.</div>
+						{/if}
 					{/if}
 				</div>
 
@@ -402,7 +408,7 @@
 						{#each selectedIssue.children as child}
 						<div class="child-row" class:child-done={child.status === 'done'}>
 							<span class="child-check" aria-hidden="true">
-								{child.status === 'done' ? '✅' : '⬜'}
+								<Icon name={child.status === 'done' ? 'check-circle' : 'circle'} size={14} />
 							</span>
 							<button class="child-link" onclick={() => loadIssueDetail(child.id)}>
 								#{child.id} {child.title}
@@ -411,7 +417,7 @@
 						</div>
 						{/each}
 					</div>
-					<p class="children-hint">▶ 수행 시 미완료 하위가 먼저 큐에 들어가고, 이 이슈가 마지막에 들어갑니다.</p>
+					<p class="children-hint">수행하면 미완료 하위 이슈가 먼저 큐에 들어가고, 이 이슈가 마지막에 들어갑니다.</p>
 				</div>
 				{/if}
 
@@ -457,19 +463,32 @@
 
 	<!-- Issue List -->
 	{#if loading}
-		<div class="loading">로딩 중...</div>
+		<div class="issue-list" aria-busy="true">
+			{#each Array(4) as _}
+				<div class="issue-card"><div class="skeleton" style="height: 14px; width: 55%"></div><div class="skeleton" style="height: 10px; width: 30%; margin-top: 12px"></div></div>
+			{/each}
+		</div>
 	{:else if issues.length === 0}
 		<div class="empty-state">
-			<p>아직 이슈가 없습니다.</p>
-			<button class="btn btn-primary" onclick={openCreate}>+ 첫 번째 이슈 생성</button>
+			<span class="empty-glyph" aria-hidden="true"><Icon name="inbox" size={22} /></span>
+			<p class="empty-title">아직 이슈가 없습니다</p>
+			<p class="empty-sub">설계, 기능, 버그를 이슈로 남기면 양에게 바로 수행을 맡길 수 있습니다.</p>
+			<button class="btn btn-primary" onclick={openCreate}><Icon name="plus" size={14} stroke={2.2} /> 첫 번째 이슈 생성</button>
 		</div>
 	{:else}
 		<div class="issue-list">
 			{#each issues as issue}
-			<div class="issue-card" class:is-child={!!issue.parent_id} onclick={() => loadIssueDetail(issue.id)}>
+			<div
+				class="issue-card"
+				class:is-child={!!issue.parent_id}
+				role="button"
+				tabindex="0"
+				onclick={() => loadIssueDetail(issue.id)}
+				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadIssueDetail(issue.id); } }}
+			>
 				<div class="issue-card-header">
-					<span class="type-icon">{typeIcons[issue.type] || '📋'}</span>
-					<span class="issue-id">#{issue.id}</span>
+					<span class="type-icon {issue.type}" aria-hidden="true"><Icon name={typeIcons[issue.type] || 'file-text'} size={14} /></span>
+					<span class="issue-id mono">#{issue.id}</span>
 					<span class="issue-title">{issue.title}</span>
 					<span class="status-badge {issue.status}">{statusLabels[issue.status] || issue.status}</span>
 				</div>
@@ -481,7 +500,7 @@
 					{#if issue.task_count > 0}
 						<span class="task-count">작업 {issue.task_count}개</span>
 					{/if}
-					<span class="issue-date">{issue.created_at}</span>
+					<span class="issue-date mono">{issue.created_at}</span>
 				</div>
 			</div>
 			{/each}
@@ -490,9 +509,9 @@
 		<!-- Pagination -->
 		{#if totalPages > 1}
 		<div class="pagination-bar">
-			<button class="btn btn-sm" disabled={page <= 1} onclick={() => handlePageChange(page - 1)}>이전</button>
-			<span class="page-info">{page} / {totalPages}</span>
-			<button class="btn btn-sm" disabled={page >= totalPages} onclick={() => handlePageChange(page + 1)}>다음</button>
+			<button class="btn btn-sm btn-ghost" disabled={page <= 1} onclick={() => handlePageChange(page - 1)}><Icon name="chevron-left" size={13} /> 이전</button>
+			<span class="page-info mono">{page} / {totalPages}</span>
+			<button class="btn btn-sm btn-ghost" disabled={page >= totalPages} onclick={() => handlePageChange(page + 1)}>다음 <Icon name="chevron-right" size={13} /></button>
 		</div>
 		{/if}
 	{/if}
@@ -508,40 +527,38 @@
 	.issue-header {
 		display: flex;
 		justify-content: space-between;
-		align-items: center;
-		padding: 0.5rem 0 1rem;
+		align-items: flex-end;
+		gap: 12px;
+		padding: 4px 0 16px;
 	}
 
 	.issue-header h2 {
 		margin: 0;
-		font-size: 1.25rem;
+		font-family: var(--font-display);
+		font-size: 30px;
+		font-weight: 400;
+		letter-spacing: -0.01em;
 	}
 
 	.issue-filters {
 		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 1rem;
+		gap: 8px;
+		margin-bottom: 16px;
 		flex-wrap: wrap;
 	}
 
 	.search-input {
 		flex: 1;
-		min-width: 150px;
-		padding: 0.4rem 0.75rem;
-		border: 1px solid var(--border-color, #444);
-		border-radius: 4px;
-		background: var(--input-bg, #1e1e2e);
-		color: var(--text-color, #cdd6f4);
-		font-size: 0.85rem;
+		min-width: 180px;
+		font-size: var(--fs-sm);
+		min-height: 34px;
 	}
 
 	.issue-filters select {
-		padding: 0.4rem 0.5rem;
-		border: 1px solid var(--border-color, #444);
-		border-radius: 4px;
-		background: var(--input-bg, #1e1e2e);
-		color: var(--text-color, #cdd6f4);
-		font-size: 0.85rem;
+		min-height: 34px;
+		padding-top: 6px;
+		padding-bottom: 6px;
+		font-size: var(--fs-sm);
 	}
 
 	.issue-list {
@@ -549,171 +566,249 @@
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
-		padding-bottom: 1rem;
+		gap: 6px;
+		padding-bottom: 16px;
 	}
 
 	.issue-card {
-		border: 1px solid var(--border-color, #444);
-		border-radius: 8px;
-		padding: 0.75rem 1rem;
+		position: relative;
+		padding: 12px 16px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		background: var(--bg-2);
+		box-shadow: var(--sheen);
 		cursor: pointer;
-		transition: border-color 0.2s;
+		transition: border-color var(--dur-1) ease, background var(--dur-1) ease;
 	}
 
 	.issue-card:hover {
-		border-color: var(--accent-color, #89b4fa);
+		border-color: var(--border-strong);
+		background: var(--bg-3);
 	}
 
 	.issue-card-header {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 10px;
+		min-width: 0;
 	}
 
 	.type-icon {
-		font-size: 1.1rem;
+		display: grid;
+		place-items: center;
+		flex-shrink: 0;
+		width: 26px;
+		height: 26px;
+		border-radius: 8px;
+		background: rgba(237, 230, 218, 0.05);
+		color: var(--text-secondary);
 	}
 
+	.type-icon.feature { background: var(--accent-soft); color: var(--accent); }
+	.type-icon.bug { background: var(--danger-soft); color: var(--danger); }
+	.type-icon.design { background: var(--queued-soft); color: var(--queued); }
+
 	.issue-id {
-		font-size: 0.8rem;
-		color: var(--text-muted, #a6adc8);
+		flex-shrink: 0;
+		font-size: var(--fs-xs);
+		color: var(--text-tertiary);
 		font-variant-numeric: tabular-nums;
 	}
 
 	.issue-title {
 		flex: 1;
-		font-weight: 500;
+		min-width: 0;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
+	/* Sub-issues hang off their parent on a thin thread instead of a thick bar */
 	.issue-card.is-child {
-		margin-left: 0.75rem;
-		border-left: 3px solid var(--accent-color, #89b4fa);
+		margin-left: 22px;
+	}
+
+	.issue-card.is-child::before {
+		content: '';
+		position: absolute;
+		left: -13px;
+		top: -7px;
+		bottom: 50%;
+		width: 10px;
+		border-left: 1px solid var(--border-strong);
+		border-bottom: 1px solid var(--border-strong);
+		border-bottom-left-radius: 8px;
 	}
 
 	.parent-tag {
-		font-size: 0.75rem;
-		color: var(--accent-color, #89b4fa);
+		color: var(--text-secondary);
+	}
+
+	.issue-card-footer {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 6px 12px;
+		margin-top: 8px;
+		padding-left: 36px;
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+	}
+
+	.status-badge {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 1px 9px;
+		border: 1px solid transparent;
+		border-radius: var(--radius-full);
+		font-size: var(--fs-2xs);
+		font-weight: var(--fw-medium);
+		line-height: 1.7;
+		white-space: nowrap;
+	}
+
+	.status-badge::before {
+		content: '';
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: currentColor;
+	}
+
+	.status-badge.todo { background: rgba(237, 230, 218, 0.06); color: var(--text-secondary); border-color: var(--border-subtle); }
+	.status-badge.todo::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+	.status-badge.in_progress { background: var(--live-soft); color: var(--live); border-color: var(--live-line); }
+	.status-badge.in_progress::before { animation: pulse-ring 1.8s var(--ease-out) infinite; }
+	.status-badge.testing { background: var(--queued-soft); color: var(--queued); border-color: var(--queued-line); }
+	.status-badge.failed { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-line); }
+	.status-badge.done { background: var(--success-soft); color: var(--success); border-color: var(--success-line); }
+
+	.issue-type-label {
+		padding: 0 7px;
+		line-height: 18px;
+		border-radius: var(--radius-full);
+		border: 1px solid var(--border-subtle);
+		background: rgba(237, 230, 218, 0.04);
+		color: var(--text-secondary);
+	}
+
+	.task-count {
+		color: var(--accent);
 	}
 
 	/* Children checklist in detail */
 	.children-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.35rem;
+		gap: 4px;
 	}
 
 	.child-row {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.45rem 0.7rem;
-		background: var(--surface, #313244);
-		border-radius: 6px;
-		font-size: 0.85rem;
+		gap: 10px;
+		padding: 8px 12px;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius);
+		background: var(--bg-3);
+		font-size: var(--fs-sm);
 	}
 
 	.child-row.child-done {
-		opacity: 0.75;
+		opacity: 0.7;
 	}
 
 	.child-check {
+		display: inline-flex;
 		flex-shrink: 0;
+		color: var(--text-tertiary);
+	}
+
+	.child-done .child-check {
+		color: var(--success);
 	}
 
 	.child-link {
 		flex: 1;
-		text-align: left;
-		background: none;
-		border: none;
-		color: var(--accent-color, #89b4fa);
-		cursor: pointer;
-		font-size: inherit;
+		min-width: 0;
 		padding: 0;
+		border: none;
+		background: none;
+		color: var(--text-primary);
 		font-family: inherit;
+		font-size: inherit;
+		text-align: left;
+		cursor: pointer;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.child-link:hover {
-		text-decoration: underline;
+		color: var(--accent);
 	}
 
 	.child-progress {
+		font-family: var(--font-mono);
 		font-weight: 400;
-		color: var(--text-muted, #a6adc8);
-		font-size: 0.8rem;
+		color: var(--text-tertiary);
+		font-size: var(--fs-2xs);
+		letter-spacing: 0;
+		text-transform: none;
 	}
 
 	.children-hint {
-		margin: 0.6rem 0 0;
-		font-size: 0.78rem;
-		color: var(--text-muted, #a6adc8);
+		margin: 10px 0 0;
+		font-size: var(--fs-xs);
+		color: var(--text-tertiary);
 	}
 
 	.linkish {
-		background: none;
-		border: none;
-		color: var(--accent-color, #89b4fa);
-		cursor: pointer;
-		font-size: inherit;
 		padding: 0;
+		border: none;
+		background: none;
+		color: var(--accent);
 		font-family: inherit;
+		font-size: inherit;
+		cursor: pointer;
 		text-decoration: underline;
+		text-decoration-thickness: 1px;
+		text-underline-offset: 3px;
 	}
 
-	.issue-card-footer {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		margin-top: 0.4rem;
-		font-size: 0.8rem;
-		color: var(--text-muted, #a6adc8);
-	}
-
-	.status-badge {
-		padding: 2px 8px;
-		border-radius: 12px;
-		font-size: 0.75rem;
-		font-weight: 500;
-	}
-
-	.status-badge.todo { background: #45475a; color: #cdd6f4; }
-	.status-badge.in_progress { background: #1e3a5f; color: #89b4fa; }
-	.status-badge.testing { background: #3f3f1e; color: #f9e2af; }
-	.status-badge.failed { background: #5f1e1e; color: #f38ba8; }
-	.status-badge.done { background: #1e5f2a; color: #a6e3a1; }
-
-	.issue-type-label {
-		font-size: 0.75rem;
-		padding: 1px 6px;
-		border-radius: 4px;
-		background: var(--surface, #313244);
-	}
-
-	.task-count {
-		color: var(--accent-color, #89b4fa);
-	}
-
-	/* Modal */
+	/* Modal — sits on the shared overlay recipe (app.css .modal-overlay) */
 	.modal-overlay {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
+		z-index: 1000;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
-		padding: 1rem;
+		padding: 24px;
+		background: var(--bg-overlay);
+		backdrop-filter: blur(6px) saturate(120%);
+		-webkit-backdrop-filter: blur(6px) saturate(120%);
+		animation: fade-in var(--dur-2) ease backwards;
 	}
 
 	.modal {
-		background: var(--bg, #1e1e2e);
-		border-radius: 12px;
-		width: 100%;
-		max-width: 600px;
-		max-height: 85vh;
 		display: flex;
 		flex-direction: column;
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+		width: 100%;
+		max-width: 600px;
+		max-height: min(86vh, 900px);
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background:
+			linear-gradient(180deg, rgba(255, 250, 240, 0.03), rgba(255, 250, 240, 0) 160px),
+			var(--bg-2);
+		box-shadow: var(--shadow-3), var(--sheen);
+		animation: modal-in var(--dur-3) var(--ease-out) backwards;
 	}
 
 	.modal-lg { max-width: 700px; }
@@ -723,223 +818,243 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 1rem 1.25rem;
-		border-bottom: 1px solid var(--border-color, #444);
+		gap: 12px;
+		padding: 16px 20px;
+		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.modal-header h3 {
 		margin: 0;
-		font-size: 1.1rem;
+		font-size: var(--fs-md);
+		font-weight: var(--fw-semibold);
 	}
 
 	.modal-body {
-		padding: 1.25rem;
-		overflow-y: auto;
 		flex: 1;
+		padding: 20px;
+		overflow-y: auto;
 	}
 
 	.modal-footer {
 		display: flex;
 		justify-content: flex-end;
-		gap: 0.5rem;
-		padding: 0.75rem 1.25rem;
-		border-top: 1px solid var(--border-color, #444);
-	}
-
-	.btn-close {
-		background: none;
-		border: none;
-		font-size: 1.5rem;
-		cursor: pointer;
-		color: var(--text-muted, #a6adc8);
-		line-height: 1;
-		padding: 0 0.25rem;
-	}
-
-	.btn-close:hover {
-		color: var(--text-color, #cdd6f4);
+		gap: 8px;
+		padding: 12px 20px;
+		border-top: 1px solid var(--border-subtle);
 	}
 
 	/* Form */
 	.form-group {
-		margin-bottom: 1rem;
+		margin-bottom: 16px;
 	}
 
 	.form-group label {
 		display: block;
-		margin-bottom: 0.3rem;
-		font-size: 0.85rem;
-		font-weight: 500;
-		color: var(--text-muted, #a6adc8);
+		margin-bottom: 6px;
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
+		color: var(--text-secondary);
 	}
 
 	.form-group input,
 	.form-group select,
 	.form-group textarea {
 		width: 100%;
-		padding: 0.5rem 0.75rem;
-		border: 1px solid var(--border-color, #444);
-		border-radius: 6px;
-		background: var(--input-bg, #181825);
-		color: var(--text-color, #cdd6f4);
-		font-size: 0.9rem;
+		padding: 8px 12px;
+		font-size: var(--fs-sm);
 		font-family: inherit;
-		box-sizing: border-box;
 	}
 
 	.form-group textarea {
 		resize: vertical;
+		line-height: var(--lh-base);
 	}
 
 	.form-row {
 		display: flex;
-		gap: 1rem;
+		gap: 16px;
 	}
 
-	.form-row .form-group { flex: 1; }
+	.form-row .form-group { flex: 1; min-width: 0; }
 
 	/* Detail */
 	.detail-header-left {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 12px;
 		flex: 1;
 		min-width: 0;
 	}
 
 	.detail-header-left h3 {
 		margin: 0;
-		font-size: 1rem;
-		cursor: pointer;
+		font-size: var(--fs-md);
+		cursor: text;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.detail-header-left h3:hover {
+		color: var(--accent);
 	}
 
 	.detail-header-right {
 		display: flex;
 		align-items: center;
-		gap: 0.4rem;
+		gap: 6px;
 		flex-shrink: 0;
 	}
 
 	.type-badge {
-		font-size: 0.8rem;
-		padding: 2px 8px;
-		border-radius: 4px;
-		background: var(--surface, #313244);
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		flex-shrink: 0;
+		padding: 1px 9px;
+		border-radius: var(--radius-full);
+		font-size: var(--fs-2xs);
+		font-weight: var(--fw-medium);
+		line-height: 1.7;
+		background: rgba(237, 230, 218, 0.05);
+		color: var(--text-secondary);
 	}
+
+	.type-badge.feature { background: var(--accent-soft); color: var(--accent); }
+	.type-badge.bug { background: var(--danger-soft); color: var(--danger); }
+	.type-badge.design { background: var(--queued-soft); color: var(--queued); }
 
 	.detail-status-bar {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		padding: 0.5rem 0;
-		margin-bottom: 1rem;
-		font-size: 0.85rem;
 		flex-wrap: wrap;
+		gap: 8px 14px;
+		padding-bottom: 4px;
+		font-size: var(--fs-xs);
 	}
 
-	.status-label { color: var(--text-muted, #a6adc8); }
+	.status-label { color: var(--text-tertiary); }
 
 	.detail-meta {
-		color: var(--text-muted, #a6adc8);
-		font-size: 0.8rem;
+		font-family: var(--font-mono);
+		color: var(--text-tertiary);
+		font-size: var(--fs-2xs);
 	}
 
 	.detail-section {
-		margin-top: 1.25rem;
-		padding-top: 1rem;
-		border-top: 1px solid var(--border-color, #313244);
+		margin-top: 20px;
+		padding-top: 16px;
+		border-top: 1px solid var(--border-subtle);
 	}
 
 	.detail-section h4 {
-		margin: 0 0 0.5rem;
-		font-size: 0.9rem;
+		margin: 0 0 10px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: var(--fw-medium);
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
 		cursor: pointer;
-		color: var(--text-muted, #a6adc8);
+	}
+
+	.detail-section h4:hover {
+		color: var(--text-secondary);
+	}
+
+	.detail-markdown {
+		font-size: var(--fs-sm);
+	}
+
+	.detail-content.empty {
+		color: var(--text-tertiary);
+	}
+
+	.detail-meta .linkish {
+		font-family: var(--font-sans);
+		font-size: var(--fs-xs);
 	}
 
 	.detail-content {
-		font-size: 0.9rem;
-		line-height: 1.6;
+		font-size: var(--fs-sm);
+		line-height: 1.65;
+		color: var(--text-primary);
 		white-space: pre-wrap;
 	}
 
 	.goal-content {
-		padding: 0.75rem;
-		background: var(--surface, #313244);
-		border-radius: 6px;
-		border-left: 3px solid var(--accent-color, #89b4fa);
+		padding: 12px 14px;
+		border-radius: var(--radius);
+		background: var(--accent-soft);
+		box-shadow: inset 2px 0 0 var(--accent);
 	}
 
 	.edit-input,
 	.edit-textarea {
 		width: 100%;
-		padding: 0.4rem 0.6rem;
-		border: 1px solid var(--accent-color, #89b4fa);
-		border-radius: 4px;
-		background: var(--input-bg, #181825);
-		color: var(--text-color, #cdd6f4);
+		padding: 6px 10px;
+		border-color: rgba(244, 184, 96, 0.6);
 		font-size: inherit;
 		font-family: inherit;
-		box-sizing: border-box;
 	}
 
 	.edit-textarea { resize: vertical; }
 
 	.edit-actions {
-		margin-top: 0.5rem;
+		margin-top: 8px;
 		display: flex;
-		gap: 0.4rem;
+		gap: 6px;
 	}
 
 	/* Linked Tasks */
 	.linked-tasks {
 		display: flex;
 		flex-direction: column;
-		gap: 0.4rem;
+		gap: 4px;
 	}
 
 	.linked-task {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0.75rem;
-		background: var(--surface, #313244);
-		border-radius: 6px;
-		font-size: 0.85rem;
+		gap: 10px;
+		padding: 8px 12px;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius);
+		background: var(--bg-3);
+		font-size: var(--fs-sm);
 	}
 
 	.task-link {
-		color: var(--accent-color, #89b4fa);
-		text-decoration: none;
-		font-weight: 500;
+		flex-shrink: 0;
+		font-weight: var(--fw-medium);
 	}
-
-	.task-link:hover { text-decoration: underline; }
 
 	.task-status-badge {
-		font-size: 0.7rem;
-		padding: 1px 6px;
-		border-radius: 4px;
-		background: var(--input-bg, #181825);
+		flex-shrink: 0;
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		color: var(--text-secondary);
 	}
 
-	.task-status-badge.completed { color: #a6e3a1; }
-	.task-status-badge.failed { color: #f38ba8; }
-	.task-status-badge.stopped { color: #fab387; }
-	.task-status-badge.running { color: #89b4fa; }
+	.task-status-badge.completed { color: var(--success); }
+	.task-status-badge.failed { color: var(--danger); }
+	.task-status-badge.stopped { color: var(--wool); }
+	.task-status-badge.running { color: var(--live); }
 
 	.task-summary {
 		flex: 1;
-		color: var(--text-muted, #a6adc8);
+		min-width: 0;
+		color: var(--text-secondary);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
 	.task-date {
-		color: var(--text-muted, #a6adc8);
-		font-size: 0.75rem;
 		flex-shrink: 0;
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
 	}
 
 	/* Pagination */
@@ -947,69 +1062,82 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 1rem;
-		padding: 0.75rem 0;
+		gap: 12px;
+		padding: 12px 0;
 	}
 
 	.page-info {
-		font-size: 0.85rem;
-		color: var(--text-muted, #a6adc8);
+		font-size: var(--fs-xs);
+		color: var(--text-tertiary);
 	}
 
-	/* Empty & Loading */
+	/* Empty */
 	.empty-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 8px;
+		padding: 56px 16px;
+		border: 1px dashed var(--border);
+		border-radius: var(--radius-lg);
 		text-align: center;
-		padding: 3rem 1rem;
-		color: var(--text-muted, #a6adc8);
 	}
 
-	.loading {
-		text-align: center;
-		padding: 2rem;
-		color: var(--text-muted, #a6adc8);
+	.empty-glyph {
+		display: grid;
+		place-items: center;
+		width: 48px;
+		height: 48px;
+		margin-bottom: 4px;
+		border-radius: 14px;
+		background: var(--accent-soft);
+		color: var(--accent);
 	}
 
-	/* Buttons */
-	.btn {
-		padding: 0.4rem 0.8rem;
-		border: 1px solid var(--border-color, #444);
-		border-radius: 6px;
-		background: var(--surface, #313244);
-		color: var(--text-color, #cdd6f4);
-		cursor: pointer;
-		font-size: 0.85rem;
+	.empty-title {
+		font-size: var(--fs-md);
+		font-weight: var(--fw-semibold);
+		color: var(--text-primary);
 	}
 
-	.btn:hover { border-color: var(--accent-color, #89b4fa); }
-
-	.btn-primary {
-		background: var(--accent-color, #89b4fa);
-		color: #1e1e2e;
-		border-color: var(--accent-color, #89b4fa);
-		font-weight: 500;
+	.empty-sub {
+		max-width: 42ch;
+		margin-bottom: 8px;
+		font-size: var(--fs-sm);
+		color: var(--text-secondary);
 	}
 
-	.btn-primary:hover { opacity: 0.9; }
-
+	/* Local button variants (global .btn covers the rest) */
 	.btn-success {
-		background: #a6e3a1;
-		color: #1e1e2e;
-		border-color: #a6e3a1;
+		background: var(--success-soft);
+		border-color: var(--success-line);
+		color: var(--success);
+		box-shadow: none;
 	}
 
-	.btn-danger {
-		background: #f38ba8;
-		color: #1e1e2e;
-		border-color: #f38ba8;
+	.btn-success:hover {
+		background: rgba(159, 214, 133, 0.22);
+		border-color: var(--success);
+		color: var(--success);
 	}
 
-	.btn-sm {
-		padding: 0.25rem 0.6rem;
-		font-size: 0.8rem;
+	.btn-del:hover {
+		color: var(--danger);
+		background: var(--danger-soft);
 	}
 
-	.btn:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
+	@media (max-width: 640px) {
+		.form-row {
+			flex-direction: column;
+			gap: 0;
+		}
+
+		.issue-card-footer {
+			padding-left: 0;
+		}
+
+		.issue-title {
+			white-space: normal;
+		}
 	}
 </style>

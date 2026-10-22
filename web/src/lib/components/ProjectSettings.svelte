@@ -1,4 +1,5 @@
 <script>
+	import Icon from './Icon.svelte';
 	import { onMount } from 'svelte';
 	import { apiGet, apiPut } from '$lib/api.js';
 
@@ -59,12 +60,12 @@
 		<p class="text-muted">No MCP servers configured. Register MCP servers in Settings → Embedded tab first.</p>
 	{:else}
 		<div class="project-settings-section">
-			<h4>🔌 MCP Servers</h4>
+			<h4><Icon name="database" size={15} /> MCP Servers</h4>
 			<p class="hint">MCP servers are off by default. Toggle a server on to make it available for this project.</p>
 
 			<div class="mcp-toggle-list">
 				{#each mcpServers as srv}
-					<div class="mcp-toggle-item">
+					<div class="mcp-toggle-item" class:on={serverEnabled[srv.name]}>
 						<div class="mcp-toggle-info">
 							<span class="mcp-toggle-name">{srv.label || srv.name}</span>
 							<code class="mcp-toggle-id">{srv.name}</code>
@@ -74,15 +75,14 @@
 							{/if}
 						</div>
 						<div class="mcp-toggle-control">
-							<span class="mcp-toggle-status">{serverEnabled[srv.name] ? 'ON' : 'OFF'}</span>
-							<label class="toggle">
-								<input
-									type="checkbox"
-									checked={serverEnabled[srv.name]}
-									onchange={() => toggleServer(srv.name)}
-								/>
-								<span class="toggle-slider"></span>
-							</label>
+							<span class="mcp-toggle-status mono">{serverEnabled[srv.name] ? 'ON' : 'OFF'}</span>
+							<input
+								type="checkbox"
+								class="switch"
+								checked={serverEnabled[srv.name]}
+								onchange={() => toggleServer(srv.name)}
+								aria-label={`${srv.label || srv.name} for this project`}
+							/>
 						</div>
 					</div>
 				{/each}
@@ -112,8 +112,16 @@
 		margin-bottom: 24px;
 	}
 	.project-settings-section h4 {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 		margin: 0 0 4px;
-		font-size: 15px;
+		font-size: var(--fs-md);
+		font-weight: var(--fw-semibold);
+	}
+
+	.project-settings-section h4 :global(svg) {
+		color: var(--accent);
 	}
 
 	.mcp-toggle-list {
@@ -125,11 +133,22 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 10px 12px;
+		padding: 12px 14px;
 		background: var(--bg-secondary);
 		border: 1px solid var(--border);
-		border-radius: 8px;
+		border-radius: var(--radius-md);
+		box-shadow: var(--sheen);
 		gap: 12px;
+		transition: border-color var(--dur-1) ease, background var(--dur-1) ease;
+	}
+	.mcp-toggle-item:hover {
+		border-color: var(--border-strong);
+	}
+	.mcp-toggle-item.on {
+		border-color: var(--accent-line);
+		background:
+			linear-gradient(90deg, var(--accent-soft), transparent 40%),
+			var(--bg-secondary);
 	}
 	.mcp-toggle-info {
 		display: flex;
@@ -139,14 +158,16 @@
 		min-width: 0;
 	}
 	.mcp-toggle-name {
-		font-size: 14px;
-		font-weight: 600;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-semibold);
 	}
 	.mcp-toggle-id {
+		font-family: var(--font-mono);
 		font-size: 11px;
-		background: var(--bg-input);
-		padding: 1px 6px;
-		border-radius: 4px;
+		background: rgba(237, 230, 218, 0.04);
+		border: 1px solid var(--border-subtle);
+		padding: 0 7px;
+		border-radius: var(--radius-full);
 		color: var(--text-secondary);
 	}
 	.mcp-toggle-desc {
@@ -154,12 +175,14 @@
 		color: var(--text-secondary);
 	}
 	.badge-transport {
-		font-size: 10px;
-		font-weight: 600;
-		padding: 1px 6px;
-		border-radius: 8px;
-		background: var(--bg-tertiary);
-		color: var(--text-secondary);
+		font-family: var(--font-mono);
+		font-size: 9.5px;
+		font-weight: var(--fw-medium);
+		letter-spacing: 0.08em;
+		padding: 0 6px;
+		border-radius: var(--radius-full);
+		background: rgba(237, 230, 218, 0.05);
+		color: var(--text-tertiary);
 		text-transform: uppercase;
 	}
 
@@ -170,48 +193,15 @@
 		flex-shrink: 0;
 	}
 	.mcp-toggle-status {
-		font-size: 11px;
-		font-weight: 600;
-		color: var(--text-secondary);
+		font-size: 10.5px;
+		font-weight: var(--fw-medium);
+		letter-spacing: 0.06em;
+		color: var(--text-tertiary);
 		min-width: 24px;
 		text-align: center;
 	}
-
-	.toggle {
-		position: relative;
-		display: inline-block;
-		width: 40px;
-		height: 22px;
-		cursor: pointer;
-	}
-	.toggle input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-	.toggle-slider {
-		position: absolute;
-		inset: 0;
-		background: var(--bg-tertiary);
-		border-radius: 22px;
-		transition: background 0.2s;
-	}
-	.toggle-slider::before {
-		content: '';
-		position: absolute;
-		width: 16px;
-		height: 16px;
-		left: 3px;
-		top: 3px;
-		background: white;
-		border-radius: 50%;
-		transition: transform 0.2s;
-	}
-	.toggle input:checked + .toggle-slider {
-		background: var(--accent);
-	}
-	.toggle input:checked + .toggle-slider::before {
-		transform: translateX(18px);
+	.on .mcp-toggle-status {
+		color: var(--accent);
 	}
 
 	.project-settings-actions {

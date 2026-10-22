@@ -7,6 +7,7 @@
 	import Tabs from '$lib/components/Tabs.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 
 	let tasks = [];
 	let total = 0;
@@ -133,11 +134,11 @@
 
 	function statusIcon(status) {
 		switch (status) {
-			case 'completed': return { name: 'check-circle', tone: 'success' };
-			case 'failed': return { name: 'x-circle', tone: 'danger' };
+			case 'completed': return { name: 'check', tone: 'success' };
+			case 'failed': return { name: 'x', tone: 'danger' };
 			case 'running': return { name: 'zap', tone: 'live' };
-			case 'pending': return { name: 'hourglass', tone: 'warning' };
-			case 'stopped': return { name: 'stop-circle', tone: 'warning' };
+			case 'pending': return { name: 'hourglass', tone: 'queued' };
+			case 'stopped': return { name: 'square', tone: 'idle' };
 			default: return { name: 'circle', tone: 'idle' };
 		}
 	}
@@ -153,27 +154,38 @@
 </script>
 
 <div class="page">
-	<div class="page-header">
-		<h1 class="page-title">Tasks</h1>
-		<span class="total-badge">{total}</span>
-	</div>
+	<PageHeader
+		eyebrow="Watch · Log"
+		title="Tasks"
+		count={total.toLocaleString()}
+		subtitle="Every task the flock has taken on, newest first. Open one to read its prompt, summary and changes."
+	/>
 
 	<!-- Status tabs + Search -->
 	<div class="toolbar">
 		<Tabs tabs={statusTabs} value={statusFilter} onChange={setStatus} ariaLabel="Status filter" />
 		<div class="search-box">
 			<input
-				class="input search-input"
+				class="input input-search search-input"
 				type="text"
 				bind:value={searchQuery}
-				placeholder="Search..."
+				placeholder="Search prompts and summaries…"
+				aria-label="Search tasks"
 				onkeydown={(e) => e.key === 'Enter' && applyFilters()}
 			/>
 		</div>
 	</div>
 
 	{#if !loaded}
-		<p class="text-muted">Loading...</p>
+		<div class="task-table" aria-busy="true">
+			{#each Array(8) as _, i}
+				<div class="task-row skeleton-row">
+					<span class="skeleton" style="width: 22px; height: 22px; border-radius: 50%"></span>
+					<span class="skeleton" style="height: 12px; width: 48px"></span>
+					<span class="skeleton" style="height: 12px; width: {40 + ((i * 37) % 45)}%"></span>
+				</div>
+			{/each}
+		</div>
 	{:else if tasks.length === 0}
 		<div class="card">
 			<EmptyState
@@ -185,39 +197,38 @@
 	{:else}
 		<!-- Compact Task List -->
 		<div class="task-table">
-			{#each tasks as t (t.id)}
+			{#each tasks as t, i (t.id)}
 				{@const icn = statusIcon(t.status)}
-				<div class="task-row" class:running={t.status === 'running'} onclick={() => viewDetail(t.id)}>
+				<div
+					class="task-row reveal"
+					class:running={t.status === 'running'}
+					style="--i: {i}"
+					role="button"
+					tabindex="0"
+					aria-label={`Task #${t.id}, ${t.status}`}
+					onclick={() => viewDetail(t.id)}
+					onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), viewDetail(t.id))}
+				>
 					<span class="row-icon" data-tone={icn.tone}>
-						<Icon name={icn.name} size={15} label={t.status} />
+						<Icon name={icn.name} size={12} stroke={2.4} label={t.status} />
 					</span>
-					<span class="row-id">#{t.id}</span>
+					<span class="row-id mono num">#{t.id}</span>
 					<div class="row-body">
-						<span class="row-prompt">{truncate(t.summary || t.prompt, 80)}</span>
+						<span class="row-prompt">{truncate(t.summary || t.prompt, 140)}</span>
 						<div class="row-tags">
 							{#if t.project}
-								<span class="tag tag-project">{t.project}</span>
+								<span class="chip">{t.project}</span>
 							{/if}
 							{#if t.sheep}
-								<span class="tag tag-sheep">{t.sheep}</span>
+								<span class="row-sheep">{t.sheep}</span>
 							{/if}
 							{#if t.reverted_at}
-								<span class="tag tag-reverted" title={`되돌림 ${t.reverted_at}`}>되돌림</span>
+								<span class="chip chip-queued" title={`되돌림 ${t.reverted_at}`}>되돌림</span>
 							{/if}
 						</div>
 					</div>
-					<div class="row-metrics">
-						{#if t.duration_sec > 0}
-							<span class="metric" title="실행 시간">
-								<Icon name="clock" size={12} />{fmtDuration(t.duration_sec)}
-							</span>
-						{/if}
-						{#if t.total_tokens > 0}
-							<span class="metric" title="토큰 사용량">
-								<Icon name="zap" size={12} />{fmtTokensShort(t.total_tokens)}
-							</span>
-						{/if}
-					</div>
+					<span class="metric mono num" title="실행 시간">{t.duration_sec > 0 ? fmtDuration(t.duration_sec) : ''}</span>
+					<span class="metric mono num" title="토큰 사용량">{t.total_tokens > 0 ? fmtTokensShort(t.total_tokens) : ''}</span>
 					<span class="row-time">{timeAgo(t.created_at)}</span>
 				</div>
 			{/each}
@@ -225,27 +236,33 @@
 
 		<!-- Pagination -->
 		{#if totalPages > 1}
-			<div class="pagination">
-				<button class="btn btn-sm" disabled={page <= 1} onclick={() => gotoPage(page - 1)}>Prev</button>
-				<span class="page-info">Page {page} / {totalPages}</span>
-				<button class="btn btn-sm" disabled={page >= totalPages} onclick={() => gotoPage(page + 1)}>Next</button>
-			</div>
+			<nav class="pagination" aria-label="Pagination">
+				<button class="btn btn-sm btn-ghost" disabled={page <= 1} onclick={() => gotoPage(page - 1)}>
+					<Icon name="arrow-left" size={13} /> Newer
+				</button>
+				<span class="page-info mono num">{page} <span>/</span> {totalPages}</span>
+				<button class="btn btn-sm btn-ghost" disabled={page >= totalPages} onclick={() => gotoPage(page + 1)}>
+					Older <Icon name="arrow-right" size={13} />
+				</button>
+			</nav>
 		{/if}
 	{/if}
 
 	<!-- Detail Modal -->
 	{#if showDetail && selectedTask}
+		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 		<div class="modal-overlay" onclick={closeDetail}>
-			<div class="modal-content card" onclick={(e) => e.stopPropagation()}>
+			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<div class="modal-content card" role="dialog" aria-modal="true" aria-label={`Task #${selectedTask.id}`} onclick={(e) => e.stopPropagation()}>
 				<div class="modal-header">
 					<div class="modal-title-row">
 						<h2>Task #{selectedTask.id}</h2>
 						<StatusBadge status={selectedTask.status} />
 						{#if selectedTask.reverted_at}
-							<span class="tag tag-reverted">되돌림</span>
+							<span class="chip chip-queued">되돌림</span>
 						{/if}
 					</div>
-					<button class="btn btn-sm" onclick={closeDetail}>Close</button>
+					<button class="btn btn-sm btn-ghost btn-icon" onclick={closeDetail} aria-label="Close"><Icon name="x" size={15} /></button>
 				</div>
 
 				<div class="detail-section">
@@ -304,7 +321,7 @@
 					{:else if detailChanges}
 						<div class="changes-hint">{detailChanges.reason || '변경 사항을 볼 수 없습니다.'}</div>
 					{/if}
-					<a class="detail-link" href={`/tasks/${selectedTask.id}`}>변경 사항 상세 보기 →</a>
+					<a class="detail-link" href={`/tasks/${selectedTask.id}`}>변경 사항 상세 보기 <Icon name="arrow-right" size={12} /></a>
 				</div>
 
 				{#if selectedTask.output?.length}
@@ -323,162 +340,141 @@
 </div>
 
 <style>
-	.page { max-width: 1200px; }
-
-	.page-header {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		margin-bottom: 16px;
-	}
-
-	.page-title { font-size: 20px; font-weight: 600; }
-
-	.total-badge {
-		font-size: 12px;
-		font-family: var(--font-mono);
-		background: var(--bg-tertiary);
-		padding: 2px 8px;
-		border-radius: 10px;
-		color: var(--text-secondary);
-	}
-
-	.text-muted { color: var(--text-secondary); }
+	.page { max-width: var(--content-max); }
 
 	/* Toolbar */
 	.toolbar {
 		display: flex;
-		gap: 10px;
-		margin-bottom: 12px;
+		gap: 12px;
+		margin-bottom: 16px;
 		align-items: center;
 		flex-wrap: wrap;
 	}
 
-	.search-box { flex: 1; min-width: 150px; }
-	.search-input { width: 100%; padding: 6px 10px; }
+	.search-box { flex: 1; min-width: 200px; max-width: 420px; margin-left: auto; }
+	.search-input { width: 100%; padding-top: 7px; padding-bottom: 7px; font-size: var(--fs-sm); }
 
-	/* Task Table */
+	/* Task table — one surface, hairline rows */
 	.task-table {
 		display: flex;
 		flex-direction: column;
+		padding: 4px;
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		overflow: hidden;
+		border-radius: var(--radius-md);
+		background: var(--bg-2);
+		box-shadow: var(--sheen);
 	}
 
 	.task-row {
-		display: flex;
+		position: relative;
+		display: grid;
+		grid-template-columns: 22px 54px minmax(0, 1fr) 66px 52px 64px;
 		align-items: center;
-		gap: 10px;
-		padding: 8px 12px;
-		border-bottom: 1px solid var(--border);
+		gap: 12px;
+		padding: 10px 12px;
+		border-radius: var(--radius);
 		cursor: pointer;
-		transition: background 0.1s;
-		background: var(--bg-secondary);
+		transition: background var(--dur-1) ease;
 	}
 
-	.task-row:last-child {
-		border-bottom: none;
+	.task-row + .task-row {
+		box-shadow: 0 -1px 0 var(--border-subtle);
 	}
 
-	.task-row:hover {
-		background: var(--bg-tertiary);
+	.task-row:hover,
+	.task-row:focus-visible {
+		background: rgba(237, 230, 218, 0.035);
+	}
+
+	.task-row:focus-visible {
+		box-shadow: inset 0 0 0 1px var(--accent-line);
 	}
 
 	.task-row.running {
-		border-left: 3px solid var(--accent);
+		background: linear-gradient(90deg, rgba(95, 224, 194, 0.07), transparent 40%);
+	}
+
+	.task-row.running::before {
+		content: '';
+		position: absolute;
+		left: -4px;
+		top: 10px;
+		bottom: 10px;
+		width: 2px;
+		border-radius: 2px;
+		background: var(--live);
+		box-shadow: 0 0 10px var(--live-glow);
+	}
+
+	.skeleton-row {
+		cursor: default;
+		grid-template-columns: 22px 54px 1fr;
 	}
 
 	.row-icon {
-		flex-shrink: 0;
-		display: inline-flex;
-		justify-content: center;
-		width: 18px;
-		color: var(--text-secondary);
+		display: grid;
+		place-items: center;
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		color: var(--text-tertiary);
+		background: rgba(237, 230, 218, 0.05);
+		box-shadow: inset 0 0 0 1px var(--border-subtle);
 	}
 
-	.row-icon[data-tone="success"] { color: var(--success); }
-	.row-icon[data-tone="live"] { color: var(--live); }
-	.row-icon[data-tone="danger"] { color: var(--danger); }
-	.row-icon[data-tone="warning"] { color: var(--warning); }
+	.row-icon[data-tone="success"] { color: var(--success); background: var(--success-soft); }
+	.row-icon[data-tone="live"] { color: var(--live); background: var(--live-soft); box-shadow: inset 0 0 0 1px var(--live-line), 0 0 12px -2px var(--live-glow); }
+	.row-icon[data-tone="danger"] { color: var(--danger); background: var(--danger-soft); }
+	.row-icon[data-tone="queued"] { color: var(--queued); background: var(--queued-soft); }
 
 	.row-id {
-		flex-shrink: 0;
-		font-family: var(--font-mono);
-		font-size: 12px;
-		color: var(--text-secondary);
-		width: 50px;
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
 	}
 
 	.row-body {
-		flex: 1;
 		min-width: 0;
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: 12px;
 	}
 
 	.row-prompt {
-		font-size: 13px;
+		flex: 1;
+		min-width: 0;
+		font-size: var(--fs-sm);
+		color: rgba(238, 234, 227, 0.9);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		flex: 1;
-		min-width: 0;
 	}
 
 	.row-tags {
 		display: flex;
-		gap: 4px;
-		flex-shrink: 0;
-	}
-
-	.tag {
-		font-size: 11px;
-		padding: 1px 6px;
-		border-radius: 3px;
-		white-space: nowrap;
-	}
-
-	.tag-project {
-		background: rgba(88, 166, 255, 0.12);
-		color: var(--accent);
-	}
-
-	.tag-sheep {
-		background: var(--bg-tertiary);
-		color: var(--text-secondary);
-	}
-
-	.tag-reverted {
-		background: var(--warning-soft);
-		color: var(--warning);
-	}
-
-	.row-metrics {
-		flex-shrink: 0;
-		display: flex;
 		align-items: center;
 		gap: 8px;
+		flex-shrink: 0;
+		max-width: 40%;
 	}
 
-	.metric {
-		display: inline-flex;
-		align-items: center;
-		gap: 3px;
-		font-size: 11px;
-		font-family: var(--font-mono);
+	.row-sheep {
+		font-size: var(--fs-2xs);
 		color: var(--text-tertiary);
 		white-space: nowrap;
 	}
 
-	.row-time {
-		flex-shrink: 0;
-		font-size: 11px;
-		font-family: var(--font-mono);
-		color: var(--text-secondary);
-		width: 55px;
+	.metric {
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
 		text-align: right;
+		white-space: nowrap;
+	}
+
+	.row-time {
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+		text-align: right;
+		white-space: nowrap;
 	}
 
 	/* Pagination */
@@ -486,89 +482,103 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 12px;
-		margin-top: 16px;
+		gap: 16px;
+		margin-top: 20px;
 	}
 
-	.btn-sm { padding: 4px 12px; font-size: 12px; }
-	.page-info { font-size: 13px; color: var(--text-secondary); }
+	.page-info {
+		font-size: var(--fs-sm);
+		color: var(--text-primary);
+	}
+
+	.page-info span {
+		color: var(--text-tertiary);
+		margin: 0 2px;
+	}
 
 	/* Modal */
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 100;
-		padding: 20px;
-	}
-
 	.modal-content {
-		width: 100%;
-		max-width: 700px;
-		max-height: 80vh;
-		overflow-y: auto;
-		padding: 20px;
+		max-width: 760px;
 	}
 
 	.modal-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 16px;
+		margin-bottom: 20px;
 	}
 
 	.modal-title-row {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: 12px;
 	}
 
-	.modal-title-row h2 { font-size: 16px; }
+	.modal-title-row h2 {
+		font-family: var(--font-display);
+		font-size: 30px;
+		font-weight: 400;
+		letter-spacing: -0.01em;
+	}
 
 	.detail-section {
-		margin-bottom: 14px;
+		margin-bottom: 18px;
 	}
 
 	.detail-label {
-		font-size: 11px;
-		color: var(--text-secondary);
-		font-weight: 500;
-		margin-bottom: 4px;
+		font-family: var(--font-mono);
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+		margin-bottom: 6px;
 		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		letter-spacing: var(--tracking-caps);
 	}
 
 	.detail-value {
 		white-space: pre-wrap;
 		word-break: break-word;
-		font-size: 13px;
-		line-height: 1.5;
+		font-size: var(--fs-sm);
+		line-height: 1.6;
 		margin: 0;
+	}
+
+	pre.detail-value {
+		padding: 12px 14px;
+		border-radius: var(--radius);
+		background: rgba(0, 0, 0, 0.28);
+		box-shadow: inset 0 0 0 1px var(--border-subtle);
+		font-size: var(--fs-xs);
+		color: var(--text-secondary);
+		max-height: 260px;
+		overflow: auto;
 	}
 
 	.error-text { color: var(--danger); }
 
 	.detail-meta {
-		display: flex;
-		gap: 16px;
-		flex-wrap: wrap;
-		margin-bottom: 14px;
-		padding: 8px 0;
-		border-top: 1px solid var(--border);
-		border-bottom: 1px solid var(--border);
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		gap: 12px 16px;
+		margin-bottom: 18px;
+		padding: 14px 0;
+		border-top: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.meta-item {
-		font-size: 13px;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		font-size: var(--fs-xs);
+		color: var(--text-primary);
 	}
 
 	.meta-label {
-		font-size: 11px;
-		color: var(--text-secondary);
-		margin-right: 4px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
 	}
 
 	.changes-summary {
@@ -577,50 +587,55 @@
 		gap: 8px;
 		flex-wrap: wrap;
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 	}
 
 	.commit-badge {
-		font-size: 11px;
-		padding: 1px 6px;
+		font-size: var(--fs-2xs);
+		padding: 1px 7px;
 		border-radius: var(--radius-full);
 		background: var(--accent-soft);
 		color: var(--accent);
 	}
 
 	.changes-hint {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 	}
 
 	.detail-link {
-		display: inline-block;
-		margin-top: 6px;
-		font-size: 12px;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: 8px;
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
 		color: var(--accent);
-	}
-
-	.detail-link:hover {
-		color: var(--accent-hover);
-		text-decoration: underline;
 	}
 
 	.output-container {
 		max-height: 300px;
 		overflow-y: auto;
-		background: var(--bg-primary);
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		padding: 8px;
+		background: rgba(0, 0, 0, 0.28);
+		box-shadow: inset 0 0 0 1px var(--border-subtle);
+		border-radius: var(--radius);
+		padding: 10px 12px;
 	}
 
 	.output-line {
 		margin: 0;
 		white-space: pre-wrap;
 		word-break: break-all;
-		font-size: 11px;
-		line-height: 1.4;
+		font-size: var(--fs-2xs);
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+
+	@media (max-width: 960px) {
+		.row-tags .row-sheep {
+			display: none;
+		}
 	}
 
 	@media (max-width: 768px) {
@@ -631,29 +646,42 @@
 
 		.search-box {
 			width: 100%;
+			max-width: none;
 			min-width: 0;
-		}
-
-		.row-tags {
-			display: none;
-		}
-
-		.row-id {
-			width: 40px;
+			margin-left: 0;
 		}
 
 		.task-row {
-			padding: 8px 10px;
+			grid-template-columns: 22px minmax(0, 1fr) auto;
+			gap: 10px;
+			padding: 10px 8px;
+		}
+
+		.row-id,
+		.metric {
+			display: none;
+		}
+
+		.row-body {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 6px;
+		}
+
+		.row-prompt {
+			white-space: normal;
+			display: -webkit-box;
+			-webkit-line-clamp: 2;
+			-webkit-box-orient: vertical;
+		}
+
+		.row-tags {
+			max-width: 100%;
 		}
 
 		.modal-content {
-			padding: 14px;
+			padding: 18px;
 			max-height: 90vh;
-		}
-
-		.detail-meta {
-			flex-direction: column;
-			gap: 6px;
 		}
 	}
 </style>

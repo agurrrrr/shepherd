@@ -4,6 +4,9 @@
 	import { onSSE } from '$lib/sse.js';
 	import { projects } from '$lib/stores.js';
 	import ScheduleForm from '$lib/components/ScheduleForm.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	let schedules = $state([]);
 	let loaded = $state(false);
@@ -88,6 +91,32 @@
 		return `Every ${secs / 60}m`;
 	}
 
+	// Plain-English reading of the common cron shapes; '' when unsure.
+	const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+	const DOW_LONG = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
+	function humanCron(expr) {
+		const p = String(expr || '').trim().split(/\s+/);
+		if (p.length !== 5) return '';
+		const [m, h, dom, mon, dow] = p;
+		const num = (v) => /^\d+$/.test(v);
+		if (num(m) && h === '*' && dom === '*' && mon === '*' && dow === '*') return `Hourly at :${m.padStart(2, '0')}`;
+		if (!num(m) || !num(h) || mon !== '*') return '';
+		const t = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+		if (dom === '*' && dow === '*') return `Daily at ${t}`;
+		if (dom === '*' && num(dow)) return `${DOW_LONG[+dow % 7]} at ${t}`;
+		if (dom === '*' && /^\d-\d$/.test(dow)) return `${DOW[+dow[0] % 7]}–${DOW[+dow[2] % 7]} at ${t}`;
+		if (num(dom) && dow === '*') return `Monthly on the ${dom}${['th', 'st', 'nd', 'rd'][(+dom % 10 > 3 || [11, 12, 13].includes(+dom)) ? 0 : +dom % 10]} at ${t}`;
+		return '';
+	}
+
+	// Instrument Serif draws "1" almost like "l" at this size, so numerals in
+	// the cadence label are set in the UI sans ("Every 1h", "Daily at 11:00").
+	function cadenceParts(text) {
+		return String(text).split(/(\d+(?::\d+)?)/).filter(Boolean).map((t) => ({ t, num: /^\d/.test(t) }));
+	}
+
+	let enabledCount = $derived(schedules.filter((s) => s.enabled).length);
+
 	function truncate(str, max) {
 		if (!str) return '';
 		return str.length > max ? str.substring(0, max) + '...' : str;
@@ -95,48 +124,78 @@
 </script>
 
 <div class="page">
-	<div class="page-header">
-		<h1 class="page-title">Schedules</h1>
-		<button class="btn btn-primary" onclick={openCreate}>+ New Schedule</button>
-	</div>
+	<PageHeader
+		eyebrow="Watch · Rhythm"
+		title="Schedules"
+		count={schedules.length}
+		subtitle={`Recurring work the flock picks up on its own. ${enabledCount} of ${schedules.length} active.`}
+	>
+		<button class="btn btn-primary" onclick={openCreate}>
+			<Icon name="plus" size={14} stroke={2.2} />
+			New schedule
+		</button>
+	</PageHeader>
 
 	{#if !loaded}
-		<p class="text-muted">Loading...</p>
+		<div class="schedule-list" aria-busy="true">
+			{#each Array(5) as _}
+				<div class="card schedule-item"><div class="skeleton" style="height: 14px; width: 30%"></div><div class="skeleton" style="height: 10px; width: 80%; margin-top: 14px"></div></div>
+			{/each}
+		</div>
 	{:else if schedules.length === 0 && !showForm}
-		<div class="card empty-state">
-			<p>No schedules configured.</p>
-			<p class="text-muted">Create a schedule to run tasks automatically.</p>
+		<div class="card">
+			<EmptyState icon="list" title="No rhythm yet" description="Create a schedule to run tasks automatically — nightly checks, weekly reviews, anything recurring.">
+				<button class="btn btn-primary" onclick={openCreate}><Icon name="plus" size={14} /> New schedule</button>
+			</EmptyState>
 		</div>
 	{:else}
 		<div class="schedule-list">
-			{#each schedules as sc (sc.id)}
-				<div class="card schedule-item" class:disabled={!sc.enabled}>
-					<div class="schedule-header">
+			{#each schedules as sc, i (sc.id)}
+				{@const human = sc.schedule_type === 'cron' ? humanCron(sc.cron_expr) : ''}
+				<article class="card schedule-item reveal" class:disabled={!sc.enabled} style="--i: {i}">
+					<div class="when">
+						{#if sc.schedule_type === 'cron' && !human}
+							<span class="when-main raw mono">{sc.cron_expr}</span>
+						{:else}
+							<span class="when-main">{#each cadenceParts(human || formatSchedule(sc)) as part}{#if part.num}<span class="when-num">{part.t}</span>{:else}{part.t}{/if}{/each}</span>
+						{/if}
+						<span class="when-sub mono">
+							<span class="type" class:cron={sc.schedule_type === 'cron'}>{sc.schedule_type}</span>
+							{#if human}{sc.cron_expr}{/if}
+						</span>
+					</div>
+
+					<div class="what">
 						<div class="schedule-name-row">
 							<span class="schedule-name">{sc.name}</span>
-							<span class="schedule-type badge" class:cron={sc.schedule_type === 'cron'}>{sc.schedule_type}</span>
-							<span class="schedule-expr mono">{formatSchedule(sc)}</span>
+							<a class="chip" href="/projects/{encodeURIComponent(sc.project)}">{sc.project}</a>
 						</div>
-						<div class="schedule-actions">
-							<button class="btn btn-sm" onclick={() => runNow(sc)} title="Run now">Run</button>
-							<button class="btn btn-sm" onclick={() => toggleEnabled(sc)}>
-								{sc.enabled ? 'Disable' : 'Enable'}
-							</button>
-							<button class="btn btn-sm" onclick={() => openEdit(sc)}>Edit</button>
-							<button class="btn btn-sm btn-danger" onclick={() => deleteSchedule(sc)}>Delete</button>
+						<p class="schedule-prompt">{truncate(sc.prompt, 220)}</p>
+						<div class="schedule-meta mono num">
+							{#if sc.next_run}
+								<span><span class="k">Next</span> {sc.next_run}</span>
+							{/if}
+							{#if sc.last_run}
+								<span><span class="k">Last</span> {sc.last_run}</span>
+							{/if}
 						</div>
 					</div>
-					<div class="schedule-prompt">{truncate(sc.prompt, 150)}</div>
-					<div class="schedule-meta">
-						<span class="meta-project">{sc.project}</span>
-						{#if sc.next_run}
-							<span>Next: {sc.next_run}</span>
-						{/if}
-						{#if sc.last_run}
-							<span>Last: {sc.last_run}</span>
-						{/if}
+
+					<div class="schedule-actions">
+						<label class="enable" title={sc.enabled ? 'Disable' : 'Enable'}>
+							<input type="checkbox" class="switch" checked={sc.enabled} onchange={() => toggleEnabled(sc)} aria-label={sc.enabled ? `Disable ${sc.name}` : `Enable ${sc.name}`} />
+						</label>
+						<button class="btn btn-sm" onclick={() => runNow(sc)} title="Run now">
+							<Icon name="play" size={11} stroke={2.4} /> Run
+						</button>
+						<button class="btn btn-sm btn-ghost btn-icon" onclick={() => openEdit(sc)} title="Edit" aria-label="Edit {sc.name}">
+							<Icon name="edit" size={14} />
+						</button>
+						<button class="btn btn-sm btn-ghost btn-icon del" onclick={() => deleteSchedule(sc)} title="Delete" aria-label="Delete {sc.name}">
+							<Icon name="trash" size={14} />
+						</button>
 					</div>
-				</div>
+				</article>
 			{/each}
 		</div>
 	{/if}
@@ -144,10 +203,10 @@
 	<!-- Create/Edit Modal — only Close/Cancel closes (no outside-click dismiss) -->
 	{#if showForm}
 		<div class="modal-overlay">
-			<div class="modal-content card">
+			<div class="modal-content card" role="dialog" aria-modal="true" aria-label={editingSchedule ? 'Edit schedule' : 'New schedule'}>
 				<div class="modal-header">
-					<h2>{editingSchedule ? 'Edit Schedule' : 'New Schedule'}</h2>
-					<button class="btn" onclick={closeForm}>Close</button>
+					<h2>{editingSchedule ? 'Edit schedule' : 'New schedule'}</h2>
+					<button class="btn btn-sm btn-ghost btn-icon" onclick={closeForm} aria-label="Close"><Icon name="x" size={15} /></button>
 				</div>
 				<ScheduleForm
 					schedule={editingSchedule}
@@ -161,177 +220,194 @@
 </div>
 
 <style>
-	.page-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 20px;
-	}
-
-	.page-title { font-size: 20px; font-weight: 600; }
-	.text-muted { color: var(--text-secondary); }
-
-	.btn-primary {
-		background: var(--accent);
-		color: #fff;
-		border-color: var(--accent);
-	}
+	.page { max-width: var(--content-max); }
 
 	.schedule-list {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 10px;
 	}
 
 	.schedule-item {
-		transition: border-color 0.15s;
+		display: grid;
+		grid-template-columns: 190px minmax(0, 1fr) auto;
+		gap: 20px;
+		align-items: start;
+		padding: 18px 20px;
+		transition: border-color var(--dur-1) ease, opacity var(--dur-2) ease;
 	}
 
 	.schedule-item:hover {
-		border-color: var(--accent);
+		border-color: var(--border-strong);
 	}
 
 	.schedule-item.disabled {
-		opacity: 0.5;
+		opacity: 0.62;
 	}
 
-	.schedule-header {
+	.schedule-item.disabled:hover {
+		opacity: 0.85;
+	}
+
+	.when {
 		display: flex;
-		justify-content: space-between;
+		flex-direction: column;
+		gap: 6px;
+		padding-right: 18px;
+		border-right: 1px solid var(--border-subtle);
+		min-height: 100%;
+	}
+
+	.when-main {
+		font-family: var(--font-display);
+		font-size: 22px;
+		line-height: 1.1;
+		color: var(--text-primary);
+	}
+
+	.when-num {
+		font-family: var(--font-sans);
+		font-size: 0.86em;
+		font-weight: var(--fw-medium);
+		font-variant-numeric: tabular-nums;
+		letter-spacing: -0.02em;
+	}
+
+	.when-main.raw {
+		font-size: var(--fs-md);
+		letter-spacing: 0.02em;
+	}
+
+	.disabled .when-main {
+		color: var(--text-secondary);
+	}
+
+	.when-sub {
+		display: flex;
 		align-items: center;
-		margin-bottom: 6px;
 		gap: 8px;
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+	}
+
+	.type {
+		padding: 0 6px;
+		line-height: 16px;
+		border-radius: var(--radius-full);
+		font-size: 9.5px;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		background: rgba(237, 230, 218, 0.05);
+		color: var(--text-secondary);
+	}
+
+	.type.cron {
+		background: var(--info-soft);
+		color: var(--info);
+	}
+
+	.what {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		min-width: 0;
 	}
 
 	.schedule-name-row {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: 10px;
 		flex-wrap: wrap;
 		min-width: 0;
 	}
 
 	.schedule-name {
-		font-weight: 600;
-		font-size: 14px;
+		font-weight: var(--fw-semibold);
+		font-size: 15px;
+		letter-spacing: -0.01em;
 	}
 
-	.badge {
-		font-size: 10px;
-		padding: 2px 6px;
-		border-radius: 8px;
-		background: var(--bg-tertiary);
-		color: var(--text-secondary);
-		text-transform: uppercase;
-		font-weight: 600;
-	}
-
-	.badge.cron {
-		background: rgba(56, 139, 253, 0.15);
-		color: var(--accent);
-	}
-
-	.schedule-expr {
-		font-size: 12px;
-		color: var(--text-secondary);
-	}
-
-	.schedule-actions {
-		display: flex;
-		gap: 4px;
-		flex-shrink: 0;
-	}
-
-	.btn-sm {
-		padding: 3px 8px;
-		font-size: 11px;
-	}
-
-	.btn-danger {
-		color: var(--danger);
-		border-color: var(--danger);
-	}
-
-	.btn-danger:hover {
-		background: rgba(248, 81, 73, 0.1);
+	a.chip:hover {
+		color: var(--text-primary);
+		text-decoration: none;
+		border-color: var(--border-strong);
 	}
 
 	.schedule-prompt {
-		font-size: 13px;
-		color: var(--text-primary);
-		margin-bottom: 6px;
-		line-height: 1.4;
+		font-size: var(--fs-sm);
+		line-height: 1.55;
+		color: var(--text-secondary);
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
 	}
 
 	.schedule-meta {
 		display: flex;
-		gap: 12px;
-		font-size: 12px;
+		gap: 16px;
+		flex-wrap: wrap;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 	}
 
-	.meta-project {
-		color: var(--accent);
+	.k {
+		margin-right: 4px;
+		font-size: 9.5px;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
 	}
 
-	.empty-state {
-		text-align: center;
-		padding: 40px 20px;
-	}
-
-	/* Modal */
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
+	.schedule-actions {
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		z-index: 100;
-		padding: 20px;
+		gap: 4px;
 	}
 
-	.modal-content {
-		width: 100%;
-		max-width: 600px;
-		max-height: 85vh;
-		overflow-y: auto;
-		padding: 24px;
+	.enable {
+		display: inline-flex;
+		align-items: center;
+		padding: 0 8px 0 0;
+		cursor: pointer;
+	}
+
+	.del:hover {
+		color: var(--danger);
+		background: var(--danger-soft);
 	}
 
 	.modal-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 20px;
+		margin-bottom: 18px;
 	}
 
-	.modal-header h2 { font-size: 18px; }
+	.modal-header h2 {
+		font-family: var(--font-display);
+		font-size: 30px;
+		font-weight: 400;
+	}
 
-	@media (max-width: 768px) {
-		.page-header {
-			flex-direction: column;
-			align-items: flex-start;
+	@media (max-width: 900px) {
+		.schedule-item {
+			grid-template-columns: minmax(0, 1fr);
 			gap: 12px;
 		}
 
-		.schedule-header {
-			flex-direction: column;
-			align-items: flex-start;
+		.when {
+			flex-direction: row;
+			align-items: baseline;
+			justify-content: space-between;
+			padding-right: 0;
+			padding-bottom: 10px;
+			border-right: none;
+			border-bottom: 1px solid var(--border-subtle);
 		}
 
 		.schedule-actions {
-			flex-wrap: wrap;
-		}
-
-		.schedule-meta {
-			flex-wrap: wrap;
-			gap: 6px;
-		}
-
-		.modal-content {
-			padding: 16px;
-			max-height: 90vh;
+			justify-content: flex-end;
 		}
 	}
 </style>

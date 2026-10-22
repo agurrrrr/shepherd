@@ -1,6 +1,7 @@
 <script>
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { onSSE } from '$lib/sse.js';
+	import Icon from './Icon.svelte';
 
 	// `working` is the list of currently-working sheep ({ name, project, provider, status }).
 	// Parent keeps it fresh via dashboard SSE refreshes; this component layers live
@@ -123,7 +124,7 @@
 </script>
 
 <div class="monitor-overlay" style="--font: {fontPx}px; --header: {headerPx}px;">
-	<button class="monitor-close" onclick={onClose} title="모니터링 종료 (Esc)">✕</button>
+	<button class="monitor-close" onclick={onClose} title="모니터링 종료 (Esc)" aria-label="모니터링 종료"><Icon name="x" size={14} stroke={2.2} /></button>
 
 	{#if tiles.length === 0}
 		<div class="monitor-empty">
@@ -135,8 +136,9 @@
 			class="monitor-grid"
 			style="grid-template-columns: repeat({grid.cols}, 1fr); grid-template-rows: repeat({grid.rows}, 1fr);"
 		>
-			{#each tiles as s (s.name)}
-				<div class="tile">
+			{#each tiles as s, i (s.name)}
+				<!-- The top-right tile leaves room in its header for the fixed close button -->
+				<div class="tile" class:corner={i === grid.cols - 1}>
 					<div class="tile-head">
 						<span class="tile-dot" aria-hidden="true"></span>
 						<span class="tile-project">{s.project || s.name}</span>
@@ -168,37 +170,46 @@
 		position: fixed;
 		inset: 0;
 		z-index: 1000;
-		background: var(--bg-1, #0b0e14);
+		background: var(--bg-base);
 		overflow: hidden;
+		animation: fade-in var(--dur-2) ease backwards;
 	}
 
 	.monitor-close {
 		position: fixed;
-		top: 6px;
-		right: 8px;
+		top: 4px;
+		right: 6px;
 		z-index: 1002;
-		width: 28px;
-		height: 28px;
+		display: grid;
+		place-items: center;
+		width: 26px;
+		height: 26px;
 		border: 1px solid var(--border);
-		border-radius: var(--radius-sm, 4px);
-		background: rgba(0, 0, 0, 0.45);
+		border-radius: 7px;
+		background: var(--bg-3);
 		color: var(--text-secondary);
-		font-size: 14px;
-		line-height: 1;
 		cursor: pointer;
-		opacity: 0.5;
-		transition: opacity 0.15s, color 0.15s;
+		opacity: 0.6;
+		transition: opacity var(--dur-1) ease, color var(--dur-1) ease, border-color var(--dur-1) ease;
 	}
-	.monitor-close:hover {
+
+	.monitor-close:hover,
+	.monitor-close:focus-visible {
 		opacity: 1;
 		color: var(--text-primary);
+		border-color: var(--border-strong);
+	}
+
+	.tile.corner .tile-head {
+		padding-right: 40px;
 	}
 
 	.monitor-grid {
 		display: grid;
 		width: 100vw;
 		height: 100vh;
-		gap: 0;
+		gap: 1px;
+		background: var(--border);
 	}
 
 	.tile {
@@ -207,18 +218,20 @@
 		flex-direction: column;
 		min-width: 0;
 		min-height: 0;
-		border: 1px solid var(--border, #1c2230);
-		background: var(--bg-2, #11151d);
+		background: var(--bg-1);
 		overflow: hidden;
 	}
 
 	.tile-head {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		padding: 2px 8px;
-		background: var(--bg-3, #161b25);
-		border-bottom: 1px solid var(--border);
+		gap: 8px;
+		min-height: 34px;
+		padding: 4px 10px;
+		background:
+			linear-gradient(90deg, var(--live-soft), transparent 55%),
+			var(--bg-2);
+		border-bottom: 1px solid var(--border-subtle);
 		font-size: var(--header);
 		line-height: 1.4;
 		flex-shrink: 0;
@@ -229,15 +242,9 @@
 		width: 7px;
 		height: 7px;
 		border-radius: 50%;
-		background: var(--live, #56d4dd);
-		box-shadow: 0 0 6px var(--live, #56d4dd);
+		background: var(--live);
 		flex-shrink: 0;
-		animation: pulse 1.6s ease-in-out infinite;
-	}
-
-	@keyframes pulse {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.35; }
+		animation: pulse-ring 1.8s var(--ease-out) infinite;
 	}
 
 	.tile-project {
@@ -272,10 +279,10 @@
 		min-height: 0;
 		overflow-y: auto;
 		overflow-x: hidden;
-		padding: 4px 8px;
+		padding: 8px 10px;
 		font-family: var(--font-mono);
 		font-size: var(--font);
-		line-height: 1.35;
+		line-height: 1.4;
 		scrollbar-width: thin;
 	}
 	.tile-body::-webkit-scrollbar {
@@ -321,10 +328,12 @@
 		bottom: 6px;
 		right: 8px;
 		z-index: 1002;
-		padding: 2px 8px;
+		padding: 2px 9px;
+		font-family: var(--font-mono);
 		font-size: 11px;
 		color: var(--text-secondary);
-		background: rgba(0, 0, 0, 0.45);
-		border-radius: var(--radius-sm, 4px);
+		background: var(--bg-3);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-full);
 	}
 </style>
