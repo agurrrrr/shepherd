@@ -33,7 +33,9 @@ func postRevert(t *testing.T, app *fiber.App, id int, path string, body string) 
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/tasks/%d/%s", id, path), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := app.Test(req)
+	// A revert runs a dozen git processes; on Windows runners that can exceed
+	// app.Test's default 1s timeout.
+	resp, err := app.Test(req, 30_000)
 	if err != nil {
 		t.Fatalf("app.Test: %v", err)
 	}

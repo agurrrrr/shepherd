@@ -25,6 +25,9 @@ func newRepo(t *testing.T) string {
 	gitRun(t, dir, "init", "-q", "-b", "main")
 	gitRun(t, dir, "config", "user.name", "test")
 	gitRun(t, dir, "config", "user.email", "test@example.com")
+	// Git for Windows ships core.autocrlf=true in its system config, which makes
+	// `git apply` write CRLF and breaks the byte-exact content checks below.
+	gitRun(t, dir, "config", "core.autocrlf", "false")
 	return dir
 }
 
@@ -241,6 +244,7 @@ func TestSnapshotWithoutCommits(t *testing.T) {
 	requireGit(t)
 	repo := t.TempDir()
 	gitRun(t, repo, "init", "-q", "-b", "main")
+	gitRun(t, repo, "config", "core.autocrlf", "false")
 	writeFile(t, repo, "f.txt", "one\n")
 
 	ref := TaskRef(7, "start")

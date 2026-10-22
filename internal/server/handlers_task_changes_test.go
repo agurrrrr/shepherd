@@ -41,6 +41,9 @@ func newChangesRepo(t *testing.T) string {
 	}
 
 	run("init", "-q")
+	// Git for Windows defaults to core.autocrlf=true; revert tests compare
+	// working tree bytes after `git apply`, so keep line endings untouched.
+	run("config", "core.autocrlf", "false")
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("one\n"), 0644); err != nil {
 		t.Fatalf("write f.txt: %v", err)
 	}
