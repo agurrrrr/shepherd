@@ -30,6 +30,7 @@
 
 	let projectsList = $state([]);
 	let modelOptions = $state({ claude: [], opencode: [], pi: [], grok: [] });
+	let grokModelInfo = $state(null);
 
 	// Provider enabled flags (shared mutable state)
 	let providerEnabled = $state({ claude: true, opencode: true, pi: true, grok: true, embedded: true, magi: true });
@@ -87,7 +88,10 @@
 				};
 			}
 			if (mcpRes?.data) mcpStatus = mcpRes.data;
-			if (modelRes?.data) modelOptions = modelRes.data;
+			if (modelRes?.data) {
+				modelOptions = modelRes.data;
+				grokModelInfo = modelRes.data.grok_info || null;
+			}
 			if (projRes?.data) projectsList = projRes.data;
 
 			mcpLoaded = true;
@@ -236,7 +240,7 @@
 				<PiSettings {configData} {providerEnabled} modelOptions={modelOptions.pi} />
 			{/if}
 			{#if activeTab === 'grok'}
-				<GrokSettings {configData} {providerEnabled} modelOptions={modelOptions.grok} />
+				<GrokSettings {configData} {providerEnabled} modelOptions={modelOptions.grok} {grokModelInfo} />
 			{/if}
 			{#if activeTab === 'embedded'}
 				<EmbeddedSettings {configData} {providerEnabled} reloadEndpoints={reloadEmbeddedEndpoints} />

@@ -132,8 +132,9 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 // GET /api/config/model-options
 // Returns selectable models for each provider. Claude options are a curated
 // hard-coded list (CLI aliases + pinned versions), OpenCode options are the
-// `opencode models` list captured at daemon startup, and Pi options come from
-// ~/.pi/agent/models.json.
+// `opencode models` list captured at daemon startup, Pi options come from
+// ~/.pi/agent/models.json, and Grok options are the `grok models` list captured
+// at daemon startup (refreshable via POST /api/config/grok-models/refresh).
 func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
 	type option struct {
 		ID    string `json:"id"`
@@ -165,10 +166,11 @@ func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
 		pi = append(pi, option{ID: m.ID, Label: m.Label})
 	}
 
-	grok := []option{{ID: "", Label: "grok default (grok-4.6)"}}
-	for _, m := range config.ListGrokModels() {
+	grok := []option{{ID: "", Label: grokDefaultLabel()}}
+	for _, m := range config.CachedGrokModels() {
 		grok = append(grok, option{ID: m.ID, Label: m.Label})
 	}
+	grokSource, grokErr, grokFetchedAt := config.GrokModelsCacheInfo()
 
 	// Embedded options are the configured endpoints. The "Default" entry
 	// (empty ID) falls back to the globally active endpoint.
@@ -195,6 +197,47 @@ func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
 		"pi":       pi,
 		"grok":     grok,
 		"embedded": embedded,
+		"grok_info": map[string]interface{}{
+			"source":     grokSource,
+			"error":      grokErr,
+			"fetched_at": grokFetchedAt,
+		},
+	})
+}
+
+// grokDefaultLabel is the label of the empty-ID "use grok's own default" entry.
+// It names the account default model when `grok models` reported one, so the
+// selector shows which model an unset model_grok actually resolves to.
+func grokDefaultLabel() string {
+	if m := config.CachedGrokDefaultModel(); m != "" {
+		return "grok default (" + m + ")"
+	}
+	return "grok default"
+}
+
+// POST /api/config/grok-models/refresh
+// Re-runs `grok models` and returns the fresh list. xAI ships new models on a
+// rolling basis, so the Grok settings tab can pick them up without restarting
+// the daemon.
+func (s *Server) handleRefreshGrokModels(c *fiber.Ctx) error {
+	models := config.RefreshGrokModels()
+	source, errText, fetchedAt := config.GrokModelsCacheInfo()
+
+	type option struct {
+		ID        string `json:"id"`
+		Label     string `json:"label"`
+		IsDefault bool   `json:"isDefault"`
+	}
+	out := make([]option, 0, len(models))
+	for _, m := range models {
+		out = append(out, option{ID: m.ID, Label: m.Label, IsDefault: m.IsDefault})
+	}
+
+	return success(c, map[string]interface{}{
+		"grok":      out,
+		"source":    source,
+		"error":     errText,
+		"fetchedAt": fetchedAt,
 	})
 }
 

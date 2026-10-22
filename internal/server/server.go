@@ -130,6 +130,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Patch("/config", s.handleUpdateConfig)
 	api.Get("/config/system-prompt-preview", s.handleSystemPromptPreview)
 	api.Get("/config/model-options", s.handleGetModelOptions)
+	api.Post("/config/grok-models/refresh", s.handleRefreshGrokModels)
 
 	// Embedded provider endpoints
 	api.Get("/config/embedded", s.handleGetEmbeddedEndpoints)

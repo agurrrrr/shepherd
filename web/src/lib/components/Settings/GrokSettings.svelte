@@ -1,18 +1,70 @@
 <script>
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
+	import { apiPost } from '$lib/api.js';
 
 	/** @type {{ model_grok: string, custom_prompt_grok: string, concurrency_limits: Record<string, number>, grok_path: string }} */
 	export let configData;
-	/** @type {Array<{id: string, label: string}>} */
+	/** @type {Array<{id: string, label: string, isDefault?: boolean}>} */
 	export let modelOptions;
 	/** @type {{ claude: boolean, opencode: boolean, pi: boolean, grok: boolean, embedded: boolean }} */
 	export let providerEnabled;
+	/** @type {{ source: string, error: string, fetched_at: string }|null} */
+	export let grokModelInfo = null;
+
+	let refreshing = false;
+	let refreshMsg = '';
+	// Options read straight from the grok CLI by the refresh button. Null means
+	// "use the list the page loaded at startup".
+	let liveOptions = null;
 
 	// If the configured model is not present in the select's options, append it.
 	function optionsWithCurrent(opts, current) {
 		if (!current) return opts;
 		if (opts.some((o) => o.id === current)) return opts;
 		return [...opts, { id: current, label: current + ' (not in config)' }];
+	}
+
+	$: currentOptions = liveOptions || modelOptions || [];
+	// grokModelInfo.source: "cli" (daemon read `grok models`), "fallback" (CLI
+	// failed), "pending" (not read yet).
+	$: grokSourceLabel =
+		liveOptions
+			? '방금 `grok models`에서 읽은 목록'
+			: grokModelInfo?.source === 'cli'
+				? '데몬 시작 시 `grok models`에서 읽은 목록'
+				: grokModelInfo?.source === 'fallback'
+					? '대체 목록 (`grok models` 실패: ' + (grokModelInfo.error || '원인 없음') + ')'
+					: '아직 읽지 않음 — 다시 읽기를 누르세요';
+	// `grok models` lists the account default first, so it is also the newest
+	// model xAI offers for this account.
+	$: latestModel = currentOptions.find((o) => o.id) || null;
+
+	// Re-reads `grok models` on the daemon and replaces the option list in place.
+	async function refreshModels() {
+		refreshing = true;
+		refreshMsg = '';
+		try {
+			const res = await apiPost('/api/config/grok-models/refresh', {});
+			const data = res?.data;
+			if (!data) {
+				refreshMsg = 'grok models 응답이 없습니다.';
+			} else if (data.source === 'cli' && data.grok?.length) {
+				liveOptions = data.grok;
+				refreshMsg = `${data.grok.length}개 모델을 grok CLI에서 읽어왔습니다.`;
+			} else {
+				refreshMsg = 'grok CLI 실행 실패: ' + (data.error || '원인 없음') + ' — 대체 목록을 표시합니다.';
+			}
+		} catch (err) {
+			refreshMsg = 'grok models 갱신 실패: ' + (err?.message || err);
+		} finally {
+			refreshing = false;
+		}
+	}
+
+	function applyLatest() {
+		if (!latestModel) return;
+		configData.model_grok = latestModel.id;
+		refreshMsg = `${latestModel.id} 선택했습니다. Save를 눌러 저장하세요.`;
 	}
 </script>
 
@@ -26,10 +78,21 @@
 <div class="setting-row">
 	<label>Grok Model</label>
 	<select class="input" bind:value={configData.model_grok}>
-		{#each optionsWithCurrent(modelOptions, configData.model_grok) as opt}
+		{#each optionsWithCurrent(currentOptions, configData.model_grok) as opt}
 			<option value={opt.id}>{opt.label}</option>
 		{/each}
 	</select>
+	<button class="btn btn-sm btn-outline" onclick={refreshModels} disabled={refreshing}>
+		{refreshing ? '읽는 중…' : 'grok CLI에서 모델 다시 읽기'}
+	</button>
+	<button class="btn btn-sm btn-outline" onclick={applyLatest} disabled={!latestModel}>
+		최신 모델 적용{latestModel ? ` (${latestModel.id})` : ''}
+	</button>
+	<span class="hint">
+		모델 목록 출처: {grokSourceLabel}. 빈 값이면 grok 계정 기본 모델을 사용합니다.
+		xAI가 새 모델을 내면 다시 읽기한 뒤 적용하고 Save하세요.
+		{#if refreshMsg}<span class="refresh-msg">{refreshMsg}</span>{/if}
+	</span>
 </div>
 <div class="setting-row">
 	<label>Per-Group Limit</label>
@@ -62,20 +125,21 @@
 	}
 
 	.setting-row > label:not(.toggle) {
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 500;
-		flex: 0 0 140px;
+		flex: 0 0 180px;
+		color: var(--text-primary);
 	}
 
 	.setting-row .input {
 		flex: 1 1 200px;
-		max-width: 240px;
+		max-width: 340px;
 		min-width: 0;
 	}
 
 	.setting-row:not(.column) > .hint {
-		flex: 0 0 calc(100% - 156px);
-		margin-left: 156px;
+		flex: 0 0 calc(100% - 196px);
+		margin-left: 196px;
 		min-width: 0;
 	}
 
@@ -129,6 +193,24 @@
 
 	.hint {
 		font-size: 12px;
+		color: var(--text-tertiary);
+		line-height: 1.55;
+	}
+
+	.btn-outline {
+		background: transparent;
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+	}
+
+	.btn-outline:hover:not(:disabled) {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+
+	.refresh-msg {
+		display: block;
+		margin-top: 4px;
 		color: var(--text-secondary);
 	}
 

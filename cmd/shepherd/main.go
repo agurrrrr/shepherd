@@ -2756,6 +2756,11 @@ func runServeForeground() {
 	// OpenCode's config.json, so it matches what `opencode run -m` accepts.
 	config.InitOpenCodeModelList()
 
+	// Same for grok: `grok models` reports the models the logged-in account can
+	// actually select, and that set changes with the CLI version. The Grok
+	// Settings selector reads this cache (with an explicit refresh button).
+	config.InitGrokModelList()
+
 	// Cache git origin URLs for projects registered before repo_url existed, in
 	// the background: /api/projects only reads the cached column, so it must not
 	// spawn `git` per project on every request.
