@@ -151,7 +151,7 @@ Web UI는 Go 바이너리에 임베드된 Svelte SPA입니다. 데몬 기동 후
 | 프로젝트 | `/projects` | 프로젝트 목록·관리 |
 | 프로젝트 상세 | `/projects/:name` | 탭: **Live Output**, **Task History**, **Files**, **Git**, **Schedules**, **Skills**, **Issues**, **Wiki**, **Settings** |
 | 작업 | `/tasks` | 필터·검색 가능한 작업 목록 |
-| 작업 상세 | `/tasks/:id` | 전체 출력, 수정 파일, 비용, 에러, 재시도 |
+| 작업 상세 | `/tasks/:id` | 전체 출력, 수정 파일, 체크포인트 diff와 되돌리기, 비용, 에러, 재시도 |
 | 스케줄 | `/schedules` | Cron / interval 스케줄 관리 |
 | 스킬 | `/skills` | 스킬 생성, import/export, 프로젝트 동기화 |
 | 설정 | `/settings` | 언어, 프로바이더, 모델, Embedded, MAGI, Discord, PWA Web Push, 위키, OpenCode thinking 프록시 |
@@ -222,6 +222,18 @@ GET /api/events?token=<access_token>
 - **자동 ingest**: `wiki_auto_ingest`가 true면 완료 작업이 위키 갱신을 제안 (`wiki_max_context_pages`, `wiki_max_page_content_chars`로 주입 크기 제한)
 
 아키텍처 결정, 함정, 런북을 위키에 두면 이후 작업이 프로젝트 지식을 컨텍스트로 시작하게 됩니다.
+
+---
+
+## 작업 체크포인트
+
+`task_checkpoint_enabled`(기본값 true)가 켜져 있으면 shepherd가 작업 전후에 프로젝트 작업 트리를 숨은 git ref(`refs/shepherd/tasks/<id>/{start,end}`)로 스냅샷합니다. 사용자의 인덱스와 HEAD는 건드리지 않습니다.
+
+- **작업 상세 → Changes** 탭에서 작업이 바꾼 파일과 파일별 diff, 바이너리 여부를 정확히 볼 수 있습니다.
+- **CLI diff**: `shepherd task diff <id> [--patch | --file <경로> | --live]`가 같은 diff를 출력합니다.
+- **되돌리기**: `shepherd task revert <id> [--dry-run] [--undo] [--yes]`가 작업 변경을 3-way 병합으로 역방향 적용하며, 작업 이후에 생긴 편집은 보존합니다. 되돌리기는 작업 트리만 바꾸고 커밋하지 않습니다.
+- **보존 정책**: `task_checkpoint_retention_days`(기본값 30, `0`이면 영구 보존)에 따라 삭제된 작업과 오래된 작업의 ref를 데몬 시작 직후 한 번, 그 뒤 매일 정리합니다. 도달할 수 없는 스냅샷 객체는 git gc가 회수합니다.
+- **백업**: 작업 내보내기/가져오기는 체크포인트 메타데이터만 옮기고 git ref는 옮기지 않습니다. 같은 PC에서 복원하면 객체가 남아 있는 동안은 diff를 볼 수 있습니다.
 
 ---
 
@@ -357,6 +369,8 @@ shepherd project assign <project> <sheep>        # 양 배정
 shepherd "<task>"                 # 현재 디렉토리에서 임베디드 에이전트 실행
 shepherd task "<task>"            # 명시적 task 명령 (동일한 cwd 경로)
 shepherd task detail <id>         # 작업 상세
+shepherd task diff <id>           # 체크포인트 diff (--patch, --file, --live)
+shepherd task revert <id>         # 완료 작업 되돌리기 (--dry-run, --undo, --yes)
 shepherd task stop <id>           # 실행 중 작업 중지
 shepherd queue add <project> "<prompt>"          # 큐에 추가
 shepherd queue list                               # 대기 목록
@@ -483,6 +497,10 @@ opencode_thinking_proxy_enabled: false
 opencode_thinking_proxy_port: 8686
 opencode_thinking_proxy_target: ""   # 예: http://127.0.0.1:8080
 opencode_thinking_model: ""          # 프록시를 경유하는 provider/model
+
+# 작업 체크포인트 (숨은 git ref + 정확한 diff + 되돌리기)
+task_checkpoint_enabled: true
+task_checkpoint_retention_days: 30   # 0이면 ref를 영구 보존
 
 # 위키
 wiki_enabled: true

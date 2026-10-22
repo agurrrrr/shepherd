@@ -116,6 +116,9 @@ internal/
 │   ├── session.go       # Per-sheep session management, multi-page
 │   └── actions.go       # 20+ actions (click, type, screenshot, etc.)
 │
+├── checkpoint/          # Working-tree snapshots via hidden git refs
+│   └── checkpoint.go    # Probe, Take, Changes, Transplant, task refs
+│
 ├── config/              # Viper-based YAML configuration
 │   └── config.go        # Defaults, load, get/set, file path
 │
@@ -187,6 +190,19 @@ web/                     # Svelte SPA (JavaScript only, no TypeScript)
 │       └── settings/+page.svelte  # Settings
 └── build/               # Production build → embedded via go:embed
 ```
+
+## Task Checkpoints
+
+`internal/checkpoint` snapshots a project's working tree with git plumbing only. It imports `internal/procutil` and the standard library, never `ent`, `queue`, or `server`, so the queue and API can share it without an import cycle.
+
+- **Refs**: `refs/shepherd/tasks/<id>/start`, `end`, `pre-revert`, `reverted`. Only this prefix is listed or deleted, so a caller bug cannot touch user branches or tags.
+- **Temporary index**: each snapshot copies the real index (preserving mtime) to `shepherd-ckpt-index-<random>` under the common git dir and runs `git add -A` with `GIT_INDEX_FILE`. The user's real index is never modified, and the temporary index plus its lock file are removed on both success and failure. Repositories without commits get a parentless snapshot commit.
+- **Size limits**: 20,000 untracked files, 50 MB per file, 200 MB total. Oversized trees return `ErrTooLarge` and create no ref. Dropping only the large files would make the start and end snapshots cover different sets and produce fake additions/deletions.
+- **Diff and restore**: diffs always use `--no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/` so user git config cannot break parsing. Restores use `git merge-tree --write-tree` for a 3-way merge and `git apply` (no `--index`) so the user's index stays untouched. Conflicts return the file list and leave the working tree unchanged.
+- **Process safety**: `Take` and `Transplant` serialize per repository top level with a process-local mutex. All git invocations run with `LC_ALL=C`, because merge-tree conflict text is parsed. Author and committer are fixed to `shepherd <shepherd@localhost>`.
+- **Retention**: `task_checkpoint_retention_days` (default 30, `0` disables) drives a pruner that runs once after daemon startup and then daily. It groups refs by task ID, deletes refs for tasks missing from the DB or older than the cutoff (`completed_at`, or `reverted_at` after a revert), and logs `[checkpoint] pruned N refs in <dir>`. Snapshot objects are left to git's default gc (unreachable after two weeks). Deleting a task removes its refs first; a failure there is logged and retried by the pruner.
+- **Known limits**: changes made by other processes during a task are included in its snapshot, because the snapshot is the whole working tree. If the daemon dies mid-task there is no end snapshot, and the recovered task records `checkpoint_error` instead of a silent partial diff. Export/import carries checkpoint metadata but not the refs, so a restore elsewhere has no diff history.
+- **Task deletion**: `queue.DeleteTask` deletes checkpoint refs before removing the row. The failure is logged and does not block deletion.
 
 ## Entity Relationships
 

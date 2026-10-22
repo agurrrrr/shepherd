@@ -2777,6 +2777,12 @@ func runServeForeground() {
 	sched.Start()
 	defer sched.Stop()
 
+	// Prune task checkpoint refs once after startup, then daily. The goroutine
+	// stops when the daemon shuts down.
+	checkpointPruneStop := make(chan struct{})
+	defer close(checkpointPruneStop)
+	go queue.StartCheckpointPruner(checkpointPruneStop)
+
 	// Seed bundled skills
 	if err := skill.SeedBundledSkills(); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  Failed to seed bundled skills: %v\n", err)

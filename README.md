@@ -151,7 +151,7 @@ The Web UI is a Svelte SPA embedded in the Go binary. After starting the daemon 
 | Projects | `/projects` | Project list and management |
 | Project Detail | `/projects/:name` | Tabs: **Live Output**, **Task History**, **Files**, **Git**, **Schedules**, **Skills**, **Issues**, **Wiki**, **Settings** |
 | Tasks | `/tasks` | Task list with filtering and search |
-| Task Detail | `/tasks/:id` | Full output, modified files, cost, error details, retry |
+| Task Detail | `/tasks/:id` | Full output, modified files, checkpoint diff and revert, cost, error details, retry |
 | Schedules | `/schedules` | Cron / interval schedule management |
 | Skills | `/skills` | Skill creation, import/export, sync to projects |
 | Settings | `/settings` | Language, providers, models, Embedded endpoints, MAGI, Discord, PWA Web Push, wiki, OpenCode thinking proxy |
@@ -224,6 +224,18 @@ Each project can keep a durable markdown wiki that agents read and update:
 - **Auto-ingest**: when `wiki_auto_ingest` is true, completed tasks can propose wiki updates (`wiki_max_context_pages`, `wiki_max_page_content_chars` cap injection size)
 
 Use the wiki for architecture decisions, gotchas, and runbooks so future tasks start with project knowledge already in context.
+
+---
+
+## Task Checkpoints
+
+With `task_checkpoint_enabled` (default true), shepherd snapshots the project's working tree before and after each task using hidden git refs (`refs/shepherd/tasks/<id>/{start,end}`). The user's index and HEAD are never touched.
+
+- **Task Detail → Changes** shows the exact files a task changed, with per-file diffs and binary detection.
+- **CLI diff**: `shepherd task diff <id> [--patch | --file <path> | --live]` prints the same diff.
+- **Revert**: `shepherd task revert <id> [--dry-run] [--undo] [--yes]` applies the task's changes backwards with a 3-way merge, preserving edits made since the task ran. Reverts only touch the working tree; nothing is committed.
+- **Retention**: `task_checkpoint_retention_days` (default 30, `0` keeps refs forever) prunes refs for deleted and old tasks once after daemon startup and then daily. Git's own gc reclaims the unreachable snapshot objects.
+- **Backups**: task export/import carries checkpoint metadata, not the git refs. A restore on the same machine can still show diffs while the objects survive gc.
 
 ---
 
@@ -360,6 +372,8 @@ shepherd project assign <project> <sheep>        # Assign a sheep to a project
 shepherd "<task>"                 # Run the embedded agent in the current directory
 shepherd task "<task>"            # Explicit task command (same cwd path)
 shepherd task detail <id>         # Task details
+shepherd task diff <id>           # Checkpoint diff (--patch, --file, --live)
+shepherd task revert <id>         # Revert a finished task (--dry-run, --undo, --yes)
 shepherd task stop <id>           # Stop a running task
 shepherd queue add <project> "<prompt>"          # Add a task to the queue
 shepherd queue list                               # List pending tasks
@@ -486,6 +500,10 @@ opencode_thinking_proxy_enabled: false
 opencode_thinking_proxy_port: 8686
 opencode_thinking_proxy_target: ""   # e.g. http://127.0.0.1:8080
 opencode_thinking_model: ""          # provider/model routed via the proxy
+
+# Task checkpoints (hidden git refs + exact diff + revert)
+task_checkpoint_enabled: true
+task_checkpoint_retention_days: 30   # 0 = keep refs forever
 
 # Wiki
 wiki_enabled: true

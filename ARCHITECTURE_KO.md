@@ -116,6 +116,9 @@ internal/
 │   ├── session.go       # 양별 세션 관리, 멀티 페이지
 │   └── actions.go       # 20+ 액션 (클릭, 입력, 스크린샷 등)
 │
+├── checkpoint/          # 숨은 git ref로 작업 트리 스냅샷
+│   └── checkpoint.go    # Probe, Take, Changes, Transplant, 작업 ref
+│
 ├── config/              # Viper 기반 YAML 설정
 │   └── config.go        # 기본값, 로드, get/set, 파일 경로
 │
@@ -187,6 +190,19 @@ web/                     # Svelte SPA (순수 JavaScript, TypeScript 미사용)
 │       └── settings/+page.svelte  # 설정
 └── build/               # 프로덕션 빌드 → go:embed로 내장
 ```
+
+## 작업 체크포인트
+
+`internal/checkpoint`는 git 플러밍만으로 프로젝트 작업 트리를 스냅샷합니다. `internal/procutil`과 표준 라이브러리만 import하고 `ent`, `queue`, `server`는 import하지 않으므로, 큐와 API가 순환 의존 없이 함께 사용할 수 있습니다.
+
+- **Ref 구조**: `refs/shepherd/tasks/<id>/start`, `end`, `pre-revert`, `reverted`. 이 prefix만 조회·삭제하므로 호출 버그가 사용자의 브랜치나 태그를 건드릴 수 없습니다.
+- **임시 인덱스**: 스냅샷마다 실제 인덱스를 mtime을 보존해 복사한 뒤 git 공통 디렉터리 아래 `shepherd-ckpt-index-<랜덤>`을 만들고 `GIT_INDEX_FILE`로 `git add -A`를 실행합니다. 사용자의 실제 인덱스는 바뀌지 않으며, 임시 인덱스와 lock 파일은 성공·실패 모두에서 지웁니다. 커밋이 없는 저장소에서는 부모 없는 스냅샷 커밋을 만듭니다.
+- **크기 제한**: 추적되지 않은 파일 20,000개, 파일 하나 50MB, 합계 200MB. 제한을 넘으면 `ErrTooLarge`를 돌려주고 ref를 만들지 않습니다. 큰 파일만 빼고 찍으면 시작과 종료 스냅샷의 대상이 달라져 가짜 추가·삭제가 생기기 때문입니다.
+- **Diff와 복원**: diff에는 항상 `--no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/`를 붙여 사용자 git 설정이 파싱을 깨지 않게 합니다. 복원은 `git merge-tree --write-tree`로 3-way 병합하고 `git apply`(`--index` 없이)로 적용해 사용자의 인덱스를 건드리지 않습니다. 충돌이면 파일 목록을 돌려주고 작업 트리는 바꾸지 않습니다.
+- **프로세스 안전성**: `Take`와 `Transplant`는 저장소 최상위 경로별 프로세스 내 뮤텍스로 직렬화합니다. merge-tree 충돌 메시지를 파싱하므로 모든 git 호출에 `LC_ALL=C`를 사용합니다. 작성자와 커미터는 `shepherd <shepherd@localhost>`로 고정합니다.
+- **보존 정책**: `task_checkpoint_retention_days`(기본값 30, `0`이면 비활성)에 따라 데몬 시작 직후 한 번, 그 뒤 매일 정리합니다. 작업 ID별 ref를 모아 DB에 없는 작업과 기준 시각(`completed_at`, 되돌린 작업은 `reverted_at`)이 지난 작업의 ref를 지우고 `[checkpoint] pruned N refs in <dir>`를 로그로 남깁니다. 스냅샷 객체는 git 기본 gc(도달 불가 객체 2주 후 삭제)에 맡깁니다. 작업 삭제 시에는 행을 지우기 전에 ref를 지우고, 실패하면 로그만 남기고 다음 정리에서 다시 시도합니다.
+- **알려진 한계**: 스냅샷이 작업 트리 전체이므로 작업 중 다른 프로세스가 만든 변경도 함께 포함됩니다. 데몬이 작업 중 비정상 종료하면 종료 스냅샷이 없고, 복구된 작업에는 조용한 부분 diff 대신 `checkpoint_error`가 기록됩니다. 내보내기·가져오기는 체크포인트 메타데이터만 옮기고 ref는 옮기지 않으므로 다른 곳에서 복원하면 diff 이력이 없습니다.
+- **작업 삭제**: `queue.DeleteTask`가 행을 지우기 전에 체크포인트 ref를 지웁니다. 실패는 로그만 남기고 삭제를 막지 않습니다.
 
 ## 엔티티 관계
 

@@ -96,18 +96,26 @@ func (s *Server) handleExportTasks(c *fiber.Ctx) error {
 			continue
 		}
 		rec := map[string]any{
-			"_type":          "task",
-			"original_id":    t.ID,
-			"prompt":         t.Prompt,
-			"summary":        t.Summary,
-			"status":         string(t.Status),
-			"error":          t.Error,
-			"files_modified": t.FilesModified,
-			"output":         t.Output,
-			"cost_usd":       t.CostUsd,
-			"created_at":     t.CreatedAt.UTC().Format(time.RFC3339Nano),
-			"sheep_name":     sheepName,
-			"project_name":   projName,
+			"_type":            "task",
+			"original_id":      t.ID,
+			"prompt":           t.Prompt,
+			"summary":          t.Summary,
+			"status":           string(t.Status),
+			"error":            t.Error,
+			"files_modified":   t.FilesModified,
+			"output":           t.Output,
+			"cost_usd":         t.CostUsd,
+			"created_at":       t.CreatedAt.UTC().Format(time.RFC3339Nano),
+			"sheep_name":       sheepName,
+			"project_name":     projName,
+			"checkpoint_dir":   t.CheckpointDir,
+			"checkpoint_start": t.CheckpointStart,
+			"checkpoint_end":   t.CheckpointEnd,
+			"checkpoint_error": t.CheckpointError,
+			"revert_pre":       t.RevertPre,
+		}
+		if !t.RevertedAt.IsZero() {
+			rec["reverted_at"] = t.RevertedAt.UTC().Format(time.RFC3339Nano)
 		}
 		if !t.StartedAt.IsZero() {
 			rec["started_at"] = t.StartedAt.UTC().Format(time.RFC3339Nano)
@@ -148,6 +156,17 @@ type taskRecord struct {
 	CompletedAt   string   `json:"completed_at"`
 	SheepName     string   `json:"sheep_name"`
 	ProjectName   string   `json:"project_name"`
+
+	// Checkpoint metadata. The snapshot refs themselves (refs/shepherd/...)
+	// are not part of the dump: importing on the same machine can still show
+	// diffs while the objects survive git's gc, but a restore elsewhere starts
+	// without checkpoint refs.
+	CheckpointDir   string `json:"checkpoint_dir"`
+	CheckpointStart string `json:"checkpoint_start"`
+	CheckpointEnd   string `json:"checkpoint_end"`
+	CheckpointError string `json:"checkpoint_error"`
+	RevertedAt      string `json:"reverted_at"`
+	RevertPre       string `json:"revert_pre"`
 }
 
 func parseImportFile(c *fiber.Ctx) ([]taskRecord, map[string]any, error) {
@@ -329,6 +348,27 @@ func (s *Server) handleImportTasks(c *fiber.Ctx) error {
 			SetCostUsd(r.CostUSD).
 			SetCreatedAt(createdAt).
 			SetProjectID(projID)
+
+		if r.CheckpointDir != "" {
+			creator = creator.SetCheckpointDir(r.CheckpointDir)
+		}
+		if r.CheckpointStart != "" {
+			creator = creator.SetCheckpointStart(r.CheckpointStart)
+		}
+		if r.CheckpointEnd != "" {
+			creator = creator.SetCheckpointEnd(r.CheckpointEnd)
+		}
+		if r.CheckpointError != "" {
+			creator = creator.SetCheckpointError(r.CheckpointError)
+		}
+		if r.RevertPre != "" {
+			creator = creator.SetRevertPre(r.RevertPre)
+		}
+		if r.RevertedAt != "" {
+			if t, err := parseFlexibleTime(r.RevertedAt); err == nil {
+				creator = creator.SetRevertedAt(t)
+			}
+		}
 
 		if r.FilesModified != nil {
 			creator = creator.SetFilesModified(r.FilesModified)

@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/internal/checkpoint"
 	"github.com/agurrrrr/shepherd/internal/daemon"
 	"github.com/agurrrrr/shepherd/internal/db"
 )
@@ -764,6 +766,14 @@ func DeleteTask(id int) error {
 
 	if t.Edges.Issue != nil {
 		updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+	}
+
+	// Remove the task's checkpoint refs before the row disappears. A failure
+	// here must not block deletion; the retention pruner will retry later.
+	if t.CheckpointDir != "" {
+		if err := checkpoint.DeleteTaskRefs(ctx, t.CheckpointDir, id); err != nil {
+			log.Printf("[queue] task #%d delete checkpoint refs: %v", id, err)
+		}
 	}
 
 	if _, err := client.Task.Delete().

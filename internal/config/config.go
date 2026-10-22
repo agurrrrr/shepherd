@@ -156,6 +156,8 @@ func Init() error {
 
 	// 작업 체크포인트 — 작업 시작/종료 시 작업 트리를 숨은 git ref로 스냅샷
 	viper.SetDefault("task_checkpoint_enabled", true)
+	// 체크포인트 ref 보존 기간(일). 0이면 자동 정리를 하지 않는다.
+	viper.SetDefault("task_checkpoint_retention_days", 30)
 
 	// 위키 자동 ingest — 작업 완료 후 위키 페이지 자동 업데이트
 	viper.SetDefault("wiki_enabled", true)

@@ -155,6 +155,7 @@
 			wiki_enabled: configData.wiki_enabled,
 			wiki_auto_ingest: configData.wiki_auto_ingest,
 			task_checkpoint_enabled: configData.task_checkpoint_enabled,
+			task_checkpoint_retention_days: Number.isNaN(parseInt(configData.task_checkpoint_retention_days)) ? 30 : parseInt(configData.task_checkpoint_retention_days),
 			wiki_max_context_pages: parseInt(configData.wiki_max_context_pages) || 2,
 			wiki_max_page_content_chars: parseInt(configData.wiki_max_page_content_chars) || 2000,
 			discord_notifications_enabled: configData.discord_notifications_enabled,
