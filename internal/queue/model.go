@@ -31,6 +31,17 @@ func GetTaskModel(taskID int) string {
 	return t.Model
 }
 
+// GetTaskShepherdKind returns the persisted shepherd_kind of a task (#594).
+// Empty string means the task is not a shepherd (목자) task.
+func GetTaskShepherdKind(taskID int) string {
+	ctx := context.Background()
+	t, err := db.Client().Task.Query().Where(task.ID(taskID)).Only(ctx)
+	if err != nil {
+		return ""
+	}
+	return t.ShepherdKind
+}
+
 // ResolveFollowUpModel picks the model a context-handoff continuation should
 // persist. Prefer the parent task's explicit override (endpoint ID / unique
 // label / unique model for embedded). If the parent ran on the provider

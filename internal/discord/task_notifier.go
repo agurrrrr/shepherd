@@ -50,6 +50,11 @@ func (n *TaskNotifier) SendTaskComplete(taskID int, sheepName, projectName, summ
 		return r
 	}
 
+	// Shepherd tasks have no project (#594); Discord rejects empty embed values.
+	if projectName == "" {
+		projectName = "-"
+	}
+
 	fields := []EmbedField{
 		{Name: "Task", Value: fmt.Sprintf("#%d", taskID), Inline: true},
 		{Name: "Sheep", Value: sheepName, Inline: true},
@@ -148,6 +153,11 @@ func (n *TaskNotifier) SendTaskFail(taskID int, sheepName, projectName, errMsg s
 			return r[:max] + "..."
 		}
 		return r
+	}
+
+	// Shepherd tasks have no project (#594); Discord rejects empty embed values.
+	if projectName == "" {
+		projectName = "-"
 	}
 
 	fields := []EmbedField{

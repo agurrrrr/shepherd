@@ -545,6 +545,10 @@ func (s *Server) handleRetryTask(c *fiber.Ctx) error {
 	var newTask *ent.Task
 	if projectID > 0 {
 		newTask, err = queue.CreateTask(t.Prompt, t.Edges.Sheep.ID, projectID)
+	} else if t.ShepherdKind != "" {
+		// Shepherd task retry (#594): keep the kind and the priority so the
+		// retry is dispatched by dispatchShepherd with the same semantics.
+		newTask, err = queue.CreateManagerTaskWithKind(t.Prompt, t.Edges.Sheep.ID, t.Priority, t.ShepherdKind)
 	} else {
 		newTask, err = queue.CreateManagerTask(t.Prompt, t.Edges.Sheep.ID)
 	}

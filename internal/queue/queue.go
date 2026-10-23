@@ -40,14 +40,30 @@ func CreateTask(prompt string, sheepID, projectID int) (*ent.Task, error) {
 // CreateManagerTask creates a task for the manager (shepherd commands).
 // Manager tasks don't have a project association.
 func CreateManagerTask(prompt string, sheepID int) (*ent.Task, error) {
+	return CreateManagerTaskWithKind(prompt, sheepID, 0, "")
+}
+
+// CreateManagerTaskWithKind is CreateManagerTask with the two fields shepherd
+// (목자) tasks need (#594):
+//   - priority: user commands run at priority 1 so a queued command overtakes
+//     the automatic review/patrol tasks (priority 0).
+//   - kind: marks the task as a shepherd task — "command" (user instruction),
+//     "review" (delegated-task review), or "patrol". Empty means a normal
+//     manager task without the shepherd semantics.
+func CreateManagerTaskWithKind(prompt string, sheepID, priority int, kind string) (*ent.Task, error) {
 	ctx := context.Background()
 	client := db.Client()
 
-	t, err := client.Task.Create().
+	create := client.Task.Create().
 		SetPrompt(prompt).
 		SetStatus(task.StatusPending).
 		SetSheepID(sheepID).
-		Save(ctx)
+		SetPriority(priority)
+	if kind != "" {
+		create = create.SetShepherdKind(kind)
+	}
+
+	t, err := create.Save(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task: %w", err)
 	}
@@ -197,6 +213,51 @@ func ListTasksByProject(projectName string) ([]*ent.Task, error) {
 	return tasks, nil
 }
 
+// ListShepherdTasks returns shepherd (목자) tasks — tasks whose shepherd_kind
+// is non-empty (#594) — newest first, optionally filtered by kind
+// ("command"/"review"/"patrol") and status. Only the columns the shepherd
+// console renders are selected: the task row carries the full output log, and
+// loading it for every row made list queries read hundreds of megabytes
+// (same reasoning as ListTasksByProject).
+func ListShepherdTasks(kind, status string, limit int) ([]*ent.Task, error) {
+	ctx := context.Background()
+	client := db.ReadClient()
+
+	query := client.Task.Query().
+		Where(task.ShepherdKindNEQ("")).
+		Select(
+			task.FieldID,
+			task.FieldStatus,
+			task.FieldPrompt,
+			task.FieldSummary,
+			task.FieldError,
+			task.FieldShepherdKind,
+			task.FieldModel,
+			task.FieldCostUsd,
+			task.FieldCreatedAt,
+			task.FieldStartedAt,
+			task.FieldCompletedAt,
+		).
+		Order(ent.Desc(task.FieldCreatedAt))
+
+	if kind != "" {
+		query = query.Where(task.ShepherdKindEQ(kind))
+	}
+	if status != "" {
+		query = query.Where(task.StatusEQ(task.Status(status)))
+	}
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	tasks, err := query.All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list shepherd tasks: %w", err)
+	}
+
+	return tasks, nil
+}
+
 // GetPendingTask returns the next pending task to run. Higher priority first,
 // then oldest-created (FIFO) within the same priority. Context-overflow handoff
 // follow-ups are created with priority 1 so they run ahead of ordinary pending
@@ -243,6 +304,37 @@ func GetPendingTaskBySheep(sheepID int) (*ent.Task, error) {
 			return nil, nil // No pending tasks
 		}
 		return nil, fmt.Errorf("failed to query task: %w", err)
+	}
+
+	return t, nil
+}
+
+// GetPendingShepherdTaskBySheep returns the next pending shepherd (목자) task
+// for the given sheep — only tasks with a non-empty shepherd_kind (#594).
+// Legacy project-less manager tasks (kind empty, e.g. an old MCP-created
+// manager task) are deliberately NOT dispatched: they could never run before
+// this issue either (no project → ExecuteInteractive failed), and letting the
+// dispatcher hand them the workspace would silently change their fate.
+// Higher priority first, then FIFO within the same priority.
+func GetPendingShepherdTaskBySheep(sheepID int) (*ent.Task, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	t, err := client.Task.Query().
+		Where(
+			task.StatusEQ(task.StatusPending),
+			task.HasSheepWith(sheep.ID(sheepID)),
+			task.ShepherdKindNEQ(""),
+		).
+		WithSheep().
+		WithProject().
+		Order(ent.Desc(task.FieldPriority), ent.Asc(task.FieldCreatedAt)).
+		First(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return nil, nil // No pending shepherd tasks
+		}
+		return nil, fmt.Errorf("failed to query shepherd task: %w", err)
 	}
 
 	return t, nil

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -9,6 +11,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/names"
 	"github.com/agurrrrr/shepherd/internal/project"
+	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
 
@@ -226,4 +229,118 @@ func modelOptionHas(opts []modelOption, id string) bool {
 		}
 	}
 	return false
+}
+
+// --- Shepherd task API (#594) ---
+//
+// POST /api/shepherd/tasks {prompt} — enqueue a `command` shepherd task
+// GET  /api/shepherd/tasks?kind=&status=&limit= — recent shepherd tasks
+//
+// POST refuses when workspace_path is unset or invalid: a shepherd task with
+// no usable working directory would sit pending forever, so the operator should
+// hear about the missing workspace now instead of later.
+
+// shepherdWorkspaceForTasks returns the validated workspace or a UI/API error.
+func shepherdWorkspaceForTasks() (string, error) {
+	normalized, err := config.ValidateWorkspacePath(config.GetString("workspace_path"))
+	if err != nil {
+		return "", err
+	}
+	if normalized == "" {
+		return "", fmt.Errorf("workspace_path is not set: choose the shepherd workspace in Settings → Shepherd first")
+	}
+	return normalized, nil
+}
+
+// POST /api/shepherd/tasks
+func (s *Server) handleCreateShepherdTask(c *fiber.Ctx) error {
+	var body struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	if strings.TrimSpace(body.Prompt) == "" {
+		return fail(c, fiber.StatusBadRequest, "prompt is required")
+	}
+
+	if _, err := shepherdWorkspaceForTasks(); err != nil {
+		return fail(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// User instructions run at priority 1 so a queued command is picked up
+	// ahead of the automatic review/patrol tasks (priority 0).
+	t, err := manager.EnqueueShepherdTask(manager.KindCommand, body.Prompt, 1)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	if s.processor != nil {
+		s.processor.ProcessPendingNow()
+	}
+
+	return success(c, map[string]interface{}{
+		"task_id":       t.ID,
+		"shepherd_kind": t.ShepherdKind,
+		"status":        string(t.Status),
+		"priority":      t.Priority,
+	})
+}
+
+// GET /api/shepherd/tasks
+func (s *Server) handleListShepherdTasks(c *fiber.Ctx) error {
+	kind := strings.TrimSpace(c.Query("kind"))
+	if kind != "" && !manager.ValidKind(kind) {
+		return fail(c, fiber.StatusBadRequest, "kind must be one of command, review, patrol")
+	}
+
+	status := strings.TrimSpace(c.Query("status"))
+	if status != "" {
+		switch status {
+		case "pending", "running", "completed", "failed", "stopped":
+		default:
+			return fail(c, fiber.StatusBadRequest, "invalid status: "+status)
+		}
+	}
+
+	limit := 50
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return fail(c, fiber.StatusBadRequest, "limit must be a positive integer")
+		}
+		limit = n
+	}
+
+	tasks, err := queue.ListShepherdTasks(kind, status, limit)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	items := make([]map[string]interface{}, 0, len(tasks))
+	for _, t := range tasks {
+		item := map[string]interface{}{
+			"id":            t.ID,
+			"shepherd_kind": t.ShepherdKind,
+			"status":        string(t.Status),
+			"prompt":        t.Prompt,
+			"summary":       t.Summary,
+			"error":         t.Error,
+			"model":         t.Model,
+			"cost_usd":      t.CostUsd,
+			"created_at":    t.CreatedAt.Format("2006-01-02 15:04:05"),
+		}
+		if !t.StartedAt.IsZero() {
+			item["started_at"] = t.StartedAt.Format("2006-01-02 15:04:05")
+		}
+		if !t.CompletedAt.IsZero() {
+			item["completed_at"] = t.CompletedAt.Format("2006-01-02 15:04:05")
+		}
+		items = append(items, item)
+	}
+
+	return success(c, map[string]interface{}{
+		"tasks": items,
+		"count": len(items),
+	})
 }

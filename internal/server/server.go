@@ -130,6 +130,8 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Patch("/config", s.handleUpdateConfig)
 	api.Get("/shepherd/config", s.handleGetShepherdConfig)
 	api.Patch("/shepherd/config", s.handleUpdateShepherdConfig)
+	api.Post("/shepherd/tasks", s.handleCreateShepherdTask)
+	api.Get("/shepherd/tasks", s.handleListShepherdTasks)
 	api.Get("/config/system-prompt-preview", s.handleSystemPromptPreview)
 	api.Get("/config/model-options", s.handleGetModelOptions)
 	api.Post("/config/grok-models/refresh", s.handleRefreshGrokModels)

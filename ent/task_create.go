@@ -91,6 +91,20 @@ func (_c *TaskCreate) SetNillableModel(v *string) *TaskCreate {
 	return _c
 }
 
+// SetShepherdKind sets the "shepherd_kind" field.
+func (_c *TaskCreate) SetShepherdKind(v string) *TaskCreate {
+	_c.mutation.SetShepherdKind(v)
+	return _c
+}
+
+// SetNillableShepherdKind sets the "shepherd_kind" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableShepherdKind(v *string) *TaskCreate {
+	if v != nil {
+		_c.SetShepherdKind(*v)
+	}
+	return _c
+}
+
 // SetOutput sets the "output" field.
 func (_c *TaskCreate) SetOutput(v []string) *TaskCreate {
 	_c.mutation.SetOutput(v)
@@ -503,6 +517,10 @@ func (_c *TaskCreate) createSpec() (*Task, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Model(); ok {
 		_spec.SetField(task.FieldModel, field.TypeString, value)
 		_node.Model = value
+	}
+	if value, ok := _c.mutation.ShepherdKind(); ok {
+		_spec.SetField(task.FieldShepherdKind, field.TypeString, value)
+		_node.ShepherdKind = value
 	}
 	if value, ok := _c.mutation.Output(); ok {
 		_spec.SetField(task.FieldOutput, field.TypeJSON, value)

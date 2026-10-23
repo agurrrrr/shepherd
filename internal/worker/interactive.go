@@ -25,6 +25,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/envutil"
+	"github.com/agurrrrr/shepherd/internal/names"
 	"github.com/agurrrrr/shepherd/internal/skill"
 	"github.com/agurrrrr/shepherd/internal/wiki"
 )
@@ -74,6 +75,17 @@ type InteractiveOptions struct {
 	// The daemon's direct embedded endpoint uses a unique per-request value so a
 	// cwd run cannot clobber a queued task's registry entry (StopTask target).
 	RegistryName string
+	// WorkDir is the working directory for a run whose sheep has no assigned
+	// project (#594). Only the manager (목자) queue path sets it: shepherd
+	// tasks run in the configured workspace_path because the manager has no
+	// project row by design. Ignored for sheep that have a project — the
+	// project path always wins — so ordinary sheep runs are unaffected.
+	WorkDir string
+	// FreshSession forces a new provider session even when session_reuse is
+	// enabled (#594). Shepherd review/patrol tasks set it: their prompts carry
+	// all needed context, and resuming would grow the context with every
+	// review round.
+	FreshSession bool
 }
 
 // RunningTask contains information about a running task
@@ -468,6 +480,42 @@ func DefaultInteractiveOptions(onOutput OutputHandler, onInput InputHandler) Int
 	}
 }
 
+// selectWorkDir decides which directory ExecuteInteractive runs in (#594).
+//
+//   - Sheep with an assigned project: always the project path. opts.WorkDir is
+//     ignored, so ordinary sheep runs keep their current behavior exactly.
+//   - Manager sheep (목자) without a project and with opts.WorkDir set: the
+//     workspace directory the queue dispatcher passed. Shepherd tasks have no
+//     project row by design (see the #592 design note: no fake project).
+//   - Everything else (including the wiki auto-ingest callback in
+//     cmd/shepherd/main.go and the YouTrack import, which call
+//     ExecuteInteractive(names.ManagerName, ...) WITHOUT opts.WorkDir): keep
+//     failing with "no project assigned". That state is pinned by tests. Those
+//     two paths have been broken since ~2026-08 (the manager has no project),
+//     and fixing them later must NOT route them through WorkDir blindly: a
+//     direct manager run would then register itself in the running-task
+//     registry under "shepherd" and clobber the live shepherd queue task's
+//     entry (StopTask target, double-dispatch defence). When that fix lands,
+//     separate the registry key via opts.RegistryName first.
+func selectWorkDir(sheepName string, hasProject bool, projectPath string, opts InteractiveOptions) (string, error) {
+	if hasProject {
+		return projectPath, nil
+	}
+	if names.IsManager(sheepName) && opts.WorkDir != "" {
+		return opts.WorkDir, nil
+	}
+	return "", fmt.Errorf("no project assigned to '%s'", sheepName)
+}
+
+// projectPathOrEmpty returns the loaded project edge's path, or "" when the
+// sheep has no project. Safe after a WithProject() eager load.
+func projectPathOrEmpty(s *ent.Sheep) string {
+	if s.Edges.Project == nil {
+		return ""
+	}
+	return s.Edges.Project.Path
+}
+
 // ExecuteInteractive runs AI agent (Claude Code or Local LLM) in interactive mode.
 // It streams output to the user and handles input when Claude asks questions.
 func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*ExecuteResult, error) {
@@ -483,10 +531,12 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		return nil, fmt.Errorf("failed to query sheep: %w", err)
 	}
 
-	// Check project assignment
-	proj, err := s.Edges.ProjectOrErr()
+	// Work directory. Ordinary sheep run in their assigned project's path.
+	// The manager (목자) has no project row by design, so shepherd queue
+	// tasks pass the configured workspace_path through opts.WorkDir (#594).
+	workDir, err := selectWorkDir(sheepName, s.Edges.Project != nil, projectPathOrEmpty(s), opts)
 	if err != nil {
-		return nil, fmt.Errorf("no project assigned to '%s'", sheepName)
+		return nil, err
 	}
 
 	// Change status to working
@@ -524,9 +574,10 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		opts.OnOutput(fmt.Sprintf("%s %s\n", emoji, s.Name))
 	}
 
-	// Check session reuse config
+	// Check session reuse config. FreshSession (#594) forces a new session for
+	// shepherd review/patrol tasks even when session_reuse is enabled.
 	sessionID := s.SessionID
-	if !config.GetBool("session_reuse") {
+	if !config.GetBool("session_reuse") || opts.FreshSession {
 		sessionID = ""
 	}
 
@@ -534,18 +585,18 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 	case sheep.ProviderOpencode:
 		// OpenCode: always start fresh session (local LLMs have small context windows,
 		// reusing sessions causes token count to grow unboundedly)
-		result, execErr = executeWithOpenCode(ctx, sheepName, proj.Path, "", prompt, opts, cancel)
+		result, execErr = executeWithOpenCode(ctx, sheepName, workDir, "", prompt, opts, cancel)
 	case sheep.ProviderPi:
 		// Pi is a Claude-class harness with a large context, so honor session reuse
 		// like Claude (subject to the session_reuse config above).
-		result, execErr = executeWithPi(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
+		result, execErr = executeWithPi(ctx, sheepName, workDir, sessionID, prompt, opts, cancel)
 	case sheep.ProviderGrok:
 		// Grok (grok-4.5) is a Claude-class agent with a large context, so honor
 		// session reuse like Claude/Pi (subject to the session_reuse config above).
-		result, execErr = executeWithGrok(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
+		result, execErr = executeWithGrok(ctx, sheepName, workDir, sessionID, prompt, opts, cancel)
 	case sheep.ProviderEmbedded:
 		// Embedded: in-process agent loop, no subprocess
-		result, execErr = executeWithEmbedded(ctx, sheepName, proj.Path, prompt, opts, cancel)
+		result, execErr = executeWithEmbedded(ctx, sheepName, workDir, prompt, opts, cancel)
 		// The embedded loop reports API errors / stalls via result.Incomplete with
 		// err==nil. Without this, an aborted run (e.g. the model endpoint returns a
 		// 400) is silently recorded as a completed task with an empty result. Surface
@@ -555,16 +606,16 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		}
 	case sheep.ProviderMagi:
 		// Magi: multi-model consensus deliberation, no subprocess
-		result, execErr = executeWithMagi(ctx, sheepName, proj.Path, prompt, opts, cancel)
+		result, execErr = executeWithMagi(ctx, sheepName, workDir, prompt, opts, cancel)
 		// Same incomplete-surfacing rule as embedded (see #5468 note above).
 		if execErr == nil && result != nil && result.Incomplete {
 			execErr = fmt.Errorf("incomplete: %s", result.IncompleteReason)
 		}
 	case sheep.ProviderAuto:
 		// auto mode: use Claude by default
-		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
+		result, execErr = executeWithClaude(ctx, sheepName, workDir, sessionID, prompt, opts, cancel)
 	default: // claude
-		result, execErr = executeWithClaude(ctx, sheepName, proj.Path, sessionID, prompt, opts, cancel)
+		result, execErr = executeWithClaude(ctx, sheepName, workDir, sessionID, prompt, opts, cancel)
 	}
 
 	// Restore status — use ID, since the sheep may have been renamed during execution.
@@ -1154,10 +1205,18 @@ func buildPromptWithGuide(prompt string) string {
 	return buildPromptWithContext("", prompt)
 }
 
-// claudeModelArgs returns ["--model", "<name>"] when a Claude model override is
-// configured globally, else nil so the Claude CLI picks its own default.
-func claudeModelArgs() []string {
-	if m := strings.TrimSpace(config.GetString("model_claude")); m != "" {
+// claudeModelArgs returns ["--model", "<name>"] for the Claude invocation. An
+// explicit per-task override (#594, opts.Model — e.g. the shepherd_model set on
+// a shepherd task) takes highest priority; otherwise the global model_claude
+// config applies; when neither is set, returns nil so the Claude CLI picks its
+// own default. Before #594 this ignored per-task models entirely, so shepherd
+// tasks could not pin a claude model.
+func claudeModelArgs(override string) []string {
+	m := strings.TrimSpace(override)
+	if m == "" {
+		m = strings.TrimSpace(config.GetString("model_claude"))
+	}
+	if m != "" {
 		return []string{"--model", m}
 	}
 	return nil
@@ -1844,7 +1903,7 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		"--dangerously-skip-permissions",
 		"--mcp-config", GetMCPConfigJSON(),
 	}
-	args = append(args, claudeModelArgs()...)
+	args = append(args, claudeModelArgs(opts.Model)...)
 
 	// Separate system context from user prompt to prevent
 	// system instructions from overwhelming the user's actual request.

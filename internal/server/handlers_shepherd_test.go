@@ -13,8 +13,10 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/agurrrrr/shepherd/ent/sheep"
+	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/names"
+	"github.com/agurrrrr/shepherd/internal/worker"
 )
 
 // withShepherdTestEnv gives the handlers an in-memory DB and keeps every config
@@ -56,6 +58,10 @@ func newShepherdApp(t *testing.T) (*fiber.App, *Server) {
 	app := fiber.New()
 	app.Get("/api/shepherd/config", s.handleGetShepherdConfig)
 	app.Patch("/api/shepherd/config", s.handleUpdateShepherdConfig)
+	// Task API (#594). s.processor stays nil in tests, so POST enqueues only —
+	// no dispatch side effects.
+	app.Post("/api/shepherd/tasks", s.handleCreateShepherdTask)
+	app.Get("/api/shepherd/tasks", s.handleListShepherdTasks)
 	return app, s
 }
 
@@ -368,5 +374,187 @@ func TestHandleUpdateConfigValidatesWorkspacePath(t *testing.T) {
 	}
 	if viper.GetString("workspace_path") != tmp {
 		t.Errorf("workspace_path = %q, want %q", viper.GetString("workspace_path"), tmp)
+	}
+}
+
+// --- Shepherd task API tests (#594) ---
+
+func postShepherdTask(t *testing.T, app *fiber.App, body map[string]interface{}) (int, map[string]any) {
+	t.Helper()
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/shepherd/tasks", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test: %v", err)
+	}
+	defer resp.Body.Close()
+	payload, _ := io.ReadAll(resp.Body)
+	var out map[string]any
+	if err := json.Unmarshal(payload, &out); err != nil {
+		t.Fatalf("decode %s: %v", payload, err)
+	}
+	return resp.StatusCode, out
+}
+
+func getShepherdTasks(t *testing.T, app *fiber.App, query string) (int, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/shepherd/tasks"+query, nil)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test: %v", err)
+	}
+	defer resp.Body.Close()
+	payload, _ := io.ReadAll(resp.Body)
+	var out map[string]any
+	if err := json.Unmarshal(payload, &out); err != nil {
+		t.Fatalf("decode %s: %v", payload, err)
+	}
+	return resp.StatusCode, out
+}
+
+// POST refuses when the workspace is unset or missing: a shepherd task with no
+// usable working directory would sit pending forever, so the operator must
+// hear about it at enqueue time. Empty prompt is rejected too.
+func TestHandleCreateShepherdTaskRejectsUnsetWorkspace(t *testing.T) {
+	withShepherdTestEnv(t)
+	app := shepherdApp(t)
+
+	// Unset workspace (the withShepherdTestEnv default).
+	code, payload := postShepherdTask(t, app, map[string]interface{}{"prompt": "list the projects"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("unset workspace: status = %d payload=%v", code, payload)
+	}
+
+	// Set but non-existent directory.
+	viper.Set("workspace_path", "/nonexistent/shepherd-workspace-xyz")
+	code, payload = postShepherdTask(t, app, map[string]interface{}{"prompt": "list the projects"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("invalid workspace: status = %d payload=%v", code, payload)
+	}
+
+	// Workspace is fine now, but the prompt must not be blank.
+	viper.Set("workspace_path", t.TempDir())
+	code, _ = postShepherdTask(t, app, map[string]interface{}{"prompt": "   "})
+	if code != http.StatusBadRequest {
+		t.Fatalf("blank prompt: status = %d, want 400", code)
+	}
+
+	// Nothing was enqueued by the rejected requests.
+	code, payload = getShepherdTasks(t, app, "")
+	if code != http.StatusOK {
+		t.Fatalf("list: status = %d payload=%v", code, payload)
+	}
+	data := payload["data"].(map[string]any)
+	if data["count"] != float64(0) {
+		t.Errorf("count = %v, want 0 after rejected POSTs", data["count"])
+	}
+}
+
+// A valid POST creates a kind=command, priority=1 pending task. shepherd_model
+// is persisted as the per-task model override so the run pins that model.
+func TestHandleCreateShepherdTaskCreatesCommandWithModel(t *testing.T) {
+	withShepherdTestEnv(t)
+	viper.Set("workspace_path", t.TempDir())
+	viper.Set("shepherd_model", "opus-pin")
+	app := shepherdApp(t)
+
+	code, payload := postShepherdTask(t, app, map[string]interface{}{"prompt": "summarize the queue"})
+	if code != http.StatusOK {
+		t.Fatalf("status = %d payload=%v", code, payload)
+	}
+	data := payload["data"].(map[string]any)
+	if data["shepherd_kind"] != "command" {
+		t.Errorf("shepherd_kind = %v, want command", data["shepherd_kind"])
+	}
+	if data["priority"] != float64(1) {
+		t.Errorf("priority = %v, want 1", data["priority"])
+	}
+	if data["status"] != "pending" {
+		t.Errorf("status = %v, want pending", data["status"])
+	}
+	taskID := int(data["task_id"].(float64))
+
+	row := db.Client().Task.GetX(context.Background(), taskID)
+	if row.Model != "opus-pin" {
+		t.Errorf("persisted model = %q, want opus-pin (shepherd_model override)", row.Model)
+	}
+	if !taskHasNoProject(t, taskID) {
+		t.Errorf("task #%d must have no project edge", taskID)
+	}
+}
+
+func taskHasNoProject(t *testing.T, taskID int) bool {
+	t.Helper()
+	row, err := db.Client().Task.Query().WithProject().Where(task.ID(taskID)).Only(context.Background())
+	if err != nil {
+		t.Fatalf("query task: %v", err)
+	}
+	return row.Edges.Project == nil
+}
+
+// GET filters by kind and status, excludes tasks without shepherd_kind, and
+// validates the query parameters.
+func TestHandleListShepherdTasksFilters(t *testing.T) {
+	withShepherdTestEnv(t)
+	app := shepherdApp(t)
+	ctx := context.Background()
+
+	mgr, err := worker.GetOrCreateManager()
+	if err != nil {
+		t.Fatalf("GetOrCreateManager: %v", err)
+	}
+
+	command := db.Client().Task.Create().
+		SetPrompt("command task").SetStatus(task.StatusPending).
+		SetSheepID(mgr.ID).SetShepherdKind("command").SetPriority(1).SaveX(ctx)
+	review := db.Client().Task.Create().
+		SetPrompt("review task").SetStatus(task.StatusCompleted).
+		SetSheepID(mgr.ID).SetShepherdKind("review").SaveX(ctx)
+	db.Client().Task.Create().
+		SetPrompt("ordinary manager task").SetStatus(task.StatusPending).
+		SetSheepID(mgr.ID).SaveX(ctx)
+
+	fetchedIDs := func(payload map[string]any) []int {
+		data := payload["data"].(map[string]any)
+		items := data["tasks"].([]any)
+		if data["count"] != float64(len(items)) {
+			t.Errorf("count=%v but %d items", data["count"], len(items))
+		}
+		ids := make([]int, 0, len(items))
+		for _, it := range items {
+			ids = append(ids, int(it.(map[string]any)["id"].(float64)))
+		}
+		return ids
+	}
+
+	code, payload := getShepherdTasks(t, app, "")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d payload=%v", code, payload)
+	}
+	if ids := fetchedIDs(payload); len(ids) != 2 {
+		t.Errorf("all: ids=%v, want the 2 shepherd tasks only (kind-less row excluded)", ids)
+	}
+
+	code, payload = getShepherdTasks(t, app, "?kind=command")
+	if code != http.StatusOK {
+		t.Fatalf("kind filter: status = %d", code)
+	}
+	if ids := fetchedIDs(payload); len(ids) != 1 || ids[0] != command.ID {
+		t.Errorf("kind=command: ids=%v, want [%d]", ids, command.ID)
+	}
+
+	code, payload = getShepherdTasks(t, app, "?status=completed")
+	if code != http.StatusOK {
+		t.Fatalf("status filter: status = %d", code)
+	}
+	if ids := fetchedIDs(payload); len(ids) != 1 || ids[0] != review.ID {
+		t.Errorf("status=completed: ids=%v, want [%d]", ids, review.ID)
+	}
+
+	for _, bad := range []string{"?kind=bogus", "?status=bogus", "?limit=0", "?limit=abc"} {
+		if code, _ = getShepherdTasks(t, app, bad); code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", bad, code)
+		}
 	}
 }

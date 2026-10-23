@@ -166,7 +166,9 @@ func executeClaudeCodeWithTimeout(projectPath, sessionID, prompt string, timeout
 		"--print",
 		"--output-format", "json",
 	}
-	args = append(args, claudeModelArgs()...)
+	// Legacy Execute path: no per-task model exists here, so pass "" and keep
+	// reading only the global model_claude config (#594 changed the signature).
+	args = append(args, claudeModelArgs("")...)
 
 	// Auto-approve mode
 	if config.GetBool("auto_approve") {

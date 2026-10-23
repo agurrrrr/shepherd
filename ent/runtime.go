@@ -204,31 +204,31 @@ func init() {
 	// task.PromptValidator is a validator for the "prompt" field. It is called by the builders before save.
 	task.PromptValidator = taskDescPrompt.Validators[0].(func(string) error)
 	// taskDescCostUsd is the schema descriptor for cost_usd field.
-	taskDescCostUsd := taskFields[7].Descriptor()
+	taskDescCostUsd := taskFields[8].Descriptor()
 	// task.DefaultCostUsd holds the default value on creation for the cost_usd field.
 	task.DefaultCostUsd = taskDescCostUsd.Default.(float64)
 	// taskDescPromptTokens is the schema descriptor for prompt_tokens field.
-	taskDescPromptTokens := taskFields[8].Descriptor()
+	taskDescPromptTokens := taskFields[9].Descriptor()
 	// task.DefaultPromptTokens holds the default value on creation for the prompt_tokens field.
 	task.DefaultPromptTokens = taskDescPromptTokens.Default.(int64)
 	// taskDescCompletionTokens is the schema descriptor for completion_tokens field.
-	taskDescCompletionTokens := taskFields[9].Descriptor()
+	taskDescCompletionTokens := taskFields[10].Descriptor()
 	// task.DefaultCompletionTokens holds the default value on creation for the completion_tokens field.
 	task.DefaultCompletionTokens = taskDescCompletionTokens.Default.(int64)
 	// taskDescOwnerPid is the schema descriptor for owner_pid field.
-	taskDescOwnerPid := taskFields[10].Descriptor()
+	taskDescOwnerPid := taskFields[11].Descriptor()
 	// task.DefaultOwnerPid holds the default value on creation for the owner_pid field.
 	task.DefaultOwnerPid = taskDescOwnerPid.Default.(int)
 	// taskDescPriority is the schema descriptor for priority field.
-	taskDescPriority := taskFields[11].Descriptor()
+	taskDescPriority := taskFields[12].Descriptor()
 	// task.DefaultPriority holds the default value on creation for the priority field.
 	task.DefaultPriority = taskDescPriority.Default.(int)
 	// taskDescHandoffDepth is the schema descriptor for handoff_depth field.
-	taskDescHandoffDepth := taskFields[12].Descriptor()
+	taskDescHandoffDepth := taskFields[13].Descriptor()
 	// task.DefaultHandoffDepth holds the default value on creation for the handoff_depth field.
 	task.DefaultHandoffDepth = taskDescHandoffDepth.Default.(int)
 	// taskDescCreatedAt is the schema descriptor for created_at field.
-	taskDescCreatedAt := taskFields[21].Descriptor()
+	taskDescCreatedAt := taskFields[22].Descriptor()
 	// task.DefaultCreatedAt holds the default value on creation for the created_at field.
 	task.DefaultCreatedAt = taskDescCreatedAt.Default.(func() time.Time)
 	wikipageFields := schema.WikiPage{}.Fields()

@@ -15,6 +15,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/i18n"
+	"github.com/agurrrrr/shepherd/internal/names"
 	"github.com/agurrrrr/shepherd/internal/wiki"
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
@@ -144,6 +145,11 @@ type Processor struct {
 	// dispatchMu serializes checkAndExecutePendingTasks so concurrent
 	// ProcessPendingNow + ticker cannot double-dispatch the same sheep.
 	dispatchMu sync.Mutex
+
+	// shepherdWorkspaceWarned records the last workspace-validation failure
+	// logged by dispatchShepherd, so a misconfigured workspace logs once on
+	// the transition instead of every tick. Guarded by dispatchMu.
+	shepherdWorkspaceWarned string
 
 	// Callbacks: called on task start/complete/fail/stop
 	OnTaskStart    func(taskID int, sheepName, projectName, prompt string)
@@ -425,6 +431,133 @@ func (p *Processor) checkAndExecutePendingTasks() {
 		dispatched++
 		dispatchedByGroup[gKey]++
 	}
+
+	// Shepherd (목자) dispatch (#594). worker.List() excludes the manager sheep
+	// (internal/worker/worker.go), and the loop above also skips project-less
+	// sheep, so the manager needs its own pass. It is NOT folded into the loop:
+	// that would make the manager show up on the dashboard sheep cards.
+	// The same gates apply as for ordinary sheep, and the in-loop dispatch
+	// counts are carried over so both paths share one global ceiling.
+	p.dispatchShepherd(maxConcurrent, groupLimits, groupRunning, totalRunning, dispatched, dispatchedByGroup)
+}
+
+// dispatchShepherd dispatches one pending manager (목자) task to the manager
+// sheep (#594). The manager has no project row by design, so the configured
+// workspace_path is its working directory. When the workspace is unset or not
+// a directory the task stays pending — shepherd work is user-visible intent,
+// so silently failing it would lose the request. The warning is logged only
+// when the state changes so a misconfigured daemon does not spam the log every
+// tick.
+//
+// Fields guarded by dispatchMu: shepherdWorkspaceWarned (checkAndExecutePending
+// Tasks holds the lock for the whole tick, including this call).
+func (p *Processor) dispatchShepherd(maxConcurrent int, groupLimits map[string]int, groupRunning map[string]int, totalRunning int, dispatched int, dispatchedByGroup map[string]int) {
+	// worker.Get (unlike worker.List) includes the manager. No manager row
+	// means no shepherd tasks can exist yet — skip without creating one.
+	mgr, err := worker.Get(names.ManagerName)
+	if err != nil {
+		return
+	}
+
+	// Auto-heal sticky error, same as the ordinary path: a manager stuck in
+	// error with no live in-memory task returns to idle so pending shepherd
+	// work can resume. The circuit breaker below remains the durable pause gate.
+	if shouldAutoHealError(mgr.Status, worker.IsTaskRunning(names.ManagerName)) {
+		if err := worker.UpdateStatus(names.ManagerName, sheep.StatusIdle); err == nil {
+			mgr.Status = sheep.StatusIdle
+			if p.OnStatusChange != nil {
+				p.OnStatusChange(names.ManagerName, "idle")
+			}
+			log.Printf("[processor] auto-healed manager sheep from error → idle")
+		} else {
+			log.Printf("[processor] auto-heal manager sheep failed: %v", err)
+		}
+	}
+
+	if mgr.Status != sheep.StatusIdle {
+		return
+	}
+	// Double-dispatch defence, same as the ordinary path.
+	if worker.IsTaskRunning(names.ManagerName) {
+		return
+	}
+	if mgr.ConsecutiveFailures >= CircuitBreakerThreshold {
+		return
+	}
+
+	task, err := GetPendingShepherdTaskBySheep(mgr.ID)
+	if err != nil || task == nil {
+		return
+	}
+
+	// Gate 0: provider must be enabled. Fail the task with a clear reason
+	// (same contract as the ordinary path) so it surfaces instead of sitting
+	// pending forever.
+	if !config.IsProviderEnabled(string(mgr.Provider)) {
+		reason := fmt.Sprintf("provider '%s' is disabled in settings", string(mgr.Provider))
+		_ = FailTask(task.ID, reason)
+		if p.OnTaskFail != nil {
+			p.OnTaskFail(task.ID, names.ManagerName, "", reason)
+		}
+		return
+	}
+
+	// Workspace gate: the manager's working directory. Unset or missing →
+	// leave the task pending for the next tick.
+	workspace, wsErr := p.shepherdWorkspace()
+	if wsErr != "" {
+		return
+	}
+
+	// Gate 1: global ceiling (includes tasks dispatched earlier this tick).
+	if maxConcurrent > 0 && totalRunning+dispatched >= maxConcurrent {
+		return
+	}
+
+	// Gate 2: per-group limit.
+	gKey := groupKey(string(mgr.Provider), task.Model)
+	if limit := groupConcurrencyLimit(groupLimits, gKey, string(mgr.Provider)); limit > 0 {
+		if groupRunning[gKey]+dispatchedByGroup[gKey] >= limit {
+			return
+		}
+	}
+
+	if !worker.ClaimDispatch(names.ManagerName, task.ID) {
+		return
+	}
+	if err := worker.UpdateStatus(names.ManagerName, sheep.StatusWorking); err != nil {
+		worker.ReleaseDispatch(names.ManagerName, task.ID)
+		log.Printf("[processor] failed to claim manager sheep: %v", err)
+		return
+	}
+
+	// projectName is empty for shepherd tasks: there is no project row. The
+	// SSE hub, Discord notifier, and web push all tolerate an empty project
+	// (Discord renders "-", push titles omit it).
+	go p.executeTask(names.ManagerName, "", workspace, task.ID, task.Prompt)
+	dispatchedByGroup[gKey]++
+}
+
+// shepherdWorkspace returns the validated workspace_path for shepherd tasks.
+// The second return is a non-empty reason string when unusable. The warning
+// log fires only when the unusable reason changes (or becomes usable again),
+// not on every tick.
+func (p *Processor) shepherdWorkspace() (string, string) {
+	normalized, err := config.ValidateWorkspacePath(config.GetString("workspace_path"))
+	if err == nil && normalized != "" {
+		p.shepherdWorkspaceWarned = ""
+		return normalized, ""
+	}
+
+	reason := "workspace_path is not set"
+	if err != nil {
+		reason = err.Error()
+	}
+	if p.shepherdWorkspaceWarned != reason {
+		log.Printf("[processor] shepherd task deferred: %s (task stays pending until the workspace is configured)", reason)
+		p.shepherdWorkspaceWarned = reason
+	}
+	return "", reason
 }
 
 // executeTask executes a single task with rate limit retry and circuit breaker.
@@ -542,10 +675,25 @@ func (p *Processor) executeTask(sheepName, projectName, projectPath string, task
 		}
 	})
 
+	// Shepherd (목자) task handling (#594). shepherd_kind is non-empty only on
+	// manager tasks created by manager.EnqueueShepherdTask.
+	shepherdKind := GetTaskShepherdKind(taskID)
+	isShepherdTask := shepherdKind != ""
+
 	// Start checkpoint: snapshot the working tree before the agent runs. The
 	// snapshot is best effort — a failure is recorded on the task but never
 	// blocks execution.
-	checkpointStarted, checkpointErr := beginCheckpoint(context.Background(), taskID, projectPath, coalescer.Append)
+	//
+	// Shepherd tasks skip the checkpoint entirely (#594): the shepherd never
+	// edits code, and when the workspace is a git repository the snapshot
+	// would capture every project under it.
+	var checkpointStarted bool
+	var checkpointErr error
+	if isShepherdTask {
+		emitCheckpointLine(coalescer.Append, "📸 checkpoint skipped: shepherd task")
+	} else {
+		checkpointStarted, checkpointErr = beginCheckpoint(context.Background(), taskID, projectPath, coalescer.Append)
+	}
 	if checkpointErr != nil {
 		log.Printf("[processor] task #%d checkpoint start: %v", taskID, checkpointErr)
 	}
@@ -576,6 +724,17 @@ func (p *Processor) executeTask(sheepName, projectName, projectPath string, task
 	// model id. Embedded: endpoint ID (or unique label/model). Handoff
 	// follow-ups inherit this so they do not fall back to the provider default.
 	opts.Model = GetTaskModel(taskID)
+
+	if isShepherdTask {
+		// The dispatcher passes the validated workspace_path as projectPath;
+		// the manager has no project row, so ExecuteInteractive takes the
+		// directory from opts.WorkDir instead.
+		opts.WorkDir = projectPath
+		// review/patrol prompts already carry every context they need, so they
+		// always start a fresh session — resuming would grow the context with
+		// every review round. command follows the global session_reuse config.
+		opts.FreshSession = shepherdKind != "command"
+	}
 
 	// Execute with rate limit retry
 	var result *worker.ExecuteResult
@@ -711,8 +870,11 @@ func (p *Processor) executeTask(sheepName, projectName, projectPath string, task
 		return
 	}
 
-	// Auto-ingest: trigger wiki update after successful task completion
-	if config.GetBool("wiki_auto_ingest") {
+	// Auto-ingest: trigger wiki update after successful task completion.
+	// Shepherd tasks skip it (#594): the shepherd changes no code, so there is
+	// nothing to document, and the ingest callback runs on the manager sheep
+	// itself (it would nest a manager run inside a manager run).
+	if config.GetBool("wiki_auto_ingest") && !isShepherdTask {
 		wiki.TriggerIngest(taskID, projectName, prompt, result.Result, result.FilesModified)
 	}
 

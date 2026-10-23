@@ -138,6 +138,26 @@ func (_u *TaskUpdate) ClearModel() *TaskUpdate {
 	return _u
 }
 
+// SetShepherdKind sets the "shepherd_kind" field.
+func (_u *TaskUpdate) SetShepherdKind(v string) *TaskUpdate {
+	_u.mutation.SetShepherdKind(v)
+	return _u
+}
+
+// SetNillableShepherdKind sets the "shepherd_kind" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableShepherdKind(v *string) *TaskUpdate {
+	if v != nil {
+		_u.SetShepherdKind(*v)
+	}
+	return _u
+}
+
+// ClearShepherdKind clears the value of the "shepherd_kind" field.
+func (_u *TaskUpdate) ClearShepherdKind() *TaskUpdate {
+	_u.mutation.ClearShepherdKind()
+	return _u
+}
+
 // SetOutput sets the "output" field.
 func (_u *TaskUpdate) SetOutput(v []string) *TaskUpdate {
 	_u.mutation.SetOutput(v)
@@ -647,6 +667,12 @@ func (_u *TaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.ModelCleared() {
 		_spec.ClearField(task.FieldModel, field.TypeString)
 	}
+	if value, ok := _u.mutation.ShepherdKind(); ok {
+		_spec.SetField(task.FieldShepherdKind, field.TypeString, value)
+	}
+	if _u.mutation.ShepherdKindCleared() {
+		_spec.ClearField(task.FieldShepherdKind, field.TypeString)
+	}
 	if value, ok := _u.mutation.Output(); ok {
 		_spec.SetField(task.FieldOutput, field.TypeJSON, value)
 	}
@@ -970,6 +996,26 @@ func (_u *TaskUpdateOne) SetNillableModel(v *string) *TaskUpdateOne {
 // ClearModel clears the value of the "model" field.
 func (_u *TaskUpdateOne) ClearModel() *TaskUpdateOne {
 	_u.mutation.ClearModel()
+	return _u
+}
+
+// SetShepherdKind sets the "shepherd_kind" field.
+func (_u *TaskUpdateOne) SetShepherdKind(v string) *TaskUpdateOne {
+	_u.mutation.SetShepherdKind(v)
+	return _u
+}
+
+// SetNillableShepherdKind sets the "shepherd_kind" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableShepherdKind(v *string) *TaskUpdateOne {
+	if v != nil {
+		_u.SetShepherdKind(*v)
+	}
+	return _u
+}
+
+// ClearShepherdKind clears the value of the "shepherd_kind" field.
+func (_u *TaskUpdateOne) ClearShepherdKind() *TaskUpdateOne {
+	_u.mutation.ClearShepherdKind()
 	return _u
 }
 
@@ -1511,6 +1557,12 @@ func (_u *TaskUpdateOne) sqlSave(ctx context.Context) (_node *Task, err error) {
 	}
 	if _u.mutation.ModelCleared() {
 		_spec.ClearField(task.FieldModel, field.TypeString)
+	}
+	if value, ok := _u.mutation.ShepherdKind(); ok {
+		_spec.SetField(task.FieldShepherdKind, field.TypeString, value)
+	}
+	if _u.mutation.ShepherdKindCleared() {
+		_spec.ClearField(task.FieldShepherdKind, field.TypeString)
 	}
 	if value, ok := _u.mutation.Output(); ok {
 		_spec.SetField(task.FieldOutput, field.TypeJSON, value)

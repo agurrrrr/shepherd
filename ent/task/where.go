@@ -75,6 +75,11 @@ func Model(v string) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldModel, v))
 }
 
+// ShepherdKind applies equality check predicate on the "shepherd_kind" field. It's identical to ShepherdKindEQ.
+func ShepherdKind(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldShepherdKind, v))
+}
+
 // CostUsd applies equality check predicate on the "cost_usd" field. It's identical to CostUsdEQ.
 func CostUsd(v float64) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldCostUsd, v))
@@ -468,6 +473,81 @@ func ModelEqualFold(v string) predicate.Task {
 // ModelContainsFold applies the ContainsFold predicate on the "model" field.
 func ModelContainsFold(v string) predicate.Task {
 	return predicate.Task(sql.FieldContainsFold(FieldModel, v))
+}
+
+// ShepherdKindEQ applies the EQ predicate on the "shepherd_kind" field.
+func ShepherdKindEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldShepherdKind, v))
+}
+
+// ShepherdKindNEQ applies the NEQ predicate on the "shepherd_kind" field.
+func ShepherdKindNEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldShepherdKind, v))
+}
+
+// ShepherdKindIn applies the In predicate on the "shepherd_kind" field.
+func ShepherdKindIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldShepherdKind, vs...))
+}
+
+// ShepherdKindNotIn applies the NotIn predicate on the "shepherd_kind" field.
+func ShepherdKindNotIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldShepherdKind, vs...))
+}
+
+// ShepherdKindGT applies the GT predicate on the "shepherd_kind" field.
+func ShepherdKindGT(v string) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldShepherdKind, v))
+}
+
+// ShepherdKindGTE applies the GTE predicate on the "shepherd_kind" field.
+func ShepherdKindGTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldShepherdKind, v))
+}
+
+// ShepherdKindLT applies the LT predicate on the "shepherd_kind" field.
+func ShepherdKindLT(v string) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldShepherdKind, v))
+}
+
+// ShepherdKindLTE applies the LTE predicate on the "shepherd_kind" field.
+func ShepherdKindLTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldShepherdKind, v))
+}
+
+// ShepherdKindContains applies the Contains predicate on the "shepherd_kind" field.
+func ShepherdKindContains(v string) predicate.Task {
+	return predicate.Task(sql.FieldContains(FieldShepherdKind, v))
+}
+
+// ShepherdKindHasPrefix applies the HasPrefix predicate on the "shepherd_kind" field.
+func ShepherdKindHasPrefix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasPrefix(FieldShepherdKind, v))
+}
+
+// ShepherdKindHasSuffix applies the HasSuffix predicate on the "shepherd_kind" field.
+func ShepherdKindHasSuffix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasSuffix(FieldShepherdKind, v))
+}
+
+// ShepherdKindIsNil applies the IsNil predicate on the "shepherd_kind" field.
+func ShepherdKindIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldShepherdKind))
+}
+
+// ShepherdKindNotNil applies the NotNil predicate on the "shepherd_kind" field.
+func ShepherdKindNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldShepherdKind))
+}
+
+// ShepherdKindEqualFold applies the EqualFold predicate on the "shepherd_kind" field.
+func ShepherdKindEqualFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldEqualFold(FieldShepherdKind, v))
+}
+
+// ShepherdKindContainsFold applies the ContainsFold predicate on the "shepherd_kind" field.
+func ShepherdKindContainsFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldContainsFold(FieldShepherdKind, v))
 }
 
 // OutputIsNil applies the IsNil predicate on the "output" field.
