@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
 func TestParseLine_LegacyThoughtTextEnd(t *testing.T) {
@@ -106,7 +108,7 @@ func TestReadAndParse_RealDebrisSessionIfPresent(t *testing.T) {
 	var answer strings.Builder
 	var sid, stop string
 	for {
-		line, truncated, err := ReadCappedLine(r, MaxLineBytes)
+		line, truncated, err := procutil.ReadCappedLine(r, MaxLineBytes)
 		if err != nil {
 			break
 		}

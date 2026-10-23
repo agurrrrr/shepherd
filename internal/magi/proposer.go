@@ -1231,11 +1231,15 @@ func callClaudeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPro
 		return "", embedded.ChatUsage{}, fmt.Errorf("claude start: %w", err)
 	}
 
+	// ReadCappedLine instead of a 1MB Scanner: an oversized line is cut,
+	// not fatal, so the pipe keeps draining and Wait can return.
 	var buf bytes.Buffer
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
+	reader := bufio.NewReaderSize(stdout, 64*1024)
+	for {
+		line, _, err := procutil.ReadCappedLine(reader, procutil.DefaultMaxLineBytes)
+		if err != nil {
+			break
+		}
 		buf.WriteString(line + "\n")
 		if onToken != nil {
 			onToken(line + "\n")
@@ -1278,11 +1282,18 @@ func callOpenCodeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userP
 		return "", embedded.ChatUsage{}, fmt.Errorf("opencode start: %w", err)
 	}
 
+	// Oversized events (large tool output) are skipped rather than ending
+	// the read loop; a cut JSON line is unusable anyway.
 	var buf bytes.Buffer
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
+	reader := bufio.NewReaderSize(stdout, 64*1024)
+	for {
+		line, truncated, err := procutil.ReadCappedLine(reader, procutil.DefaultMaxLineBytes)
+		if err != nil {
+			break
+		}
+		if truncated {
+			continue
+		}
 		buf.WriteString(line + "\n")
 
 		// Parse OpenCode JSON events to extract text content for streaming.
@@ -1355,7 +1366,7 @@ func callGrokCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPromp
 	}
 
 	for {
-		line, _, err := grokstream.ReadCappedLine(reader, grokstream.MaxLineBytes)
+		line, _, err := procutil.ReadCappedLine(reader, grokstream.MaxLineBytes)
 		if err != nil {
 			break
 		}

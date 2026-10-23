@@ -686,17 +686,7 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 	// Read stdout
 	go func() {
 		defer wg.Done()
-		scanner := bufio.NewScanner(stdout)
-		buf := make([]byte, 0, 64*1024)
-		scanner.Buffer(buf, 1024*1024)
-
-		for scanner.Scan() {
-			if ctx.Err() != nil {
-				return
-			}
-
-			line := scanner.Text()
-
+		forEachStreamLine(ctx, stdout, func(line string) {
 			mu.Lock()
 			outputBuilder.WriteString(line + "\n")
 			mu.Unlock()
@@ -711,7 +701,7 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 			if opts.OnOutput != nil && parsed != "" {
 				opts.OnOutput(parsed + "\n")
 			}
-		}
+		})
 	}()
 
 	// Read stderr
@@ -1951,53 +1941,41 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 	// provider, which stops polling InjectCh once the run completes).
 	resultReceived := make(chan struct{}, 1)
 
-	// Read stdout
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		// Increase buffer size (handle long JSON lines)
-		buf := make([]byte, 0, 64*1024)
-		scanner.Buffer(buf, 1024*1024)
+	// Read stdout. forEachStreamLine survives 1MB+ image tool results that
+	// used to stop a bufio.Scanner before the result event arrived.
+	go forEachStreamLine(ctx, stdout, func(line string) {
+		mu.Lock()
+		outputBuilder.WriteString(line + "\n")
+		mu.Unlock()
 
-		for scanner.Scan() {
-			if ctx.Err() != nil {
-				return
-			}
-
-			line := scanner.Text()
-
-			mu.Lock()
-			outputBuilder.WriteString(line + "\n")
-			mu.Unlock()
-
-			// Detect the result event for the current turn so the main loop
-			// can close stdin and let claude exit.
-			if isStreamResultEvent(line) {
-				select {
-				case resultReceived <- struct{}{}:
-				default:
-				}
-			}
-
-			// Detect AskUserQuestion — signal to stop the task
-			if q := extractAskUserQuestion(line); q != "" {
-				select {
-				case questionCh <- q:
-				default:
-				}
-			}
-
-			// Try to parse stream-json
-			parsed := parseStreamLine(line)
-			if opts.OnOutput != nil {
-				if parsed != "" {
-					opts.OnOutput(parsed)
-				} else if opts.ShowRawOutput && strings.TrimSpace(line) != "" {
-					// Raw output on parse failure (for debugging)
-					opts.OnOutput("[raw] " + line)
-				}
+		// Detect the result event for the current turn so the main loop
+		// can close stdin and let claude exit.
+		if isStreamResultEvent(line) {
+			select {
+			case resultReceived <- struct{}{}:
+			default:
 			}
 		}
-	}()
+
+		// Detect AskUserQuestion — signal to stop the task
+		if q := extractAskUserQuestion(line); q != "" {
+			select {
+			case questionCh <- q:
+			default:
+			}
+		}
+
+		// Try to parse stream-json
+		parsed := parseStreamLine(line)
+		if opts.OnOutput != nil {
+			if parsed != "" {
+				opts.OnOutput(parsed)
+			} else if opts.ShowRawOutput && strings.TrimSpace(line) != "" {
+				// Raw output on parse failure (for debugging)
+				opts.OnOutput("[raw] " + line)
+			}
+		}
+	})
 
 	// Read stderr (error messages)
 	go func() {

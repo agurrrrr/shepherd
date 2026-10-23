@@ -13,6 +13,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/grokstream"
+	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
 // grok (Grok Build TUI / xAI, ~/.grok/bin/grok) is a Claude-class general coding
@@ -103,7 +104,7 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 			if ctx.Err() != nil {
 				return
 			}
-			line, _, err := grokstream.ReadCappedLine(reader, grokstream.MaxLineBytes)
+			line, _, err := procutil.ReadCappedLine(reader, grokstream.MaxLineBytes)
 			if err != nil {
 				break
 			}

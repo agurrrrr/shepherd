@@ -120,16 +120,7 @@ func executeWithPi(ctx context.Context, sheepName, projectPath, sessionID, promp
 	// Read stdout (JSON event lines)
 	go func() {
 		defer wg.Done()
-		scanner := bufio.NewScanner(stdout)
-		buf := make([]byte, 0, 64*1024)
-		scanner.Buffer(buf, 1024*1024)
-
-		for scanner.Scan() {
-			if ctx.Err() != nil {
-				return
-			}
-			line := scanner.Text()
-
+		forEachStreamLine(ctx, stdout, func(line string) {
 			mu.Lock()
 			outputBuilder.WriteString(line + "\n")
 			mu.Unlock()
@@ -143,7 +134,7 @@ func executeWithPi(ctx context.Context, sheepName, projectPath, sessionID, promp
 			if opts.OnOutput != nil && parsed != "" {
 				opts.OnOutput(parsed + "\n")
 			}
-		}
+		})
 	}()
 
 	// Read stderr
