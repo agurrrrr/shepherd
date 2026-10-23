@@ -1303,6 +1303,7 @@ Task management: task_complete (task_id, summary), task_error (task_id, error), 
 Skills: skill_load (skill_name) - load full skill content when needed
 Wiki: wiki_read_page, wiki_list_pages, wiki_search, wiki_create, wiki_edit (one mode per call: append|section|line|find_replace)
 Issues: issue_list, issue_get, issue_upsert, issue_execute (enqueue only; sets status in_progress)
+issue_list without project_name lists issues across all projects ([project] prefix per row); issue_get/issue_upsert/issue_execute still require project_name.
 Browser automation: browser_session_start (sheep_name), browser_open, browser_click, browser_type, browser_get_text, browser_get_html, browser_screenshot, browser_session_stop
 For web tasks, use browser tools instead of WebFetch.
 
@@ -1363,6 +1364,7 @@ These tools are already registered via MCP; the full list and parameters live in
 - Use wiki_read_page / wiki_search / wiki_list_pages to read project wiki knowledge.
 - To CREATE/UPDATE wiki pages: wiki_create / wiki_edit (no CLI needed). One mode per wiki_edit call; prefer append.
 - Issue management: issue_list / issue_get / issue_upsert / issue_execute. issue_execute enqueues a task and sets status to in_progress.
+- issue_list without project_name lists issues across all projects ([project] prefix per row). issue_get / issue_upsert / issue_execute still require project_name, so another project's issues cannot be edited by accident.
 
 `
 

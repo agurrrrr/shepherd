@@ -325,7 +325,7 @@ Wiki:
 - wiki_edit: Partially edit a page — one mode per call (project_name, slug, mode=append|section|line|find_replace, ...). find_replace: find is a regex on the whole page (multiline matches OK); empty replace deletes the match; section replaces the named section's body in place.
 
 Issues:
-- issue_list: List issues (project_name, [status], [type], [query])
+- issue_list: List issues ([project_name], [status], [type], [query]) — omit project_name to list across all projects
 - issue_get: Get one issue with linked tasks (project_name, id)
 - issue_upsert: Create (no id) or update (with id) an issue (project_name, [id], title, [type], [body], [goal], [status]). Mark status=done only after goals are met.
 - issue_execute: Queue a task for an issue — not immediate; also sets issue status to in_progress; re-calling may enqueue duplicates (project_name, id, [sheep_name], [model])

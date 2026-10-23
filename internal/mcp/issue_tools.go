@@ -17,12 +17,14 @@ func (s *Server) registerIssueTools() {
 func getIssueToolsList() []Tool {
 	return []Tool{
 		{
-			Name:        "issue_list",
-			Description: "List project issues with optional status/type/query/parent filters. Returns a page of issues with linked task counts.",
+			Name: "issue_list",
+			Description: "List project issues with optional status/type/query/parent filters. Returns a page of issues with linked task counts. " +
+				"Pass project_name to scope one project; omit project_name to list issues across all projects " +
+				"(rows are prefixed with [project]; hidden projects are excluded unless include_hidden=true).",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
-					"project_name": {Type: "string", Description: "Project name"},
+					"project_name": {Type: "string", Description: "Project name; omit to list across all projects"},
 					"status": {
 						Type:        "string",
 						Enum:        []string{"todo", "in_progress", "testing", "failed", "done"},
@@ -33,12 +35,12 @@ func getIssueToolsList() []Tool {
 						Enum:        []string{"design", "feature", "bug"},
 						Description: "Filter by type",
 					},
-					"query":     {Type: "string", Description: "Title substring filter"},
-					"parent_id": {Type: "number", Description: "Filter by parent: 0=roots only, N=children of N"},
-					"limit":     {Type: "number", Description: "Page size (default 20, max 100)"},
-					"page":      {Type: "number", Description: "1-based page number (default 1)"},
+					"query":          {Type: "string", Description: "Title substring filter"},
+					"parent_id":      {Type: "number", Description: "Filter by parent: 0=roots only, N=children of N"},
+					"limit":          {Type: "number", Description: "Page size (default 20, max 100)"},
+					"page":           {Type: "number", Description: "1-based page number (default 1)"},
+					"include_hidden": {Type: "boolean", Description: "Cross-project mode only: include issues of hidden projects"},
 				},
-				Required: []string{"project_name"},
 			},
 		},
 		{
@@ -104,16 +106,16 @@ func getIssueToolsList() []Tool {
 
 func handleIssueList(args map[string]interface{}) (string, error) {
 	projectName := toString(args["project_name"])
-	if projectName == "" {
-		return "", fmt.Errorf("project_name is required")
-	}
 	f := issue.ListFilter{
-		Project: projectName,
-		Status:  toString(args["status"]),
-		Type:    toString(args["type"]),
-		Query:   toString(args["query"]),
-		Page:    toInt(args["page"]),
-		Limit:   toInt(args["limit"]),
+		Project:       projectName,
+		AllProjects:   projectName == "", // no project_name → every visible project (#596)
+		Status:        toString(args["status"]),
+		Type:          toString(args["type"]),
+		Query:         toString(args["query"]),
+		Page:          toInt(args["page"]),
+		Limit:         toInt(args["limit"]),
+		IncludeHidden: toBool(args["include_hidden"]),
+		OmitBody:      true, // the list output never prints body; keeps the payload small
 	}
 	if v, ok := args["parent_id"]; ok && v != nil {
 		pid := toInt(v)
@@ -123,6 +125,11 @@ func handleIssueList(args map[string]interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	if projectName == "" {
+		return formatCrossProjectIssueList(res), nil
+	}
+
 	if len(res.Items) == 0 {
 		return fmt.Sprintf("프로젝트 %q에 이슈가 없습니다", projectName), nil
 	}
@@ -138,6 +145,31 @@ func handleIssueList(args map[string]interface{}) (string, error) {
 			iss.ID, string(iss.Type), string(iss.Status), iss.Title, res.TaskCounts[iss.ID], parentNote))
 	}
 	return sb.String(), nil
+}
+
+// formatCrossProjectIssueList renders the no-project_name form of issue_list.
+// Every row is labelled with its project so an agent can tell which repo to act
+// on before calling issue_get / issue_upsert (those still need project_name).
+func formatCrossProjectIssueList(res *issue.ListResult) string {
+	if len(res.Items) == 0 {
+		return "전체 프로젝트에 이슈가 없습니다"
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("전체 프로젝트 이슈 목록 (%d/%d, page %d/%d):\n\n",
+		len(res.Items), res.Total, res.Page, res.TotalPages))
+	for _, iss := range res.Items {
+		project := "?"
+		if iss.Edges.Project != nil {
+			project = iss.Edges.Project.Name
+		}
+		parentNote := ""
+		if iss.ParentID != nil {
+			parentNote = fmt.Sprintf(" parent=#%d", *iss.ParentID)
+		}
+		sb.WriteString(fmt.Sprintf("[%s] #%d [%s/%s] %s (task %d개%s)\n",
+			project, iss.ID, string(iss.Type), string(iss.Status), iss.Title, res.TaskCounts[iss.ID], parentNote))
+	}
+	return sb.String()
 }
 
 func handleIssueGet(args map[string]interface{}) (string, error) {

@@ -228,6 +228,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Delete("/tasks/:id", s.handleDeleteTask)
 
 	// Issue management
+	api.Get("/issues", s.handleListAllIssues) // cross-project board query (#596)
 	api.Get("/projects/:name/issues", s.handleListIssues)
 	api.Post("/projects/:name/issues", s.handleCreateIssue)
 	api.Get("/projects/:name/issues/:id", s.handleGetIssue)

@@ -129,13 +129,7 @@ func issueFail(c *fiber.Ctx, err error) error {
 func (s *Server) handleListIssues(c *fiber.Ctx) error {
 	name := c.Params("name")
 
-	var parentFilter *int
-	if raw := c.Query("parent_id"); raw != "" {
-		// parent_id=0 → roots only; parent_id=N → children of N
-		if pid, err := strconv.Atoi(raw); err == nil {
-			parentFilter = &pid
-		}
-	}
+	var parentFilter = parseParentQuery(c.Query("parent_id"))
 
 	result, err := issue.List(issue.ListFilter{
 		Project:  name,
@@ -159,6 +153,103 @@ func (s *Server) handleListIssues(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"success":     true,
 		"data":        items,
+		"total":       result.Total,
+		"page":        result.Page,
+		"limit":       result.Limit,
+		"total_pages": result.TotalPages,
+	})
+}
+
+// issueToListItemAll adds the cross-project fields (#596) on top of the normal
+// list item: project_name plus the newest linked task's id/status. `body` is
+// already blanked by ListFilter.OmitBody, so wide lists stay small.
+func issueToListItemAll(iss *ent.Issue, taskCount int, last *issue.LastTask) fiber.Map {
+	item := issueToListItem(iss, taskCount)
+	if iss.Edges.Project != nil {
+		item["project_name"] = iss.Edges.Project.Name
+	}
+	if last != nil {
+		item["last_task_id"] = last.ID
+		item["last_task_status"] = last.Status
+	}
+	return item
+}
+
+// parseParentQuery turns the parent_id query param into a filter pointer.
+// parent_id=0 → roots only; parent_id=N → children of N; absent/garbage → nil.
+func parseParentQuery(raw string) *int {
+	if raw == "" {
+		return nil
+	}
+	if pid, err := strconv.Atoi(raw); err == nil {
+		return &pid
+	}
+	return nil
+}
+
+// normalizeIssueSort maps the sort query param onto ListFilter.SortBy. "asc"
+// keeps the per-project endpoint's oldest-first meaning, so it sorts by the
+// default column instead of becoming a SortBy value.
+func normalizeIssueSort(raw string) string {
+	if raw == "updated" || raw == "updated_desc" {
+		return "updated"
+	}
+	return ""
+}
+
+// splitCSVQuery splits a comma-separated query param and drops empty fields.
+func splitCSVQuery(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// GET /api/issues — issues across every in-scope project (#596).
+//
+//	?project=a,b&status=&type=&q=&parent_id=&page=&limit=&sort=updated&include_hidden=
+//
+// Items carry project_name, task_count and the last linked task; `counts` holds
+// per-status totals for the board header, counted without the status filter.
+func (s *Server) handleListAllIssues(c *fiber.Ctx) error {
+	projects := splitCSVQuery(c.Query("project"))
+
+	f := issue.ListFilter{
+		Projects:      projects,
+		AllProjects:   len(projects) == 0,
+		Status:        c.Query("status"),
+		Type:          c.Query("type"),
+		Query:         c.Query("q"),
+		ParentID:      parseParentQuery(c.Query("parent_id")),
+		Page:          c.QueryInt("page", 1),
+		Limit:         c.QueryInt("limit", 20),
+		SortAsc:       c.Query("sort") == "asc",
+		SortBy:        normalizeIssueSort(c.Query("sort")),
+		IncludeHidden: c.QueryBool("include_hidden", false),
+		OmitBody:      !c.QueryBool("include_body", false),
+	}
+
+	result, err := issue.List(f)
+	if err != nil {
+		return issueFail(c, err)
+	}
+
+	items := make([]fiber.Map, 0, len(result.Items))
+	for _, iss := range result.Items {
+		items = append(items, issueToListItemAll(iss, result.TaskCounts[iss.ID], result.LastTasks[iss.ID]))
+	}
+
+	return c.JSON(fiber.Map{
+		"success":     true,
+		"data":        items,
+		"counts":      result.StatusCount,
 		"total":       result.Total,
 		"page":        result.Page,
 		"limit":       result.Limit,

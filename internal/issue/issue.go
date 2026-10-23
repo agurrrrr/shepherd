@@ -12,6 +12,7 @@ import (
 
 	"github.com/agurrrrr/shepherd/ent"
 	entIssue "github.com/agurrrrr/shepherd/ent/issue"
+	"github.com/agurrrrr/shepherd/ent/predicate"
 	entProject "github.com/agurrrrr/shepherd/ent/project"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/config"
@@ -48,6 +49,11 @@ type UpdateInput struct {
 }
 
 // ListFilter controls listing / filtering.
+//
+// Single-project mode is the original shape: set Project and leave the scope
+// fields below empty. Cross-project mode (#596) is selected by AllProjects or
+// a non-empty Projects slice — then Project must be empty, and every returned
+// item carries its project through Edges.Project (always eager-loaded).
 type ListFilter struct {
 	Project  string
 	Status   string // empty = all
@@ -57,16 +63,62 @@ type ListFilter struct {
 	Page     int    // 1-based, default 1
 	Limit    int    // default 20, max 100
 	SortAsc  bool   // default newest-first
+
+	// Cross-project scope (#596).
+	AllProjects   bool     // true = every project (hidden ones follow IncludeHidden)
+	Projects      []string // restrict to these project names (unknown names are ignored)
+	IncludeHidden bool     // false (default) drops issues of hidden projects in cross-project mode
+	OmitBody      bool     // drop `body` from items so wide-list payloads stay small
+	SortBy        string   // "" = created_at (default); "updated" = updated_at first (board ordering)
 }
 
+// LastTask is the most recent task linked to an issue (created_at order).
+// The API adds these fields to list items so boards can show task state without
+// a per-issue detail request.
+type LastTask struct {
+	ID     int
+	Status string
+}
+
+// StatusCounts holds issue counts keyed by status. Every ValidStatuses key is
+// present, zero included, so callers never branch on missing keys.
+type StatusCounts map[string]int
+
 // ListResult is a page of issues plus pagination metadata.
+// LastTasks and StatusCounts are filled only in cross-project mode (#596);
+// single-project results keep their original shape.
 type ListResult struct {
-	Items      []*ent.Issue
-	TaskCounts map[int]int // issue ID → linked task count
-	Total      int
-	Page       int
-	Limit      int
-	TotalPages int
+	Items       []*ent.Issue
+	TaskCounts  map[int]int // issue ID → linked task count
+	LastTasks   map[int]*LastTask
+	StatusCount StatusCounts
+	Total       int
+	Page        int
+	Limit       int
+	TotalPages  int
+}
+
+// crossProject reports whether the filter asks for more than one project.
+func (f ListFilter) crossProject() bool {
+	return f.AllProjects || len(f.Projects) > 0
+}
+
+// scopePredicate restricts issues by project edge for cross-project mode.
+// Unknown names in Projects simply match nothing, which is the expected
+// behaviour for a filter list. Hidden projects stay out unless IncludeHidden:
+// with an explicit name list, IncludeHidden only lifts the hidden guard — it
+// must not narrow the list to hidden projects only.
+func (f ListFilter) scopePredicate() predicate.Issue {
+	if f.AllProjects {
+		if f.IncludeHidden {
+			return entIssue.HasProject()
+		}
+		return entIssue.HasProjectWith(entProject.Hidden(false))
+	}
+	if f.IncludeHidden {
+		return entIssue.HasProjectWith(entProject.NameIn(f.Projects...))
+	}
+	return entIssue.HasProjectWith(entProject.NameIn(f.Projects...), entProject.Hidden(false))
 }
 
 // ExecuteInput controls issue → task enqueue.
@@ -139,9 +191,18 @@ func Create(in CreateInput) (*ent.Issue, error) {
 	return issue, nil
 }
 
-// List returns a filtered, paginated list of issues for a project.
+// List returns a filtered, paginated list of issues.
+//
+// Single-project mode (f.Project set) keeps the original result shape and the
+// original error wording. Cross-project mode (f.AllProjects or f.Projects)
+// searches every in-scope project at once and additionally fills LastTasks and
+// StatusCount for boards (#596). Items always carry Edges.Project so callers
+// can label rows with the project name.
 func List(f ListFilter) (*ListResult, error) {
-	if strings.TrimSpace(f.Project) == "" {
+	if f.Project != "" && f.crossProject() {
+		return nil, fmt.Errorf("project cannot be combined with all_projects/projects")
+	}
+	if !f.crossProject() && strings.TrimSpace(f.Project) == "" {
 		return nil, fmt.Errorf("project is required")
 	}
 	if f.Page < 1 {
@@ -156,19 +217,89 @@ func List(f ListFilter) (*ListResult, error) {
 
 	ctx := context.Background()
 	client := db.Client()
+	if client == nil {
+		return nil, fmt.Errorf("database is not initialized")
+	}
 
-	// Ensure project exists (clearer error than empty list).
-	exists, err := client.Project.Query().Where(entProject.Name(f.Project)).Exist(ctx)
+	if !f.crossProject() {
+		// Ensure project exists (clearer error than empty list).
+		exists, err := client.Project.Query().Where(entProject.Name(f.Project)).Exist(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query project: %w", err)
+		}
+		if !exists {
+			return nil, fmt.Errorf("project %q not found", f.Project)
+		}
+	}
+
+	query, err := buildListQuery(ctx, client, f, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query project: %w", err)
-	}
-	if !exists {
-		return nil, fmt.Errorf("project %q not found", f.Project)
+		return nil, err
 	}
 
-	query := client.Issue.Query().Where(entIssue.HasProjectWith(entProject.Name(f.Project)))
+	total, err := query.Clone().Count(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count issues: %w", err)
+	}
 
-	if f.Status != "" {
+	issues, err := query.
+		Order(orderFunc(f)...).
+		Offset((f.Page - 1) * f.Limit).
+		Limit(f.Limit).
+		WithProject().
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list issues: %w", err)
+	}
+
+	if f.OmitBody {
+		for _, iss := range issues {
+			iss.Body = ""
+		}
+	}
+
+	counts, lastTasks, err := taskStatsFor(ctx, client, issues)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &ListResult{
+		Items:      issues,
+		TaskCounts: counts,
+		Total:      total,
+		Page:       f.Page,
+		Limit:      f.Limit,
+		TotalPages: totalPages(total, f.Limit),
+	}
+
+	if f.crossProject() {
+		result.LastTasks = lastTasks
+		countsNoStatus, err := buildListQuery(ctx, client, f, false)
+		if err != nil {
+			return nil, err
+		}
+		statusCount, err := statusCountsFor(ctx, countsNoStatus)
+		if err != nil {
+			return nil, err
+		}
+		result.StatusCount = statusCount
+	}
+
+	return result, nil
+}
+
+// buildListQuery applies the scope + filter predicates. applyStatus is false
+// for the status-count clone, which must count every status (issue #596: "개수는
+// 상태 필터를 뺀 나머지 필터 기준").
+func buildListQuery(ctx context.Context, client *ent.Client, f ListFilter, applyStatus bool) (*ent.IssueQuery, error) {
+	var query *ent.IssueQuery
+	if f.crossProject() {
+		query = client.Issue.Query().Where(f.scopePredicate())
+	} else {
+		query = client.Issue.Query().Where(entIssue.HasProjectWith(entProject.Name(f.Project)))
+	}
+
+	if applyStatus && f.Status != "" {
 		if err := validateStatus(f.Status); err != nil {
 			return nil, err
 		}
@@ -190,46 +321,93 @@ func List(f ListFilter) (*ListResult, error) {
 			query = query.Where(entIssue.ParentIDEQ(*f.ParentID))
 		}
 	}
+	return query, nil
+}
 
-	total, err := query.Clone().Count(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to count issues: %w", err)
+// orderFunc picks the sort column from SortBy and the direction from SortAsc.
+// ID is the tie-breaker so paging is stable when timestamps collide (bulk
+// updates share one clock tick).
+func orderFunc(f ListFilter) []entIssue.OrderOption {
+	column := entIssue.FieldCreatedAt
+	if f.SortBy == "updated" {
+		column = entIssue.FieldUpdatedAt
 	}
-
-	orderFunc := ent.Desc(entIssue.FieldCreatedAt)
 	if f.SortAsc {
-		orderFunc = ent.Asc(entIssue.FieldCreatedAt)
+		return []entIssue.OrderOption{ent.Asc(column), ent.Asc(entIssue.FieldID)}
 	}
+	return []entIssue.OrderOption{ent.Desc(column), ent.Desc(entIssue.FieldID)}
+}
 
-	issues, err := query.
-		Order(orderFunc).
-		Offset((f.Page - 1) * f.Limit).
-		Limit(f.Limit).
-		WithProject().
-		All(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list issues: %w", err)
+// statusCountsFor groups a filter clone by status in one query. Missing
+// statuses stay 0 so the board header always has all five columns.
+func statusCountsFor(ctx context.Context, q *ent.IssueQuery) (StatusCounts, error) {
+	var rows []struct {
+		Status entIssue.Status `json:"status"`
+		Count  int             `json:"count"`
 	}
+	if err := q.GroupBy(entIssue.FieldStatus).Aggregate(ent.Count()).Scan(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("failed to count issues by status: %w", err)
+	}
+	counts := make(StatusCounts, len(ValidStatuses))
+	for _, s := range ValidStatuses {
+		counts[s] = 0
+	}
+	for _, row := range rows {
+		counts[string(row.Status)] = row.Count
+	}
+	return counts, nil
+}
 
+// taskStatsFor returns per-issue linked-task counts and the newest linked task,
+// reading every task of the page in ONE query (the old per-issue COUNT loop was
+// N+1; boards need the last task's id/status too).
+//
+// "issue_tasks" is the FK column of the task→issue edge. Ent exposes it as a
+// selectable column (same trick internal/manager/prompt.go uses for
+// "project_tasks"); scanning it avoids loading issue edges per task.
+func taskStatsFor(ctx context.Context, client *ent.Client, issues []*ent.Issue) (map[int]int, map[int]*LastTask, error) {
 	counts := make(map[int]int, len(issues))
+	lastTasks := make(map[int]*LastTask, len(issues))
 	for _, iss := range issues {
-		tc, _ := client.Task.Query().Where(entTask.HasIssueWith(entIssue.ID(iss.ID))).Count(ctx)
-		counts[iss.ID] = tc
+		counts[iss.ID] = 0
+	}
+	if len(issues) == 0 {
+		return counts, lastTasks, nil
 	}
 
-	totalPages := 0
-	if total > 0 {
-		totalPages = (total + f.Limit - 1) / f.Limit
+	ids := make([]int, 0, len(issues))
+	for _, iss := range issues {
+		ids = append(ids, iss.ID)
 	}
 
-	return &ListResult{
-		Items:      issues,
-		TaskCounts: counts,
-		Total:      total,
-		Page:       f.Page,
-		Limit:      f.Limit,
-		TotalPages: totalPages,
-	}, nil
+	taskQuery := client.Task.Query().
+		Where(entTask.HasIssueWith(entIssue.IDIn(ids...))).
+		Order(ent.Desc(entTask.FieldCreatedAt), ent.Desc(entTask.FieldID))
+
+	var rows []struct {
+		ID         int            `json:"id"`
+		Status     entTask.Status `json:"status"`
+		IssueTasks int            `json:"issue_tasks"`
+	}
+	if err := taskQuery.Select(entTask.FieldID, entTask.FieldStatus, "issue_tasks").Scan(ctx, &rows); err != nil {
+		return nil, nil, fmt.Errorf("failed to count tasks: %w", err)
+	}
+
+	for _, row := range rows {
+		counts[row.IssueTasks]++
+		if _, seen := lastTasks[row.IssueTasks]; !seen {
+			lastTasks[row.IssueTasks] = &LastTask{ID: row.ID, Status: string(row.Status)}
+		}
+	}
+	return counts, lastTasks, nil
+}
+
+// totalPages is pagination metadata shared by both list modes.
+func totalPages(total, limit int) int {
+	if total <= 0 {
+		return 0
+	}
+	return (total + limit - 1) / limit
 }
 
 // Get returns a single issue with linked tasks, parent, and children (oldest first),

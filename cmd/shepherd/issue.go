@@ -25,6 +25,7 @@ var (
 	issueCreateParentID int // 0 = no parent
 
 	// list
+	issueListAll      bool // --all: cross-project listing, no <project> argument
 	issueListStatus   string
 	issueListType     string
 	issueListQuery    string
@@ -126,27 +127,41 @@ Examples:
 }
 
 var issueListCmd = &cobra.Command{
-	Use:   "list <project>",
-	Short: "List issues for a project",
+	Use:   "list [project]",
+	Short: "List issues for a project (or all projects with --all)",
 	Long: `List issues with optional filters.
 
-Examples:
+Single project:
   shepherd issue list shepherd
   shepherd issue list shepherd --status todo
   shepherd issue list shepherd --type bug --query "login"
   shepherd issue list shepherd --status in_progress --json
-  shepherd issue list shepherd --limit 50 --page 1`,
-	Args: cobra.ExactArgs(1),
+  shepherd issue list shepherd --limit 50 --page 1
+
+All projects (--all takes no <project> argument; hidden projects are skipped):
+  shepherd issue list --all
+  shepherd issue list --all --status todo
+  shepherd issue list --all --type bug --json`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		if issueListAll {
+			return cobra.ExactArgs(0)(cmd, args)
+		}
+		return cobra.ExactArgs(1)(cmd, args)
+	},
 	Run: func(cmd *cobra.Command, args []string) {
-		projectName := args[0]
+		projectName := ""
+		if !issueListAll && len(args) > 0 {
+			projectName = args[0]
+		}
 		f := issue.ListFilter{
-			Project: projectName,
-			Status:  issueListStatus,
-			Type:    issueListType,
-			Query:   issueListQuery,
-			Page:    issueListPage,
-			Limit:   issueListLimit,
-			SortAsc: issueListAsc,
+			Project:     projectName,
+			AllProjects: issueListAll,
+			Status:      issueListStatus,
+			Type:        issueListType,
+			Query:       issueListQuery,
+			Page:        issueListPage,
+			Limit:       issueListLimit,
+			SortAsc:     issueListAsc,
 		}
 		if issueListParentID != "" {
 			pid, err := strconv.Atoi(issueListParentID)
@@ -163,21 +178,41 @@ Examples:
 		if issueJSON {
 			items := make([]map[string]interface{}, 0, len(result.Items))
 			for _, iss := range result.Items {
-				items = append(items, issueSummaryMap(iss, projectName, result.TaskCounts[iss.ID]))
+				items = append(items, issueSummaryMap(iss, issueNameOf(iss, projectName), result.TaskCounts[iss.ID]))
 			}
-			printIssueJSON(map[string]interface{}{
-				"project":     projectName,
+			payload := map[string]interface{}{
 				"items":       items,
 				"total":       result.Total,
 				"page":        result.Page,
 				"limit":       result.Limit,
 				"total_pages": result.TotalPages,
-			})
+			}
+			if issueListAll {
+				payload["counts"] = result.StatusCount
+			} else {
+				payload["project"] = projectName
+			}
+			printIssueJSON(payload)
 			return
 		}
 
 		if len(result.Items) == 0 {
-			fmt.Printf("No issues found in project %q.\n", projectName)
+			if issueListAll {
+				fmt.Println("No issues found in any project.")
+			} else {
+				fmt.Printf("No issues found in project %q.\n", projectName)
+			}
+			return
+		}
+
+		if issueListAll {
+			fmt.Printf("Issues in all projects (%d total, page %d/%d):\n\n", result.Total, result.Page, max(1, result.TotalPages))
+			fmt.Printf("%-6s %-14s %-12s %-12s %-5s %s\n", "ID", "PROJECT", "STATUS", "TYPE", "TASKS", "TITLE")
+			fmt.Println(strings.Repeat("-", 96))
+			for _, iss := range result.Items {
+				fmt.Printf("%-6d %-14s %-12s %-12s %-5d %s\n",
+					iss.ID, issueNameOf(iss, ""), iss.Status, iss.Type, result.TaskCounts[iss.ID], iss.Title)
+			}
 			return
 		}
 
@@ -189,6 +224,15 @@ Examples:
 				iss.ID, iss.Status, iss.Type, result.TaskCounts[iss.ID], iss.Title)
 		}
 	},
+}
+
+// issueNameOf resolves the project name for a list row: the eager-loaded edge in
+// --all mode, the CLI argument otherwise.
+func issueNameOf(iss *ent.Issue, fallback string) string {
+	if iss.Edges.Project != nil {
+		return iss.Edges.Project.Name
+	}
+	return fallback
 }
 
 var issueShowCmd = &cobra.Command{
@@ -421,6 +465,7 @@ func initIssueCmd() {
 	issueCreateCmd.Flags().IntVar(&issueCreateParentID, "parent", 0, "Parent issue ID (optional)")
 	_ = issueCreateCmd.MarkFlagRequired("title")
 
+	issueListCmd.Flags().BoolVar(&issueListAll, "all", false, "List issues across all projects (no <project> argument; hidden projects skipped)")
 	issueListCmd.Flags().StringVar(&issueListStatus, "status", "", "Filter by status: todo | in_progress | testing | failed | done")
 	issueListCmd.Flags().StringVar(&issueListType, "type", "", "Filter by type: design | feature | bug")
 	issueListCmd.Flags().StringVarP(&issueListQuery, "query", "q", "", "Filter title contains query")
