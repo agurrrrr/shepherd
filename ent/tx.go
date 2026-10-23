@@ -28,6 +28,8 @@ type Tx struct {
 	SheepName *SheepNameClient
 	// ShepherdAck is the client for interacting with the ShepherdAck builders.
 	ShepherdAck *ShepherdAckClient
+	// ShepherdPatrol is the client for interacting with the ShepherdPatrol builders.
+	ShepherdPatrol *ShepherdPatrolClient
 	// Skill is the client for interacting with the Skill builders.
 	Skill *SkillClient
 	// Task is the client for interacting with the Task builders.
@@ -175,6 +177,7 @@ func (tx *Tx) init() {
 	tx.Sheep = NewSheepClient(tx.config)
 	tx.SheepName = NewSheepNameClient(tx.config)
 	tx.ShepherdAck = NewShepherdAckClient(tx.config)
+	tx.ShepherdPatrol = NewShepherdPatrolClient(tx.config)
 	tx.Skill = NewSkillClient(tx.config)
 	tx.Task = NewTaskClient(tx.config)
 	tx.WikiPage = NewWikiPageClient(tx.config)

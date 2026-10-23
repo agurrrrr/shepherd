@@ -30,6 +30,9 @@ type SheepName func(*sql.Selector)
 // ShepherdAck is the predicate function for shepherdack builders.
 type ShepherdAck func(*sql.Selector)
 
+// ShepherdPatrol is the predicate function for shepherdpatrol builders.
+type ShepherdPatrol func(*sql.Selector)
+
 // Skill is the predicate function for skill builders.
 type Skill func(*sql.Selector)
 

@@ -105,6 +105,18 @@ func (f ShepherdAckFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ShepherdAckMutation", m)
 }
 
+// The ShepherdPatrolFunc type is an adapter to allow the use of ordinary
+// function as ShepherdPatrol mutator.
+type ShepherdPatrolFunc func(context.Context, *ent.ShepherdPatrolMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ShepherdPatrolFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ShepherdPatrolMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ShepherdPatrolMutation", m)
+}
+
 // The SkillFunc type is an adapter to allow the use of ordinary
 // function as Skill mutator.
 type SkillFunc func(context.Context, *ent.SkillMutation) (ent.Value, error)

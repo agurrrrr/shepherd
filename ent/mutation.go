@@ -20,6 +20,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/sheepname"
 	"github.com/agurrrrr/shepherd/ent/shepherdack"
+	"github.com/agurrrrr/shepherd/ent/shepherdpatrol"
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
@@ -43,6 +44,7 @@ const (
 	TypeSheep           = "Sheep"
 	TypeSheepName       = "SheepName"
 	TypeShepherdAck     = "ShepherdAck"
+	TypeShepherdPatrol  = "ShepherdPatrol"
 	TypeSkill           = "Skill"
 	TypeTask            = "Task"
 	TypeWikiPage        = "WikiPage"
@@ -7237,6 +7239,617 @@ func (m *ShepherdAckMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *ShepherdAckMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown ShepherdAck edge %s", name)
+}
+
+// ShepherdPatrolMutation represents an operation that mutates the ShepherdPatrol nodes in the graph.
+type ShepherdPatrolMutation struct {
+	config
+	op             Op
+	typ            string
+	id             *int
+	created_at     *time.Time
+	findings       *string
+	new_count      *int
+	addnew_count   *int
+	task_id        *int
+	addtask_id     *int
+	skipped_reason *string
+	clearedFields  map[string]struct{}
+	done           bool
+	oldValue       func(context.Context) (*ShepherdPatrol, error)
+	predicates     []predicate.ShepherdPatrol
+}
+
+var _ ent.Mutation = (*ShepherdPatrolMutation)(nil)
+
+// shepherdpatrolOption allows management of the mutation configuration using functional options.
+type shepherdpatrolOption func(*ShepherdPatrolMutation)
+
+// newShepherdPatrolMutation creates new mutation for the ShepherdPatrol entity.
+func newShepherdPatrolMutation(c config, op Op, opts ...shepherdpatrolOption) *ShepherdPatrolMutation {
+	m := &ShepherdPatrolMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeShepherdPatrol,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withShepherdPatrolID sets the ID field of the mutation.
+func withShepherdPatrolID(id int) shepherdpatrolOption {
+	return func(m *ShepherdPatrolMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ShepherdPatrol
+		)
+		m.oldValue = func(ctx context.Context) (*ShepherdPatrol, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ShepherdPatrol.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withShepherdPatrol sets the old ShepherdPatrol of the mutation.
+func withShepherdPatrol(node *ShepherdPatrol) shepherdpatrolOption {
+	return func(m *ShepherdPatrolMutation) {
+		m.oldValue = func(context.Context) (*ShepherdPatrol, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ShepherdPatrolMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ShepherdPatrolMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ShepherdPatrolMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ShepherdPatrolMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ShepherdPatrol.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ShepherdPatrolMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ShepherdPatrolMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ShepherdPatrol entity.
+// If the ShepherdPatrol object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdPatrolMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ShepherdPatrolMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetFindings sets the "findings" field.
+func (m *ShepherdPatrolMutation) SetFindings(s string) {
+	m.findings = &s
+}
+
+// Findings returns the value of the "findings" field in the mutation.
+func (m *ShepherdPatrolMutation) Findings() (r string, exists bool) {
+	v := m.findings
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFindings returns the old "findings" field's value of the ShepherdPatrol entity.
+// If the ShepherdPatrol object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdPatrolMutation) OldFindings(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFindings is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFindings requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFindings: %w", err)
+	}
+	return oldValue.Findings, nil
+}
+
+// ResetFindings resets all changes to the "findings" field.
+func (m *ShepherdPatrolMutation) ResetFindings() {
+	m.findings = nil
+}
+
+// SetNewCount sets the "new_count" field.
+func (m *ShepherdPatrolMutation) SetNewCount(i int) {
+	m.new_count = &i
+	m.addnew_count = nil
+}
+
+// NewCount returns the value of the "new_count" field in the mutation.
+func (m *ShepherdPatrolMutation) NewCount() (r int, exists bool) {
+	v := m.new_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNewCount returns the old "new_count" field's value of the ShepherdPatrol entity.
+// If the ShepherdPatrol object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdPatrolMutation) OldNewCount(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNewCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNewCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNewCount: %w", err)
+	}
+	return oldValue.NewCount, nil
+}
+
+// AddNewCount adds i to the "new_count" field.
+func (m *ShepherdPatrolMutation) AddNewCount(i int) {
+	if m.addnew_count != nil {
+		*m.addnew_count += i
+	} else {
+		m.addnew_count = &i
+	}
+}
+
+// AddedNewCount returns the value that was added to the "new_count" field in this mutation.
+func (m *ShepherdPatrolMutation) AddedNewCount() (r int, exists bool) {
+	v := m.addnew_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetNewCount resets all changes to the "new_count" field.
+func (m *ShepherdPatrolMutation) ResetNewCount() {
+	m.new_count = nil
+	m.addnew_count = nil
+}
+
+// SetTaskID sets the "task_id" field.
+func (m *ShepherdPatrolMutation) SetTaskID(i int) {
+	m.task_id = &i
+	m.addtask_id = nil
+}
+
+// TaskID returns the value of the "task_id" field in the mutation.
+func (m *ShepherdPatrolMutation) TaskID() (r int, exists bool) {
+	v := m.task_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTaskID returns the old "task_id" field's value of the ShepherdPatrol entity.
+// If the ShepherdPatrol object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdPatrolMutation) OldTaskID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTaskID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTaskID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTaskID: %w", err)
+	}
+	return oldValue.TaskID, nil
+}
+
+// AddTaskID adds i to the "task_id" field.
+func (m *ShepherdPatrolMutation) AddTaskID(i int) {
+	if m.addtask_id != nil {
+		*m.addtask_id += i
+	} else {
+		m.addtask_id = &i
+	}
+}
+
+// AddedTaskID returns the value that was added to the "task_id" field in this mutation.
+func (m *ShepherdPatrolMutation) AddedTaskID() (r int, exists bool) {
+	v := m.addtask_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTaskID resets all changes to the "task_id" field.
+func (m *ShepherdPatrolMutation) ResetTaskID() {
+	m.task_id = nil
+	m.addtask_id = nil
+}
+
+// SetSkippedReason sets the "skipped_reason" field.
+func (m *ShepherdPatrolMutation) SetSkippedReason(s string) {
+	m.skipped_reason = &s
+}
+
+// SkippedReason returns the value of the "skipped_reason" field in the mutation.
+func (m *ShepherdPatrolMutation) SkippedReason() (r string, exists bool) {
+	v := m.skipped_reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSkippedReason returns the old "skipped_reason" field's value of the ShepherdPatrol entity.
+// If the ShepherdPatrol object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdPatrolMutation) OldSkippedReason(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSkippedReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSkippedReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSkippedReason: %w", err)
+	}
+	return oldValue.SkippedReason, nil
+}
+
+// ResetSkippedReason resets all changes to the "skipped_reason" field.
+func (m *ShepherdPatrolMutation) ResetSkippedReason() {
+	m.skipped_reason = nil
+}
+
+// Where appends a list predicates to the ShepherdPatrolMutation builder.
+func (m *ShepherdPatrolMutation) Where(ps ...predicate.ShepherdPatrol) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ShepherdPatrolMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ShepherdPatrolMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ShepherdPatrol, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ShepherdPatrolMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ShepherdPatrolMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ShepherdPatrol).
+func (m *ShepherdPatrolMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ShepherdPatrolMutation) Fields() []string {
+	fields := make([]string, 0, 5)
+	if m.created_at != nil {
+		fields = append(fields, shepherdpatrol.FieldCreatedAt)
+	}
+	if m.findings != nil {
+		fields = append(fields, shepherdpatrol.FieldFindings)
+	}
+	if m.new_count != nil {
+		fields = append(fields, shepherdpatrol.FieldNewCount)
+	}
+	if m.task_id != nil {
+		fields = append(fields, shepherdpatrol.FieldTaskID)
+	}
+	if m.skipped_reason != nil {
+		fields = append(fields, shepherdpatrol.FieldSkippedReason)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ShepherdPatrolMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case shepherdpatrol.FieldCreatedAt:
+		return m.CreatedAt()
+	case shepherdpatrol.FieldFindings:
+		return m.Findings()
+	case shepherdpatrol.FieldNewCount:
+		return m.NewCount()
+	case shepherdpatrol.FieldTaskID:
+		return m.TaskID()
+	case shepherdpatrol.FieldSkippedReason:
+		return m.SkippedReason()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ShepherdPatrolMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case shepherdpatrol.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case shepherdpatrol.FieldFindings:
+		return m.OldFindings(ctx)
+	case shepherdpatrol.FieldNewCount:
+		return m.OldNewCount(ctx)
+	case shepherdpatrol.FieldTaskID:
+		return m.OldTaskID(ctx)
+	case shepherdpatrol.FieldSkippedReason:
+		return m.OldSkippedReason(ctx)
+	}
+	return nil, fmt.Errorf("unknown ShepherdPatrol field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ShepherdPatrolMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case shepherdpatrol.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case shepherdpatrol.FieldFindings:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFindings(v)
+		return nil
+	case shepherdpatrol.FieldNewCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNewCount(v)
+		return nil
+	case shepherdpatrol.FieldTaskID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTaskID(v)
+		return nil
+	case shepherdpatrol.FieldSkippedReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSkippedReason(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ShepherdPatrol field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ShepherdPatrolMutation) AddedFields() []string {
+	var fields []string
+	if m.addnew_count != nil {
+		fields = append(fields, shepherdpatrol.FieldNewCount)
+	}
+	if m.addtask_id != nil {
+		fields = append(fields, shepherdpatrol.FieldTaskID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ShepherdPatrolMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case shepherdpatrol.FieldNewCount:
+		return m.AddedNewCount()
+	case shepherdpatrol.FieldTaskID:
+		return m.AddedTaskID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ShepherdPatrolMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case shepherdpatrol.FieldNewCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddNewCount(v)
+		return nil
+	case shepherdpatrol.FieldTaskID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTaskID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ShepherdPatrol numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ShepherdPatrolMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ShepherdPatrolMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ShepherdPatrolMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown ShepherdPatrol nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ShepherdPatrolMutation) ResetField(name string) error {
+	switch name {
+	case shepherdpatrol.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case shepherdpatrol.FieldFindings:
+		m.ResetFindings()
+		return nil
+	case shepherdpatrol.FieldNewCount:
+		m.ResetNewCount()
+		return nil
+	case shepherdpatrol.FieldTaskID:
+		m.ResetTaskID()
+		return nil
+	case shepherdpatrol.FieldSkippedReason:
+		m.ResetSkippedReason()
+		return nil
+	}
+	return fmt.Errorf("unknown ShepherdPatrol field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ShepherdPatrolMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ShepherdPatrolMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ShepherdPatrolMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ShepherdPatrolMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ShepherdPatrolMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ShepherdPatrolMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ShepherdPatrolMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown ShepherdPatrol unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ShepherdPatrolMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown ShepherdPatrol edge %s", name)
 }
 
 // SkillMutation represents an operation that mutates the Skill nodes in the graph.

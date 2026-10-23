@@ -2797,6 +2797,15 @@ func runServeForeground() {
 	sched.Start()
 	defer sched.Stop()
 
+	// Start the shepherd patrol loop (#600): every shepherd_patrol_interval
+	// the code re-checks the management scope and wakes the 목자 only for
+	// findings that are new since the previous pass. The loop beats once a
+	// minute and re-reads the setting each beat, so changes apply from the
+	// next tick; interval "0" leaves it idle.
+	patrol := manager.NewPatrol()
+	patrol.Start()
+	defer patrol.Stop()
+
 	// Prune task checkpoint refs once after startup, then daily. The goroutine
 	// stops when the daemon shuts down.
 	checkpointPruneStop := make(chan struct{})

@@ -94,6 +94,14 @@ func Init() error {
 	viper.SetDefault("shepherd_stuck_minutes", 120)
 	viper.SetDefault("shepherd_pending_stale_minutes", 60)
 
+	// 주기 순찰 (#600). 코드로 관리 범위를 점검하고 직전 순찰 이후 새 이상이
+	// 있을 때만 목자를 깨운다. 기록은 깨우기 여부와 무관하게 매 순찰 남긴다.
+	//   shepherd_patrol_interval : 순찰 주기 ("30m"). "0"이면 끄고, 켜면 최소
+	//                              5분으로 맞춘다 (manager/patrol.go).
+	//   shepherd_patrol_wake     : 새 이상에서 목자를 깨울지. 끄면 기록만 한다.
+	viper.SetDefault("shepherd_patrol_interval", "30m")
+	viper.SetDefault("shepherd_patrol_wake", true)
+
 	// shell: 임베디드 프로바이더의 bash 도구가 명령을 실행할 셸 실행 파일.
 	// 빈 값이면 OS별 자동 탐지 (Unix: bash → sh, Windows: Git Bash → pwsh →
 	// powershell). 자동 탐지가 빗나갔을 때의 탈출구이므로 값은 실행 파일

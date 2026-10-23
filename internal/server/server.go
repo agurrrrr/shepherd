@@ -136,6 +136,9 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	// Needs-attention panel (#599): collection + acknowledgement.
 	api.Get("/shepherd/attention", s.handleGetAttention)
 	api.Post("/shepherd/attention/ack", s.handleAckAttention)
+	// Periodic patrol (#600): records + manual "run now".
+	api.Get("/shepherd/patrols", s.handleListPatrols)
+	api.Post("/shepherd/patrols/run", s.handleRunPatrol)
 	api.Get("/config/system-prompt-preview", s.handleSystemPromptPreview)
 	api.Get("/config/model-options", s.handleGetModelOptions)
 	api.Post("/config/grok-models/refresh", s.handleRefreshGrokModels)

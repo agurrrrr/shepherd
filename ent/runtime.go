@@ -14,6 +14,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/sheepname"
 	"github.com/agurrrrr/shepherd/ent/shepherdack"
+	"github.com/agurrrrr/shepherd/ent/shepherdpatrol"
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
@@ -180,6 +181,28 @@ func init() {
 	shepherdackDescAckedAt := shepherdackFields[1].Descriptor()
 	// shepherdack.DefaultAckedAt holds the default value on creation for the acked_at field.
 	shepherdack.DefaultAckedAt = shepherdackDescAckedAt.Default.(func() time.Time)
+	shepherdpatrolFields := schema.ShepherdPatrol{}.Fields()
+	_ = shepherdpatrolFields
+	// shepherdpatrolDescCreatedAt is the schema descriptor for created_at field.
+	shepherdpatrolDescCreatedAt := shepherdpatrolFields[0].Descriptor()
+	// shepherdpatrol.DefaultCreatedAt holds the default value on creation for the created_at field.
+	shepherdpatrol.DefaultCreatedAt = shepherdpatrolDescCreatedAt.Default.(func() time.Time)
+	// shepherdpatrolDescFindings is the schema descriptor for findings field.
+	shepherdpatrolDescFindings := shepherdpatrolFields[1].Descriptor()
+	// shepherdpatrol.DefaultFindings holds the default value on creation for the findings field.
+	shepherdpatrol.DefaultFindings = shepherdpatrolDescFindings.Default.(string)
+	// shepherdpatrolDescNewCount is the schema descriptor for new_count field.
+	shepherdpatrolDescNewCount := shepherdpatrolFields[2].Descriptor()
+	// shepherdpatrol.DefaultNewCount holds the default value on creation for the new_count field.
+	shepherdpatrol.DefaultNewCount = shepherdpatrolDescNewCount.Default.(int)
+	// shepherdpatrolDescTaskID is the schema descriptor for task_id field.
+	shepherdpatrolDescTaskID := shepherdpatrolFields[3].Descriptor()
+	// shepherdpatrol.DefaultTaskID holds the default value on creation for the task_id field.
+	shepherdpatrol.DefaultTaskID = shepherdpatrolDescTaskID.Default.(int)
+	// shepherdpatrolDescSkippedReason is the schema descriptor for skipped_reason field.
+	shepherdpatrolDescSkippedReason := shepherdpatrolFields[4].Descriptor()
+	// shepherdpatrol.DefaultSkippedReason holds the default value on creation for the skipped_reason field.
+	shepherdpatrol.DefaultSkippedReason = shepherdpatrolDescSkippedReason.Default.(string)
 	skillFields := schema.Skill{}.Fields()
 	_ = skillFields
 	// skillDescName is the schema descriptor for name field.

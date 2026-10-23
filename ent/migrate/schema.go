@@ -197,6 +197,28 @@ var (
 			},
 		},
 	}
+	// ShepherdPatrolsColumns holds the columns for the "shepherd_patrols" table.
+	ShepherdPatrolsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "findings", Type: field.TypeString, Size: 2147483647, Default: ""},
+		{Name: "new_count", Type: field.TypeInt, Default: 0},
+		{Name: "task_id", Type: field.TypeInt, Default: 0},
+		{Name: "skipped_reason", Type: field.TypeString, Default: ""},
+	}
+	// ShepherdPatrolsTable holds the schema information for the "shepherd_patrols" table.
+	ShepherdPatrolsTable = &schema.Table{
+		Name:       "shepherd_patrols",
+		Columns:    ShepherdPatrolsColumns,
+		PrimaryKey: []*schema.Column{ShepherdPatrolsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "shepherdpatrol_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{ShepherdPatrolsColumns[1]},
+			},
+		},
+	}
 	// SkillsColumns holds the columns for the "skills" table.
 	SkillsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -363,6 +385,7 @@ var (
 		SheepTable,
 		SheepNamesTable,
 		ShepherdAcksTable,
+		ShepherdPatrolsTable,
 		SkillsTable,
 		TasksTable,
 		WikiPagesTable,

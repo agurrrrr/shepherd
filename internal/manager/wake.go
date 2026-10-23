@@ -96,16 +96,19 @@ func maxWakeupsPerDay() int {
 	return n
 }
 
-// wakeupsToday counts review tasks created since local midnight — one wake is
-// one review run, and coalescing an event into an already-pending review task
-// does not add to the day total.
+// wakeupsToday counts automatic shepherd wakes created since local midnight
+// — one wake is one review run, and coalescing an event into an
+// already-pending review task does not add to the day total. Stage #600's
+// patrol wakes count toward the same budget (shepherd_max_wakeups_per_day),
+// so both kinds are included; user `command` tasks never were and still are
+// not — the user waking the shepherd by hand is not an automatic wake.
 func wakeupsToday() (int, error) {
 	ctx := context.Background()
 	now := time.Now()
 	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	return db.Client().Task.Query().
 		Where(
-			entTask.ShepherdKindEQ(KindReview),
+			entTask.ShepherdKindIn(KindReview, KindPatrol),
 			entTask.CreatedAtGTE(midnight),
 		).
 		Count(ctx)

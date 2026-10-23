@@ -34,6 +34,10 @@
 	// (stuck 120분 / pending stale 60분).
 	let stuckMinutes = $state(0);
 	let pendingStaleMinutes = $state(0);
+	// Patrol (#600). Raw duration string ("30m"; "0" = off, nonzero clamped
+	// to a 5-minute floor by the daemon) plus the wake switch.
+	let patrolInterval = $state('30m');
+	let patrolWake = $state(true);
 	/** name -> true when the project is managed (unchecked names become shepherd_scope_exclude) */
 	let managed = $state({});
 
@@ -297,7 +301,7 @@
 					bind:value={maxWakeupsPerDay}
 				/>
 			</div>
-			<span class="hint">하루(자정 기준) 목자 검토 작업 생성 상한입니다. 0은 기본값 30회.</span>
+			<span class="hint">하루(자정 기준) 목자 검토·순찰 작업 생성 상한입니다. 0은 기본값 30회.</span>
 
 			<!-- Attention thresholds (#599): when the panel calls a task slow or a
 			     backlog stale. 0 = daemon default. -->
@@ -325,6 +329,34 @@
 				/>
 			</div>
 			<span class="hint">프로젝트에서 가장 오래된 pending 작업이 이 시간을 넘게 기다리면 적체로 봅니다. 0은 기본값 60분.</span>
+		</section>
+
+		<!-- Patrol (#600): the code re-checks the management scope on a timer and
+		     wakes the shepherd only for problems that are new since the previous
+		     pass. The interval is a Go duration string; "0" turns patrolling off. -->
+		<section class="block">
+			<h3 class="block-title">주기 순찰</h3>
+			<div class="setting-row">
+				<label for="sh-patrol-interval">순찰 주기</label>
+				<input
+					id="sh-patrol-interval"
+					class="input mono"
+					type="text"
+					bind:value={patrolInterval}
+					placeholder="30m"
+					autocomplete="off"
+					spellcheck="false"
+				/>
+			</div>
+			<span class="hint">코드가 관리 범위를 점검하는 주기입니다. <code>"30m"</code>, <code>"1h"</code>처럼 입력하고 <code>"0"</code>이면 끕니다. 켜면 최소 5분입니다.</span>
+			<div class="setting-row">
+				<label for="sh-patrol-wake">새 이상에서 목자 깨우기</label>
+				<label class="toggle" for="sh-patrol-wake">
+					<input id="sh-patrol-wake" type="checkbox" bind:checked={patrolWake} />
+					<span>{patrolWake ? '깨움' : '기록만'}</span>
+				</label>
+			</div>
+			<span class="hint">직전 순찰 이후 새로 생긴 이상이 있을 때만 목자 순찰 작업을 만듭니다. 끄면 순찰 기록만 남기고 목자는 깨우지 않습니다.</span>
 		</section>
 
 		<!-- Scope: "every visible project minus the exclusion list". A project

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -105,7 +106,29 @@ func buildShepherdConfig() (map[string]interface{}, error) {
 		// default (120 / 60), and the settings UI shows the same fallbacks.
 		"stuck_minutes":         config.GetInt("shepherd_stuck_minutes"),
 		"pending_stale_minutes": config.GetInt("shepherd_pending_stale_minutes"),
+		// Patrol (#600). The raw interval string ("30m"; "0" = off, nonzero
+		// clamped to a 5-minute floor by manager.PatrolInterval) and the wake
+		// switch (absent = true, matching patrol.go).
+		"patrol_interval": patrolIntervalSetting(),
+		"patrol_wake":     patrolWakeSetting(),
 	}, nil
+}
+
+// patrolIntervalSetting returns the stored raw string, or the documented
+// default when unset — the settings form needs a visible value.
+func patrolIntervalSetting() string {
+	if v := config.Get("shepherd_patrol_interval"); v != nil {
+		return strings.TrimSpace(config.GetString("shepherd_patrol_interval"))
+	}
+	return "30m"
+}
+
+// patrolWakeSetting mirrors manager.patrolWakeEnabled's unset-means-true rule.
+func patrolWakeSetting() bool {
+	if v := config.Get("shepherd_patrol_wake"); v == nil {
+		return true
+	}
+	return config.GetBool("shepherd_patrol_wake")
 }
 
 // workspaceErrorText turns a validation error into a UI string ("" when ok).
@@ -140,8 +163,12 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 		MaxReviewRounds  *int `json:"max_review_rounds"`
 		MaxWakeupsPerDay *int `json:"max_wakeups_per_day"`
 		// Attention thresholds (#599). Absent = leave alone.
-		StuckMinutes        *int `json:"stuck_minutes"`
-		PendingStaleMinutes *int `json:"pending_stale_minutes"`
+		StuckMinutes        *int  `json:"stuck_minutes"`
+		PendingStaleMinutes *int  `json:"pending_stale_minutes"`
+		// Patrol (#600). patrol_interval is the raw duration string ("30m",
+		// "0" = off); patrol_wake is the wake switch. Absent = leave alone.
+		PatrolInterval *string `json:"patrol_interval"`
+		PatrolWake     *bool   `json:"patrol_wake"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -201,6 +228,24 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 			return fail(c, fiber.StatusBadRequest, "pending_stale_minutes must be >= 0 (0 = default 60)")
 		}
 		values["shepherd_pending_stale_minutes"] = *body.PendingStaleMinutes
+	}
+
+	// Patrol (#600). The interval is stored as the raw Go duration string so
+	// GET shows exactly what was typed; "0" turns patrolling off, and any
+	// other value must parse — manager.PatrolInterval raises it to the 5m
+	// floor at read time, so no clamping here (the form keeps its value).
+	if body.PatrolInterval != nil {
+		raw := strings.TrimSpace(*body.PatrolInterval)
+		if raw == "" {
+			return fail(c, fiber.StatusBadRequest, "patrol_interval must be a duration like \"30m\" (\"0\" = off)")
+		}
+		if d, err := time.ParseDuration(raw); err != nil || d < 0 {
+			return fail(c, fiber.StatusBadRequest, "patrol_interval must be a duration like \"30m\" (\"0\" = off)")
+		}
+		values["shepherd_patrol_interval"] = raw
+	}
+	if body.PatrolWake != nil {
+		values["shepherd_patrol_wake"] = *body.PatrolWake
 	}
 
 	// Provider change: validate against the enabled-provider switches, then
@@ -344,6 +389,17 @@ func (s *Server) handleGetShepherdStatus(c *fiber.Ctx) error {
 	if running {
 		payload["running_task_id"] = runningID
 		payload["inject_available"] = injectable
+	}
+
+	// Patrol card (#600): when the next automatic pass is due. The baseline is
+	// the newest patrol record (a manual "지금 순찰" reschedules the auto pass
+	// too), and an off interval reports patrol_enabled=false with no time.
+	if next, ok := manager.NextPatrolAt(time.Now()); ok {
+		payload["patrol_enabled"] = true
+		payload["next_patrol_at"] = next.Format("2006-01-02 15:04:05")
+		payload["patrol_interval"] = manager.PatrolInterval().String()
+	} else {
+		payload["patrol_enabled"] = false
 	}
 
 	return success(c, payload)
