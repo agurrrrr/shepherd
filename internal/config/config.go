@@ -36,6 +36,16 @@ func init() {
 	configFile = filepath.Join(configDir, "config.yaml")
 }
 
+// UseTempConfigFile points every config write at path instead of the operator's
+// ~/.shepherd/config.yaml. Tests install this before running (see
+// internal/server/testmain_test.go): a handler that calls config.Set writes the
+// whole viper state with WriteConfigAs, so a test that resets viper would
+// otherwise truncate the real config file — auth credentials included.
+func UseTempConfigFile(path string) {
+	configFile = path
+	viper.SetConfigFile(path)
+}
+
 func Init() error {
 	// 설정 디렉토리 생성
 	if err := os.MkdirAll(configDir, 0755); err != nil {
@@ -50,6 +60,23 @@ func Init() error {
 	viper.SetDefault("language", "ko")
 	viper.SetDefault("default_provider", "claude")
 	viper.SetDefault("workspace_path", "")
+
+	// 목자(shepherd) 기본 설정 (#593). 워크스페이스는 위 workspace_path를 그대로 쓴다.
+	//   shepherd_model             : 목자 작업에 넣을 모델. 비어 있으면 프로바이더
+	//                                기본 모델(model_<provider>)을 따른다. embedded는
+	//                                엔드포인트 ID를 넣는다.
+	//   shepherd_instructions      : 사용자가 덧붙이는 목자 운영 지침. 기본 지침(#595
+	//                                예정) 뒤에 붙는다.
+	//   shepherd_scope_exclude     : 목자가 관리하지 않을 프로젝트 이름 목록.
+	//   shepherd_scope_include_hidden : 숨김 프로젝트(projects.hidden)도 관리할지.
+	// 관리 범위는 "숨기지 않은 모든 프로젝트에서 제외 목록을 뺀 것"이다. 새 프로젝트가
+	// 등록되면 자동으로 범위에 들어오게 하기 위한 정의다(계산 헬퍼는
+	// manager.ScopeProjects).
+	// 프로바이더는 키를 새로 만들지 않는다. 매니저 양 행의 sheep.provider가 단일 기준이다.
+	viper.SetDefault("shepherd_model", "")
+	viper.SetDefault("shepherd_instructions", "")
+	viper.SetDefault("shepherd_scope_exclude", []string{})
+	viper.SetDefault("shepherd_scope_include_hidden", false)
 
 	// shell: 임베디드 프로바이더의 bash 도구가 명령을 실행할 셸 실행 파일.
 	// 빈 값이면 OS별 자동 탐지 (Unix: bash → sh, Windows: Git Bash → pwsh →
@@ -313,7 +340,10 @@ func IsProviderEnabled(provider string) bool {
 		p = "claude"
 	}
 	switch p {
-	case "claude", "opencode", "pi", "embedded", "magi":
+	// grok was missing from this list until #593: the settings page rendered an
+	// Off badge for it and PATCH /api/config stored provider_enabled_grok=false,
+	// yet execution never checked the flag — so "disabled" was cosmetic.
+	case "claude", "opencode", "pi", "grok", "embedded", "magi":
 		return GetBool("provider_enabled_" + p)
 	default:
 		return true
@@ -322,6 +352,75 @@ func IsProviderEnabled(provider string) bool {
 
 func GetConfigPath() string {
 	return configFile
+}
+
+// ValidateWorkspacePath normalizes a shepherd workspace path and checks that it
+// exists as a directory. It expands a leading "~" (and a bare "~"), makes the
+// path absolute (filepath.Abs), strips trailing separators (filepath.Clean),
+// and returns the normalized path. The caller should store the returned value,
+// not the raw input, so `~/code` and `/home/x/code/` all persist identically.
+//
+// "/" and the user's home directory are allowed but noteworthy: this daemon's
+// `home` project already points at the home directory, so rejecting them would
+// break existing setups. Callers may warn about them in the UI.
+//
+// An empty path is valid — it means "not set yet". The shepherd settings UI
+// shows a warning for that state instead of an error.
+func ValidateWorkspacePath(p string) (string, error) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return "", nil
+	}
+
+	p = expandHome(p)
+
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", fmt.Errorf("invalid workspace path: %w", err)
+	}
+	abs = filepath.Clean(abs)
+
+	info, err := os.Stat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("workspace path does not exist: %s", abs)
+		}
+		return "", fmt.Errorf("cannot check workspace path: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("workspace path is not a directory: %s", abs)
+	}
+
+	return abs, nil
+}
+
+// expandHome expands a leading "~" or "~/..." to the user's home directory.
+// A "~user" form is left alone — we do not resolve other users' homes.
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	return filepath.Join(home, strings.TrimPrefix(p, "~/"))
+}
+
+// GetSheepScopeExclude returns the list of project names the shepherd manager
+// must NOT manage. Empty names are dropped so a stray blank entry can't match.
+func GetSheepScopeExclude() []string {
+	raw := viper.GetStringSlice("shepherd_scope_exclude")
+	out := make([]string, 0, len(raw))
+	for _, name := range raw {
+		if name = strings.TrimSpace(name); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 func GetConfigDir() string {

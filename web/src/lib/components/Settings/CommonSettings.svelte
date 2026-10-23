@@ -1,7 +1,7 @@
 <script>
 	import PushSettings from './PushSettings.svelte';
 
-	/** @type {{ language: string, default_provider: string, max_sheep: number, max_concurrent_tasks: number, concurrency_limits: Record<string, number>, task_timeout: string, auto_approve: boolean, enable_file_browser: boolean, session_reuse: boolean, include_task_history: boolean, include_mcp_guide: boolean, include_sheep_memory: boolean, sheep_memory_prompt: string, wiki_enabled: boolean, wiki_auto_ingest: boolean, task_checkpoint_enabled: boolean, task_checkpoint_retention_days: number, wiki_max_context_pages: number, wiki_max_page_content_chars: number, discord_notifications_enabled: boolean, discord_webhook_url: string, discord_notify_on_complete: boolean, discord_notify_on_fail: boolean, webpush_enabled: boolean, webpush_notify_on_complete: boolean, webpush_notify_on_fail: boolean, server_host: string, server_port: number, workspace_path: string, model_claude: string }} */
+	/** @type {{ language: string, default_provider: string, max_sheep: number, max_concurrent_tasks: number, concurrency_limits: Record<string, number>, task_timeout: string, auto_approve: boolean, enable_file_browser: boolean, session_reuse: boolean, include_task_history: boolean, include_mcp_guide: boolean, include_sheep_memory: boolean, sheep_memory_prompt: string, wiki_enabled: boolean, wiki_auto_ingest: boolean, task_checkpoint_enabled: boolean, task_checkpoint_retention_days: number, wiki_max_context_pages: number, wiki_max_page_content_chars: number, discord_notifications_enabled: boolean, discord_webhook_url: string, discord_notify_on_complete: boolean, discord_notify_on_fail: boolean, webpush_enabled: boolean, webpush_notify_on_complete: boolean, webpush_notify_on_fail: boolean, server_host: string, server_port: number, model_claude: string }} */
 	export let configData;
 </script>
 
@@ -188,10 +188,6 @@
 <div class="setting-row readonly">
 	<label>Server Host</label>
 	<span class="mono">{configData.server_host}:{configData.server_port}</span>
-</div>
-<div class="setting-row readonly">
-	<label>Workspace</label>
-	<span class="mono">{configData.workspace_path || '(not set)'}</span>
 </div>
 
 <style>

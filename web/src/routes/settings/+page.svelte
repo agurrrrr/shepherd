@@ -3,6 +3,7 @@
 	import { apiGet, apiPatch, apiPost } from '$lib/api.js';
 
 	import CommonSettings from '$lib/components/Settings/CommonSettings.svelte';
+	import ShepherdSettings from '$lib/components/Settings/ShepherdSettings.svelte';
 	import ClaudeSettings from '$lib/components/Settings/ClaudeSettings.svelte';
 	import OpenCodeSettings from '$lib/components/Settings/OpenCodeSettings.svelte';
 	import PiSettings from '$lib/components/Settings/PiSettings.svelte';
@@ -37,9 +38,12 @@
 	// Provider enabled flags (shared mutable state)
 	let providerEnabled = $state({ claude: true, opencode: true, pi: true, grok: true, embedded: true, magi: true });
 
-	// Tab state
-	let activeTab = $state('common');
+	// Tab state — the shepherd tab comes first: setting the workspace is the first
+	// thing a new daemon needs, and its own Save button posts to a different
+	// endpoint than the shared form below (#593).
+	let activeTab = $state('shepherd');
 	const settingsTabs = [
+		{ value: 'shepherd', label: '목자', hint: 'Workspace, orchestrator' },
 		{ value: 'common', label: '공통', hint: 'Daemon, prompts, wiki, alerts' },
 		{ value: 'claude', label: 'Claude', hint: 'Claude Code CLI' },
 		{ value: 'opencode', label: 'OpenCode', hint: 'OpenCode CLI' },
@@ -48,6 +52,9 @@
 		{ value: 'embedded', label: 'Embedded', hint: 'Local & hosted endpoints' },
 		{ value: 'magi', label: 'MAGI', hint: 'Three-model deliberation' }
 	];
+
+	// Only provider tabs get the On/Off badge — the 목자 and 공통 tabs are always on.
+	const providerTabs = ['claude', 'opencode', 'pi', 'grok', 'embedded', 'magi'];
 
 	// 모든 탭을 항상 노출한다. 사용유무 토글이 각 provider 탭 안으로 이동했으므로,
 	// 탭을 숨기면 한 번 끈 provider를 다시 켤 방법이 사라진다. 상태는 ON/OFF 뱃지로 구분.
@@ -212,7 +219,7 @@
 	{#if !loaded}
 		<div class="settings-layout" aria-busy="true">
 			<div class="settings-nav">
-				{#each Array(7) as _}<div class="skeleton" style="height: 38px; margin-bottom: 4px"></div>{/each}
+				{#each Array(settingsTabs.length) as _}<div class="skeleton" style="height: 38px; margin-bottom: 4px"></div>{/each}
 			</div>
 			<div class="card"><div class="skeleton" style="height: 360px"></div></div>
 		</div>
@@ -222,7 +229,9 @@
 			<nav class="settings-nav" aria-label="Settings sections">
 				<span class="nav-caption">General</span>
 				{#each visibleTabs as tab, i}
-					{#if i === 1}<span class="nav-caption">Providers</span>{/if}
+					{#if i > 0 && providerTabs.includes(tab.value) && !providerTabs.includes(visibleTabs[i - 1]?.value)}
+						<span class="nav-caption">Providers</span>
+					{/if}
 					<button
 						class="settings-tab"
 						class:active={activeTab === tab.value}
@@ -233,7 +242,7 @@
 							<span class="tab-label">{tab.label}</span>
 							<span class="tab-hint">{tab.hint}</span>
 						</span>
-						{#if tab.value !== 'common'}
+						{#if providerTabs.includes(tab.value)}
 							<span
 								class="tab-state"
 								class:on={providerEnabled[tab.value]}
@@ -252,6 +261,9 @@
 							<span class="form-hint">{settingsTabs.find((t) => t.value === activeTab)?.hint}</span>
 						</header>
 
+						{#if activeTab === 'shepherd'}
+							<ShepherdSettings {configData} {providerEnabled} {modelOptions} />
+						{/if}
 						{#if activeTab === 'common'}
 							<CommonSettings {configData} />
 						{/if}
@@ -274,7 +286,10 @@
 							<MagiSettings {configData} {providerEnabled} {modelOptions} />
 						{/if}
 
-						<!-- Save/Restart actions -->
+						<!-- Save/Restart actions — the 목자 tab saves through its own
+						     button (PATCH /api/shepherd/config), so the shared form's
+						     buttons stay hidden there. -->
+						{#if activeTab !== 'shepherd'}
 						<div class="setting-actions">
 							{#if saveMsg}
 								<span class="save-msg" class:error={saveMsg.startsWith('Error')} role="status">
@@ -290,6 +305,7 @@
 								{saving ? 'Saving…' : 'Save settings'}
 							</button>
 						</div>
+						{/if}
 					</div>
 				{/key}
 

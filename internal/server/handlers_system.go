@@ -129,67 +129,90 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 	})
 }
 
-// GET /api/config/model-options
-// Returns selectable models for each provider. Claude options are a curated
-// hard-coded list (CLI aliases + pinned versions), OpenCode options are the
-// `opencode models` list captured at daemon startup, Pi options come from
-// ~/.pi/agent/models.json, and Grok options are the `grok models` list captured
-// at daemon startup (refreshable via POST /api/config/grok-models/refresh).
-func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
-	type option struct {
-		ID    string `json:"id"`
-		Label string `json:"label"`
-	}
+// modelOption is one entry in a provider's model selector.
+type modelOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
 
-	claude := []option{
-		{ID: "", Label: "CLI default"},
-		{ID: "opus", Label: "opus (alias — latest Opus)"},
-		{ID: "sonnet", Label: "sonnet (alias — latest Sonnet)"},
-		{ID: "haiku", Label: "haiku (alias — latest Haiku)"},
-		{ID: "claude-sonnet-5.5", Label: "claude-sonnet-5.5"},
-		{ID: "claude-opus-5.5", Label: "claude-opus-5.5"},
-		{ID: "claude-opus-5", Label: "claude-opus-5"},
-		{ID: "claude-fable-5", Label: "claude-fable-5"},
-		{ID: "claude-opus-4-8", Label: "claude-opus-4-8"},
-		{ID: "claude-opus-4-7", Label: "claude-opus-4-7"},
-		{ID: "claude-sonnet-4-6", Label: "claude-sonnet-4-6"},
-		{ID: "claude-haiku-4-5", Label: "claude-haiku-4-5"},
-	}
-
-	opencode := []option{{ID: "", Label: "OpenCode config default"}}
-	for _, m := range config.ListOpenCodeModels() {
-		opencode = append(opencode, option{ID: m.ID, Label: m.Label})
-	}
-
-	pi := []option{{ID: "", Label: "Pi config default"}}
-	for _, m := range config.ListPiModels() {
-		pi = append(pi, option{ID: m.ID, Label: m.Label})
-	}
-
-	grok := []option{{ID: "", Label: grokDefaultLabel()}}
-	for _, m := range config.CachedGrokModels() {
-		grok = append(grok, option{ID: m.ID, Label: m.Label})
-	}
-	grokSource, grokErr, grokFetchedAt := config.GrokModelsCacheInfo()
-
-	// Embedded options are the configured endpoints. The "Default" entry
-	// (empty ID) falls back to the globally active endpoint.
-	embedded := []option{{ID: "", Label: "Active endpoint"}}
-	if cfg, err := config.LoadEmbeddedConfig(); err == nil {
-		for _, ep := range cfg.Endpoints {
-			if !ep.Enabled {
-				continue
-			}
-			label := ep.Label
-			if label == "" {
-				label = ep.ID
-			}
-			if ep.Model != "" {
-				label = label + " (" + ep.Model + ")"
-			}
-			embedded = append(embedded, option{ID: ep.ID, Label: label})
+// modelOptionsFor builds the selectable model list for a provider. Claude's
+// list is a curated hard-coded set (CLI aliases + pinned versions), OpenCode's
+// comes from `opencode models` captured at daemon startup, Pi's from
+// ~/.pi/agent/models.json, Grok's from `grok models` (refreshable via
+// POST /api/config/grok-models/refresh), and embedded's from the configured
+// endpoints. defaultLabel names the empty-ID entry ("use whatever this
+// provider picks when no model is set"). magi has no single model — it
+// deliberates over its own three-model consensus config — so it returns false.
+//
+// handleGetModelOptions (per-provider tabs) and the shepherd tab share this so
+// the two selectors can never drift apart.
+func modelOptionsFor(provider, defaultLabel string) ([]modelOption, bool) {
+	switch provider {
+	case "magi":
+		return nil, false
+	case "claude", "auto": // "auto" folds into Claude at exec time
+		return []modelOption{
+			{ID: "", Label: defaultLabel},
+			{ID: "opus", Label: "opus (alias — latest Opus)"},
+			{ID: "sonnet", Label: "sonnet (alias — latest Sonnet)"},
+			{ID: "haiku", Label: "haiku (alias — latest Haiku)"},
+			{ID: "claude-sonnet-5.5", Label: "claude-sonnet-5.5"},
+			{ID: "claude-opus-5.5", Label: "claude-opus-5.5"},
+			{ID: "claude-opus-5", Label: "claude-opus-5"},
+			{ID: "claude-fable-5", Label: "claude-fable-5"},
+			{ID: "claude-opus-4-8", Label: "claude-opus-4-8"},
+			{ID: "claude-opus-4-7", Label: "claude-opus-4-7"},
+			{ID: "claude-sonnet-4-6", Label: "claude-sonnet-4-6"},
+			{ID: "claude-haiku-4-5", Label: "claude-haiku-4-5"},
+		}, true
+	case "opencode":
+		opts := []modelOption{{ID: "", Label: defaultLabel}}
+		for _, m := range config.ListOpenCodeModels() {
+			opts = append(opts, modelOption{ID: m.ID, Label: m.Label})
 		}
+		return opts, true
+	case "pi":
+		opts := []modelOption{{ID: "", Label: defaultLabel}}
+		for _, m := range config.ListPiModels() {
+			opts = append(opts, modelOption{ID: m.ID, Label: m.Label})
+		}
+		return opts, true
+	case "grok":
+		opts := []modelOption{{ID: "", Label: defaultLabel}}
+		for _, m := range config.CachedGrokModels() {
+			opts = append(opts, modelOption{ID: m.ID, Label: m.Label})
+		}
+		return opts, true
+	default: // embedded, and "auto" which folds into claude at exec time
+		opts := []modelOption{{ID: "", Label: defaultLabel}}
+		if cfg, err := config.LoadEmbeddedConfig(); err == nil {
+			for _, ep := range cfg.Endpoints {
+				if !ep.Enabled {
+					continue
+				}
+				label := ep.Label
+				if label == "" {
+					label = ep.ID
+				}
+				if ep.Model != "" {
+					label = label + " (" + ep.Model + ")"
+				}
+				opts = append(opts, modelOption{ID: ep.ID, Label: label})
+			}
+		}
+		return opts, true
 	}
+}
+
+// GET /api/config/model-options
+// Returns selectable models for each provider. See modelOptionsFor.
+func (s *Server) handleGetModelOptions(c *fiber.Ctx) error {
+	claude, _ := modelOptionsFor("claude", "CLI default")
+	opencode, _ := modelOptionsFor("opencode", "OpenCode config default")
+	pi, _ := modelOptionsFor("pi", "Pi config default")
+	grok, _ := modelOptionsFor("grok", grokDefaultLabel())
+	embedded, _ := modelOptionsFor("embedded", "Active endpoint")
+	grokSource, grokErr, grokFetchedAt := config.GrokModelsCacheInfo()
 
 	return success(c, map[string]interface{}{
 		"claude":   claude,
@@ -323,7 +346,19 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 			value = normalizeConcurrencyLimits(value)
 		}
 
-		if err := config.Set(key, value); err != nil {
+		// workspace_path is shared with the shepherd tab, so it must go through
+		// the same validation there: expand "~", make it absolute, require an
+		// existing directory, and store the normalized form. (#593)
+		if key == "workspace_path" {
+			raw, _ := value.(string)
+			normalized, err := config.ValidateWorkspacePath(raw)
+			if err != nil {
+				return fail(c, fiber.StatusBadRequest, err.Error())
+			}
+			value = normalized
+		}
+
+		if err := persistConfig(map[string]interface{}{key: value}); err != nil {
 			return fail(c, fiber.StatusInternalServerError, "failed to save config: "+err.Error())
 		}
 

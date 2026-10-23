@@ -17,6 +17,11 @@
 	let query = $state('');
 	let unsubs = [];
 
+	// Workspace from the shepherd tab (#593): a new project's path defaults to
+	// <workspace_path>/<name> until the user types a path of their own.
+	let workspacePath = $state('');
+	let pathTouched = $state(false);
+
 	onMount(async () => {
 		await loadProjects();
 		unsubs.push(onSSE('status_change', refreshSheep));
@@ -25,10 +30,12 @@
 	onDestroy(() => unsubs.forEach(fn => fn?.()));
 
 	async function loadProjects() {
-		const [projRes, sheepRes] = await Promise.all([
+		const [projRes, sheepRes, configRes] = await Promise.all([
 			apiGet('/api/projects'),
-			apiGet('/api/sheep')
+			apiGet('/api/sheep'),
+			apiGet('/api/config')
 		]);
+		if (configRes?.data) workspacePath = configRes.data.workspace_path || '';
 		if (projRes?.data) {
 			projects = projRes.data;
 			// Keep the sidebar in sync — it renders from this store.
@@ -47,18 +54,34 @@
 		return ($sheep || []).find(s => s.project === projectName);
 	}
 
+	// Suggested path for a name, or '' when no workspace is set. The handler reads
+	// event.target.value rather than newName: with bind:value + oninput on the same
+	// element, a handler must not rely on the binding having committed yet.
+	function suggestFor(name) {
+		const trimmed = (name || '').trim();
+		return workspacePath && trimmed ? `${workspacePath}/${trimmed}` : '';
+	}
+
+	let suggestedPath = $derived(suggestFor(newName));
+
+	function onNameInput(e) {
+		if (!pathTouched) newPath = suggestFor(e.target.value);
+	}
+
 	async function addProject() {
-		if (!newName || !newPath) return;
+		const path = (newPath || suggestedPath).trim();
+		if (!newName || !path) return;
 		adding = true;
 		const res = await apiPost('/api/projects', {
 			name: newName,
-			path: newPath,
+			path,
 			description: newDesc
 		});
 		if (res?.success) {
 			newName = '';
 			newPath = '';
 			newDesc = '';
+			pathTouched = false;
 			showAdd = false;
 			await loadProjects();
 		}
@@ -117,11 +140,22 @@
 			<div class="form-row">
 				<div class="form-group">
 					<label for="np-name">Name</label>
-					<input id="np-name" class="input" bind:value={newName} placeholder="my-project" />
+					<!-- Text inputs bind on `input`, so the auto-fill hook belongs on
+					     oninput (wiki: svelte5-select-bind-change-vs-input). -->
+					<input id="np-name" class="input" bind:value={newName} oninput={onNameInput} placeholder="my-project" />
 				</div>
 				<div class="form-group">
 					<label for="np-path">Path</label>
-					<input id="np-path" class="input mono" bind:value={newPath} placeholder="/home/user/code/my-project" />
+					<input
+						id="np-path"
+						class="input mono"
+						bind:value={newPath}
+						oninput={() => (pathTouched = true)}
+						placeholder={suggestedPath || '/home/user/code/my-project'}
+					/>
+					{#if !pathTouched && suggestedPath}
+						<span class="path-hint">워크스페이스에서 제안: <span class="mono">{suggestedPath}</span></span>
+					{/if}
 				</div>
 			</div>
 			<div class="form-group">
@@ -271,6 +305,11 @@
 	}
 
 	.form-group .input { width: 100%; font-size: var(--fs-sm); }
+
+	.path-hint {
+		font-size: var(--fs-xs);
+		color: var(--text-tertiary);
+	}
 
 	.add-actions {
 		display: flex;
