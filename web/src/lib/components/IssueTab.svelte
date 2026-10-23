@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { apiGet, apiPost, apiPatch, apiDelete } from '$lib/api.js';
+	import { apiGet, apiPost } from '$lib/api.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
+	import IssueDetailModal from '$lib/components/IssueDetailModal.svelte';
 
 	let { projectName }: { projectName: string } = $props();
 
@@ -23,13 +23,10 @@
 	let showCreate = $state(false);
 	let createForm = $state({ title: '', type: 'feature', body: '', goal: '', parent_id: '' });
 
-	// Detail modal
-	let selectedIssue = $state(null);
+	// Detail modal — markup lives in IssueDetailModal (#599) so the Shepherd
+	// board can reuse it with the shepherd controls (감시/회차/실행).
+	let selectedIssueId = $state(null);
 	let showingDetail = $state(false);
-
-	// Edit inline
-	let editingField = $state(null); // 'title' | 'body' | 'goal' | null
-	let editValue = $state('');
 
 	const statusLabels = {
 		todo: '작업전',
@@ -109,67 +106,13 @@
 		}
 	}
 
-	async function executeIssue(issueId) {
-		const hasChildren = selectedIssue?.id === issueId && selectedIssue?.children?.length > 0;
-		const incomplete = hasChildren
-			? selectedIssue.children.filter((c) => c.status !== 'done').length
-			: 0;
-		const msg =
-			incomplete > 0
-				? `미완료 하위 이슈 ${incomplete}개를 먼저 큐에 넣고, 마지막에 이 이슈를 수행합니다. 계속할까요?`
-				: '이 이슈를 수행하시겠습니까?';
-		if (!confirm(msg)) return;
-		try {
-			const res = await apiPost(`/api/projects/${encodeURIComponent(projectName)}/issues/${issueId}/execute`, {});
-			if (res?.data?.task_ids?.length > 1) {
-				alert(
-					`작업 ${res.data.task_ids.length}개가 큐에 추가되었습니다.\n이슈: ${JSON.stringify(res.data.issue_ids)}\nTask: ${JSON.stringify(res.data.task_ids)}`
-				);
-			}
-			await loadIssues();
-			if (showingDetail && selectedIssue?.id === issueId) {
-				await loadIssueDetail(issueId);
-			}
-		} catch (e) {
-			console.error('Failed to execute issue:', e);
-			alert('수행 요청 실패: ' + (e?.message || e));
-		}
+	async function openDetail(issueId) {
+		selectedIssueId = issueId;
+		showingDetail = true;
 	}
 
-	async function updateIssueStatus(issueId, newStatus) {
-		try {
-			await apiPatch(`/api/projects/${encodeURIComponent(projectName)}/issues/${issueId}`, { status: newStatus });
-			await loadIssues();
-			if (showingDetail && selectedIssue?.id === issueId) {
-				await loadIssueDetail(issueId);
-			}
-		} catch (e) {
-			console.error('Failed to update issue status:', e);
-		}
-	}
-
-	async function deleteIssue(issueId) {
-		if (!confirm('이 이슈를 삭제하시겠습니까? 연결된 작업(Task)은 보존됩니다.')) return;
-		try {
-			await apiDelete(`/api/projects/${encodeURIComponent(projectName)}/issues/${issueId}`);
-			await loadIssues();
-			showingDetail = false;
-			selectedIssue = null;
-		} catch (e) {
-			console.error('Failed to delete issue:', e);
-		}
-	}
-
-	async function loadIssueDetail(issueId) {
-		try {
-			const res = await apiGet(`/api/projects/${encodeURIComponent(projectName)}/issues/${issueId}`);
-			if (res.success) {
-				selectedIssue = res.data;
-				showingDetail = true;
-			}
-		} catch (e) {
-			console.error('Failed to load issue detail:', e);
-		}
+	function onDetailChanged() {
+		loadIssues();
 	}
 
 	function openCreate() {
@@ -182,44 +125,13 @@
 		return (issues || []).filter((i) => !i.parent_id);
 	}
 
-	function childDoneCount(issue) {
-		const kids = issue?.children || [];
-		if (!kids.length) return null;
-		const done = kids.filter((c) => c.status === 'done').length;
-		return { done, total: kids.length };
-	}
-
 	function closeCreate() {
 		showCreate = false;
 	}
 
 	function closeDetail() {
 		showingDetail = false;
-		selectedIssue = null;
-	}
-
-	function startEdit(field) {
-		if (!selectedIssue) return;
-		editingField = field;
-		editValue = selectedIssue[field] || '';
-	}
-
-	async function saveEdit() {
-		if (!selectedIssue || !editingField) return;
-		try {
-			await apiPatch(`/api/projects/${encodeURIComponent(projectName)}/issues/${selectedIssue.id}`, {
-				[editingField]: editValue
-			});
-			editingField = null;
-			await loadIssueDetail(selectedIssue.id);
-		} catch (e) {
-			console.error('Failed to save edit:', e);
-		}
-	}
-
-	function cancelEdit() {
-		editingField = null;
-		editValue = '';
+		selectedIssueId = null;
 	}
 
 	function handlePageChange(newPage) {
@@ -327,138 +239,14 @@
 	</div>
 	{/if}
 
-	<!-- Issue Detail Modal -->
-	{#if showingDetail && selectedIssue}
-	<div class="modal-overlay" onclick={closeDetail}>
-		<div class="modal modal-xl" onclick={(e) => e.stopPropagation()}>
-			<div class="modal-header">
-				<div class="detail-header-left">
-					<span class="type-badge {selectedIssue.type}"><Icon name={typeIcons[selectedIssue.type] || 'file-text'} size={12} /> {typeLabels[selectedIssue.type] || selectedIssue.type}</span>
-					{#if editingField === 'title'}
-						<input type="text" class="edit-input" bind:value={editValue} onkeydown={(e) => e.key === 'Enter' && saveEdit()} />
-					{:else}
-						<h3 onclick={() => startEdit('title')} title="클릭하여 수정">
-							{selectedIssue.title}
-						</h3>
-					{/if}
-				</div>
-				<div class="detail-header-right">
-					{#if selectedIssue.status === 'testing'}
-						<button class="btn btn-sm btn-success" onclick={() => updateIssueStatus(selectedIssue.id, 'done')}><Icon name="check" size={13} stroke={2.4} /> 성공</button>
-						<button class="btn btn-sm btn-danger" onclick={() => updateIssueStatus(selectedIssue.id, 'failed')}><Icon name="x" size={13} stroke={2.4} /> 실패</button>
-					{/if}
-					{#if (selectedIssue.status === 'todo' || selectedIssue.status === 'testing' || selectedIssue.status === 'failed')}
-						<button class="btn btn-sm btn-primary" onclick={() => executeIssue(selectedIssue.id)}><Icon name="play" size={11} stroke={2.4} /> 수행</button>
-					{/if}
-					<button class="btn btn-sm btn-ghost btn-icon btn-del" onclick={() => deleteIssue(selectedIssue.id)} title="삭제" aria-label="이슈 삭제"><Icon name="trash" size={14} /></button>
-					<button class="btn btn-sm btn-ghost btn-icon" onclick={closeDetail} aria-label="닫기"><Icon name="x" size={15} /></button>
-				</div>
-			</div>
-			<div class="modal-body detail-body">
-				<div class="detail-status-bar">
-					<span class="status-label">상태:</span>
-					<span class="status-badge {selectedIssue.status}">{statusLabels[selectedIssue.status] || selectedIssue.status}</span>
-					{#if selectedIssue.parent_id}
-						<span class="detail-meta">
-							상위:
-							<button class="linkish" onclick={() => loadIssueDetail(selectedIssue.parent_id)}>
-								#{selectedIssue.parent_id}{selectedIssue.parent ? ` ${selectedIssue.parent.title}` : ''}
-							</button>
-						</span>
-					{/if}
-					{#if selectedIssue.started_at}
-						<span class="detail-meta">시작: {selectedIssue.started_at}</span>
-					{/if}
-					{#if selectedIssue.completed_at}
-						<span class="detail-meta">마감: {selectedIssue.completed_at}</span>
-					{/if}
-					<span class="detail-meta">생성: {selectedIssue.created_at}</span>
-				</div>
-
-				<!-- Body -->
-				<div class="detail-section">
-					<h4 onclick={() => startEdit('body')} title="클릭하여 수정">이슈 내용</h4>
-					{#if editingField === 'body'}
-						<textarea class="edit-textarea" bind:value={editValue} rows="8" onkeydown={(e) => e.key === 'Enter' && e.ctrlKey && saveEdit()}></textarea>
-						<div class="edit-actions">
-							<button class="btn btn-sm btn-primary" onclick={saveEdit}>저장</button>
-							<button class="btn btn-sm" onclick={cancelEdit}>취소</button>
-						</div>
-					{:else}
-						{#if selectedIssue.body}
-							<div class="detail-markdown"><MarkdownBody text={selectedIssue.body} /></div>
-						{:else}
-							<div class="detail-content empty">내용이 없습니다.</div>
-						{/if}
-					{/if}
-				</div>
-
-				<!-- Children checklist (auto, live status — not stored in body) -->
-				{#if selectedIssue.children && selectedIssue.children.length > 0}
-				<div class="detail-section">
-					<h4>
-						하위 이슈
-						{#if childDoneCount(selectedIssue)}
-							<span class="child-progress">
-								({childDoneCount(selectedIssue).done}/{childDoneCount(selectedIssue).total} 완료)
-							</span>
-						{/if}
-					</h4>
-					<div class="children-list">
-						{#each selectedIssue.children as child}
-						<div class="child-row" class:child-done={child.status === 'done'}>
-							<span class="child-check" aria-hidden="true">
-								<Icon name={child.status === 'done' ? 'check-circle' : 'circle'} size={14} />
-							</span>
-							<button class="child-link" onclick={() => loadIssueDetail(child.id)}>
-								#{child.id} {child.title}
-							</button>
-							<span class="status-badge {child.status}">{statusLabels[child.status] || child.status}</span>
-						</div>
-						{/each}
-					</div>
-					<p class="children-hint">수행하면 미완료 하위 이슈가 먼저 큐에 들어가고, 이 이슈가 마지막에 들어갑니다.</p>
-				</div>
-				{/if}
-
-				<!-- Goal -->
-				<div class="detail-section">
-					<h4 onclick={() => startEdit('goal')} title="클릭하여 수정">목표 (완료 기준)</h4>
-					{#if editingField === 'goal'}
-						<textarea class="edit-textarea" bind:value={editValue} rows="4" onkeydown={(e) => e.key === 'Enter' && e.ctrlKey && saveEdit()}></textarea>
-						<div class="edit-actions">
-							<button class="btn btn-sm btn-primary" onclick={saveEdit}>저장</button>
-							<button class="btn btn-sm" onclick={cancelEdit}>취소</button>
-						</div>
-					{:else}
-						<div class="detail-content goal-content">{selectedIssue.goal || '목표가 설정되지 않았습니다.'}</div>
-					{/if}
-				</div>
-
-				<!-- Linked Tasks -->
-				{#if selectedIssue.tasks && selectedIssue.tasks.length > 0}
-				<div class="detail-section">
-					<h4>연결된 작업 ({selectedIssue.tasks.length})</h4>
-					<div class="linked-tasks">
-						{#each selectedIssue.tasks as task}
-						<div class="linked-task">
-							<a href="#/history" class="task-link">작업 #{task.id}</a>
-							<span class="task-status-badge {task.status}">{task.status}</span>
-							{#if task.summary}
-								<span class="task-summary">{task.summary}</span>
-							{/if}
-							<span class="task-date">{task.created_at}</span>
-						</div>
-						{/each}
-					</div>
-				</div>
-				{/if}
-			</div>
-			<div class="modal-footer">
-				<button class="btn" onclick={closeDetail}>닫기</button>
-			</div>
-		</div>
-	</div>
+	<!-- Issue Detail Modal — shared component (#599) -->
+	{#if showingDetail && selectedIssueId != null}
+		<IssueDetailModal
+			projectName={projectName}
+			issueId={selectedIssueId}
+			onClose={closeDetail}
+			onChanged={onDetailChanged}
+		/>
 	{/if}
 
 	<!-- Issue List -->
@@ -483,8 +271,8 @@
 				class:is-child={!!issue.parent_id}
 				role="button"
 				tabindex="0"
-				onclick={() => loadIssueDetail(issue.id)}
-				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadIssueDetail(issue.id); } }}
+				onclick={() => openDetail(issue.id)}
+				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(issue.id); } }}
 			>
 				<div class="issue-card-header">
 					<span class="type-icon {issue.type}" aria-hidden="true"><Icon name={typeIcons[issue.type] || 'file-text'} size={14} /></span>
@@ -701,87 +489,7 @@
 		color: var(--accent);
 	}
 
-	/* Children checklist in detail */
-	.children-list {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
 
-	.child-row {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 8px 12px;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius);
-		background: var(--bg-3);
-		font-size: var(--fs-sm);
-	}
-
-	.child-row.child-done {
-		opacity: 0.7;
-	}
-
-	.child-check {
-		display: inline-flex;
-		flex-shrink: 0;
-		color: var(--text-tertiary);
-	}
-
-	.child-done .child-check {
-		color: var(--success);
-	}
-
-	.child-link {
-		flex: 1;
-		min-width: 0;
-		padding: 0;
-		border: none;
-		background: none;
-		color: var(--text-primary);
-		font-family: inherit;
-		font-size: inherit;
-		text-align: left;
-		cursor: pointer;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.child-link:hover {
-		color: var(--accent);
-	}
-
-	.child-progress {
-		font-family: var(--font-mono);
-		font-weight: 400;
-		color: var(--text-tertiary);
-		font-size: var(--fs-2xs);
-		letter-spacing: 0;
-		text-transform: none;
-	}
-
-	.children-hint {
-		margin: 10px 0 0;
-		font-size: var(--fs-xs);
-		color: var(--text-tertiary);
-	}
-
-	.linkish {
-		padding: 0;
-		border: none;
-		background: none;
-		color: var(--accent);
-		font-family: inherit;
-		font-size: inherit;
-		cursor: pointer;
-		text-decoration: underline;
-		text-decoration-thickness: 1px;
-		text-underline-offset: 3px;
-	}
-
-	/* Modal — sits on the shared overlay recipe (app.css .modal-overlay) */
 	.modal-overlay {
 		position: fixed;
 		inset: 0;
@@ -812,7 +520,6 @@
 	}
 
 	.modal-lg { max-width: 700px; }
-	.modal-xl { max-width: 900px; }
 
 	.modal-header {
 		display: flex;
@@ -877,187 +584,7 @@
 
 	.form-row .form-group { flex: 1; min-width: 0; }
 
-	/* Detail */
-	.detail-header-left {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		flex: 1;
-		min-width: 0;
-	}
 
-	.detail-header-left h3 {
-		margin: 0;
-		font-size: var(--fs-md);
-		cursor: text;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.detail-header-left h3:hover {
-		color: var(--accent);
-	}
-
-	.detail-header-right {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		flex-shrink: 0;
-	}
-
-	.type-badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		flex-shrink: 0;
-		padding: 1px 9px;
-		border-radius: var(--radius-full);
-		font-size: var(--fs-2xs);
-		font-weight: var(--fw-medium);
-		line-height: 1.7;
-		background: rgba(237, 230, 218, 0.05);
-		color: var(--text-secondary);
-	}
-
-	.type-badge.feature { background: var(--accent-soft); color: var(--accent); }
-	.type-badge.bug { background: var(--danger-soft); color: var(--danger); }
-	.type-badge.design { background: var(--queued-soft); color: var(--queued); }
-
-	.detail-status-bar {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 8px 14px;
-		padding-bottom: 4px;
-		font-size: var(--fs-xs);
-	}
-
-	.status-label { color: var(--text-tertiary); }
-
-	.detail-meta {
-		font-family: var(--font-mono);
-		color: var(--text-tertiary);
-		font-size: var(--fs-2xs);
-	}
-
-	.detail-section {
-		margin-top: 20px;
-		padding-top: 16px;
-		border-top: 1px solid var(--border-subtle);
-	}
-
-	.detail-section h4 {
-		margin: 0 0 10px;
-		font-family: var(--font-mono);
-		font-size: 10px;
-		font-weight: var(--fw-medium);
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--text-tertiary);
-		cursor: pointer;
-	}
-
-	.detail-section h4:hover {
-		color: var(--text-secondary);
-	}
-
-	.detail-markdown {
-		font-size: var(--fs-sm);
-	}
-
-	.detail-content.empty {
-		color: var(--text-tertiary);
-	}
-
-	.detail-meta .linkish {
-		font-family: var(--font-sans);
-		font-size: var(--fs-xs);
-	}
-
-	.detail-content {
-		font-size: var(--fs-sm);
-		line-height: 1.65;
-		color: var(--text-primary);
-		white-space: pre-wrap;
-	}
-
-	.goal-content {
-		padding: 12px 14px;
-		border-radius: var(--radius);
-		background: var(--accent-soft);
-		box-shadow: inset 2px 0 0 var(--accent);
-	}
-
-	.edit-input,
-	.edit-textarea {
-		width: 100%;
-		padding: 6px 10px;
-		border-color: rgba(244, 184, 96, 0.6);
-		font-size: inherit;
-		font-family: inherit;
-	}
-
-	.edit-textarea { resize: vertical; }
-
-	.edit-actions {
-		margin-top: 8px;
-		display: flex;
-		gap: 6px;
-	}
-
-	/* Linked Tasks */
-	.linked-tasks {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.linked-task {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 8px 12px;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius);
-		background: var(--bg-3);
-		font-size: var(--fs-sm);
-	}
-
-	.task-link {
-		flex-shrink: 0;
-		font-weight: var(--fw-medium);
-	}
-
-	.task-status-badge {
-		flex-shrink: 0;
-		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
-		color: var(--text-secondary);
-	}
-
-	.task-status-badge.completed { color: var(--success); }
-	.task-status-badge.failed { color: var(--danger); }
-	.task-status-badge.stopped { color: var(--wool); }
-	.task-status-badge.running { color: var(--live); }
-
-	.task-summary {
-		flex: 1;
-		min-width: 0;
-		color: var(--text-secondary);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.task-date {
-		flex-shrink: 0;
-		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
-		color: var(--text-tertiary);
-	}
-
-	/* Pagination */
 	.pagination-bar {
 		display: flex;
 		align-items: center;
@@ -1105,25 +632,6 @@
 		margin-bottom: 8px;
 		font-size: var(--fs-sm);
 		color: var(--text-secondary);
-	}
-
-	/* Local button variants (global .btn covers the rest) */
-	.btn-success {
-		background: var(--success-soft);
-		border-color: var(--success-line);
-		color: var(--success);
-		box-shadow: none;
-	}
-
-	.btn-success:hover {
-		background: rgba(159, 214, 133, 0.22);
-		border-color: var(--success);
-		color: var(--success);
-	}
-
-	.btn-del:hover {
-		color: var(--danger);
-		background: var(--danger-soft);
 	}
 
 	@media (max-width: 640px) {

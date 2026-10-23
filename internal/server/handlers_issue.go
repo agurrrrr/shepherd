@@ -7,6 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/agurrrrr/shepherd/ent"
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/issue"
 )
 
@@ -35,7 +36,25 @@ func issueToListItem(iss *ent.Issue, taskCount int) fiber.Map {
 	// Shepherd (목자) delegation state (#597) — the issue board reads the flag.
 	item["shepherd_watch"] = iss.ShepherdWatch
 	item["shepherd_rounds"] = iss.ShepherdRounds
+	// Board cards show one line of the shepherd's last review (#599); the
+	// full text lives in the detail response.
+	if iss.ShepherdLastReview != "" {
+		item["shepherd_last_review"] = firstLineForBoard(iss.ShepherdLastReview)
+	}
 	return item
+}
+
+// firstLineForBoard trims the shepherd review text to its first line, capped
+// so wide list payloads stay small.
+func firstLineForBoard(s string) string {
+	if idx := strings.IndexByte(s, '\n'); idx >= 0 {
+		s = s[:idx]
+	}
+	r := []rune(strings.TrimSpace(s))
+	if len(r) > 120 {
+		return string(r[:120]) + "…"
+	}
+	return string(r)
 }
 
 // issueToDetail maps an issue with linked tasks, parent, and children for get/create/update.
@@ -247,6 +266,12 @@ func (s *Server) handleListAllIssues(c *fiber.Ctx) error {
 		IncludeHidden: c.QueryBool("include_hidden", false),
 		OmitBody:      !c.QueryBool("include_body", false),
 	}
+	// watched=true → only shepherd-watched issues; watched=false → the rest.
+	// Absent = no filter (#599 board toggle).
+	if raw := c.Query("watched"); raw != "" {
+		w := c.QueryBool("watched", false)
+		f.Watched = &w
+	}
 
 	result, err := issue.List(f)
 	if err != nil {
@@ -262,10 +287,13 @@ func (s *Server) handleListAllIssues(c *fiber.Ctx) error {
 		"success":     true,
 		"data":        items,
 		"counts":      result.StatusCount,
-		"total":       result.Total,
-		"page":        result.Page,
-		"limit":       result.Limit,
-		"total_pages": result.TotalPages,
+		// Board cards render review rounds as k/max (#599); max is the global
+		// wake cap from config, so it rides on the payload once per page.
+		"max_review_rounds": config.GetInt("shepherd_max_review_rounds"),
+		"total":             result.Total,
+		"page":              result.Page,
+		"limit":             result.Limit,
+		"total_pages":       result.TotalPages,
 	})
 }
 
@@ -342,6 +370,8 @@ func (s *Server) handleUpdateIssue(c *fiber.Ctx) error {
 		// Shepherd (목자) fields (#597). Absent = leave unchanged.
 		ShepherdWatch      *bool   `json:"shepherd_watch,omitempty"`
 		ShepherdLastReview *string `json:"shepherd_last_review,omitempty"`
+		// Review round reset (#599): the board's 회차 초기화 button sends 0.
+		ShepherdRounds *int `json:"shepherd_rounds,omitempty"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -356,6 +386,7 @@ func (s *Server) handleUpdateIssue(c *fiber.Ctx) error {
 		ParentID:           body.ParentID,
 		ShepherdWatch:      body.ShepherdWatch,
 		ShepherdLastReview: body.ShepherdLastReview,
+		ShepherdRounds:     body.ShepherdRounds,
 	})
 	if err != nil {
 		return issueFail(c, err)
@@ -392,6 +423,9 @@ func (s *Server) handleExecuteIssue(c *fiber.Ctx) error {
 	var body struct {
 		SheepName string `json:"sheep_name"`
 		Model     string `json:"model,omitempty"`
+		// Watch (#599): the board's "감시를 켜고 실행" option — enqueueing also
+		// turns on shepherd_watch for the whole cascade.
+		Watch bool `json:"watch,omitempty"`
 	}
 	// Empty body is allowed (sheep falls back to project assignment).
 	_ = c.BodyParser(&body)
@@ -401,6 +435,7 @@ func (s *Server) handleExecuteIssue(c *fiber.Ctx) error {
 		IssueID:   id,
 		SheepName: body.SheepName,
 		Model:     body.Model,
+		Watch:     body.Watch,
 	})
 	if err != nil {
 		return issueFail(c, err)

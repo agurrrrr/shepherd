@@ -353,3 +353,42 @@ func TestCreateManagerTaskUnchangedShape(t *testing.T) {
 		t.Errorf("priority=%d kind=%q, want 1/command", withKind.Priority, withKind.ShepherdKind)
 	}
 }
+
+// TestDispatchShepherdAfterCircuitReset (#599) pins the round trip the panel's
+// "서킷 초기화" button relies on: a tripped manager refuses to dispatch, and
+// after worker.Reset(untrip) the very next dispatch pass claims the pending
+// shepherd task again. The run itself fails fast (no embedded executor in
+// tests), which is exactly the proof that dispatch happened.
+func TestDispatchShepherdAfterCircuitReset(t *testing.T) {
+	client, mgrName := shepherdDispatchTestEnv(t)
+	ctx := context.Background()
+
+	mgr := client.Sheep.Query().Where(sheep.Name(names.ManagerName)).OnlyX(ctx)
+	client.Sheep.UpdateOneID(mgr.ID).
+		SetConsecutiveFailures(CircuitBreakerThreshold).ExecX(ctx)
+	created := createShepherdTask(t, client, mgr.ID, "command", 1)
+
+	p := NewProcessor(time.Second)
+
+	// Tripped: nothing dispatches; the task stays pending.
+	p.checkAndExecutePendingTasks()
+	if got := client.Task.GetX(ctx, created.ID); got.Status != task.StatusPending {
+		t.Fatalf("tripped breaker must block dispatch, task status = %s", got.Status)
+	}
+
+	// Reset (same call POST /api/sheep/:name/reset makes) untrips the circuit.
+	if _, err := worker.Reset(mgrName, worker.ResetOptions{ResetCircuit: true}); err != nil {
+		t.Fatalf("worker.Reset: %v", err)
+	}
+	if got := client.Sheep.Query().Where(sheep.Name(names.ManagerName)).OnlyX(ctx); got.ConsecutiveFailures != 0 {
+		t.Fatalf("reset must zero consecutive_failures, got %d", got.ConsecutiveFailures)
+	}
+
+	// The processor dispatches again; with no embedded executor registered the
+	// run fails fast — pending → failed proves the claim happened.
+	p.checkAndExecutePendingTasks()
+	settled := waitTaskSettled(t, client, names.ManagerName, created.ID)
+	if settled.Status == task.StatusPending {
+		t.Fatal("after reset the processor must dispatch the pending shepherd task")
+	}
+}

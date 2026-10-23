@@ -13,6 +13,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/schema"
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/sheepname"
+	"github.com/agurrrrr/shepherd/ent/shepherdack"
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
@@ -169,6 +170,16 @@ func init() {
 	sheepnameDescCreatedAt := sheepnameFields[2].Descriptor()
 	// sheepname.DefaultCreatedAt holds the default value on creation for the created_at field.
 	sheepname.DefaultCreatedAt = sheepnameDescCreatedAt.Default.(func() time.Time)
+	shepherdackFields := schema.ShepherdAck{}.Fields()
+	_ = shepherdackFields
+	// shepherdackDescFingerprint is the schema descriptor for fingerprint field.
+	shepherdackDescFingerprint := shepherdackFields[0].Descriptor()
+	// shepherdack.FingerprintValidator is a validator for the "fingerprint" field. It is called by the builders before save.
+	shepherdack.FingerprintValidator = shepherdackDescFingerprint.Validators[0].(func(string) error)
+	// shepherdackDescAckedAt is the schema descriptor for acked_at field.
+	shepherdackDescAckedAt := shepherdackFields[1].Descriptor()
+	// shepherdack.DefaultAckedAt holds the default value on creation for the acked_at field.
+	shepherdack.DefaultAckedAt = shepherdackDescAckedAt.Default.(func() time.Time)
 	skillFields := schema.Skill{}.Fields()
 	_ = skillFields
 	// skillDescName is the schema descriptor for name field.

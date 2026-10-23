@@ -178,6 +178,25 @@ var (
 		Columns:    SheepNamesColumns,
 		PrimaryKey: []*schema.Column{SheepNamesColumns[0]},
 	}
+	// ShepherdAcksColumns holds the columns for the "shepherd_acks" table.
+	ShepherdAcksColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "fingerprint", Type: field.TypeString, Unique: true},
+		{Name: "acked_at", Type: field.TypeTime},
+	}
+	// ShepherdAcksTable holds the schema information for the "shepherd_acks" table.
+	ShepherdAcksTable = &schema.Table{
+		Name:       "shepherd_acks",
+		Columns:    ShepherdAcksColumns,
+		PrimaryKey: []*schema.Column{ShepherdAcksColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "shepherdack_acked_at",
+				Unique:  false,
+				Columns: []*schema.Column{ShepherdAcksColumns[2]},
+			},
+		},
+	}
 	// SkillsColumns holds the columns for the "skills" table.
 	SkillsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -343,6 +362,7 @@ var (
 		SchedulesTable,
 		SheepTable,
 		SheepNamesTable,
+		ShepherdAcksTable,
 		SkillsTable,
 		TasksTable,
 		WikiPagesTable,

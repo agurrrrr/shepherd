@@ -42,3 +42,8 @@ export const isAuthenticated = writable(false);
 export const sheep = writable([]);
 export const projects = writable([]);
 export const systemStatus = writable(null);
+
+// Needs-attention count (#599) for the sidebar's Shepherd badge. Written by
+// the layout's debounced SSE refresh and by the Shepherd page's AttentionPanel
+// (immediate feedback after ack/actions).
+export const shepherdAttention = writable(0);

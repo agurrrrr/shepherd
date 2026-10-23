@@ -1,8 +1,9 @@
 <script>
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
-	import { accessToken, isAuthenticated, username, systemStatus, projects, sheep } from '$lib/stores.js';
+	import { accessToken, isAuthenticated, username, systemStatus, projects, sheep, shepherdAttention } from '$lib/stores.js';
 	import { logout, apiGet } from '$lib/api.js';
+	import { refreshShepherdAttention } from '$lib/attention.js';
 	import { connectSSE, disconnectSSE, onSSE } from '$lib/sse.js';
 	import { syncPushSubscription } from '$lib/push.js';
 	import { goto, onNavigate } from '$app/navigation';
@@ -51,16 +52,23 @@
 		failed: $systemStatus?.tasks?.failed ?? 0
 	});
 
-	// Shepherd (목자) state for the sidebar dot + attention badge (#598).
+	// Shepherd (목자) state for the sidebar dot + attention badge (#598/#599).
 	// worker.List()/systemStatus exclude the manager sheep, so the sidebar asks
-	// /api/shepherd/status directly. The attention count stays 0 until stage #7
-	// fills it; the chip slot is already here.
+	// /api/shepherd/status directly. The attention count comes from the shared
+	// shepherdAttention store — the Shepherd page's panel keeps it fresh too.
 	let shepherdWorking = $state(false);
-	let shepherdAttention = $state(0);
 
 	async function refreshShepherdStatus() {
 		const res = await apiGet('/api/shepherd/status');
 		if (res?.data) shepherdWorking = res.data.status === 'working';
+	}
+
+	// SSE bursts (task_start → output → complete) collapse into one attention
+	// refresh — same debounce window as the board (#599).
+	let attentionTimer = null;
+	function scheduleAttentionRefresh() {
+		clearTimeout(attentionTimer);
+		attentionTimer = setTimeout(() => refreshShepherdAttention(), 600);
 	}
 
 	// Share of finished tasks that succeeded — drives the sidebar flock meter.
@@ -114,6 +122,7 @@
 				.then(res => { if (res?.data) systemStatus.set(res.data); })
 				.catch(() => {});
 			refreshShepherdStatus().catch(() => {});
+			refreshShepherdAttention().catch(() => {});
 		}
 
 		// Refresh stats + sheep status on SSE events
@@ -134,9 +143,9 @@
 					s.name === data.sheep_name ? { ...s, provider: data.provider } : s
 				));
 			}),
-			onSSE('task_start', () => { refreshStatus(); refreshShepherdStatus(); }),
-			onSSE('task_complete', () => { refreshStatus(); refreshShepherdStatus(); }),
-			onSSE('task_fail', () => { refreshStatus(); refreshShepherdStatus(); })
+			onSSE('task_start', () => { refreshStatus(); refreshShepherdStatus(); scheduleAttentionRefresh(); }),
+			onSSE('task_complete', () => { refreshStatus(); refreshShepherdStatus(); scheduleAttentionRefresh(); }),
+			onSSE('task_fail', () => { refreshStatus(); refreshShepherdStatus(); scheduleAttentionRefresh(); })
 		);
 
 		syncPushSubscription().catch(() => {});
@@ -146,6 +155,7 @@
 
 	onDestroy(() => {
 		unsubscribers.forEach(fn => fn?.());
+		clearTimeout(attentionTimer);
 	});
 
 	async function refreshStatus() {
@@ -210,7 +220,7 @@
 			<nav class="sidebar-nav" aria-label="Primary">
 				<span class="nav-label">Watch</span>
 				{@render navLink('/', 'layout-dashboard', 'Dashboard', $page.url.pathname === '/')}
-				{@render navLink('/shepherd', 'sheep', 'Shepherd', $page.url.pathname.startsWith('/shepherd'), shepherdWorking ? 'working' : '', shepherdAttention)}
+				{@render navLink('/shepherd', 'sheep', 'Shepherd', $page.url.pathname.startsWith('/shepherd'), shepherdWorking ? 'working' : '', $shepherdAttention)}
 
 				<!-- Projects accordion -->
 				<div class="nav-group">

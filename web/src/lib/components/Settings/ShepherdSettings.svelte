@@ -30,6 +30,10 @@
 	// Wake caps (#597). 0 means "use the daemon default" (rounds 3 / wakeups 30).
 	let maxReviewRounds = $state(0);
 	let maxWakeupsPerDay = $state(0);
+	// Attention thresholds (#599). 0 means "use the daemon default"
+	// (stuck 120분 / pending stale 60분).
+	let stuckMinutes = $state(0);
+	let pendingStaleMinutes = $state(0);
 	/** name -> true when the project is managed (unchecked names become shepherd_scope_exclude) */
 	let managed = $state({});
 
@@ -71,6 +75,8 @@
 		includeHidden = payload.scope_include_hidden === true;
 		maxReviewRounds = Number(payload.max_review_rounds ?? 0);
 		maxWakeupsPerDay = Number(payload.max_wakeups_per_day ?? 0);
+		stuckMinutes = Number(payload.stuck_minutes ?? 0);
+		pendingStaleMinutes = Number(payload.pending_stale_minutes ?? 0);
 		validationError = payload.workspace_error || '';
 
 		const next = {};
@@ -146,7 +152,9 @@
 				scope_exclude: exclude,
 				scope_include_hidden: includeHidden,
 				max_review_rounds: Math.max(0, Math.trunc(Number(maxReviewRounds) || 0)),
-				max_wakeups_per_day: Math.max(0, Math.trunc(Number(maxWakeupsPerDay) || 0))
+				max_wakeups_per_day: Math.max(0, Math.trunc(Number(maxWakeupsPerDay) || 0)),
+				stuck_minutes: Math.max(0, Math.trunc(Number(stuckMinutes) || 0)),
+				pending_stale_minutes: Math.max(0, Math.trunc(Number(pendingStaleMinutes) || 0))
 			});
 			if (res?.success && res.data) {
 				applyPayload(res.data);
@@ -290,6 +298,33 @@
 				/>
 			</div>
 			<span class="hint">하루(자정 기준) 목자 검토 작업 생성 상한입니다. 0은 기본값 30회.</span>
+
+			<!-- Attention thresholds (#599): when the panel calls a task slow or a
+			     backlog stale. 0 = daemon default. -->
+			<div class="setting-row">
+				<label for="sh-stuck-minutes">오래 실행 기준 (분)</label>
+				<input
+					id="sh-stuck-minutes"
+					class="input"
+					type="number"
+					min="0"
+					max="10000"
+					bind:value={stuckMinutes}
+				/>
+			</div>
+			<span class="hint">running 작업이 이 시간을 넘게 실행되면 확인 필요 항목으로 올립니다. 0은 기본값 120분.</span>
+			<div class="setting-row">
+				<label for="sh-pending-stale-minutes">pending 적체 기준 (분)</label>
+				<input
+					id="sh-pending-stale-minutes"
+					class="input"
+					type="number"
+					min="0"
+					max="10000"
+					bind:value={pendingStaleMinutes}
+				/>
+			</div>
+			<span class="hint">프로젝트에서 가장 오래된 pending 작업이 이 시간을 넘게 기다리면 적체로 봅니다. 0은 기본값 60분.</span>
 		</section>
 
 		<!-- Scope: "every visible project minus the exclusion list". A project

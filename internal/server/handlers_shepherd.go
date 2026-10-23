@@ -101,6 +101,10 @@ func buildShepherdConfig() (map[string]interface{}, error) {
 		// built-in default (3 / 30), and the UI shows the same fallbacks.
 		"max_review_rounds":   config.GetInt("shepherd_max_review_rounds"),
 		"max_wakeups_per_day": config.GetInt("shepherd_max_wakeups_per_day"),
+		// Attention thresholds (#599). attention.go treats <=0 as its built-in
+		// default (120 / 60), and the settings UI shows the same fallbacks.
+		"stuck_minutes":         config.GetInt("shepherd_stuck_minutes"),
+		"pending_stale_minutes": config.GetInt("shepherd_pending_stale_minutes"),
 	}, nil
 }
 
@@ -135,6 +139,9 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 		// Wake caps (#597). Absent = leave alone.
 		MaxReviewRounds  *int `json:"max_review_rounds"`
 		MaxWakeupsPerDay *int `json:"max_wakeups_per_day"`
+		// Attention thresholds (#599). Absent = leave alone.
+		StuckMinutes        *int `json:"stuck_minutes"`
+		PendingStaleMinutes *int `json:"pending_stale_minutes"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -180,6 +187,20 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 			return fail(c, fiber.StatusBadRequest, "max_wakeups_per_day must be >= 0 (0 = default 30)")
 		}
 		values["shepherd_max_wakeups_per_day"] = *body.MaxWakeupsPerDay
+	}
+
+	// Attention thresholds (#599). Same 0-means-default rule as the wake caps.
+	if body.StuckMinutes != nil {
+		if *body.StuckMinutes < 0 {
+			return fail(c, fiber.StatusBadRequest, "stuck_minutes must be >= 0 (0 = default 120)")
+		}
+		values["shepherd_stuck_minutes"] = *body.StuckMinutes
+	}
+	if body.PendingStaleMinutes != nil {
+		if *body.PendingStaleMinutes < 0 {
+			return fail(c, fiber.StatusBadRequest, "pending_stale_minutes must be >= 0 (0 = default 60)")
+		}
+		values["shepherd_pending_stale_minutes"] = *body.PendingStaleMinutes
 	}
 
 	// Provider change: validate against the enabled-provider switches, then

@@ -50,6 +50,9 @@ type UpdateInput struct {
 	// Shepherd (목자) fields (#597). Nil = leave unchanged.
 	ShepherdWatch      *bool
 	ShepherdLastReview *string
+	// ShepherdRounds resets/sets the review round counter (#599): the board's
+	// "회차 초기화" button sends 0 so wake.go's round cap opens again.
+	ShepherdRounds *int
 }
 
 // ListFilter controls listing / filtering.
@@ -74,6 +77,10 @@ type ListFilter struct {
 	IncludeHidden bool     // false (default) drops issues of hidden projects in cross-project mode
 	OmitBody      bool     // drop `body` from items so wide-list payloads stay small
 	SortBy        string   // "" = created_at (default); "updated" = updated_at first (board ordering)
+
+	// WatchedOnly (#599) keeps only shepherd-watched issues — the board's
+	// "감시 중인 이슈만" filter. nil = no filter.
+	Watched *bool
 }
 
 // LastTask is the most recent task linked to an issue (created_at order).
@@ -332,6 +339,10 @@ func buildListQuery(ctx context.Context, client *ent.Client, f ListFilter, apply
 			query = query.Where(entIssue.ParentIDEQ(*f.ParentID))
 		}
 	}
+	// Shepherd watch filter (#599): the board's "감시 중인 이슈만" toggle.
+	if f.Watched != nil {
+		query = query.Where(entIssue.ShepherdWatch(*f.Watched))
+	}
 	return query, nil
 }
 
@@ -465,8 +476,8 @@ func Update(projectName string, id int, in UpdateInput) (*ent.Issue, error) {
 	}
 
 	if in.Title == nil && in.Type == nil && in.Body == nil && in.Goal == nil && in.Status == nil && in.ParentID == nil &&
-		in.ShepherdWatch == nil && in.ShepherdLastReview == nil {
-		return nil, fmt.Errorf("nothing to update: provide at least one of title, type, body, goal, status, parent_id, shepherd_watch, shepherd_last_review")
+		in.ShepherdWatch == nil && in.ShepherdLastReview == nil && in.ShepherdRounds == nil {
+		return nil, fmt.Errorf("nothing to update: provide at least one of title, type, body, goal, status, parent_id, shepherd_watch, shepherd_last_review, shepherd_rounds")
 	}
 
 	ctx := context.Background()
@@ -523,6 +534,14 @@ func Update(projectName string, id int, in UpdateInput) (*ent.Issue, error) {
 	}
 	if in.ShepherdLastReview != nil {
 		update = update.SetShepherdLastReview(*in.ShepherdLastReview)
+	}
+	// Review round reset (#599). Negative values are rejected; 0 re-opens the
+	// wake.go round cap so the shepherd can be woken for this issue again.
+	if in.ShepherdRounds != nil {
+		if *in.ShepherdRounds < 0 {
+			return nil, fmt.Errorf("shepherd_rounds must be >= 0")
+		}
+		update = update.SetShepherdRounds(*in.ShepherdRounds)
 	}
 
 	updated, err := update.Save(ctx)

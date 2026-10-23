@@ -85,6 +85,15 @@ func Init() error {
 	viper.SetDefault("shepherd_max_review_rounds", 3)
 	viper.SetDefault("shepherd_max_wakeups_per_day", 30)
 
+	// 확인 필요 항목 임계값 (#599). 0이나 음수는 manager/attention.go의 기본값으로
+	// 대체된다.
+	//   shepherd_stuck_minutes        : running 작업이 이 시간을 넘으면 오래 실행
+	//                                   중인 것으로 본다 (기본 120분).
+	//   shepherd_pending_stale_minutes: 프로젝트에서 가장 오래된 pending 작업이 이
+	//                                   시간을 넘으면 적체로 본다 (기본 60분).
+	viper.SetDefault("shepherd_stuck_minutes", 120)
+	viper.SetDefault("shepherd_pending_stale_minutes", 60)
+
 	// shell: 임베디드 프로바이더의 bash 도구가 명령을 실행할 셸 실행 파일.
 	// 빈 값이면 OS별 자동 탐지 (Unix: bash → sh, Windows: Git Bash → pwsh →
 	// powershell). 자동 탐지가 빗나갔을 때의 탈출구이므로 값은 실행 파일

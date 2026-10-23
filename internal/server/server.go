@@ -133,6 +133,9 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/shepherd/status", s.handleGetShepherdStatus)
 	api.Post("/shepherd/tasks", s.handleCreateShepherdTask)
 	api.Get("/shepherd/tasks", s.handleListShepherdTasks)
+	// Needs-attention panel (#599): collection + acknowledgement.
+	api.Get("/shepherd/attention", s.handleGetAttention)
+	api.Post("/shepherd/attention/ack", s.handleAckAttention)
 	api.Get("/config/system-prompt-preview", s.handleSystemPromptPreview)
 	api.Get("/config/model-options", s.handleGetModelOptions)
 	api.Post("/config/grok-models/refresh", s.handleRefreshGrokModels)
@@ -239,6 +242,8 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 
 	// Prompt injection (mid-execution)
 	api.Post("/sheep/:name/inject", s.handleInjectPrompt)
+	// Sheep reset (#599): untrip the circuit breaker from the web UI.
+	api.Post("/sheep/:name/reset", s.handleResetSheep)
 
 	// Schedule management
 	api.Get("/schedules", s.handleListAllSchedules)
