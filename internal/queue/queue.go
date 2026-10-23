@@ -369,6 +369,35 @@ func ListShepherdTasks(kind, status string, limit int) ([]*ent.Task, error) {
 	return tasks, nil
 }
 
+// ShepherdTodayStats counts shepherd (목자) tasks created today and sums their
+// cost (#598, the /shepherd status card). "Today" is local midnight in the
+// daemon's timezone — the same window the dashboard's Today tile uses.
+func ShepherdTodayStats() (int, float64, error) {
+	ctx := context.Background()
+	client := db.ReadClient()
+
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	var rows []struct {
+		Count int     `json:"count"`
+		Cost  float64 `json:"cost"`
+	}
+	if err := client.Task.Query().
+		Where(
+			task.ShepherdKindNEQ(""),
+			task.CreatedAtGTE(todayStart),
+		).
+		Aggregate(ent.Count(), ent.As(ent.Sum(task.FieldCostUsd), "cost")).
+		Scan(ctx, &rows); err != nil {
+		return 0, 0, fmt.Errorf("failed to aggregate shepherd tasks: %w", err)
+	}
+	if len(rows) == 0 {
+		return 0, 0, nil
+	}
+	return rows[0].Count, rows[0].Cost, nil
+}
+
 // GetPendingTask returns the next pending task to run. Higher priority first,
 // then oldest-created (FIFO) within the same priority. Context-overflow handoff
 // follow-ups are created with priority 1 so they run ahead of ordinary pending

@@ -46,22 +46,20 @@
 
 ```
 1. 사용자가 작업 제출
-   ├── CLI:   shepherd "로그인 기능 추가"
-   ├── WebUI: POST /api/command 또는 POST /api/tasks
+   ├── CLI:   shepherd "로그인 기능 추가" → POST /api/embedded/run (cwd에서 임베디드 실행)
+   ├── WebUI: POST /api/tasks (프로젝트 화면) 또는 POST /api/shepherd/tasks (목자 콘솔)
    └── MCP:   task_start 도구 호출
 
-2. 매니저가 의도 분석 (Claude Code CLI 서브프로세스)
-   └── 결정: 대상 프로젝트, 대상 양, 우선순위
+2. 작업이 큐에 추가
+   └── 큐 프로세서가 대기 중인 작업을 양에게 배정
+       (프로젝트 작업 → 그 프로젝트의 양, 목자 작업 → 매니저 양)
 
-3. 작업이 큐에 추가
-   └── 큐 프로세서가 대기 중인 작업 처리
-
-4. 워커가 실행
+3. 워커가 실행
    ├── Claude Code CLI: claude --print --resume <session_id> -p <prompt>
    ├── 또는 OpenCode CLI: opencode --resume <session_id> -p <prompt>
    └── 출력이 SSE를 통해 실시간 스트리밍
 
-5. 결과 기록
+4. 결과 기록
    ├── 작업 상태: running → completed/failed
    ├── 요약, 수정된 파일, 에러 (있을 경우)
    └── 대화 연속성을 위해 세션 ID 보존

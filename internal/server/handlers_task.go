@@ -14,7 +14,6 @@ import (
 	"github.com/agurrrrr/shepherd/internal/checkpoint"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
-	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/taskchanges"
 	"github.com/agurrrrr/shepherd/internal/worker"
@@ -90,6 +89,7 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 			entTask.FieldCompletedAt,
 			entTask.FieldRevertedAt,
 			entTask.FieldCreatedAt,
+			entTask.FieldShepherdKind,
 		).
 		Order(orderFunc).
 		Offset((page - 1) * limit).
@@ -115,6 +115,7 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 		Model            string  `json:"model,omitempty"`
 		Sheep            string  `json:"sheep,omitempty"`
 		Project          string  `json:"project,omitempty"`
+		ShepherdKind     string  `json:"shepherd_kind,omitempty"`
 		RevertedAt       string  `json:"reverted_at,omitempty"`
 		CreatedAt        string  `json:"created_at"`
 	}
@@ -133,6 +134,7 @@ func (s *Server) handleListTasks(c *fiber.Ctx) error {
 			TotalTokens:      t.PromptTokens + t.CompletionTokens,
 			DurationSec:      taskDurationSec(t),
 			Model:            t.Model,
+			ShepherdKind:     t.ShepherdKind,
 			CreatedAt:        t.CreatedAt.Format("2006-01-02 15:04:05"),
 		}
 		if t.Edges.Sheep != nil {
@@ -286,6 +288,9 @@ func (s *Server) handleGetTask(c *fiber.Ctx) error {
 		"reverted_at":       "",
 		"revert_pre":        t.RevertPre,
 		"model":             t.Model,
+		// shepherd_kind marks 목자 tasks (#598): the task detail page hides the
+		// project link and shows a "no checkpoints" notice when it is non-empty.
+		"shepherd_kind":     t.ShepherdKind,
 		"duration_sec":      taskDurationSec(t),
 		"created_at":        t.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
@@ -641,70 +646,6 @@ func (s *Server) handleRetryFromTask(c *fiber.Ctx) error {
 	return success(c, map[string]interface{}{
 		"created_tasks": createdIDs,
 		"count":         len(createdIDs),
-	})
-}
-
-// POST /api/command
-func (s *Server) handleCommand(c *fiber.Ctx) error {
-	var body struct {
-		Prompt string `json:"prompt"`
-	}
-	if err := c.BodyParser(&body); err != nil {
-		return fail(c, fiber.StatusBadRequest, "invalid request body")
-	}
-
-	if body.Prompt == "" {
-		return fail(c, fiber.StatusBadRequest, "prompt is required")
-	}
-
-	// Analyze the prompt to determine project and sheep
-	decision, err := manager.Analyze(body.Prompt)
-	if err != nil {
-		return fail(c, fiber.StatusInternalServerError, "analysis failed: "+err.Error())
-	}
-
-	// Look up sheep
-	sheep, err := worker.Get(decision.SheepName)
-	if err != nil {
-		return fail(c, fiber.StatusNotFound, "sheep not found: "+err.Error())
-	}
-
-	// Look up project
-	var projectID int
-	if decision.ProjectName != "" {
-		ctx := context.Background()
-		p, err := db.Client().Project.Query().
-			Where(entProject.Name(decision.ProjectName)).
-			Only(ctx)
-		if err == nil {
-			projectID = p.ID
-		}
-	}
-	if projectID == 0 && sheep.Edges.Project != nil {
-		projectID = sheep.Edges.Project.ID
-	}
-
-	// Create task
-	var t *ent.Task
-	if projectID > 0 {
-		t, err = queue.CreateTask(body.Prompt, sheep.ID, projectID)
-	} else {
-		t, err = queue.CreateManagerTask(body.Prompt, sheep.ID)
-	}
-	if err != nil {
-		return fail(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	// Trigger immediate processing
-	if s.processor != nil {
-		s.processor.ProcessPendingNow()
-	}
-
-	return success(c, map[string]interface{}{
-		"task_id":      t.ID,
-		"sheep_name":   decision.SheepName,
-		"project_name": decision.ProjectName,
-		"reason":       decision.Reason,
 	})
 }
 

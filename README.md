@@ -688,7 +688,8 @@ GET  /api/health                   # Health check (public)
 GET  /api/system/status            # System stats
 POST /api/system/restart           # Restart daemon
 GET  /api/events                   # SSE stream
-POST /api/command                  # Natural-language command (manager routing)
+POST /api/shepherd/tasks           # Send an instruction to the shepherd console (/shepherd)
+GET  /api/shepherd/status          # Shepherd provider, model, workspace, breaker state
 POST /api/embedded/run             # Embedded agent in cwd, request-scoped SSE
 POST /api/upload                   # File upload (10MB limit)
 ```

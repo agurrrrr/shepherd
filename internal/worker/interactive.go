@@ -395,6 +395,19 @@ func trimRunningOutputLocked(task *RunningTask) {
 	runningOutputTrimCount.Add(1)
 }
 
+// GetRunningTaskID returns the task ID of sheepName's running (or claimed)
+// task, and whether injection is available for it (InjectCh set). The shepherd
+// console (#598) uses it to show Stop/Inject buttons against the right task.
+func GetRunningTaskID(sheepName string) (taskID int, injectable bool, ok bool) {
+	runningTasksMu.RLock()
+	defer runningTasksMu.RUnlock()
+	t, ok := runningTasks[sheepName]
+	if !ok {
+		return 0, false, false
+	}
+	return t.TaskID, t.InjectCh != nil, true
+}
+
 // GetRunningTaskOutput returns the collected output for a running task.
 func GetRunningTaskOutput(sheepName string) (int, []string) {
 	runningTasksMu.RLock()

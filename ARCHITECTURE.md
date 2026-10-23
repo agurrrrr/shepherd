@@ -46,22 +46,20 @@
 
 ```
 1. User submits task
-   ├── CLI:   shepherd "Add login feature"
-   ├── WebUI: POST /api/command or POST /api/tasks
+   ├── CLI:   shepherd "Add login feature" → POST /api/embedded/run (embedded run in cwd)
+   ├── WebUI: POST /api/tasks (project screen) or POST /api/shepherd/tasks (shepherd console)
    └── MCP:   task_start tool call
 
-2. Manager analyzes intent (via Claude Code CLI subprocess)
-   └── Determines: target project, target sheep, priority
+2. Task is queued
+   └── Queue Processor picks up pending tasks and assigns each to a sheep
+       (project tasks → the project's sheep; shepherd tasks → the manager sheep)
 
-3. Task is queued
-   └── Queue Processor picks up pending tasks
-
-4. Worker executes
+3. Worker executes
    ├── Claude Code CLI: claude --print --resume <session_id> -p <prompt>
    ├── Or OpenCode CLI: opencode --resume <session_id> -p <prompt>
    └── Output is streamed in real-time via SSE
 
-5. Results recorded
+4. Results recorded
    ├── Task status: running → completed/failed
    ├── Summary, modified files, error (if any)
    └── Session ID preserved for conversation continuity

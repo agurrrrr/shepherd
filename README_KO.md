@@ -685,7 +685,8 @@ GET  /api/health
 GET  /api/system/status
 POST /api/system/restart
 GET  /api/events
-POST /api/command                  # 자연어 명령 (매니저 라우팅)
+POST /api/shepherd/tasks           # 목자 콘솔(/shepherd)에 지시 보내기
+GET  /api/shepherd/status          # 목자 프로바이더, 모델, 워크스페이스, 서킷 브레이커 상태
 POST /api/embedded/run             # cwd에서 임베디드 에이전트 실행, 요청 단위 SSE
 POST /api/upload
 ```

@@ -44,13 +44,6 @@ type SheepInfo struct {
 	Project  string `json:"project,omitempty"`
 }
 
-type CommandResult struct {
-	TaskID      int    `json:"task_id"`
-	SheepName   string `json:"sheep_name"`
-	ProjectName string `json:"project_name"`
-	Reason      string `json:"reason,omitempty"`
-}
-
 type StatusInfo struct {
 	Sheep struct {
 		Total   int `json:"total"`
@@ -122,45 +115,11 @@ func (c *Client) ListSheep() ([]SheepInfo, error) {
 	return apiResp.Data, nil
 }
 
-// PostCommand sends a natural language command to the daemon.
-func (c *Client) PostCommand(prompt string) (*CommandResult, error) {
-	body, _ := json.Marshal(map[string]string{"prompt": prompt})
-
-	var apiResp struct {
-		Success bool          `json:"success"`
-		Data    CommandResult `json:"data"`
-		Message string        `json:"message,omitempty"`
-	}
-	if err := c.post("/api/command", body, &apiResp); err != nil {
-		return nil, err
-	}
-	if !apiResp.Success {
-		return nil, fmt.Errorf("%s", apiResp.Message)
-	}
-	return &apiResp.Data, nil
-}
-
-// CreateTask directly creates a task for a specific sheep/project.
-func (c *Client) CreateTask(prompt, sheepName, projectName string) (*CommandResult, error) {
-	body, _ := json.Marshal(map[string]string{
-		"prompt":       prompt,
-		"sheep_name":   sheepName,
-		"project_name": projectName,
-	})
-
-	var apiResp struct {
-		Success bool          `json:"success"`
-		Data    CommandResult `json:"data"`
-		Message string        `json:"message,omitempty"`
-	}
-	if err := c.post("/api/tasks", body, &apiResp); err != nil {
-		return nil, err
-	}
-	if !apiResp.Success {
-		return nil, fmt.Errorf("%s", apiResp.Message)
-	}
-	return &apiResp.Data, nil
-}
+// PostCommand (natural-language routing via POST /api/command) was removed in
+// issue #598: dashboard instructions now go to the shepherd console endpoint
+// POST /api/shepherd/tasks, and the manager agent decides what to do. apiclient
+// has no dashboard-style callers, so the old CreateTask wrapper (which shared
+// the CommandResult shape) left with it.
 
 // RunEmbedded runs the embedded coding agent in projectPath through the
 // daemon's dedicated /api/embedded/run endpoint. Output is delivered to

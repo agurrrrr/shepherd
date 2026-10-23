@@ -130,6 +130,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Patch("/config", s.handleUpdateConfig)
 	api.Get("/shepherd/config", s.handleGetShepherdConfig)
 	api.Patch("/shepherd/config", s.handleUpdateShepherdConfig)
+	api.Get("/shepherd/status", s.handleGetShepherdStatus)
 	api.Post("/shepherd/tasks", s.handleCreateShepherdTask)
 	api.Get("/shepherd/tasks", s.handleListShepherdTasks)
 	api.Get("/config/system-prompt-preview", s.handleSystemPromptPreview)
@@ -273,9 +274,6 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 
 	// File upload
 	api.Post("/upload", s.handleUpload)
-
-	// Command (natural language)
-	api.Post("/command", s.handleCommand)
 
 	// Direct embedded run in a caller-provided directory (thin CLI client).
 	// Bypasses project/sheep/queue orchestration and streams request-scoped SSE.

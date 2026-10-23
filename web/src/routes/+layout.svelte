@@ -51,6 +51,18 @@
 		failed: $systemStatus?.tasks?.failed ?? 0
 	});
 
+	// Shepherd (목자) state for the sidebar dot + attention badge (#598).
+	// worker.List()/systemStatus exclude the manager sheep, so the sidebar asks
+	// /api/shepherd/status directly. The attention count stays 0 until stage #7
+	// fills it; the chip slot is already here.
+	let shepherdWorking = $state(false);
+	let shepherdAttention = $state(0);
+
+	async function refreshShepherdStatus() {
+		const res = await apiGet('/api/shepherd/status');
+		if (res?.data) shepherdWorking = res.data.status === 'working';
+	}
+
 	// Share of finished tasks that succeeded — drives the sidebar flock meter.
 	let finished = $derived(stats.completed + stats.failed);
 	let successRate = $derived(finished > 0 ? stats.completed / finished : 0);
@@ -101,6 +113,7 @@
 			apiGet('/api/system/status')
 				.then(res => { if (res?.data) systemStatus.set(res.data); })
 				.catch(() => {});
+			refreshShepherdStatus().catch(() => {});
 		}
 
 		// Refresh stats + sheep status on SSE events
@@ -111,6 +124,9 @@
 				sheep.update(list => list.map(s =>
 					s.name === data.sheep_name ? { ...s, status: data.status } : s
 				));
+				// The manager sheep is not in the sheep store — refresh its
+				// sidebar dot from the dedicated endpoint instead.
+				if (data.sheep_name === 'shepherd') refreshShepherdStatus();
 			}),
 			onSSE('provider_change', (data) => {
 				// Update sheep store when provider changes (rate limit fallback / manual change)
@@ -118,9 +134,9 @@
 					s.name === data.sheep_name ? { ...s, provider: data.provider } : s
 				));
 			}),
-			onSSE('task_start', refreshStatus),
-			onSSE('task_complete', refreshStatus),
-			onSSE('task_fail', refreshStatus)
+			onSSE('task_start', () => { refreshStatus(); refreshShepherdStatus(); }),
+			onSSE('task_complete', () => { refreshStatus(); refreshShepherdStatus(); }),
+			onSSE('task_fail', () => { refreshStatus(); refreshShepherdStatus(); })
 		);
 
 		syncPushSubscription().catch(() => {});
@@ -138,10 +154,20 @@
 	}
 </script>
 
-{#snippet navLink(href, icon, label, active)}
+{#snippet navLink(href, icon, label, active, dot = '', badge = 0)}
 	<a {href} class="nav-item" class:active aria-current={active ? 'page' : undefined}>
 		<Icon name={icon} size={17} stroke={1.75} />
 		<span>{label}</span>
+		{#if dot || badge > 0}
+			<span class="nav-tail">
+				{#if dot}
+					<span class="status-dot {dot}" aria-hidden="true"></span>
+				{/if}
+				{#if badge > 0}
+					<span class="nav-badge mono num" title="{badge}개 확인 필요">{badge}</span>
+				{/if}
+			</span>
+		{/if}
 	</a>
 {/snippet}
 
@@ -184,6 +210,7 @@
 			<nav class="sidebar-nav" aria-label="Primary">
 				<span class="nav-label">Watch</span>
 				{@render navLink('/', 'layout-dashboard', 'Dashboard', $page.url.pathname === '/')}
+				{@render navLink('/shepherd', 'sheep', 'Shepherd', $page.url.pathname.startsWith('/shepherd'), shepherdWorking ? 'working' : '', shepherdAttention)}
 
 				<!-- Projects accordion -->
 				<div class="nav-group">
@@ -445,6 +472,26 @@
 		border-radius: var(--radius-full);
 		background: rgba(237, 230, 218, 0.05);
 		line-height: 18px;
+	}
+
+	/* Attention badge slot on nav items (Shepherd row, #598; filled in stage #7) */
+	.nav-tail {
+		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
+	}
+
+	.nav-badge {
+		margin-left: auto;
+		font-size: 10.5px;
+		font-weight: var(--fw-semibold);
+		color: var(--warning-ink, var(--warning));
+		background: var(--warning-soft, rgba(244, 184, 96, 0.14));
+		border: 1px solid var(--warning-line, rgba(244, 184, 96, 0.25));
+		padding: 0 7px;
+		border-radius: var(--radius-full);
+		line-height: 17px;
 	}
 
 	.nav-chevron {

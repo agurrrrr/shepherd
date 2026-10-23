@@ -35,9 +35,11 @@
 	let placeholder = $derived.by(() => {
 		if (injectMode) return '추가 지시를 입력하세요...';
 		if (projectName) return compact ? 'Send a task…' : `Send a task to ${projectName}…`;
-		return compact ? 'Tell the flock what to do…' : 'Tell the flock what to do — “shepherd: fix the flaky test”';
+		return 'Send a task…';
 	});
 	let hasAttachments = $derived(attachedFiles.length > 0);
+	// A task needs both a project and a sheep; otherwise sending is disabled.
+	let canSend = $derived(!!projectName && !!sheepName);
 
 	function openFilePicker() {
 		fileInputEl?.click();
@@ -118,6 +120,9 @@
 
 	async function submit() {
 		if (loading) return;
+		// Without a project and sheep there is no task target; the shepherd
+		// console (/shepherd) handles free-form instructions instead.
+		if (!projectName || !sheepName) return;
 		if (!prompt.trim() && !hasAttachments) return;
 
 		// Inject mode: send via inject API instead of creating a new task
@@ -158,22 +163,18 @@
 			}
 
 			let result;
-			if (projectName && sheepName) {
-				const taskBody = {
-					prompt: finalPrompt,
-					sheep_name: sheepName,
-					project_name: projectName
-				};
-				if (thinking !== null) {
-					taskBody.thinking = !!thinking;
-				}
-				if (model) {
-					taskBody.model = model;
-				}
-				result = await apiPost('/api/tasks', taskBody);
-			} else {
-				result = await apiPost('/api/command', { prompt: finalPrompt });
+			const taskBody = {
+				prompt: finalPrompt,
+				sheep_name: sheepName,
+				project_name: projectName
+			};
+			if (thinking !== null) {
+				taskBody.thinking = !!thinking;
 			}
+			if (model) {
+				taskBody.model = model;
+			}
+			result = await apiPost('/api/tasks', taskBody);
 			lastResult = result;
 		} catch (err) {
 			lastResult = { success: false, message: err.message || 'Request failed' };
@@ -306,9 +307,9 @@
 		{/if}
 		<button
 			class="send"
-			class:ready={!!prompt.trim() || hasAttachments}
+			class:ready={canSend && (!!prompt.trim() || hasAttachments)}
 			onclick={submit}
-			disabled={loading || (!prompt.trim() && !hasAttachments)}
+			disabled={loading || !canSend || (!prompt.trim() && !hasAttachments)}
 			aria-label={injectMode ? 'Send instruction' : 'Send'}
 			title={injectMode ? 'Send instruction' : 'Send (Enter)'}
 		>

@@ -218,6 +218,8 @@
 						<div class="row-tags">
 							{#if t.project}
 								<span class="chip">{t.project}</span>
+							{:else if t.shepherd_kind}
+								<span class="chip chip-accent" title="목자 작업">목자</span>
 							{/if}
 							{#if t.sheep}
 								<span class="row-sheep">{t.sheep}</span>
@@ -319,7 +321,13 @@
 							{/if}
 						</div>
 					{:else if detailChanges}
-						<div class="changes-hint">{detailChanges.reason || '변경 사항을 볼 수 없습니다.'}</div>
+						<div class="changes-hint">
+							{#if selectedTask.shepherd_kind}
+								목자 작업은 체크포인트를 남기지 않습니다
+							{:else}
+								{detailChanges.reason || '변경 사항을 볼 수 없습니다.'}
+							{/if}
+						</div>
 					{/if}
 					<a class="detail-link" href={`/tasks/${selectedTask.id}`}>변경 사항 상세 보기 <Icon name="arrow-right" size={12} /></a>
 				</div>

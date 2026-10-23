@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/spf13/viper"
@@ -58,6 +59,7 @@ func newShepherdApp(t *testing.T) (*fiber.App, *Server) {
 	app := fiber.New()
 	app.Get("/api/shepherd/config", s.handleGetShepherdConfig)
 	app.Patch("/api/shepherd/config", s.handleUpdateShepherdConfig)
+	app.Get("/api/shepherd/status", s.handleGetShepherdStatus)
 	// Task API (#594). s.processor stays nil in tests, so POST enqueues only —
 	// no dispatch side effects.
 	app.Post("/api/shepherd/tasks", s.handleCreateShepherdTask)
@@ -556,5 +558,133 @@ func TestHandleListShepherdTasksFilters(t *testing.T) {
 		if code, _ = getShepherdTasks(t, app, bad); code != http.StatusBadRequest {
 			t.Errorf("%s: status = %d, want 400", bad, code)
 		}
+	}
+}
+
+// --- Shepherd status API (#598) ---
+
+func getShepherdStatus(t *testing.T, app *fiber.App) (int, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/shepherd/status", nil)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test: %v", err)
+	}
+	defer resp.Body.Close()
+	payload, _ := io.ReadAll(resp.Body)
+	var out map[string]any
+	if err := json.Unmarshal(payload, &out); err != nil {
+		t.Fatalf("decode %s: %v", payload, err)
+	}
+	return resp.StatusCode, out
+}
+
+func TestHandleGetShepherdStatusReportsWorkspaceAndInjectSupport(t *testing.T) {
+	withShepherdTestEnv(t)
+	app := shepherdApp(t)
+	// viper.Reset() in withShepherdTestEnv drops config.Init()'s defaults;
+	// auto_approve=true is the daemon default and enables claude injection.
+	viper.SetDefault("auto_approve", true)
+
+	// Unset workspace → the console banner condition.
+	code, payload := getShepherdStatus(t, app)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d payload=%v", code, payload)
+	}
+	data := payload["data"].(map[string]any)
+	if data["workspace_valid"] != false {
+		t.Errorf("workspace_valid = %v, want false when unset", data["workspace_valid"])
+	}
+	if data["provider"] != string(sheep.ProviderClaude) {
+		t.Errorf("provider = %v, want claude", data["provider"])
+	}
+	// Default provider is claude; auto_approve defaults true → injection works.
+	if data["inject_supported"] != true {
+		t.Errorf("inject_supported = %v, want true for claude+auto_approve", data["inject_supported"])
+	}
+	if _, has := data["running_task_id"]; has {
+		t.Errorf("running_task_id present while nothing runs: %v", data)
+	}
+	if data["status"] != "idle" {
+		t.Errorf("status = %v, want idle", data["status"])
+	}
+
+	// Valid workspace flips the flag.
+	viper.Set("workspace_path", t.TempDir())
+	code, payload = getShepherdStatus(t, app)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d payload=%v", code, payload)
+	}
+	data = payload["data"].(map[string]any)
+	if data["workspace_valid"] != true {
+		t.Errorf("workspace_valid = %v, want true", data["workspace_valid"])
+	}
+
+	// opencode has no inject channel at all.
+	if _, err := worker.GetOrCreateManager(); err != nil {
+		t.Fatalf("GetOrCreateManager: %v", err)
+	}
+	if err := worker.UpdateProvider(names.ManagerName, "opencode"); err != nil {
+		t.Fatalf("UpdateProvider: %v", err)
+	}
+	_, payload = getShepherdStatus(t, app)
+	data = payload["data"].(map[string]any)
+	if data["inject_supported"] != false {
+		t.Errorf("inject_supported = %v, want false for opencode", data["inject_supported"])
+	}
+}
+
+func TestHandleGetShepherdStatusTodayStatsAndBreaker(t *testing.T) {
+	withShepherdTestEnv(t)
+	app := shepherdApp(t)
+	ctx := context.Background()
+
+	mgr, err := worker.GetOrCreateManager()
+	if err != nil {
+		t.Fatalf("GetOrCreateManager: %v", err)
+	}
+
+	db.Client().Task.Create().SetPrompt("today command").SetStatus(task.StatusCompleted).
+		SetSheepID(mgr.ID).SetShepherdKind("command").SetCostUsd(1.25).SaveX(ctx)
+	db.Client().Task.Create().SetPrompt("today review").SetStatus(task.StatusCompleted).
+		SetSheepID(mgr.ID).SetShepherdKind("review").SetCostUsd(0.5).SaveX(ctx)
+	// Not counted: ordinary (kind-less) task and a yesterday shepherd task.
+	db.Client().Task.Create().SetPrompt("ordinary").SetStatus(task.StatusCompleted).
+		SetSheepID(mgr.ID).SetCostUsd(9).SaveX(ctx)
+	db.Client().Task.Create().SetPrompt("yesterday command").SetStatus(task.StatusCompleted).
+		SetSheepID(mgr.ID).SetShepherdKind("command").SetCostUsd(5).
+		SetCreatedAt(time.Now().AddDate(0, 0, -1)).SaveX(ctx)
+
+	code, payload := getShepherdStatus(t, app)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d payload=%v", code, payload)
+	}
+	data := payload["data"].(map[string]any)
+	if data["today_task_count"] != float64(2) {
+		t.Errorf("today_task_count = %v, want 2", data["today_task_count"])
+	}
+	if cost, _ := data["today_cost_usd"].(float64); cost < 1.74 || cost > 1.76 {
+		t.Errorf("today_cost_usd = %v, want ~1.75", data["today_cost_usd"])
+	}
+	if data["circuit_tripped"] != false {
+		t.Errorf("circuit_tripped = %v, want false", data["circuit_tripped"])
+	}
+
+	// Trip the breaker on the manager row.
+	db.Client().Sheep.UpdateOneID(mgr.ID).SetConsecutiveFailures(5).ExecX(ctx)
+	_, payload = getShepherdStatus(t, app)
+	data = payload["data"].(map[string]any)
+	if data["circuit_tripped"] != true {
+		t.Errorf("circuit_tripped = %v, want true after 5 failures", data["circuit_tripped"])
+	}
+
+	// Stale "working" with no live in-memory task reports idle.
+	if err := worker.UpdateStatus(names.ManagerName, sheep.StatusWorking); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+	_, payload = getShepherdStatus(t, app)
+	data = payload["data"].(map[string]any)
+	if data["status"] != "idle" {
+		t.Errorf("stale working status = %v, want idle", data["status"])
 	}
 }

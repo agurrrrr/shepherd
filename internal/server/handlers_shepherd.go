@@ -253,6 +253,81 @@ func modelOptionHas(opts []modelOption, id string) bool {
 	return false
 }
 
+// --- Shepherd status API (#598) ---
+//
+// GET /api/shepherd/status — the payload the /shepherd console header renders:
+// manager provider + status, workspace state, today's shepherd task count and
+// cost, circuit-breaker state, and the running-task info (id + whether the
+// provider supports mid-run injection) that drives the Stop/Inject buttons.
+// It deliberately overlaps GET /api/shepherd/config: the console should need
+// one cheap call per refresh, not the full settings payload with scope lists.
+
+// shepherdInjectSupported reports whether a provider's runs accept mid-run
+// prompt injection today. embedded always wires an InjectCh; claude does only
+// in the auto_approve streaming path (executeWithStreaming, stream-json stdin).
+// opencode/pi/grok spawn one-shot CLIs with no stdin channel.
+func shepherdInjectSupported(provider string) bool {
+	switch provider {
+	case "embedded":
+		return true
+	case "claude":
+		return config.GetBool("auto_approve")
+	default:
+		return false
+	}
+}
+
+// GET /api/shepherd/status
+func (s *Server) handleGetShepherdStatus(c *fiber.Ctx) error {
+	mgr, err := worker.GetOrCreateManager()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	workspace := config.GetString("workspace_path")
+	normalized, wsErr := config.ValidateWorkspacePath(workspace)
+
+	todayCount, todayCost, err := queue.ShepherdTodayStats()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	runningID, injectable, running := worker.GetRunningTaskID(names.ManagerName)
+
+	// The sheep row is the durable circuit-breaker state (same threshold the
+	// dispatcher gates on in processor.dispatchShepherd).
+	tripped := mgr.ConsecutiveFailures >= queue.CircuitBreakerThreshold
+
+	// A working manager with no live in-memory task is a stale status (daemon
+	// restart mid-run); report it as idle so the console does not show a
+	// phantom "working" with no Stop target — same auto-heal the dispatcher
+	// applies before dispatching.
+	status := string(mgr.Status)
+	if status == "working" && !running {
+		status = "idle"
+	}
+
+	payload := map[string]interface{}{
+		"provider":             string(mgr.Provider),
+		"model":                config.GetString("shepherd_model"),
+		"status":               status,
+		"workspace_path":       normalized,
+		"workspace_valid":      wsErr == nil && normalized != "",
+		"workspace_error":      workspaceErrorText(wsErr),
+		"today_task_count":     todayCount,
+		"today_cost_usd":       todayCost,
+		"circuit_tripped":      tripped,
+		"consecutive_failures": mgr.ConsecutiveFailures,
+		"inject_supported":     shepherdInjectSupported(string(mgr.Provider)),
+	}
+	if running {
+		payload["running_task_id"] = runningID
+		payload["inject_available"] = injectable
+	}
+
+	return success(c, payload)
+}
+
 // --- Shepherd task API (#594) ---
 //
 // POST /api/shepherd/tasks {prompt} — enqueue a `command` shepherd task

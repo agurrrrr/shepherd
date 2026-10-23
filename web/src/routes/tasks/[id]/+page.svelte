@@ -114,6 +114,7 @@
 		'too large': '변경 사항이 너무 커서 스냅샷을 만들지 못했습니다.',
 		'no end snapshot': '작업 종료 스냅샷이 없어 변경 사항을 볼 수 없습니다.',
 		'snapshot pruned': '스냅샷이 정리되어 변경 사항을 볼 수 없습니다.',
+		'shepherd task': '목자 작업은 체크포인트를 남기지 않습니다.',
 		running: '작업이 실행 중입니다. "현재까지 변경 보기"를 눌러 지금까지의 변경을 확인하세요.',
 	};
 
@@ -356,7 +357,15 @@
 			<dl class="meta-grid" style="--meta-cols: {metaCols}">
 				<div class="meta-item">
 					<dt class="meta-label">Project</dt>
-					<dd>{#if task.project}<a href="/projects/{encodeURIComponent(task.project)}">{task.project}</a>{:else}–{/if}</dd>
+					<dd>
+						{#if task.project}
+							<a href="/projects/{encodeURIComponent(task.project)}">{task.project}</a>
+						{:else if task.shepherd_kind}
+							<span class="chip chip-accent">목자</span>
+						{:else}
+							–
+						{/if}
+					</dd>
 				</div>
 				<div class="meta-item">
 					<dt class="meta-label">Sheep</dt>

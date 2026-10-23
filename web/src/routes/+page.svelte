@@ -4,7 +4,6 @@
 	import { sheep, systemStatus, projects, username } from '$lib/stores.js';
 	import { onSSE } from '$lib/sse.js';
 	import SheepCard from '$lib/components/SheepCard.svelte';
-	import CommandInput from '$lib/components/CommandInput.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
@@ -79,7 +78,6 @@
 
 	onMount(async () => {
 		clock = setInterval(() => (now = new Date()), 30_000);
-		window.addEventListener('keydown', focusCommandShortcut);
 
 		await refreshData();
 		loaded = true;
@@ -95,19 +93,7 @@
 	onDestroy(() => {
 		unsubscribers.forEach(fn => fn?.());
 		clearInterval(clock);
-		if (typeof window !== 'undefined') window.removeEventListener('keydown', focusCommandShortcut);
 	});
-
-	// "/" jumps to the command field from anywhere on the dashboard.
-	function focusCommandShortcut(e) {
-		if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
-		const t = e.target;
-		if (t && (t.closest?.('input, textarea, select, [contenteditable="true"]'))) return;
-		const field = document.querySelector('.dash-command .command-field');
-		if (!field) return;
-		e.preventDefault();
-		field.focus();
-	}
 
 	async function refreshData() {
 		// SSE refreshes and project-filter changes can overlap; only the latest
@@ -269,12 +255,6 @@
 			</button>
 		</div>
 	</header>
-
-	<!-- ============ Command ============ -->
-	<section class="dash-command" aria-label="Command">
-		<div class="command-glow" aria-hidden="true"></div>
-		<CommandInput />
-	</section>
 
 	{#if !loaded}
 		<div class="overview" aria-busy="true">
@@ -552,34 +532,6 @@
 		color: var(--live-ink);
 		background: var(--live);
 		border-radius: var(--radius-full);
-	}
-
-	/* ================= Command ================= */
-	.dash-command {
-		position: relative;
-		margin-bottom: var(--space-6);
-		padding: 10px;
-		border-radius: var(--radius-lg);
-		border: 1px solid var(--border);
-		background:
-			linear-gradient(180deg, rgba(255, 250, 240, 0.035), rgba(255, 250, 240, 0.01)),
-			var(--bg-2);
-		box-shadow: var(--sheen), var(--shadow-2);
-		animation: rise-in 700ms var(--ease-out) 180ms backwards;
-		transition: border-color var(--dur-2) ease, box-shadow var(--dur-3) ease;
-	}
-
-	.dash-command:focus-within {
-		border-color: var(--accent-line);
-		box-shadow: var(--sheen), var(--shadow-2), 0 0 0 4px rgba(244, 184, 96, 0.06), 0 20px 60px -30px var(--accent-glow);
-	}
-
-	.command-glow {
-		position: absolute;
-		inset: -1px;
-		border-radius: inherit;
-		pointer-events: none;
-		background: radial-gradient(60% 120% at 0% 0%, rgba(244, 184, 96, 0.08), transparent 60%);
 	}
 
 	/* ================= Overview ================= */
@@ -929,11 +881,6 @@
 
 		.hero-line {
 			font-size: var(--fs-sm);
-		}
-
-		.dash-command {
-			padding: 8px;
-			margin-bottom: var(--space-5);
 		}
 
 		.overview,

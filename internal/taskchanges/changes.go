@@ -25,6 +25,9 @@ const (
 	ReasonNoEnd     = "no end snapshot"
 	ReasonPruned    = "snapshot pruned"
 	ReasonRunning   = "running"
+	// ReasonShepherd marks shepherd (목자) tasks: the dispatcher skips
+	// beginCheckpoint for them (#594), so they never have snapshots by design.
+	ReasonShepherd = "shepherd task"
 	liveWarningText = "작업이 끝난 뒤의 변경도 섞여 있습니다"
 )
 
@@ -75,6 +78,13 @@ func Build(ctx context.Context, t *ent.Task, live bool) *ChangeSet {
 	}
 	if t == nil {
 		cs.Reason = ReasonDisabled
+		return cs
+	}
+	// Shepherd tasks never checkpoint (#594): the shepherd reads and judges but
+	// does not edit code, and snapshotting a workspace root would capture every
+	// child project. Report that explicitly instead of "checkpoint disabled".
+	if t.ShepherdKind != "" {
+		cs.Reason = ReasonShepherd
 		return cs
 	}
 	cs.Dir = t.CheckpointDir

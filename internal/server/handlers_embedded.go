@@ -36,7 +36,8 @@ type embeddedRunEvent struct {
 // POST /api/embedded/run
 //
 // Runs the embedded coding agent directly in the given directory, bypassing
-// manager.Analyze / project / sheep / queue orchestration. Output is streamed
+// the project / sheep / queue orchestration (the old POST /api/command router
+// was removed in #598). Output is streamed
 // as request-scoped SSE so it never mixes with the global /api/events hub.
 //
 // This is the backend for the thin CLI client (`shepherd "..."`, `shepherd`).
