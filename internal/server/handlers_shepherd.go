@@ -97,6 +97,10 @@ func buildShepherdConfig() (map[string]interface{}, error) {
 		"scope_include_hidden":  config.GetBool("shepherd_scope_include_hidden"),
 		"scope_projects":        scopeItems,
 		"scope_active_projects": inScopeNames,
+		// Wake caps (#597). The raw config value; wake.go treats <=0 as its
+		// built-in default (3 / 30), and the UI shows the same fallbacks.
+		"max_review_rounds":   config.GetInt("shepherd_max_review_rounds"),
+		"max_wakeups_per_day": config.GetInt("shepherd_max_wakeups_per_day"),
 	}, nil
 }
 
@@ -128,6 +132,9 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 		Instructions       *string   `json:"instructions"`
 		ScopeExclude       *[]string `json:"scope_exclude"`
 		ScopeIncludeHidden *bool     `json:"scope_include_hidden"`
+		// Wake caps (#597). Absent = leave alone.
+		MaxReviewRounds  *int `json:"max_review_rounds"`
+		MaxWakeupsPerDay *int `json:"max_wakeups_per_day"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -158,6 +165,21 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 	}
 	if body.ScopeIncludeHidden != nil {
 		values["shepherd_scope_include_hidden"] = *body.ScopeIncludeHidden
+	}
+
+	// Wake caps (#597). 0 means "use wake.go's built-in default"; negatives are
+	// rejected so a typo cannot silently disable or inflate the guard.
+	if body.MaxReviewRounds != nil {
+		if *body.MaxReviewRounds < 0 {
+			return fail(c, fiber.StatusBadRequest, "max_review_rounds must be >= 0 (0 = default 3)")
+		}
+		values["shepherd_max_review_rounds"] = *body.MaxReviewRounds
+	}
+	if body.MaxWakeupsPerDay != nil {
+		if *body.MaxWakeupsPerDay < 0 {
+			return fail(c, fiber.StatusBadRequest, "max_wakeups_per_day must be >= 0 (0 = default 30)")
+		}
+		values["shepherd_max_wakeups_per_day"] = *body.MaxWakeupsPerDay
 	}
 
 	// Provider change: validate against the enabled-provider switches, then

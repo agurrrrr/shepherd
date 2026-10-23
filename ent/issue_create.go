@@ -154,6 +154,62 @@ func (_c *IssueCreate) SetNillableParentID(v *int) *IssueCreate {
 	return _c
 }
 
+// SetShepherdWatch sets the "shepherd_watch" field.
+func (_c *IssueCreate) SetShepherdWatch(v bool) *IssueCreate {
+	_c.mutation.SetShepherdWatch(v)
+	return _c
+}
+
+// SetNillableShepherdWatch sets the "shepherd_watch" field if the given value is not nil.
+func (_c *IssueCreate) SetNillableShepherdWatch(v *bool) *IssueCreate {
+	if v != nil {
+		_c.SetShepherdWatch(*v)
+	}
+	return _c
+}
+
+// SetShepherdRounds sets the "shepherd_rounds" field.
+func (_c *IssueCreate) SetShepherdRounds(v int) *IssueCreate {
+	_c.mutation.SetShepherdRounds(v)
+	return _c
+}
+
+// SetNillableShepherdRounds sets the "shepherd_rounds" field if the given value is not nil.
+func (_c *IssueCreate) SetNillableShepherdRounds(v *int) *IssueCreate {
+	if v != nil {
+		_c.SetShepherdRounds(*v)
+	}
+	return _c
+}
+
+// SetShepherdLastReview sets the "shepherd_last_review" field.
+func (_c *IssueCreate) SetShepherdLastReview(v string) *IssueCreate {
+	_c.mutation.SetShepherdLastReview(v)
+	return _c
+}
+
+// SetNillableShepherdLastReview sets the "shepherd_last_review" field if the given value is not nil.
+func (_c *IssueCreate) SetNillableShepherdLastReview(v *string) *IssueCreate {
+	if v != nil {
+		_c.SetShepherdLastReview(*v)
+	}
+	return _c
+}
+
+// SetShepherdWatchedAt sets the "shepherd_watched_at" field.
+func (_c *IssueCreate) SetShepherdWatchedAt(v time.Time) *IssueCreate {
+	_c.mutation.SetShepherdWatchedAt(v)
+	return _c
+}
+
+// SetNillableShepherdWatchedAt sets the "shepherd_watched_at" field if the given value is not nil.
+func (_c *IssueCreate) SetNillableShepherdWatchedAt(v *time.Time) *IssueCreate {
+	if v != nil {
+		_c.SetShepherdWatchedAt(*v)
+	}
+	return _c
+}
+
 // SetProjectID sets the "project" edge to the Project entity by ID.
 func (_c *IssueCreate) SetProjectID(id int) *IssueCreate {
 	_c.mutation.SetProjectID(id)
@@ -251,6 +307,14 @@ func (_c *IssueCreate) defaults() {
 		v := issue.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.ShepherdWatch(); !ok {
+		v := issue.DefaultShepherdWatch
+		_c.mutation.SetShepherdWatch(v)
+	}
+	if _, ok := _c.mutation.ShepherdRounds(); !ok {
+		v := issue.DefaultShepherdRounds
+		_c.mutation.SetShepherdRounds(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -284,6 +348,12 @@ func (_c *IssueCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Issue.updated_at"`)}
+	}
+	if _, ok := _c.mutation.ShepherdWatch(); !ok {
+		return &ValidationError{Name: "shepherd_watch", err: errors.New(`ent: missing required field "Issue.shepherd_watch"`)}
+	}
+	if _, ok := _c.mutation.ShepherdRounds(); !ok {
+		return &ValidationError{Name: "shepherd_rounds", err: errors.New(`ent: missing required field "Issue.shepherd_rounds"`)}
 	}
 	if len(_c.mutation.ProjectIDs()) == 0 {
 		return &ValidationError{Name: "project", err: errors.New(`ent: missing required edge "Issue.project"`)}
@@ -349,6 +419,22 @@ func (_c *IssueCreate) createSpec() (*Issue, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.CompletedAt(); ok {
 		_spec.SetField(issue.FieldCompletedAt, field.TypeTime, value)
 		_node.CompletedAt = &value
+	}
+	if value, ok := _c.mutation.ShepherdWatch(); ok {
+		_spec.SetField(issue.FieldShepherdWatch, field.TypeBool, value)
+		_node.ShepherdWatch = value
+	}
+	if value, ok := _c.mutation.ShepherdRounds(); ok {
+		_spec.SetField(issue.FieldShepherdRounds, field.TypeInt, value)
+		_node.ShepherdRounds = value
+	}
+	if value, ok := _c.mutation.ShepherdLastReview(); ok {
+		_spec.SetField(issue.FieldShepherdLastReview, field.TypeString, value)
+		_node.ShepherdLastReview = value
+	}
+	if value, ok := _c.mutation.ShepherdWatchedAt(); ok {
+		_spec.SetField(issue.FieldShepherdWatchedAt, field.TypeTime, value)
+		_node.ShepherdWatchedAt = &value
 	}
 	if nodes := _c.mutation.ProjectIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

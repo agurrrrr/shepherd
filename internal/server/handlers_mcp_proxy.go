@@ -4,6 +4,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/agurrrrr/shepherd/internal/mcp"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -28,8 +29,9 @@ func (s *Server) handleMCPProxy(c *fiber.Ctx) error {
 	}
 
 	var body struct {
-		Tool string                 `json:"tool"`
-		Args map[string]interface{} `json:"args"`
+		Tool         string                 `json:"tool"`
+		Args         map[string]interface{} `json:"args"`
+		CallerTaskID int                    `json:"caller_task_id,omitempty"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -37,6 +39,11 @@ func (s *Server) handleMCPProxy(c *fiber.Ctx) error {
 	if body.Tool == "" {
 		return fail(c, fiber.StatusBadRequest, "tool name required")
 	}
+
+	// Caller identity (#597): put the forwarded caller task ID back into args
+	// under the reserved key so caller-aware handlers (issue_upsert/
+	// issue_execute auto-watch) can recognize calls made from a shepherd task.
+	body.Args = mcp.SetCallerTaskID(body.Args, body.CallerTaskID)
 
 	result, err := s.mcpInner.ExecuteTool(body.Tool, body.Args)
 	if err != nil {

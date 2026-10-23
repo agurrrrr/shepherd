@@ -79,10 +79,19 @@ func forwardToDaemon(toolName string, args map[string]interface{}) (string, erro
 		)
 	}
 
-	body, err := json.Marshal(map[string]interface{}{
+	// Caller identity (#597): move the reserved caller key out of args into a
+	// top-level body field. The daemon proxy puts it back before ExecuteTool,
+	// so internal keys never sit in the user-level args payload on the wire.
+	callerTaskID := StripInternalArgs(args)
+
+	bodyMap := map[string]interface{}{
 		"tool": toolName,
 		"args": args,
-	})
+	}
+	if callerTaskID > 0 {
+		bodyMap["caller_task_id"] = callerTaskID
+	}
+	body, err := json.Marshal(bodyMap)
 	if err != nil {
 		return "", err
 	}

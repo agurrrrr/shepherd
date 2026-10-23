@@ -705,6 +705,7 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 	envutil.SetCleanEnv(cmd)
 	// Auto-approve all permissions to prevent interactive prompts that block stdin
 	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
+	applyTaskIDEnv(cmd, opts.TaskID)
 
 	// Register running task. unregister with the returned token so a late finish
 	// can only remove our own entry, never a newer task's (stop+restart race).
@@ -1876,24 +1877,60 @@ func getProjectWikiContext(sheepName, prompt string) string {
 	return sb.String()
 }
 
-// GetMCPConfigJSON returns the MCP config JSON merging user's settings with shepherd.
-func GetMCPConfigJSON() string {
+// applyTaskIDEnv appends SHEPHERD_TASK_ID to a provider child's environment
+// (#597). The `shepherd mcp` stdio child inherits it and tags daemon-proxied
+// tool calls with caller_task_id, which lets the daemon recognize calls made
+// from a shepherd (목자) task and auto-mark issues as watched. Call after
+// envutil.SetCleanEnv so the value survives the env reset. taskID <= 0 leaves
+// the environment untouched — ordinary runs never see the variable.
+func applyTaskIDEnv(cmd *exec.Cmd, taskID int) {
+	if cmd == nil || taskID <= 0 {
+		return
+	}
+	cmd.Env = append(cmd.Env, "SHEPHERD_TASK_ID="+strconv.Itoa(taskID))
+}
+
+// GetMCPConfigJSON returns the MCP config JSON merging user's settings with
+// shepherd. taskID (#597) is the queue task this run belongs to: it is placed
+// into the shepherd server entry's "env" so the `shepherd mcp` stdio child
+// receives SHEPHERD_TASK_ID and can tag daemon-proxied tool calls with
+// caller_task_id (manager-call identification for auto-watch). Pass 0 when the
+// run does not belong to a queue task.
+func GetMCPConfigJSON(taskID int) string {
+	shepherdEntry := map[string]interface{}{
+		"command": "shepherd",
+		"args":    []string{"mcp"},
+	}
+	if taskID > 0 {
+		shepherdEntry["env"] = map[string]string{"SHEPHERD_TASK_ID": strconv.Itoa(taskID)}
+	}
+
+	fallback := func() string {
+		b, err := json.Marshal(map[string]interface{}{
+			"mcpServers": map[string]interface{}{"shepherd": shepherdEntry},
+		})
+		if err != nil {
+			return `{"mcpServers":{"shepherd":{"command":"shepherd","args":["mcp"]}}}`
+		}
+		return string(b)
+	}
+
 	// Read user's ~/.claude/settings.json
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return `{"mcpServers":{"shepherd":{"command":"shepherd","args":["mcp"]}}}`
+		return fallback()
 	}
 
 	settingsPath := homeDir + "/.claude/settings.json"
 	data, err := os.ReadFile(settingsPath)
 	if err != nil {
-		return `{"mcpServers":{"shepherd":{"command":"shepherd","args":["mcp"]}}}`
+		return fallback()
 	}
 
 	// Parse existing settings
 	var settings map[string]interface{}
 	if err := json.Unmarshal(data, &settings); err != nil {
-		return `{"mcpServers":{"shepherd":{"command":"shepherd","args":["mcp"]}}}`
+		return fallback()
 	}
 
 	// Create mcpServers if not present
@@ -1902,11 +1939,8 @@ func GetMCPConfigJSON() string {
 		mcpServers = make(map[string]interface{})
 	}
 
-	// Add shepherd MCP
-	mcpServers["shepherd"] = map[string]interface{}{
-		"command": "shepherd",
-		"args":    []string{"mcp"},
-	}
+	// Add shepherd MCP (with the caller task env when known)
+	mcpServers["shepherd"] = shepherdEntry
 
 	// Generate result
 	result := map[string]interface{}{
@@ -1915,7 +1949,7 @@ func GetMCPConfigJSON() string {
 
 	jsonBytes, err := json.Marshal(result)
 	if err != nil {
-		return `{"mcpServers":{"shepherd":{"command":"shepherd","args":["mcp"]}}}`
+		return fallback()
 	}
 
 	return string(jsonBytes)
@@ -1938,7 +1972,7 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		"--output-format", "stream-json",
 		"--verbose",
 		"--dangerously-skip-permissions",
-		"--mcp-config", GetMCPConfigJSON(),
+		"--mcp-config", GetMCPConfigJSON(opts.TaskID),
 	}
 	args = append(args, claudeModelArgs(opts.Model)...)
 
@@ -1956,6 +1990,7 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = projectPath
 	envutil.SetCleanEnv(cmd)
+	applyTaskIDEnv(cmd, opts.TaskID)
 
 	// stdin pipe — stream-json input keeps stdin open so inject messages can
 	// be appended as additional user turns while the run is in progress.

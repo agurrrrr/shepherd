@@ -178,6 +178,81 @@ func (_u *IssueUpdate) ClearParentID() *IssueUpdate {
 	return _u
 }
 
+// SetShepherdWatch sets the "shepherd_watch" field.
+func (_u *IssueUpdate) SetShepherdWatch(v bool) *IssueUpdate {
+	_u.mutation.SetShepherdWatch(v)
+	return _u
+}
+
+// SetNillableShepherdWatch sets the "shepherd_watch" field if the given value is not nil.
+func (_u *IssueUpdate) SetNillableShepherdWatch(v *bool) *IssueUpdate {
+	if v != nil {
+		_u.SetShepherdWatch(*v)
+	}
+	return _u
+}
+
+// SetShepherdRounds sets the "shepherd_rounds" field.
+func (_u *IssueUpdate) SetShepherdRounds(v int) *IssueUpdate {
+	_u.mutation.ResetShepherdRounds()
+	_u.mutation.SetShepherdRounds(v)
+	return _u
+}
+
+// SetNillableShepherdRounds sets the "shepherd_rounds" field if the given value is not nil.
+func (_u *IssueUpdate) SetNillableShepherdRounds(v *int) *IssueUpdate {
+	if v != nil {
+		_u.SetShepherdRounds(*v)
+	}
+	return _u
+}
+
+// AddShepherdRounds adds value to the "shepherd_rounds" field.
+func (_u *IssueUpdate) AddShepherdRounds(v int) *IssueUpdate {
+	_u.mutation.AddShepherdRounds(v)
+	return _u
+}
+
+// SetShepherdLastReview sets the "shepherd_last_review" field.
+func (_u *IssueUpdate) SetShepherdLastReview(v string) *IssueUpdate {
+	_u.mutation.SetShepherdLastReview(v)
+	return _u
+}
+
+// SetNillableShepherdLastReview sets the "shepherd_last_review" field if the given value is not nil.
+func (_u *IssueUpdate) SetNillableShepherdLastReview(v *string) *IssueUpdate {
+	if v != nil {
+		_u.SetShepherdLastReview(*v)
+	}
+	return _u
+}
+
+// ClearShepherdLastReview clears the value of the "shepherd_last_review" field.
+func (_u *IssueUpdate) ClearShepherdLastReview() *IssueUpdate {
+	_u.mutation.ClearShepherdLastReview()
+	return _u
+}
+
+// SetShepherdWatchedAt sets the "shepherd_watched_at" field.
+func (_u *IssueUpdate) SetShepherdWatchedAt(v time.Time) *IssueUpdate {
+	_u.mutation.SetShepherdWatchedAt(v)
+	return _u
+}
+
+// SetNillableShepherdWatchedAt sets the "shepherd_watched_at" field if the given value is not nil.
+func (_u *IssueUpdate) SetNillableShepherdWatchedAt(v *time.Time) *IssueUpdate {
+	if v != nil {
+		_u.SetShepherdWatchedAt(*v)
+	}
+	return _u
+}
+
+// ClearShepherdWatchedAt clears the value of the "shepherd_watched_at" field.
+func (_u *IssueUpdate) ClearShepherdWatchedAt() *IssueUpdate {
+	_u.mutation.ClearShepherdWatchedAt()
+	return _u
+}
+
 // SetProjectID sets the "project" edge to the Project entity by ID.
 func (_u *IssueUpdate) SetProjectID(id int) *IssueUpdate {
 	_u.mutation.SetProjectID(id)
@@ -389,6 +464,27 @@ func (_u *IssueUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.CompletedAtCleared() {
 		_spec.ClearField(issue.FieldCompletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.ShepherdWatch(); ok {
+		_spec.SetField(issue.FieldShepherdWatch, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ShepherdRounds(); ok {
+		_spec.SetField(issue.FieldShepherdRounds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedShepherdRounds(); ok {
+		_spec.AddField(issue.FieldShepherdRounds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.ShepherdLastReview(); ok {
+		_spec.SetField(issue.FieldShepherdLastReview, field.TypeString, value)
+	}
+	if _u.mutation.ShepherdLastReviewCleared() {
+		_spec.ClearField(issue.FieldShepherdLastReview, field.TypeString)
+	}
+	if value, ok := _u.mutation.ShepherdWatchedAt(); ok {
+		_spec.SetField(issue.FieldShepherdWatchedAt, field.TypeTime, value)
+	}
+	if _u.mutation.ShepherdWatchedAtCleared() {
+		_spec.ClearField(issue.FieldShepherdWatchedAt, field.TypeTime)
 	}
 	if _u.mutation.ProjectCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -706,6 +802,81 @@ func (_u *IssueUpdateOne) ClearParentID() *IssueUpdateOne {
 	return _u
 }
 
+// SetShepherdWatch sets the "shepherd_watch" field.
+func (_u *IssueUpdateOne) SetShepherdWatch(v bool) *IssueUpdateOne {
+	_u.mutation.SetShepherdWatch(v)
+	return _u
+}
+
+// SetNillableShepherdWatch sets the "shepherd_watch" field if the given value is not nil.
+func (_u *IssueUpdateOne) SetNillableShepherdWatch(v *bool) *IssueUpdateOne {
+	if v != nil {
+		_u.SetShepherdWatch(*v)
+	}
+	return _u
+}
+
+// SetShepherdRounds sets the "shepherd_rounds" field.
+func (_u *IssueUpdateOne) SetShepherdRounds(v int) *IssueUpdateOne {
+	_u.mutation.ResetShepherdRounds()
+	_u.mutation.SetShepherdRounds(v)
+	return _u
+}
+
+// SetNillableShepherdRounds sets the "shepherd_rounds" field if the given value is not nil.
+func (_u *IssueUpdateOne) SetNillableShepherdRounds(v *int) *IssueUpdateOne {
+	if v != nil {
+		_u.SetShepherdRounds(*v)
+	}
+	return _u
+}
+
+// AddShepherdRounds adds value to the "shepherd_rounds" field.
+func (_u *IssueUpdateOne) AddShepherdRounds(v int) *IssueUpdateOne {
+	_u.mutation.AddShepherdRounds(v)
+	return _u
+}
+
+// SetShepherdLastReview sets the "shepherd_last_review" field.
+func (_u *IssueUpdateOne) SetShepherdLastReview(v string) *IssueUpdateOne {
+	_u.mutation.SetShepherdLastReview(v)
+	return _u
+}
+
+// SetNillableShepherdLastReview sets the "shepherd_last_review" field if the given value is not nil.
+func (_u *IssueUpdateOne) SetNillableShepherdLastReview(v *string) *IssueUpdateOne {
+	if v != nil {
+		_u.SetShepherdLastReview(*v)
+	}
+	return _u
+}
+
+// ClearShepherdLastReview clears the value of the "shepherd_last_review" field.
+func (_u *IssueUpdateOne) ClearShepherdLastReview() *IssueUpdateOne {
+	_u.mutation.ClearShepherdLastReview()
+	return _u
+}
+
+// SetShepherdWatchedAt sets the "shepherd_watched_at" field.
+func (_u *IssueUpdateOne) SetShepherdWatchedAt(v time.Time) *IssueUpdateOne {
+	_u.mutation.SetShepherdWatchedAt(v)
+	return _u
+}
+
+// SetNillableShepherdWatchedAt sets the "shepherd_watched_at" field if the given value is not nil.
+func (_u *IssueUpdateOne) SetNillableShepherdWatchedAt(v *time.Time) *IssueUpdateOne {
+	if v != nil {
+		_u.SetShepherdWatchedAt(*v)
+	}
+	return _u
+}
+
+// ClearShepherdWatchedAt clears the value of the "shepherd_watched_at" field.
+func (_u *IssueUpdateOne) ClearShepherdWatchedAt() *IssueUpdateOne {
+	_u.mutation.ClearShepherdWatchedAt()
+	return _u
+}
+
 // SetProjectID sets the "project" edge to the Project entity by ID.
 func (_u *IssueUpdateOne) SetProjectID(id int) *IssueUpdateOne {
 	_u.mutation.SetProjectID(id)
@@ -947,6 +1118,27 @@ func (_u *IssueUpdateOne) sqlSave(ctx context.Context) (_node *Issue, err error)
 	}
 	if _u.mutation.CompletedAtCleared() {
 		_spec.ClearField(issue.FieldCompletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.ShepherdWatch(); ok {
+		_spec.SetField(issue.FieldShepherdWatch, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ShepherdRounds(); ok {
+		_spec.SetField(issue.FieldShepherdRounds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedShepherdRounds(); ok {
+		_spec.AddField(issue.FieldShepherdRounds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.ShepherdLastReview(); ok {
+		_spec.SetField(issue.FieldShepherdLastReview, field.TypeString, value)
+	}
+	if _u.mutation.ShepherdLastReviewCleared() {
+		_spec.ClearField(issue.FieldShepherdLastReview, field.TypeString)
+	}
+	if value, ok := _u.mutation.ShepherdWatchedAt(); ok {
+		_spec.SetField(issue.FieldShepherdWatchedAt, field.TypeTime, value)
+	}
+	if _u.mutation.ShepherdWatchedAtCleared() {
+		_spec.ClearField(issue.FieldShepherdWatchedAt, field.TypeTime)
 	}
 	if _u.mutation.ProjectCleared() {
 		edge := &sqlgraph.EdgeSpec{

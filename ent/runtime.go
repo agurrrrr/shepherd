@@ -59,6 +59,14 @@ func init() {
 	issue.DefaultUpdatedAt = issueDescUpdatedAt.Default.(func() time.Time)
 	// issue.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	issue.UpdateDefaultUpdatedAt = issueDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// issueDescShepherdWatch is the schema descriptor for shepherd_watch field.
+	issueDescShepherdWatch := issueFields[10].Descriptor()
+	// issue.DefaultShepherdWatch holds the default value on creation for the shepherd_watch field.
+	issue.DefaultShepherdWatch = issueDescShepherdWatch.Default.(bool)
+	// issueDescShepherdRounds is the schema descriptor for shepherd_rounds field.
+	issueDescShepherdRounds := issueFields[11].Descriptor()
+	// issue.DefaultShepherdRounds holds the default value on creation for the shepherd_rounds field.
+	issue.DefaultShepherdRounds = issueDescShepherdRounds.Default.(int)
 	mcpserverFields := schema.MCPServer{}.Fields()
 	_ = mcpserverFields
 	// mcpserverDescName is the schema descriptor for name field.

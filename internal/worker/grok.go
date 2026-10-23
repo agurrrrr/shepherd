@@ -65,6 +65,7 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 	// stdin (a TTY when started from a terminal) and never blocks reading it.
 	cmd.Stdin = strings.NewReader("")
 	envutil.SetCleanEnv(cmd)
+	applyTaskIDEnv(cmd, opts.TaskID)
 
 	// Register running task; unregister with the returned token so a late finish
 	// can only remove our own entry, never a newer task's (stop+restart race).

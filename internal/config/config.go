@@ -78,6 +78,13 @@ func Init() error {
 	viper.SetDefault("shepherd_scope_exclude", []string{})
 	viper.SetDefault("shepherd_scope_include_hidden", false)
 
+	// 목자 깨우기 한도 (#597). 0이나 음수는 manager/wake.go의 기본값으로 대체된다.
+	//   shepherd_max_review_rounds  : 이슈 하나에 대해 목자가 검토할 수 있는 최대
+	//                                 회차. 넘으면 더 깨우지 않고 확인 필요로 남긴다.
+	//   shepherd_max_wakeups_per_day: 하루(자정 기준) 목자 review 작업 생성 상한.
+	viper.SetDefault("shepherd_max_review_rounds", 3)
+	viper.SetDefault("shepherd_max_wakeups_per_day", 30)
+
 	// shell: 임베디드 프로바이더의 bash 도구가 명령을 실행할 셸 실행 파일.
 	// 빈 값이면 OS별 자동 탐지 (Unix: bash → sh, Windows: Git Bash → pwsh →
 	// powershell). 자동 탐지가 빗나갔을 때의 탈출구이므로 값은 실행 파일

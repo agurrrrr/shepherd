@@ -2,7 +2,9 @@ package queue
 
 import (
 	"context"
+	"log"
 
+	"entgo.io/ent/dialect/sql"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/db"
 )
@@ -40,6 +42,48 @@ func GetTaskShepherdKind(taskID int) string {
 		return ""
 	}
 	return t.ShepherdKind
+}
+
+// AppendToPendingReviewTaskPrompt coalesces one wake event into the newest
+// pending shepherd review task (#597): the block is appended to its prompt in
+// SQL (`prompt = prompt || ?`) so the read-modify-write never races with other
+// writers and the huge output column is never loaded. The UPDATE re-checks
+// status='pending' in its WHERE clause: if the processor claimed the row
+// between the lookup and the UPDATE, 0 rows change and this returns false, so
+// the caller creates a fresh review task instead of appending to a running one.
+func AppendToPendingReviewTaskPrompt(block string) bool {
+	ctx := context.Background()
+
+	// Newest pending review task. Select only the id — loading prompt/output
+	// here would pull potentially large columns just to discard them.
+	ids, err := db.Client().Task.Query().
+		Where(
+			task.ShepherdKindEQ("review"),
+			task.StatusEQ(task.StatusPending),
+		).
+		Order(task.ByCreatedAt(sql.OrderDesc())).
+		Limit(1).
+		IDs(ctx)
+	if err != nil || len(ids) == 0 {
+		return false
+	}
+
+	rawDB := db.RawDB()
+	if rawDB == nil {
+		return false
+	}
+	res, err := rawDB.ExecContext(ctx,
+		"UPDATE tasks SET prompt = prompt || ? WHERE id = ? AND status = 'pending'",
+		"\n\n"+block, ids[0])
+	if err != nil {
+		log.Printf("[queue] append to pending review task #%d: %v", ids[0], err)
+		return false
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false
+	}
+	return n == 1
 }
 
 // ResolveFollowUpModel picks the model a context-handoff continuation should

@@ -11,10 +11,10 @@ import (
 )
 
 type mcpProviderStatus struct {
-	Registered  bool   `json:"registered"`
-	ConfigPath  string `json:"config_path"`
-	ConfigExists bool  `json:"config_exists"`
-	Error       string `json:"error,omitempty"`
+	Registered   bool   `json:"registered"`
+	ConfigPath   string `json:"config_path"`
+	ConfigExists bool   `json:"config_exists"`
+	Error        string `json:"error,omitempty"`
 }
 
 // GET /api/mcp/status
@@ -327,8 +327,8 @@ export default function (pi: ExtensionAPI) {
     // Issues
     { name: "issue_list", desc: "List issues (omit project_name to list across all projects)", params: Type.Object({ project_name: Type.Optional(Type.String({ description: "Project name; omit = all projects" })), status: Type.Optional(Type.String({ description: "todo|in_progress|testing|failed|done" })), type: Type.Optional(Type.String({ description: "design|feature|bug" })), query: Type.Optional(Type.String({ description: "Title substring" })), limit: Type.Optional(Type.Number()), page: Type.Optional(Type.Number()) }) },
     { name: "issue_get", desc: "Get one issue with linked tasks", params: Type.Object({ project_name: Type.String(), id: Type.Number() }) },
-    { name: "issue_upsert", desc: "Create (no id) or update (with id) an issue", params: Type.Object({ project_name: Type.String(), id: Type.Optional(Type.Number()), title: Type.Optional(Type.String()), type: Type.Optional(Type.String({ description: "design|feature|bug" })), body: Type.Optional(Type.String()), goal: Type.Optional(Type.String()), status: Type.Optional(Type.String({ description: "update only" })) }) },
-    { name: "issue_execute", desc: "Queue a task for an issue (not immediate; sets status in_progress; re-call may enqueue duplicates)", params: Type.Object({ project_name: Type.String(), id: Type.Number(), sheep_name: Type.Optional(Type.String()), model: Type.Optional(Type.String()) }) },
+    { name: "issue_upsert", desc: "Create (no id) or update (with id) an issue", params: Type.Object({ project_name: Type.String(), id: Type.Optional(Type.Number()), title: Type.Optional(Type.String()), type: Type.Optional(Type.String({ description: "design|feature|bug" })), body: Type.Optional(Type.String()), goal: Type.Optional(Type.String()), status: Type.Optional(Type.String({ description: "update only" })), shepherd_review: Type.Optional(Type.String({ description: "update only: record the shepherd's review verdict" })) }) },
+    { name: "issue_execute", desc: "Queue a task for an issue (not immediate; sets status in_progress; re-call may enqueue duplicates; watch=true marks shepherd_watch, auto-on for shepherd tasks)", params: Type.Object({ project_name: Type.String(), id: Type.Number(), sheep_name: Type.Optional(Type.String()), model: Type.Optional(Type.String()), watch: Type.Optional(Type.Boolean({ description: "Set shepherd_watch on every enqueued issue" })) }) },
     // Browser automation
     { name: "browser_session_start", desc: "Start browser session", params: Type.Object({ ...sheep, headless: Type.Optional(Type.Boolean({ description: "Headless mode (default true)" })) }) },
     { name: "browser_session_stop", desc: "End browser session", params: Type.Object({ ...sheep }) },
@@ -527,7 +527,7 @@ export default function (pi: ExtensionAPI) {
     // 추가 정리 작업이 필요하면 여기에 추가
   });
 }
-`;
+`
 
 	return os.WriteFile(extPath, []byte(extensionCode), 0644)
 }

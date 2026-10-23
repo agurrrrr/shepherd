@@ -95,6 +95,26 @@ func ParentID(v int) predicate.Issue {
 	return predicate.Issue(sql.FieldEQ(FieldParentID, v))
 }
 
+// ShepherdWatch applies equality check predicate on the "shepherd_watch" field. It's identical to ShepherdWatchEQ.
+func ShepherdWatch(v bool) predicate.Issue {
+	return predicate.Issue(sql.FieldEQ(FieldShepherdWatch, v))
+}
+
+// ShepherdRounds applies equality check predicate on the "shepherd_rounds" field. It's identical to ShepherdRoundsEQ.
+func ShepherdRounds(v int) predicate.Issue {
+	return predicate.Issue(sql.FieldEQ(FieldShepherdRounds, v))
+}
+
+// ShepherdLastReview applies equality check predicate on the "shepherd_last_review" field. It's identical to ShepherdLastReviewEQ.
+func ShepherdLastReview(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldEQ(FieldShepherdLastReview, v))
+}
+
+// ShepherdWatchedAt applies equality check predicate on the "shepherd_watched_at" field. It's identical to ShepherdWatchedAtEQ.
+func ShepherdWatchedAt(v time.Time) predicate.Issue {
+	return predicate.Issue(sql.FieldEQ(FieldShepherdWatchedAt, v))
+}
+
 // TitleEQ applies the EQ predicate on the "title" field.
 func TitleEQ(v string) predicate.Issue {
 	return predicate.Issue(sql.FieldEQ(FieldTitle, v))
@@ -558,6 +578,181 @@ func ParentIDIsNil() predicate.Issue {
 // ParentIDNotNil applies the NotNil predicate on the "parent_id" field.
 func ParentIDNotNil() predicate.Issue {
 	return predicate.Issue(sql.FieldNotNull(FieldParentID))
+}
+
+// ShepherdWatchEQ applies the EQ predicate on the "shepherd_watch" field.
+func ShepherdWatchEQ(v bool) predicate.Issue {
+	return predicate.Issue(sql.FieldEQ(FieldShepherdWatch, v))
+}
+
+// ShepherdWatchNEQ applies the NEQ predicate on the "shepherd_watch" field.
+func ShepherdWatchNEQ(v bool) predicate.Issue {
+	return predicate.Issue(sql.FieldNEQ(FieldShepherdWatch, v))
+}
+
+// ShepherdRoundsEQ applies the EQ predicate on the "shepherd_rounds" field.
+func ShepherdRoundsEQ(v int) predicate.Issue {
+	return predicate.Issue(sql.FieldEQ(FieldShepherdRounds, v))
+}
+
+// ShepherdRoundsNEQ applies the NEQ predicate on the "shepherd_rounds" field.
+func ShepherdRoundsNEQ(v int) predicate.Issue {
+	return predicate.Issue(sql.FieldNEQ(FieldShepherdRounds, v))
+}
+
+// ShepherdRoundsIn applies the In predicate on the "shepherd_rounds" field.
+func ShepherdRoundsIn(vs ...int) predicate.Issue {
+	return predicate.Issue(sql.FieldIn(FieldShepherdRounds, vs...))
+}
+
+// ShepherdRoundsNotIn applies the NotIn predicate on the "shepherd_rounds" field.
+func ShepherdRoundsNotIn(vs ...int) predicate.Issue {
+	return predicate.Issue(sql.FieldNotIn(FieldShepherdRounds, vs...))
+}
+
+// ShepherdRoundsGT applies the GT predicate on the "shepherd_rounds" field.
+func ShepherdRoundsGT(v int) predicate.Issue {
+	return predicate.Issue(sql.FieldGT(FieldShepherdRounds, v))
+}
+
+// ShepherdRoundsGTE applies the GTE predicate on the "shepherd_rounds" field.
+func ShepherdRoundsGTE(v int) predicate.Issue {
+	return predicate.Issue(sql.FieldGTE(FieldShepherdRounds, v))
+}
+
+// ShepherdRoundsLT applies the LT predicate on the "shepherd_rounds" field.
+func ShepherdRoundsLT(v int) predicate.Issue {
+	return predicate.Issue(sql.FieldLT(FieldShepherdRounds, v))
+}
+
+// ShepherdRoundsLTE applies the LTE predicate on the "shepherd_rounds" field.
+func ShepherdRoundsLTE(v int) predicate.Issue {
+	return predicate.Issue(sql.FieldLTE(FieldShepherdRounds, v))
+}
+
+// ShepherdLastReviewEQ applies the EQ predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewEQ(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldEQ(FieldShepherdLastReview, v))
+}
+
+// ShepherdLastReviewNEQ applies the NEQ predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewNEQ(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldNEQ(FieldShepherdLastReview, v))
+}
+
+// ShepherdLastReviewIn applies the In predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewIn(vs ...string) predicate.Issue {
+	return predicate.Issue(sql.FieldIn(FieldShepherdLastReview, vs...))
+}
+
+// ShepherdLastReviewNotIn applies the NotIn predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewNotIn(vs ...string) predicate.Issue {
+	return predicate.Issue(sql.FieldNotIn(FieldShepherdLastReview, vs...))
+}
+
+// ShepherdLastReviewGT applies the GT predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewGT(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldGT(FieldShepherdLastReview, v))
+}
+
+// ShepherdLastReviewGTE applies the GTE predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewGTE(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldGTE(FieldShepherdLastReview, v))
+}
+
+// ShepherdLastReviewLT applies the LT predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewLT(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldLT(FieldShepherdLastReview, v))
+}
+
+// ShepherdLastReviewLTE applies the LTE predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewLTE(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldLTE(FieldShepherdLastReview, v))
+}
+
+// ShepherdLastReviewContains applies the Contains predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewContains(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldContains(FieldShepherdLastReview, v))
+}
+
+// ShepherdLastReviewHasPrefix applies the HasPrefix predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewHasPrefix(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldHasPrefix(FieldShepherdLastReview, v))
+}
+
+// ShepherdLastReviewHasSuffix applies the HasSuffix predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewHasSuffix(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldHasSuffix(FieldShepherdLastReview, v))
+}
+
+// ShepherdLastReviewIsNil applies the IsNil predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewIsNil() predicate.Issue {
+	return predicate.Issue(sql.FieldIsNull(FieldShepherdLastReview))
+}
+
+// ShepherdLastReviewNotNil applies the NotNil predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewNotNil() predicate.Issue {
+	return predicate.Issue(sql.FieldNotNull(FieldShepherdLastReview))
+}
+
+// ShepherdLastReviewEqualFold applies the EqualFold predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewEqualFold(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldEqualFold(FieldShepherdLastReview, v))
+}
+
+// ShepherdLastReviewContainsFold applies the ContainsFold predicate on the "shepherd_last_review" field.
+func ShepherdLastReviewContainsFold(v string) predicate.Issue {
+	return predicate.Issue(sql.FieldContainsFold(FieldShepherdLastReview, v))
+}
+
+// ShepherdWatchedAtEQ applies the EQ predicate on the "shepherd_watched_at" field.
+func ShepherdWatchedAtEQ(v time.Time) predicate.Issue {
+	return predicate.Issue(sql.FieldEQ(FieldShepherdWatchedAt, v))
+}
+
+// ShepherdWatchedAtNEQ applies the NEQ predicate on the "shepherd_watched_at" field.
+func ShepherdWatchedAtNEQ(v time.Time) predicate.Issue {
+	return predicate.Issue(sql.FieldNEQ(FieldShepherdWatchedAt, v))
+}
+
+// ShepherdWatchedAtIn applies the In predicate on the "shepherd_watched_at" field.
+func ShepherdWatchedAtIn(vs ...time.Time) predicate.Issue {
+	return predicate.Issue(sql.FieldIn(FieldShepherdWatchedAt, vs...))
+}
+
+// ShepherdWatchedAtNotIn applies the NotIn predicate on the "shepherd_watched_at" field.
+func ShepherdWatchedAtNotIn(vs ...time.Time) predicate.Issue {
+	return predicate.Issue(sql.FieldNotIn(FieldShepherdWatchedAt, vs...))
+}
+
+// ShepherdWatchedAtGT applies the GT predicate on the "shepherd_watched_at" field.
+func ShepherdWatchedAtGT(v time.Time) predicate.Issue {
+	return predicate.Issue(sql.FieldGT(FieldShepherdWatchedAt, v))
+}
+
+// ShepherdWatchedAtGTE applies the GTE predicate on the "shepherd_watched_at" field.
+func ShepherdWatchedAtGTE(v time.Time) predicate.Issue {
+	return predicate.Issue(sql.FieldGTE(FieldShepherdWatchedAt, v))
+}
+
+// ShepherdWatchedAtLT applies the LT predicate on the "shepherd_watched_at" field.
+func ShepherdWatchedAtLT(v time.Time) predicate.Issue {
+	return predicate.Issue(sql.FieldLT(FieldShepherdWatchedAt, v))
+}
+
+// ShepherdWatchedAtLTE applies the LTE predicate on the "shepherd_watched_at" field.
+func ShepherdWatchedAtLTE(v time.Time) predicate.Issue {
+	return predicate.Issue(sql.FieldLTE(FieldShepherdWatchedAt, v))
+}
+
+// ShepherdWatchedAtIsNil applies the IsNil predicate on the "shepherd_watched_at" field.
+func ShepherdWatchedAtIsNil() predicate.Issue {
+	return predicate.Issue(sql.FieldIsNull(FieldShepherdWatchedAt))
+}
+
+// ShepherdWatchedAtNotNil applies the NotNil predicate on the "shepherd_watched_at" field.
+func ShepherdWatchedAtNotNil() predicate.Issue {
+	return predicate.Issue(sql.FieldNotNull(FieldShepherdWatchedAt))
 }
 
 // HasProject applies the HasEdge predicate on the "project" edge.

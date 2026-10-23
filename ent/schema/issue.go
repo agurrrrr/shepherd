@@ -52,6 +52,20 @@ func (Issue) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("상위 이슈 ID (없으면 루트)"),
+		// Shepherd (목자) delegation tracking (#597).
+		field.Bool("shepherd_watch").
+			Default(false).
+			Comment("목자가 위임하고 결과를 지켜보는 이슈인지 표시"),
+		field.Int("shepherd_rounds").
+			Default(0).
+			Comment("이 이슈 때문에 목자가 깨어난 횟수"),
+		field.Text("shepherd_last_review").
+			Optional().
+			Comment("목자의 마지막 검토 판단 요약 (7단계 보드에 표시)"),
+		field.Time("shepherd_watched_at").
+			Optional().
+			Nillable().
+			Comment("감시를 시작한 시각"),
 	}
 }
 

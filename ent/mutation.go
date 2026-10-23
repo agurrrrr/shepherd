@@ -681,32 +681,37 @@ func (m *BrowserSessionMutation) ResetEdge(name string) error {
 // IssueMutation represents an operation that mutates the Issue nodes in the graph.
 type IssueMutation struct {
 	config
-	op              Op
-	typ             string
-	id              *int
-	title           *string
-	_type           *issue.Type
-	status          *issue.Status
-	body            *string
-	goal            *string
-	created_at      *time.Time
-	updated_at      *time.Time
-	started_at      *time.Time
-	completed_at    *time.Time
-	clearedFields   map[string]struct{}
-	project         *int
-	clearedproject  bool
-	tasks           map[int]struct{}
-	removedtasks    map[int]struct{}
-	clearedtasks    bool
-	parent          *int
-	clearedparent   bool
-	children        map[int]struct{}
-	removedchildren map[int]struct{}
-	clearedchildren bool
-	done            bool
-	oldValue        func(context.Context) (*Issue, error)
-	predicates      []predicate.Issue
+	op                   Op
+	typ                  string
+	id                   *int
+	title                *string
+	_type                *issue.Type
+	status               *issue.Status
+	body                 *string
+	goal                 *string
+	created_at           *time.Time
+	updated_at           *time.Time
+	started_at           *time.Time
+	completed_at         *time.Time
+	shepherd_watch       *bool
+	shepherd_rounds      *int
+	addshepherd_rounds   *int
+	shepherd_last_review *string
+	shepherd_watched_at  *time.Time
+	clearedFields        map[string]struct{}
+	project              *int
+	clearedproject       bool
+	tasks                map[int]struct{}
+	removedtasks         map[int]struct{}
+	clearedtasks         bool
+	parent               *int
+	clearedparent        bool
+	children             map[int]struct{}
+	removedchildren      map[int]struct{}
+	clearedchildren      bool
+	done                 bool
+	oldValue             func(context.Context) (*Issue, error)
+	predicates           []predicate.Issue
 }
 
 var _ ent.Mutation = (*IssueMutation)(nil)
@@ -1232,6 +1237,196 @@ func (m *IssueMutation) ResetParentID() {
 	delete(m.clearedFields, issue.FieldParentID)
 }
 
+// SetShepherdWatch sets the "shepherd_watch" field.
+func (m *IssueMutation) SetShepherdWatch(b bool) {
+	m.shepherd_watch = &b
+}
+
+// ShepherdWatch returns the value of the "shepherd_watch" field in the mutation.
+func (m *IssueMutation) ShepherdWatch() (r bool, exists bool) {
+	v := m.shepherd_watch
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldShepherdWatch returns the old "shepherd_watch" field's value of the Issue entity.
+// If the Issue object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IssueMutation) OldShepherdWatch(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldShepherdWatch is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldShepherdWatch requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldShepherdWatch: %w", err)
+	}
+	return oldValue.ShepherdWatch, nil
+}
+
+// ResetShepherdWatch resets all changes to the "shepherd_watch" field.
+func (m *IssueMutation) ResetShepherdWatch() {
+	m.shepherd_watch = nil
+}
+
+// SetShepherdRounds sets the "shepherd_rounds" field.
+func (m *IssueMutation) SetShepherdRounds(i int) {
+	m.shepherd_rounds = &i
+	m.addshepherd_rounds = nil
+}
+
+// ShepherdRounds returns the value of the "shepherd_rounds" field in the mutation.
+func (m *IssueMutation) ShepherdRounds() (r int, exists bool) {
+	v := m.shepherd_rounds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldShepherdRounds returns the old "shepherd_rounds" field's value of the Issue entity.
+// If the Issue object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IssueMutation) OldShepherdRounds(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldShepherdRounds is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldShepherdRounds requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldShepherdRounds: %w", err)
+	}
+	return oldValue.ShepherdRounds, nil
+}
+
+// AddShepherdRounds adds i to the "shepherd_rounds" field.
+func (m *IssueMutation) AddShepherdRounds(i int) {
+	if m.addshepherd_rounds != nil {
+		*m.addshepherd_rounds += i
+	} else {
+		m.addshepherd_rounds = &i
+	}
+}
+
+// AddedShepherdRounds returns the value that was added to the "shepherd_rounds" field in this mutation.
+func (m *IssueMutation) AddedShepherdRounds() (r int, exists bool) {
+	v := m.addshepherd_rounds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetShepherdRounds resets all changes to the "shepherd_rounds" field.
+func (m *IssueMutation) ResetShepherdRounds() {
+	m.shepherd_rounds = nil
+	m.addshepherd_rounds = nil
+}
+
+// SetShepherdLastReview sets the "shepherd_last_review" field.
+func (m *IssueMutation) SetShepherdLastReview(s string) {
+	m.shepherd_last_review = &s
+}
+
+// ShepherdLastReview returns the value of the "shepherd_last_review" field in the mutation.
+func (m *IssueMutation) ShepherdLastReview() (r string, exists bool) {
+	v := m.shepherd_last_review
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldShepherdLastReview returns the old "shepherd_last_review" field's value of the Issue entity.
+// If the Issue object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IssueMutation) OldShepherdLastReview(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldShepherdLastReview is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldShepherdLastReview requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldShepherdLastReview: %w", err)
+	}
+	return oldValue.ShepherdLastReview, nil
+}
+
+// ClearShepherdLastReview clears the value of the "shepherd_last_review" field.
+func (m *IssueMutation) ClearShepherdLastReview() {
+	m.shepherd_last_review = nil
+	m.clearedFields[issue.FieldShepherdLastReview] = struct{}{}
+}
+
+// ShepherdLastReviewCleared returns if the "shepherd_last_review" field was cleared in this mutation.
+func (m *IssueMutation) ShepherdLastReviewCleared() bool {
+	_, ok := m.clearedFields[issue.FieldShepherdLastReview]
+	return ok
+}
+
+// ResetShepherdLastReview resets all changes to the "shepherd_last_review" field.
+func (m *IssueMutation) ResetShepherdLastReview() {
+	m.shepherd_last_review = nil
+	delete(m.clearedFields, issue.FieldShepherdLastReview)
+}
+
+// SetShepherdWatchedAt sets the "shepherd_watched_at" field.
+func (m *IssueMutation) SetShepherdWatchedAt(t time.Time) {
+	m.shepherd_watched_at = &t
+}
+
+// ShepherdWatchedAt returns the value of the "shepherd_watched_at" field in the mutation.
+func (m *IssueMutation) ShepherdWatchedAt() (r time.Time, exists bool) {
+	v := m.shepherd_watched_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldShepherdWatchedAt returns the old "shepherd_watched_at" field's value of the Issue entity.
+// If the Issue object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IssueMutation) OldShepherdWatchedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldShepherdWatchedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldShepherdWatchedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldShepherdWatchedAt: %w", err)
+	}
+	return oldValue.ShepherdWatchedAt, nil
+}
+
+// ClearShepherdWatchedAt clears the value of the "shepherd_watched_at" field.
+func (m *IssueMutation) ClearShepherdWatchedAt() {
+	m.shepherd_watched_at = nil
+	m.clearedFields[issue.FieldShepherdWatchedAt] = struct{}{}
+}
+
+// ShepherdWatchedAtCleared returns if the "shepherd_watched_at" field was cleared in this mutation.
+func (m *IssueMutation) ShepherdWatchedAtCleared() bool {
+	_, ok := m.clearedFields[issue.FieldShepherdWatchedAt]
+	return ok
+}
+
+// ResetShepherdWatchedAt resets all changes to the "shepherd_watched_at" field.
+func (m *IssueMutation) ResetShepherdWatchedAt() {
+	m.shepherd_watched_at = nil
+	delete(m.clearedFields, issue.FieldShepherdWatchedAt)
+}
+
 // SetProjectID sets the "project" edge to the Project entity by id.
 func (m *IssueMutation) SetProjectID(id int) {
 	m.project = &id
@@ -1440,7 +1635,7 @@ func (m *IssueMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *IssueMutation) Fields() []string {
-	fields := make([]string, 0, 10)
+	fields := make([]string, 0, 14)
 	if m.title != nil {
 		fields = append(fields, issue.FieldTitle)
 	}
@@ -1471,6 +1666,18 @@ func (m *IssueMutation) Fields() []string {
 	if m.parent != nil {
 		fields = append(fields, issue.FieldParentID)
 	}
+	if m.shepherd_watch != nil {
+		fields = append(fields, issue.FieldShepherdWatch)
+	}
+	if m.shepherd_rounds != nil {
+		fields = append(fields, issue.FieldShepherdRounds)
+	}
+	if m.shepherd_last_review != nil {
+		fields = append(fields, issue.FieldShepherdLastReview)
+	}
+	if m.shepherd_watched_at != nil {
+		fields = append(fields, issue.FieldShepherdWatchedAt)
+	}
 	return fields
 }
 
@@ -1499,6 +1706,14 @@ func (m *IssueMutation) Field(name string) (ent.Value, bool) {
 		return m.CompletedAt()
 	case issue.FieldParentID:
 		return m.ParentID()
+	case issue.FieldShepherdWatch:
+		return m.ShepherdWatch()
+	case issue.FieldShepherdRounds:
+		return m.ShepherdRounds()
+	case issue.FieldShepherdLastReview:
+		return m.ShepherdLastReview()
+	case issue.FieldShepherdWatchedAt:
+		return m.ShepherdWatchedAt()
 	}
 	return nil, false
 }
@@ -1528,6 +1743,14 @@ func (m *IssueMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldCompletedAt(ctx)
 	case issue.FieldParentID:
 		return m.OldParentID(ctx)
+	case issue.FieldShepherdWatch:
+		return m.OldShepherdWatch(ctx)
+	case issue.FieldShepherdRounds:
+		return m.OldShepherdRounds(ctx)
+	case issue.FieldShepherdLastReview:
+		return m.OldShepherdLastReview(ctx)
+	case issue.FieldShepherdWatchedAt:
+		return m.OldShepherdWatchedAt(ctx)
 	}
 	return nil, fmt.Errorf("unknown Issue field %s", name)
 }
@@ -1607,6 +1830,34 @@ func (m *IssueMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetParentID(v)
 		return nil
+	case issue.FieldShepherdWatch:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetShepherdWatch(v)
+		return nil
+	case issue.FieldShepherdRounds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetShepherdRounds(v)
+		return nil
+	case issue.FieldShepherdLastReview:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetShepherdLastReview(v)
+		return nil
+	case issue.FieldShepherdWatchedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetShepherdWatchedAt(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Issue field %s", name)
 }
@@ -1615,6 +1866,9 @@ func (m *IssueMutation) SetField(name string, value ent.Value) error {
 // this mutation.
 func (m *IssueMutation) AddedFields() []string {
 	var fields []string
+	if m.addshepherd_rounds != nil {
+		fields = append(fields, issue.FieldShepherdRounds)
+	}
 	return fields
 }
 
@@ -1623,6 +1877,8 @@ func (m *IssueMutation) AddedFields() []string {
 // was not set, or was not defined in the schema.
 func (m *IssueMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
+	case issue.FieldShepherdRounds:
+		return m.AddedShepherdRounds()
 	}
 	return nil, false
 }
@@ -1632,6 +1888,13 @@ func (m *IssueMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *IssueMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case issue.FieldShepherdRounds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddShepherdRounds(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Issue numeric field %s", name)
 }
@@ -1654,6 +1917,12 @@ func (m *IssueMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(issue.FieldParentID) {
 		fields = append(fields, issue.FieldParentID)
+	}
+	if m.FieldCleared(issue.FieldShepherdLastReview) {
+		fields = append(fields, issue.FieldShepherdLastReview)
+	}
+	if m.FieldCleared(issue.FieldShepherdWatchedAt) {
+		fields = append(fields, issue.FieldShepherdWatchedAt)
 	}
 	return fields
 }
@@ -1683,6 +1952,12 @@ func (m *IssueMutation) ClearField(name string) error {
 		return nil
 	case issue.FieldParentID:
 		m.ClearParentID()
+		return nil
+	case issue.FieldShepherdLastReview:
+		m.ClearShepherdLastReview()
+		return nil
+	case issue.FieldShepherdWatchedAt:
+		m.ClearShepherdWatchedAt()
 		return nil
 	}
 	return fmt.Errorf("unknown Issue nullable field %s", name)
@@ -1721,6 +1996,18 @@ func (m *IssueMutation) ResetField(name string) error {
 		return nil
 	case issue.FieldParentID:
 		m.ResetParentID()
+		return nil
+	case issue.FieldShepherdWatch:
+		m.ResetShepherdWatch()
+		return nil
+	case issue.FieldShepherdRounds:
+		m.ResetShepherdRounds()
+		return nil
+	case issue.FieldShepherdLastReview:
+		m.ResetShepherdLastReview()
+		return nil
+	case issue.FieldShepherdWatchedAt:
+		m.ResetShepherdWatchedAt()
 		return nil
 	}
 	return fmt.Errorf("unknown Issue field %s", name)

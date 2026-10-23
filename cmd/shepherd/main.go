@@ -2714,6 +2714,15 @@ func runServeForeground() {
 	}
 
 	// Recover stuck tasks/sheep — the daemon is the legitimate task owner.
+	//
+	// The shepherd wake hook (#597) is registered BEFORE recovery on purpose:
+	// if the previous daemon died mid-task, those recovered failures are exactly
+	// what the 목자 should hear about on startup. CLI entry points never reach
+	// this line, so their bulk-cancel paths stay silent. wakeProcessor is wired
+	// to the real processor below once it exists; until then a wake falls back
+	// to the processor's 2s poll tick.
+	manager.RegisterHooks(nil)
+
 	recoverFromAbnormalTermination(true)
 
 	// Check auth setup
@@ -2777,6 +2786,11 @@ func runServeForeground() {
 	processor := queue.NewProcessor(2 * time.Second)
 	processor.Start()
 	defer processor.Stop()
+
+	// Point the shepherd wake path (#597) at the real processor so a freshly
+	// enqueued review task starts immediately instead of waiting for the next
+	// 2s tick. The hook itself was registered before startup recovery above.
+	manager.RegisterHooks(processor)
 
 	// Start scheduler (checks schedules every 1 minute)
 	sched := scheduler.New(1 * time.Minute)
@@ -4108,6 +4122,12 @@ func setupGracefulShutdown() {
 	go func() {
 		sig := <-sigChan
 		fmt.Printf(i18n.T().CLISignalReceivedFmt, sig)
+
+		// Detach the shepherd wake hook (#597) before bulk recovery: a graceful
+		// `shepherd stop` must not wake the 목자 for tasks it is cancelling
+		// itself. The next daemon start runs startup recovery with the hook on,
+		// and genuinely interrupted work wakes the shepherd there instead.
+		queue.SetIssueTaskFinishedHook(nil)
 
 		// Kill child processes first so they don't survive as orphans (and
 		// keep mutating the repo) after the daemon exits. Must run before

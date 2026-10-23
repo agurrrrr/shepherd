@@ -32,6 +32,9 @@ func issueToListItem(iss *ent.Issue, taskCount int) fiber.Map {
 	if s := issue.FormatTimePtr(iss.CompletedAt); s != "" {
 		item["completed_at"] = s
 	}
+	// Shepherd (목자) delegation state (#597) — the issue board reads the flag.
+	item["shepherd_watch"] = iss.ShepherdWatch
+	item["shepherd_rounds"] = iss.ShepherdRounds
 	return item
 }
 
@@ -55,6 +58,15 @@ func issueToDetail(iss *ent.Issue) fiber.Map {
 	}
 	if s := issue.FormatTimePtr(iss.CompletedAt); s != "" {
 		result["completed_at"] = s
+	}
+	// Shepherd (목자) delegation state (#597).
+	result["shepherd_watch"] = iss.ShepherdWatch
+	result["shepherd_rounds"] = iss.ShepherdRounds
+	if iss.ShepherdLastReview != "" {
+		result["shepherd_last_review"] = iss.ShepherdLastReview
+	}
+	if s := issue.FormatTimePtr(iss.ShepherdWatchedAt); s != "" {
+		result["shepherd_watched_at"] = s
 	}
 
 	var tasks []fiber.Map
@@ -327,18 +339,23 @@ func (s *Server) handleUpdateIssue(c *fiber.Ctx) error {
 		Goal     *string `json:"goal,omitempty"`
 		Status   *string `json:"status,omitempty"`
 		ParentID *int    `json:"parent_id,omitempty"`
+		// Shepherd (목자) fields (#597). Absent = leave unchanged.
+		ShepherdWatch      *bool   `json:"shepherd_watch,omitempty"`
+		ShepherdLastReview *string `json:"shepherd_last_review,omitempty"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
 	}
 
 	iss, err := issue.Update(name, id, issue.UpdateInput{
-		Title:    body.Title,
-		Type:     body.Type,
-		Body:     body.Body,
-		Goal:     body.Goal,
-		Status:   body.Status,
-		ParentID: body.ParentID,
+		Title:              body.Title,
+		Type:               body.Type,
+		Body:               body.Body,
+		Goal:               body.Goal,
+		Status:             body.Status,
+		ParentID:           body.ParentID,
+		ShepherdWatch:      body.ShepherdWatch,
+		ShepherdLastReview: body.ShepherdLastReview,
 	})
 	if err != nil {
 		return issueFail(c, err)

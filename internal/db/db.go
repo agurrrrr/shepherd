@@ -102,6 +102,16 @@ func ReplaceClient(c *ent.Client) *ent.Client {
 	return old
 }
 
+// ReplaceRawDB swaps the global raw *sql.DB handle and returns the previous
+// one. Tests that inject an in-memory client via ReplaceClient must pair it
+// with this so raw-SQL paths (queue.AppendToPendingReviewTaskPrompt) operate
+// on the same in-memory DB instead of a stale or nil handle.
+func ReplaceRawDB(db *sql.DB) *sql.DB {
+	old := rawDB
+	rawDB = db
+	return old
+}
+
 // RawDB returns the underlying *sql.DB. Useful for SQLite-specific commands
 // such as `VACUUM INTO` that ent does not expose directly. Callers must not
 // close this handle.

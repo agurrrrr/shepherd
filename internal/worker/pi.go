@@ -90,6 +90,7 @@ func executeWithPi(ctx context.Context, sheepName, projectPath, sessionID, promp
 	// --print: pi must not block on or read from an interactive terminal.
 	cmd.Stdin = strings.NewReader("")
 	envutil.SetCleanEnv(cmd)
+	applyTaskIDEnv(cmd, opts.TaskID)
 
 	// Register running task; unregister with the returned token so a late finish
 	// can only remove our own entry, never a newer task's (stop+restart race).

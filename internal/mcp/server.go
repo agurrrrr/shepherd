@@ -266,7 +266,19 @@ func (s *Server) handleToolsCall(req *Request) {
 		return
 	}
 
-	result, err := handler(params.Arguments)
+	// Normalize the caller identity (#597) on a copy so the raw JSON args
+	// are never mutated: drop any internal keys the host sent, then inject
+	// the reserved caller key from SHEPHERD_TASK_ID (set by the worker on
+	// provider children — `shepherd mcp` inherits it). The DB-write
+	// forwarders read it and move it to the daemon proxy body.
+	args := make(map[string]interface{}, len(params.Arguments)+1)
+	for k, v := range params.Arguments {
+		args[k] = v
+	}
+	StripInternalArgs(args)
+	SetCallerTaskID(args, CallerTaskIDFromEnv())
+
+	result, err := handler(args)
 	if err != nil {
 		s.sendToolResult(req.ID, err.Error(), true)
 		return

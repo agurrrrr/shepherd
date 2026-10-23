@@ -20,7 +20,7 @@ import (
 // executeInteractiveWithPty runs Claude Code using a pseudo-terminal.
 func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sessionID, prompt string, opts InteractiveOptions, cancel context.CancelFunc) (*ExecuteResult, error) {
 	args := []string{
-		"--mcp-config", GetMCPConfigJSON(),
+		"--mcp-config", GetMCPConfigJSON(opts.TaskID),
 	}
 	args = append(args, claudeModelArgs(opts.Model)...)
 
@@ -43,6 +43,7 @@ func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sess
 		// Pin PWD to the real working dir; CleanEnv() strips the daemon's stale PWD.
 		"PWD="+projectPath,
 	)
+	applyTaskIDEnv(cmd, opts.TaskID)
 
 	// Start PTY
 	ptmx, err := pty.Start(cmd)

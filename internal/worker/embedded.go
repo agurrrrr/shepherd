@@ -8,6 +8,13 @@ import (
 	"github.com/agurrrrr/shepherd/internal/embedded"
 )
 
+// CallerTaskArgKey duplicates mcp.CallerTaskArgKey (#597): the reserved tool-
+// argument key carrying the calling queue task's ID. worker cannot import mcp
+// (mcp imports worker), so the server's embedded/MAGI dispatch injects this
+// key with opts.TaskID before calling mcpServer.ExecuteTool. Keep both
+// constants in sync.
+const CallerTaskArgKey = "_shepherd_caller_task_id"
+
 // embeddedExecFunc is the signature for the embedded execution function.
 // The actual implementation is set by SetEmbeddedExecutor from outside the
 // worker package to avoid import cycles (mcp → queue → worker → mcp).
@@ -327,8 +334,8 @@ Wiki:
 Issues:
 - issue_list: List issues ([project_name], [status], [type], [query]) — omit project_name to list across all projects
 - issue_get: Get one issue with linked tasks (project_name, id)
-- issue_upsert: Create (no id) or update (with id) an issue (project_name, [id], title, [type], [body], [goal], [status]). Mark status=done only after goals are met.
-- issue_execute: Queue a task for an issue — not immediate; also sets issue status to in_progress; re-calling may enqueue duplicates (project_name, id, [sheep_name], [model])
+- issue_upsert: Create (no id) or update (with id) an issue (project_name, [id], title, [type], [body], [goal], [status], [shepherd_review]). Mark status=done only after goals are met.
+- issue_execute: Queue a task for an issue — not immediate; also sets issue status to in_progress; re-calling may enqueue duplicates (project_name, id, [sheep_name], [model], [watch]). watch=true sets shepherd_watch on every enqueued issue so the shepherd reviews it when the task ends.
 
 Browser automation (PREFERRED over WebFetch for web tasks):
 - browser_session_start, browser_open, browser_get_text, browser_click, browser_type, ...

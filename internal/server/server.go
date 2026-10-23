@@ -752,7 +752,17 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 				return "", nil, fmt.Errorf("external tool %q not found", name)
 			}
 			// Fall back to built-in shepherd MCP server (text-only result).
-			text, err := mcpServer.ExecuteTool(name, args)
+			// Caller identity (#597): tag built-in tool calls with the running
+			// task ID under the reserved key, so caller-aware handlers
+			// (issue_upsert/issue_execute auto-watch) recognize work started
+			// by a shepherd (목자) task. Copied map: the agent loop's own args
+			// stay untouched; external MCP servers never see the key.
+			callArgs := make(map[string]interface{}, len(args)+1)
+			for k, v := range args {
+				callArgs[k] = v
+			}
+			callArgs = mcp.SetCallerTaskID(callArgs, opts.TaskID)
+			text, err := mcpServer.ExecuteTool(name, callArgs)
 			return text, nil, err
 		}
 
@@ -1295,7 +1305,14 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 				return "", nil, fmt.Errorf("external tool %q not found", name)
 			}
 			// Fall back to built-in shepherd MCP server.
-			text, err := mcpServer.ExecuteTool(name, args)
+			// Caller identity (#597): same reserved-key injection as the
+			// embedded dispatch above (MAGI proposers run inside a queue task).
+			callArgs := make(map[string]interface{}, len(args)+1)
+			for k, v := range args {
+				callArgs[k] = v
+			}
+			callArgs = mcp.SetCallerTaskID(callArgs, opts.TaskID)
+			text, err := mcpServer.ExecuteTool(name, callArgs)
 			return text, nil, err
 		}
 

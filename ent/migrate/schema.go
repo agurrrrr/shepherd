@@ -44,6 +44,10 @@ var (
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "started_at", Type: field.TypeTime, Nullable: true},
 		{Name: "completed_at", Type: field.TypeTime, Nullable: true},
+		{Name: "shepherd_watch", Type: field.TypeBool, Default: false},
+		{Name: "shepherd_rounds", Type: field.TypeInt, Default: 0},
+		{Name: "shepherd_last_review", Type: field.TypeString, Nullable: true, Size: 2147483647},
+		{Name: "shepherd_watched_at", Type: field.TypeTime, Nullable: true},
 		{Name: "parent_id", Type: field.TypeInt, Nullable: true},
 		{Name: "project_issues", Type: field.TypeInt},
 	}
@@ -55,13 +59,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "issues_issues_children",
-				Columns:    []*schema.Column{IssuesColumns[10]},
+				Columns:    []*schema.Column{IssuesColumns[14]},
 				RefColumns: []*schema.Column{IssuesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "issues_projects_issues",
-				Columns:    []*schema.Column{IssuesColumns[11]},
+				Columns:    []*schema.Column{IssuesColumns[15]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},

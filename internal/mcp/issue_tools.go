@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/agurrrrr/shepherd/internal/issue"
+	"github.com/agurrrrr/shepherd/internal/names"
+	"github.com/agurrrrr/shepherd/internal/queue"
 )
 
 func (s *Server) registerIssueTools() {
@@ -58,7 +60,7 @@ func getIssueToolsList() []Tool {
 		{
 			Name: "issue_upsert",
 			Description: "id 없으면 새 이슈 생성, id 있으면 해당 이슈 부분 수정. status는 수정 시에만 적용됨. " +
-				"parent_id로 상위 이슈 연결(0이면 부모 해제).",
+				"parent_id로 상위 이슈 연결(0이면 부모 해제). shepherd_review로 목자 검토 기록을 남긴다.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -78,6 +80,7 @@ func getIssueToolsList() []Tool {
 						Enum:        []string{"todo", "in_progress", "testing", "failed", "done"},
 						Description: "Status (update only; ignored on create)",
 					},
+					"shepherd_review": {Type: "string", Description: "Update only: record the shepherd's latest review verdict on the issue (shepherd_last_review)"},
 				},
 				Required: []string{"project_name"},
 			},
@@ -89,7 +92,9 @@ func getIssueToolsList() []Tool {
 				"하위 이슈가 있고 미완료(status!=done)이면 미완료 하위부터 순차(FIFO) 적재한 뒤 상위 이슈를 마지막에 적재한다. " +
 				"일괄 적재 시 작업 간 2초 딜레이를 둬 같은 양이 동시 디스패치되지 않게 한다. " +
 				"작업이 중단됐는데 이슈만 in_progress로 남은 경우 실행 전에 failed/testing으로 자동 보정한다. " +
-				"이미 pending/running task가 연결된 이슈는 건너뛴다(중복 적재 방지).",
+				"이미 pending/running task가 연결된 이슈는 건너뛴다(중복 적재 방지). " +
+				"watch=true면 적재된 모든 이슈(하위 포함)에 shepherd_watch를 켠다 — 작업이 끝날 때마다 목자가 검토한다. " +
+				"목자(매니저 양) 작업에서 호출하면 watch 생략해도 자동으로 켜진다.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -97,6 +102,7 @@ func getIssueToolsList() []Tool {
 					"id":           {Type: "number", Description: "Issue ID"},
 					"sheep_name":   {Type: "string", Description: "Sheep name (default: project-assigned sheep)"},
 					"model":        {Type: "string", Description: "Optional per-task model override"},
+					"watch":        {Type: "boolean", Description: "Set shepherd_watch on every enqueued issue (cascaded children included). Auto-on when the caller is a shepherd (manager-sheep) task."},
 				},
 				Required: []string{"project_name", "id"},
 			},
@@ -273,6 +279,12 @@ func handleIssueUpsert(args map[string]interface{}) (string, error) {
 		pid := toInt(v)
 		in.ParentID = &pid
 	}
+	// Shepherd review note (#597): the shepherd records its last review verdict
+	// on the issue right after a review task, without touching other fields.
+	if v, ok := args["shepherd_review"]; ok {
+		s := toString(v)
+		in.ShepherdLastReview = &s
+	}
 	iss, err := issue.Update(projectName, id, in)
 	if err != nil {
 		return "", err
@@ -286,22 +298,49 @@ func handleIssueExecute(args map[string]interface{}) (string, error) {
 	if projectName == "" || id <= 0 {
 		return "", fmt.Errorf("project_name and id are required")
 	}
+
+	// Watch marking (#597): explicit watch=true, or a caller that is itself a
+	// task running on the manager (목자) sheep — the shepherd delegates through
+	// issue_execute, so everything it enqueues should be reviewed when it ends.
+	watch := toBool(args["watch"]) || callerIsShepherdTask(CallerTaskIDFromArgs(args))
+
 	res, err := issue.Execute(issue.ExecuteInput{
 		Project:   projectName,
 		IssueID:   id,
 		SheepName: toString(args["sheep_name"]),
 		Model:     toString(args["model"]),
+		Watch:     watch,
 	})
 	if err != nil {
 		return "", err
 	}
+	watchNote := ""
+	if watch {
+		watchNote = " shepherd_watch=true (작업 종료 시 목자가 검토합니다)."
+	}
 	if len(res.TaskIDs) > 1 {
 		return fmt.Sprintf(
-			"이슈 #%d 수행: 미완료 하위 포함 %d개 작업을 큐에 적재했습니다 (이슈 %v → task %v; 양: %s). 마지막이 상위 이슈. processor가 폴링으로 픽업합니다.",
-			res.IssueID, len(res.TaskIDs), res.IssueIDs, res.TaskIDs, res.SheepName), nil
+			"이슈 #%d 수행: 미완료 하위 포함 %d개 작업을 큐에 적재했습니다 (이슈 %v → task %v; 양: %s). 마지막이 상위 이슈. processor가 폴링으로 픽업합니다.%s",
+			res.IssueID, len(res.TaskIDs), res.IssueIDs, res.TaskIDs, res.SheepName, watchNote), nil
 	}
 	// 계약: 큐 적재 + status→in_progress 부수효과 + 중복 적재 가능 (#7797)
 	return fmt.Sprintf(
-		"이슈 #%d를 작업 #%d로 큐에 적재했습니다 (양: %s). 이슈 상태 → in_progress. processor가 폴링으로 픽업합니다. 이미 진행 중인 작업이 있으면 중복 적재될 수 있습니다.",
-		res.IssueID, res.TaskID, res.SheepName), nil
+		"이슈 #%d를 작업 #%d로 큐에 적재했습니다 (양: %s). 이슈 상태 → in_progress. processor가 폴링으로 픽업합니다. 이미 진행 중인 작업이 있으면 중복 적재될 수 있습니다.%s",
+		res.IssueID, res.TaskID, res.SheepName, watchNote), nil
+}
+
+// callerIsShepherdTask reports whether taskID belongs to a task running on the
+// manager (목자) sheep (#597). The check stays local to the tool layer — it
+// only needs queue.GetTask + names.IsManager, so the MCP package does not pull
+// in internal/manager's wake logic. manager.IsShepherdCaller is the same test
+// for daemon-side callers.
+func callerIsShepherdTask(taskID int) bool {
+	if taskID <= 0 {
+		return false
+	}
+	t, err := queue.GetTask(taskID)
+	if err != nil || t == nil || t.Edges.Sheep == nil {
+		return false
+	}
+	return names.IsManager(t.Edges.Sheep.Name)
 }

@@ -19,6 +19,117 @@ import (
 	"github.com/agurrrrr/shepherd/internal/db"
 )
 
+// IssueTaskEvent describes one finished task that was linked to an issue
+// (#597). The manager package registers a hook (SetTaskFinishedHook) so the
+// shepherd (목자) can wake up and review delegated work. queue cannot import
+// manager — manager imports queue — so the wiring goes through this callback.
+type IssueTaskEvent struct {
+	TaskID       int    // finished task
+	IssueID      int    // issue the task was linked to
+	Project      string // project name of the issue (empty when unresolvable)
+	TaskState    string // completed | failed | stopped
+	StopReason   string // error/reason column of the task when stopped/failed
+	QuestionStop bool   // stopped by AskUserQuestion (the shepherd can answer and re-execute)
+	UserStop     bool   // stopped/cancelled by the user from Web or CLI (do not wake)
+	SheepName    string // sheep that ran the task
+}
+
+// issueTaskFinishedHook is nil until the daemon registers it (manager.RegisterHooks).
+// CLI processes never register it, so their bulk-cancel paths stay silent.
+var issueTaskFinishedHook func(IssueTaskEvent)
+
+// SetIssueTaskFinishedHook installs the issue-task finished hook. Call with nil to
+// remove it (tests). Registration order: the daemon registers before startup
+// recovery runs, so recovered tasks also flow through the hook.
+func SetIssueTaskFinishedHook(hook func(IssueTaskEvent)) {
+	issueTaskFinishedHook = hook
+}
+
+// isUserStopReason reports whether a stopped task's error column marks a
+// user-initiated stop/cancel (#597 wake rule 3). These paths never wake the
+// shepherd: the user intervened on purpose, and stage #599 surfaces the issue
+// in the needs-attention list instead.
+//
+// Sources of these reasons:
+//   - "stopped by user" — POST /api/tasks/:id/stop (Web/CLI)
+//   - "cancelled by user" — queue clear (CancelPendingTask(s)/CancelRunningTasks)
+//   - "task was cancelled" — worker.StopTask cancel surfaced through the processor
+//   - "cancelled: stale task from previous session" — startup cleanup, which
+//     normally follows a user-initiated `shepherd stop`
+//
+// A question stop ("question: ...") is NOT a user stop: the shepherd may answer
+// it and re-execute the issue.
+func isUserStopReason(reason string) bool {
+	switch reason {
+	case "stopped by user", "cancelled by user", "task was cancelled",
+		"cancelled: stale task from previous session":
+		return true
+	}
+	return false
+}
+
+// notifyTaskFinished loads the task's issue link and project name, then runs
+// the registered hook in a goroutine so task-finish handling is never delayed.
+// It must be called after the DB status update (and after
+// updateIssueStatusOnTaskComplete) on every single-task terminal path;
+// syncIssuesFailedForTasks calls it per ID. Non-terminal rows (pending/running)
+// are skipped so a delete-before-row-removal can never wake the shepherd.
+func notifyTaskFinished(taskID int) {
+	if issueTaskFinishedHook == nil {
+		return
+	}
+
+	ctx := context.Background()
+	client := db.Client()
+
+	t, err := client.Task.Query().
+		Where(task.ID(taskID)).
+		WithIssue().
+		WithSheep().
+		Only(ctx)
+	if err != nil || t.Edges.Issue == nil {
+		return
+	}
+	if t.Status != task.StatusCompleted && t.Status != task.StatusFailed && t.Status != task.StatusStopped {
+		return
+	}
+
+	projectName := ""
+	if iss, qerr := client.Issue.Query().
+		Where(entIssue.ID(t.Edges.Issue.ID)).
+		WithProject().
+		Only(ctx); qerr == nil && iss.Edges.Project != nil {
+		projectName = iss.Edges.Project.Name
+	}
+
+	ev := IssueTaskEvent{
+		TaskID:     taskID,
+		IssueID:    t.Edges.Issue.ID,
+		Project:    projectName,
+		TaskState:  string(t.Status),
+		StopReason: t.Error,
+	}
+	if t.Status == task.StatusStopped {
+		ev.QuestionStop = strings.HasPrefix(t.Error, "question: ")
+	}
+	// The CLI stop path records a failed row with reason "stopped by user", so
+	// the user-stop check applies to every terminal state, not just stopped.
+	ev.UserStop = isUserStopReason(t.Error)
+	if t.Edges.Sheep != nil {
+		ev.SheepName = t.Edges.Sheep.Name
+	}
+
+	hook := issueTaskFinishedHook
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[queue] task-finished hook panicked for task #%d: %v", taskID, r)
+			}
+		}()
+		hook(ev)
+	}()
+}
+
 // CreateTask creates a new task with pending status.
 func CreateTask(prompt string, sheepID, projectID int) (*ent.Task, error) {
 	ctx := context.Background()
@@ -425,6 +536,8 @@ func CompleteTaskWithTokens(id int, summary string, filesModified []string, outp
 	// Auto-update linked issue status to testing
 	updateIssueStatusOnTaskComplete(id, entIssue.StatusTesting)
 
+	notifyTaskFinished(id)
+
 	return nil
 }
 
@@ -469,6 +582,8 @@ func FailTaskWithOutput(id int, errMsg string, output []string) error {
 	// Auto-update linked issue status to failed
 	updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
 
+	notifyTaskFinished(id)
+
 	return nil
 }
 
@@ -501,6 +616,8 @@ func StopTaskWithOutput(id int, reason string, output []string) error {
 
 	// Auto-update linked issue status to failed (stopped tasks also fail the issue)
 	updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+
+	notifyTaskFinished(id)
 
 	return nil
 }
@@ -835,6 +952,8 @@ func CancelPendingTask(id int) error {
 	}
 
 	updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+
+	notifyTaskFinished(id)
 	return nil
 }
 
@@ -858,6 +977,8 @@ func DeleteTask(id int) error {
 
 	if t.Edges.Issue != nil {
 		updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+		// Hook before the row disappears — notifyTaskFinished re-queries it.
+		notifyTaskFinished(id)
 	}
 
 	// Remove the task's checkpoint refs before the row disappears. A failure
@@ -947,9 +1068,13 @@ func taskIDsWhere(ctx context.Context, client *ent.Client, preds ...predicate.Ta
 // syncIssuesFailedForTasks moves linked issues to failed after bulk task
 // cancel/recover. Bulk task updates skip StopTaskWithOutput/FailTask paths,
 // so without this issues stay stuck at in_progress and cannot be re-run cleanly.
+// It is also the wake-hook entry for bulk paths (#597): RecoverStuckTasks
+// failures wake the shepherd, while user-cancel markers keep it asleep via
+// isUserStopReason.
 func syncIssuesFailedForTasks(taskIDs []int) {
 	for _, id := range taskIDs {
 		updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+		notifyTaskFinished(id)
 	}
 }
 

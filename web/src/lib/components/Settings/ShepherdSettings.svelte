@@ -27,6 +27,9 @@
 	let model = $state('');
 	let instructions = $state('');
 	let includeHidden = $state(false);
+	// Wake caps (#597). 0 means "use the daemon default" (rounds 3 / wakeups 30).
+	let maxReviewRounds = $state(0);
+	let maxWakeupsPerDay = $state(0);
 	/** name -> true when the project is managed (unchecked names become shepherd_scope_exclude) */
 	let managed = $state({});
 
@@ -66,6 +69,8 @@
 		model = payload.model || '';
 		instructions = payload.instructions || '';
 		includeHidden = payload.scope_include_hidden === true;
+		maxReviewRounds = Number(payload.max_review_rounds ?? 0);
+		maxWakeupsPerDay = Number(payload.max_wakeups_per_day ?? 0);
 		validationError = payload.workspace_error || '';
 
 		const next = {};
@@ -139,7 +144,9 @@
 				model,
 				instructions,
 				scope_exclude: exclude,
-				scope_include_hidden: includeHidden
+				scope_include_hidden: includeHidden,
+				max_review_rounds: Math.max(0, Math.trunc(Number(maxReviewRounds) || 0)),
+				max_wakeups_per_day: Math.max(0, Math.trunc(Number(maxWakeupsPerDay) || 0))
 			});
 			if (res?.success && res.data) {
 				applyPayload(res.data);
@@ -253,6 +260,36 @@
 				></textarea>
 				<span class="hint">목자 기본 지침 뒤에 이 내용이 추가됩니다. 기본 지침은 목자 프롬프트 단계(#595)에서 정해집니다.</span>
 			</div>
+		</section>
+
+		<!-- Wake caps (#597): how often the shepherd may be woken to review
+		     finished work on watched issues. 0 = daemon default. -->
+		<section class="block">
+			<h3 class="block-title">위임과 깨우기</h3>
+			<div class="setting-row">
+				<label for="sh-max-rounds">이슈당 검토 회차 상한</label>
+				<input
+					id="sh-max-rounds"
+					class="input"
+					type="number"
+					min="0"
+					max="100"
+					bind:value={maxReviewRounds}
+				/>
+			</div>
+			<span class="hint">감시 이슈를 목자가 검토할 수 있는 최대 횟수입니다. 넘으면 더 깨우지 않고 확인 필요로 남깁니다. 0은 기본값 3회.</span>
+			<div class="setting-row">
+				<label for="sh-max-wakeups">하루 깨우기 상한</label>
+				<input
+					id="sh-max-wakeups"
+					class="input"
+					type="number"
+					min="0"
+					max="1000"
+					bind:value={maxWakeupsPerDay}
+				/>
+			</div>
+			<span class="hint">하루(자정 기준) 목자 검토 작업 생성 상한입니다. 0은 기본값 30회.</span>
 		</section>
 
 		<!-- Scope: "every visible project minus the exclusion list". A project

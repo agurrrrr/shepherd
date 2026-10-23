@@ -38,6 +38,14 @@ type Issue struct {
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	// 상위 이슈 ID (없으면 루트)
 	ParentID *int `json:"parent_id,omitempty"`
+	// 목자가 위임하고 결과를 지켜보는 이슈인지 표시
+	ShepherdWatch bool `json:"shepherd_watch,omitempty"`
+	// 이 이슈 때문에 목자가 깨어난 횟수
+	ShepherdRounds int `json:"shepherd_rounds,omitempty"`
+	// 목자의 마지막 검토 판단 요약 (7단계 보드에 표시)
+	ShepherdLastReview string `json:"shepherd_last_review,omitempty"`
+	// 감시를 시작한 시각
+	ShepherdWatchedAt *time.Time `json:"shepherd_watched_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the IssueQuery when eager-loading is set.
 	Edges          IssueEdges `json:"edges"`
@@ -105,11 +113,13 @@ func (*Issue) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case issue.FieldID, issue.FieldParentID:
+		case issue.FieldShepherdWatch:
+			values[i] = new(sql.NullBool)
+		case issue.FieldID, issue.FieldParentID, issue.FieldShepherdRounds:
 			values[i] = new(sql.NullInt64)
-		case issue.FieldTitle, issue.FieldType, issue.FieldStatus, issue.FieldBody, issue.FieldGoal:
+		case issue.FieldTitle, issue.FieldType, issue.FieldStatus, issue.FieldBody, issue.FieldGoal, issue.FieldShepherdLastReview:
 			values[i] = new(sql.NullString)
-		case issue.FieldCreatedAt, issue.FieldUpdatedAt, issue.FieldStartedAt, issue.FieldCompletedAt:
+		case issue.FieldCreatedAt, issue.FieldUpdatedAt, issue.FieldStartedAt, issue.FieldCompletedAt, issue.FieldShepherdWatchedAt:
 			values[i] = new(sql.NullTime)
 		case issue.ForeignKeys[0]: // project_issues
 			values[i] = new(sql.NullInt64)
@@ -196,6 +206,31 @@ func (_m *Issue) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.ParentID = new(int)
 				*_m.ParentID = int(value.Int64)
+			}
+		case issue.FieldShepherdWatch:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field shepherd_watch", values[i])
+			} else if value.Valid {
+				_m.ShepherdWatch = value.Bool
+			}
+		case issue.FieldShepherdRounds:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field shepherd_rounds", values[i])
+			} else if value.Valid {
+				_m.ShepherdRounds = int(value.Int64)
+			}
+		case issue.FieldShepherdLastReview:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field shepherd_last_review", values[i])
+			} else if value.Valid {
+				_m.ShepherdLastReview = value.String
+			}
+		case issue.FieldShepherdWatchedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field shepherd_watched_at", values[i])
+			} else if value.Valid {
+				_m.ShepherdWatchedAt = new(time.Time)
+				*_m.ShepherdWatchedAt = value.Time
 			}
 		case issue.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -294,6 +329,20 @@ func (_m *Issue) String() string {
 	if v := _m.ParentID; v != nil {
 		builder.WriteString("parent_id=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("shepherd_watch=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ShepherdWatch))
+	builder.WriteString(", ")
+	builder.WriteString("shepherd_rounds=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ShepherdRounds))
+	builder.WriteString(", ")
+	builder.WriteString("shepherd_last_review=")
+	builder.WriteString(_m.ShepherdLastReview)
+	builder.WriteString(", ")
+	if v := _m.ShepherdWatchedAt; v != nil {
+		builder.WriteString("shepherd_watched_at=")
+		builder.WriteString(v.Format(time.ANSIC))
 	}
 	builder.WriteByte(')')
 	return builder.String()

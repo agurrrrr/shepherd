@@ -46,6 +46,10 @@ type UpdateInput struct {
 	Goal     *string
 	Status   *string
 	ParentID *int
+
+	// Shepherd (목자) fields (#597). Nil = leave unchanged.
+	ShepherdWatch      *bool
+	ShepherdLastReview *string
 }
 
 // ListFilter controls listing / filtering.
@@ -127,6 +131,13 @@ type ExecuteInput struct {
 	IssueID   int
 	SheepName string // optional; falls back to project-assigned sheep
 	Model     string // optional per-task model override
+
+	// Watch marks the enqueued issues (and every cascaded child) as shepherd-
+	// watched (#597): the 목자 wants to review what this task does. The daemon
+	// also forces Watch=true when the caller is a manager-sheep task
+	// (manager.IsShepherdCaller), so a shepherd that forgets the flag is still
+	// tracked automatically.
+	Watch bool
 }
 
 // ExecuteResult is returned after enqueueing task(s) for an issue.
@@ -453,8 +464,9 @@ func Update(projectName string, id int, in UpdateInput) (*ent.Issue, error) {
 		return nil, err
 	}
 
-	if in.Title == nil && in.Type == nil && in.Body == nil && in.Goal == nil && in.Status == nil && in.ParentID == nil {
-		return nil, fmt.Errorf("nothing to update: provide at least one of title, type, body, goal, status, parent_id")
+	if in.Title == nil && in.Type == nil && in.Body == nil && in.Goal == nil && in.Status == nil && in.ParentID == nil &&
+		in.ShepherdWatch == nil && in.ShepherdLastReview == nil {
+		return nil, fmt.Errorf("nothing to update: provide at least one of title, type, body, goal, status, parent_id, shepherd_watch, shepherd_last_review")
 	}
 
 	ctx := context.Background()
@@ -499,6 +511,18 @@ func Update(projectName string, id int, in UpdateInput) (*ent.Issue, error) {
 			}
 			update = update.SetParentID(*in.ParentID)
 		}
+	}
+	// Shepherd watch toggle (#597). Turning the watch on stamps watched_at when
+	// it has never been set (the execute cascade sets it itself when Watch is
+	// requested, so this only covers toggles from Web/API/MCP upsert).
+	if in.ShepherdWatch != nil {
+		update = update.SetShepherdWatch(*in.ShepherdWatch)
+		if *in.ShepherdWatch && (iss.ShepherdWatchedAt == nil || iss.ShepherdWatchedAt.IsZero()) {
+			update = update.SetShepherdWatchedAt(time.Now())
+		}
+	}
+	if in.ShepherdLastReview != nil {
+		update = update.SetShepherdLastReview(*in.ShepherdLastReview)
 	}
 
 	updated, err := update.Save(ctx)
@@ -630,6 +654,21 @@ func Execute(in ExecuteInput) (*ExecuteResult, error) {
 
 	if enqueued == 0 {
 		return nil, fmt.Errorf("no tasks enqueued: all target issues already have pending/running tasks")
+	}
+
+	// Watch marking (#597): every issue actually enqueued in this cascade —
+	// children and parent alike — becomes shepherd-watched when requested, so
+	// the wake hook fires for each linked task that finishes.
+	if in.Watch && len(result.IssueIDs) > 0 {
+		now := time.Now()
+		_, werr := client.Issue.Update().
+			Where(entIssue.IDIn(result.IssueIDs...)).
+			SetShepherdWatch(true).
+			SetShepherdWatchedAt(now).
+			Save(ctx)
+		if werr != nil {
+			return nil, fmt.Errorf("failed to set shepherd_watch on issues %v: %w", result.IssueIDs, werr)
+		}
 	}
 
 	return result, nil

@@ -35,6 +35,14 @@ const (
 	FieldCompletedAt = "completed_at"
 	// FieldParentID holds the string denoting the parent_id field in the database.
 	FieldParentID = "parent_id"
+	// FieldShepherdWatch holds the string denoting the shepherd_watch field in the database.
+	FieldShepherdWatch = "shepherd_watch"
+	// FieldShepherdRounds holds the string denoting the shepherd_rounds field in the database.
+	FieldShepherdRounds = "shepherd_rounds"
+	// FieldShepherdLastReview holds the string denoting the shepherd_last_review field in the database.
+	FieldShepherdLastReview = "shepherd_last_review"
+	// FieldShepherdWatchedAt holds the string denoting the shepherd_watched_at field in the database.
+	FieldShepherdWatchedAt = "shepherd_watched_at"
 	// EdgeProject holds the string denoting the project edge name in mutations.
 	EdgeProject = "project"
 	// EdgeTasks holds the string denoting the tasks edge name in mutations.
@@ -82,6 +90,10 @@ var Columns = []string{
 	FieldStartedAt,
 	FieldCompletedAt,
 	FieldParentID,
+	FieldShepherdWatch,
+	FieldShepherdRounds,
+	FieldShepherdLastReview,
+	FieldShepherdWatchedAt,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "issues"
@@ -114,6 +126,10 @@ var (
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
+	// DefaultShepherdWatch holds the default value on creation for the "shepherd_watch" field.
+	DefaultShepherdWatch bool
+	// DefaultShepherdRounds holds the default value on creation for the "shepherd_rounds" field.
+	DefaultShepherdRounds int
 )
 
 // Type defines the type for the "type" enum field.
@@ -228,6 +244,26 @@ func ByCompletedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByParentID orders the results by the parent_id field.
 func ByParentID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldParentID, opts...).ToFunc()
+}
+
+// ByShepherdWatch orders the results by the shepherd_watch field.
+func ByShepherdWatch(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldShepherdWatch, opts...).ToFunc()
+}
+
+// ByShepherdRounds orders the results by the shepherd_rounds field.
+func ByShepherdRounds(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldShepherdRounds, opts...).ToFunc()
+}
+
+// ByShepherdLastReview orders the results by the shepherd_last_review field.
+func ByShepherdLastReview(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldShepherdLastReview, opts...).ToFunc()
+}
+
+// ByShepherdWatchedAt orders the results by the shepherd_watched_at field.
+func ByShepherdWatchedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldShepherdWatchedAt, opts...).ToFunc()
 }
 
 // ByProjectField orders the results by project field.
