@@ -1199,6 +1199,25 @@ kbd {
 	}
 }
 
+/* Short screens (square phones such as the Titan 2, landscape phones): the
+   fixed top bar and page padding are paid on every page, so trim them. */
+@media (max-height: 600px) {
+	:root {
+		--mobile-topbar-h: 48px;
+		--page-pad-top: 12px;
+	}
+
+	.page-head {
+		margin-bottom: var(--space-4);
+	}
+
+	.page-head-title,
+	.page-header h1,
+	.page-title {
+		font-size: 32px;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 	*, *::before, *::after {
 		animation-duration: 0.01ms !important;

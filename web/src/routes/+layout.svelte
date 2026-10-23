@@ -832,9 +832,30 @@
 			max-width: none;
 		}
 
+		/* The page sizes itself with --page-pad-bottom; the mobile padding
+		   shorthand (--space-4/--space-3) would otherwise overflow it. */
 		.main-content.fill {
 			--page-pad-top: 12px;
 			--page-pad-bottom: 12px;
+			padding-bottom: var(--page-pad-bottom);
+		}
+	}
+
+	/* Short screens: the project workspace is a fixed-height app page, so
+	   its padding comes straight out of the output pane. */
+	@media (max-height: 600px) {
+		.main-content.fill {
+			--page-pad-top: 8px;
+			--page-pad-bottom: 8px;
+		}
+
+		.mobile-toggle {
+			width: 36px;
+			height: 36px;
+		}
+
+		.mobile-brand .brand-word {
+			font-size: 21px;
 		}
 	}
 

@@ -737,12 +737,12 @@
 		<!-- Header: breadcrumb, serif name, path · sheep + provider controls -->
 		<header class="project-head">
 			<div class="ph-main">
-				<a href="/projects" class="crumb">
+				<a href="/projects" class="crumb" aria-label="Back to Projects">
 					<Icon name="arrow-left" size={13} />
 					<span>Projects</span>
 				</a>
 				<div class="ph-title-row">
-					<h1 class="project-title">{project.name}</h1>
+					<h1 class="project-title" title={project.path}>{project.name}</h1>
 					{#if project.repo_url}
 						<a href={project.repo_url} target="_blank" rel="noopener noreferrer" class="icon-link" title="Open on GitHub" aria-label="Open on GitHub">
 							<Icon name="github" size={15} />
@@ -764,9 +764,9 @@
 						<StatusBadge status={sheepStatus} taskId={runningTaskId} />
 					</div>
 					<div class="controls">
-						<label class="ctl" title="Provider">
+						<label class="ctl ctl-provider" title="Provider">
 							<span class="ctl-label">Provider</span>
-							<select class="provider-select" value={sheepProvider}
+							<select class="provider-select" value={sheepProvider} aria-label="Provider"
 								onchange={(e) => changeProvider(e.target.value)}>
 								{#each PROVIDER_OPTIONS as opt}
 									{#if providerEnabled[opt.value] || sheepProvider === opt.value}
@@ -778,7 +778,7 @@
 						{#if providerHasModel}
 							<label class="ctl" title="Override model for this project">
 								<span class="ctl-label">Model</span>
-								<select class="provider-select model-select" value={modelSelected} onchange={changeModel}>
+								<select class="provider-select model-select" value={modelSelected} onchange={changeModel} aria-label="Model">
 									<option value="">Default</option>
 									{#each activeModelOptions as opt}
 										<option value={opt.id} title={opt.label}>{truncateModel(opt.label)}</option>
@@ -1416,6 +1416,7 @@
 	}
 
 	.no-sheep {
+		padding-right: 0.15em; /* italic overhang */
 		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		font-style: italic;
@@ -1870,6 +1871,106 @@
 		.command-bar {
 			margin-top: 8px;
 			padding: 6px;
+		}
+	}
+
+	/* Short screens (square phones such as the Titan 2, landscape phones):
+	   height goes to the output pane. The header folds into one row — back
+	   arrow, name, sheep, provider — and drops the path (kept as the title
+	   tooltip). */
+	@media (max-height: 600px) {
+		.project-page {
+			min-height: 240px;
+		}
+
+		.project-head {
+			flex-direction: row;
+			flex-wrap: wrap;
+			align-items: center;
+			gap: 6px 8px;
+			padding-bottom: 8px;
+		}
+
+		.ph-main {
+			flex: 1 1 120px;
+			flex-direction: row;
+			align-items: center;
+			gap: 4px;
+		}
+
+		.crumb {
+			align-self: center;
+			display: grid;
+			place-items: center;
+			flex-shrink: 0;
+			width: 28px;
+			height: 28px;
+			margin-left: -6px;
+			border-radius: var(--radius);
+		}
+
+		.crumb:hover {
+			background: var(--bg-hover);
+		}
+
+		.crumb span,
+		.ph-meta {
+			display: none;
+		}
+
+		.ph-title-row {
+			gap: 8px;
+		}
+
+		.project-title {
+			font-size: 24px;
+			line-height: 1.15;
+		}
+
+		.icon-link {
+			width: 26px;
+			height: 26px;
+		}
+
+		/* Pill and controls wrap as separate items, so when a model selector
+		   doesn't fit, only the controls drop a row and the pill stays beside
+		   the name. */
+		.header-status {
+			display: contents;
+		}
+
+		.controls {
+			flex-wrap: wrap;
+			justify-content: flex-end;
+			margin-left: auto;
+		}
+
+		/* "Claude" reads as a provider on its own; the inset caption costs
+		   ~60px of a row that has none to spare. The model caption stays —
+		   a bare "Default" would be ambiguous. */
+		.ctl-provider .ctl-label {
+			display: none;
+		}
+
+		.provider-select {
+			height: 30px;
+		}
+
+		.ctl-provider .provider-select {
+			padding-left: 10px;
+		}
+
+		.tabs {
+			margin-bottom: 8px;
+		}
+
+		.tab {
+			padding: 6px 10px 8px;
+		}
+
+		.command-bar {
+			margin-top: 6px;
+			padding: 4px;
 		}
 	}
 
