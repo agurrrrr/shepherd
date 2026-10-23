@@ -98,6 +98,13 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 	sections = append(sections,
 		"너는 shepherd의 코드 에이전트다. 프로젝트 디렉토리에서 파일 읽기/쓰기/수정, 셸 명령어 실행, MCP 도구 호출을 할 수 있다.")
 
+	// Manager (목자) orchestrator block — first section after identity so the
+	// role is defined before the working directory and conduct rules (#595).
+	// Empty for ordinary sheep; their prompts stay unchanged.
+	if mgrCtx := shepherdContextFor(sheepName); mgrCtx != "" {
+		sections = append(sections, mgrCtx)
+	}
+
 	// Working directory — tell the model exactly where it is. The bash/read/write/
 	// glob/grep tools all execute relative to this path (cmd.Dir = projectPath), but
 	// the model has no way to know the absolute path unless we state it explicitly.
@@ -142,8 +149,8 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 	// Task history is not injected into the system prompt — the model calls
 	// get_history via MCP tools when needed (include_task_history config key).
 
-	// Project skills
-	if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
+	// Project skills (manager gets global skills only — it has no project row)
+	if skillsText := skillsSummaryFor(sheepName); skillsText != "" {
 		sections = append(sections, fmt.Sprintf("[Project Skills - use skill_load MCP tool for full content]\n%s", skillsText))
 	}
 
@@ -254,6 +261,13 @@ func BuildSystemPromptForMagi(sheepName, projectPath, mcpGuide string) string {
 	sections = append(sections,
 		"너는 shepherd MAGI 합의 시스템의 심의자다. 이 심의는 자문 전용이며, 너의 답변은 다른 심의자들의 답변과 함께 판정자에게 전달된다.")
 
+	// Manager (목자) orchestrator block (#595): when the manager sheep runs on
+	// the magi provider, the proposers must still carry the operating
+	// instructions and scope table. Empty for ordinary sheep.
+	if mgrCtx := shepherdContextFor(sheepName); mgrCtx != "" {
+		sections = append(sections, mgrCtx)
+	}
+
 	sections = append(sections,
 		"[심의 환경 — 읽기 전용 도구]\n"+
 			"- 이 심의에서 너는 읽기 전용 도구를 사용할 수 있다. 파일 읽기(read_file, grep, glob), 작업 히스토리 조회(get_history, get_task_detail), 위키 조회, 외부 MCP 조회 도구를 사용해 코드와 상태를 직접 확인하라.\n"+
@@ -272,8 +286,8 @@ func BuildSystemPromptForMagi(sheepName, projectPath, mcpGuide string) string {
 		sections = append(sections, embeddedMCPGuide())
 	}
 
-	// Project skills
-	if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
+	// Project skills (manager gets global skills only — it has no project row)
+	if skillsText := skillsSummaryFor(sheepName); skillsText != "" {
 		sections = append(sections, fmt.Sprintf("[Project Skills - use skill_load MCP tool for full content]\n%s", skillsText))
 	}
 

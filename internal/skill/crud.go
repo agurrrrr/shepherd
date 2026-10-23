@@ -183,6 +183,26 @@ func ToggleEnabled(id int, enabled bool) (*ent.Skill, error) {
 	return GetSkill(id)
 }
 
+// ListEnabledGlobal returns enabled skills with global scope. Used for the
+// shepherd (목자) prompt: the manager has no project, so it sees only global
+// skills (#595).
+func ListEnabledGlobal() ([]*ent.Skill, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	skills, err := client.Skill.Query().
+		Where(
+			skill.ScopeEQ(skill.ScopeGlobal),
+			skill.EnabledEQ(true),
+		).
+		Order(ent.Desc(skill.FieldCreatedAt)).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list global skills: %w", err)
+	}
+	return skills, nil
+}
+
 // GetEnabledSkillsForProject returns all enabled skills relevant to a project:
 // all enabled global skills + all enabled project-specific skills.
 func GetEnabledSkillsForProject(projectName string) ([]*ent.Skill, error) {

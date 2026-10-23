@@ -1246,12 +1246,24 @@ func opencodeModelArgs(thinking bool, modelOverride string) []string {
 // alongside a task's user prompt for the given sheep. Used by the settings UI
 // to let users inspect what's actually being prepended/appended.
 // If sheepName is empty, per-sheep context (task history, project skills) is omitted.
+//
+// Passing the manager name ("shepherd") renders the 목자 prompts: every builder
+// inserts the orchestrator block for the manager (#595), so the preview matches
+// what a queued shepherd task actually receives — provided the daemon has
+// registered the context provider (worker.SetShepherdContextProvider).
 func PreviewSystemPrompt(sheepName string) map[string]string {
 	var opencode string
 	if config.GetBool("opencode_compact_prompt") {
 		opencode = buildPromptCompact(sheepName, "<USER_PROMPT>")
 	} else {
 		opencode = buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_opencode")
+	}
+
+	// Embedded/MAGI previews use the workspace as the working directory for the
+	// manager (what the queue dispatcher passes) and the project path otherwise.
+	workdir := ""
+	if names.IsManager(sheepName) {
+		workdir = strings.TrimSpace(config.GetString("workspace_path"))
 	}
 
 	return map[string]string{
@@ -1261,6 +1273,8 @@ func PreviewSystemPrompt(sheepName string) map[string]string {
 		"opencode":  opencode,
 		"pi":        buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_pi"),
 		"grok":      buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_grok"),
+		"embedded":  BuildSystemPromptForEmbedded(sheepName, workdir, ""),
+		"magi":      BuildSystemPromptForMagi(sheepName, workdir, ""),
 	}
 }
 
@@ -1275,6 +1289,13 @@ func buildPromptCompact(sheepName, prompt string) string {
 	sb.WriteString(prompt)
 
 	sb.WriteString("\n\n---\n")
+
+	// Manager (목자) tasks get the orchestrator context block (#595) right
+	// after the separator, before the tool guide. Ordinary sheep get "".
+	if mgrCtx := shepherdContextFor(sheepName); mgrCtx != "" {
+		sb.WriteString(mgrCtx)
+		sb.WriteString("\n\n")
+	}
 
 	if config.GetBool("include_mcp_guide") {
 		sb.WriteString(`[Available Shepherd MCP Tools]
@@ -1298,7 +1319,7 @@ For web tasks, use browser tools instead of WebFetch.
 	}
 
 	if sheepName != "" {
-		if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
+		if skillsText := skillsSummaryFor(sheepName); skillsText != "" {
 			sb.WriteString(skillsText)
 			sb.WriteString("\n")
 		}
@@ -1345,10 +1366,18 @@ These tools are already registered via MCP; the full list and parameters live in
 
 `
 
-// buildSystemContext returns the system-level context (MCP guide, task history, skills)
-// separated from the user prompt. Used by streaming mode to pass via --append-system-prompt.
+// buildSystemContext returns the system-level context (orchestrator block,
+// MCP guide, task history, skills) separated from the user prompt. Used by
+// streaming mode to pass via --append-system-prompt.
 func buildSystemContext(sheepName, prompt string) string {
 	var sb strings.Builder
+
+	// The manager's orchestrator block goes FIRST — it defines the role before
+	// any tool guidance (#595). Empty string for ordinary sheep.
+	if mgrCtx := shepherdContextFor(sheepName); mgrCtx != "" {
+		sb.WriteString(mgrCtx)
+		sb.WriteString("\n\n")
+	}
 
 	if config.GetBool("include_mcp_guide") {
 		sb.WriteString(mcpGuideText)
@@ -1365,7 +1394,7 @@ func buildSystemContext(sheepName, prompt string) string {
 
 	// Inject project skills (summary only - use skill_load MCP tool for full content)
 	if sheepName != "" {
-		if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
+		if skillsText := skillsSummaryFor(sheepName); skillsText != "" {
 			sb.WriteString(skillsText)
 			sb.WriteString("\n")
 		}
@@ -1405,6 +1434,12 @@ func buildPromptWithContext(sheepName, prompt string) string {
 func buildPromptWithContextUsing(sheepName, prompt, customPromptKey string) string {
 	var sb strings.Builder
 
+	// Manager (목자) orchestrator block first (#595). Empty for ordinary sheep.
+	if mgrCtx := shepherdContextFor(sheepName); mgrCtx != "" {
+		sb.WriteString(mgrCtx)
+		sb.WriteString("\n\n")
+	}
+
 	if config.GetBool("include_mcp_guide") {
 		sb.WriteString(mcpGuideText)
 	}
@@ -1421,7 +1456,7 @@ func buildPromptWithContextUsing(sheepName, prompt, customPromptKey string) stri
 
 	// Inject project skills (summary only - use skill_load MCP tool for full content)
 	if sheepName != "" {
-		if skillsText := getProjectSkillsSummary(sheepName); skillsText != "" {
+		if skillsText := skillsSummaryFor(sheepName); skillsText != "" {
 			sb.WriteString(skillsText)
 			sb.WriteString("\n")
 		}

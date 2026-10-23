@@ -35,6 +35,11 @@
 	let modelOptions = $state({ claude: [], opencode: [], pi: [], grok: [] });
 	let grokModelInfo = $state(null);
 
+	// The manager sheep's saved provider — ShepherdSettings reports it so the
+	// 목자 tab's prompt preview renders the provider a shepherd task actually
+	// runs on (#595).
+	let shepherdProvider = $state('claude');
+
 	// Provider enabled flags (shared mutable state)
 	let providerEnabled = $state({ claude: true, opencode: true, pi: true, grok: true, embedded: true, magi: true });
 
@@ -262,7 +267,7 @@
 						</header>
 
 						{#if activeTab === 'shepherd'}
-							<ShepherdSettings {configData} {providerEnabled} {modelOptions} />
+							<ShepherdSettings {configData} {providerEnabled} {modelOptions} onProvider={(p) => (shepherdProvider = p)} />
 						{/if}
 						{#if activeTab === 'common'}
 							<CommonSettings {configData} />
@@ -313,6 +318,15 @@
 				{#if ['claude', 'opencode', 'pi', 'grok'].includes(activeTab)}
 					<div class="extra">
 						<PreviewSection provider={activeTab} />
+					</div>
+				{/if}
+
+				<!-- 목자 탭: 현재 목자 프로바이더 기준으로 목자 프롬프트 미리보기 (#595).
+				     sheep=shepherd를 붙이면 서버가 운영 지침·워크스페이스·관리 범위 표를
+				     포함한 목자 컨텍스트를 렌더링한다. -->
+				{#if activeTab === 'shepherd'}
+					<div class="extra">
+						<PreviewSection provider={shepherdProvider} sheep="shepherd" title="목자" />
 					</div>
 				{/if}
 

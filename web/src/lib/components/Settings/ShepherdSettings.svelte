@@ -10,7 +10,10 @@
 		/** Provider On/Off flags from the settings page — the provider selector lists enabled ones only. */
 		providerEnabled = { claude: true, opencode: true, pi: true, grok: true, embedded: true, magi: true },
 		/** Full /api/config/model-options payload — the model selector follows the selected provider. */
-		modelOptions = { claude: [], opencode: [], pi: [], grok: [], embedded: [] }
+		modelOptions = { claude: [], opencode: [], pi: [], grok: [], embedded: [] },
+		/** Reports the manager's saved provider to the settings page so the 목자
+		    prompt preview under this form renders the right provider (#595). */
+		onProvider = () => {}
 	} = $props();
 
 	// The tab owns its own state and its own save call (PATCH /api/shepherd/config).
@@ -99,6 +102,13 @@
 
 	// MAGI has no single model — it deliberates over its own consensus config.
 	let modelSelectable = $derived(provider !== 'magi');
+
+	// Report the SAVED provider upward (not the in-form selection): the 목자
+	// prompt preview must show what a queued shepherd task would actually get
+	// today, and re-runs whenever a save changes it (#595).
+	$effect(() => {
+		if (savedProvider) onProvider(savedProvider);
+	});
 
 	function setAllProjects(on) {
 		const next = {};

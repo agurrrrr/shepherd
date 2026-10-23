@@ -30,6 +30,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/llmproxy"
+	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/mcp"
 	"github.com/agurrrrr/shepherd/internal/names"
 	"github.com/agurrrrr/shepherd/internal/project"
@@ -4043,6 +4044,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	// Register the shepherd (목자) prompt context builder (#595). worker cannot
+	// import manager directly (manager imports worker), so the wiring happens
+	// here after the DB is up. Every entry point that can run a manager task —
+	// daemon dispatch, chat, wiki ingest callbacks — gets the orchestrator
+	// block through this callback.
+	worker.SetShepherdContextProvider(manager.BuildShepherdContext)
 
 	setupGracefulShutdown()
 

@@ -1,8 +1,12 @@
 <script>
 	import { apiGet } from '$lib/api.js';
 
-	/** @type {'claude' | 'opencode' | 'pi' | 'grok'} */
+	/** @type {'claude' | 'opencode' | 'pi' | 'grok' | 'embedded' | 'magi'} */
 	export let provider = 'claude';
+	/** Sheep to preview ("shepherd" renders the 목자 prompt, #595). Empty = no sheep context. */
+	export let sheep = '';
+	/** Optional header override, e.g. "목자" for the shepherd settings tab. */
+	export let title = '';
 
 	// 프로바이더별로 노출할 프리뷰 모드 집합
 	const MODE_SETS = {
@@ -15,7 +19,9 @@
 			{ key: 'compact', label: 'Compact' }
 		],
 		pi: [{ key: 'pi', label: 'Pi' }],
-		grok: [{ key: 'grok', label: 'Grok' }]
+		grok: [{ key: 'grok', label: 'Grok' }],
+		embedded: [{ key: 'embedded', label: 'Embedded (system prompt)' }],
+		magi: [{ key: 'magi', label: 'MAGI (proposer system prompt)' }]
 	};
 
 	$: modes = MODE_SETS[provider] || MODE_SETS.claude;
@@ -30,7 +36,8 @@
 	async function loadPreview() {
 		loading = true;
 		error = '';
-		const res = await apiGet('/api/config/system-prompt-preview');
+		const q = sheep ? `?sheep=${encodeURIComponent(sheep)}` : '';
+		const res = await apiGet('/api/config/system-prompt-preview' + q);
 		if (res?.data) {
 			preview = res.data;
 		} else {
@@ -45,17 +52,24 @@
 			await loadPreview();
 		}
 	}
+
+	// The 목자 tab previews the manager's actual prompt: the API renders the
+	// orchestrator block when sheep=shepherd (#595).
+	$: header = title
+		? `System Prompt Preview — ${title} (${provider.charAt(0).toUpperCase() + provider.slice(1)})`
+		: `System Prompt Preview — ${provider.charAt(0).toUpperCase() + provider.slice(1)}`;
 </script>
 
 <div class="preview-section card">
 	<div class="preview-header">
-		<h2 class="section-title">System Prompt Preview — {provider.charAt(0).toUpperCase() + provider.slice(1)}</h2>
+		<h2 class="section-title">{header}</h2>
 		<button class="btn btn-sm btn-outline" onclick={toggle}>
 			{open ? 'Hide' : 'Show'}
 		</button>
 	</div>
 	<p class="preview-desc">
-		Task 실행 시 Claude/OpenCode에 실제로 전달되는 시스템 프롬프트입니다. MCP 도구 리스트, 최근 작업 히스토리, 프로젝트 스킬 요약, 그리고 Custom Prompt가 포함됩니다. (Sheep별 히스토리·스킬은 Sheep 컨텍스트에서만 채워집니다.)
+		Task 실행 시 실제로 전달되는 시스템 프롬프트입니다. MCP 도구 리스트, 최근 작업 히스토리, 프로젝트 스킬 요약, 그리고 Custom Prompt가 포함됩니다. (Sheep별 히스토리·스킬은 Sheep 컨텍스트에서만 채워집니다.)
+		{#if sheep === 'shepherd'}목자 작업에 들어가는 운영 지침·워크스페이스·관리 범위 표가 이 미리보기에 포함됩니다.{/if}
 	</p>
 	{#if open}
 		{#if loading}
