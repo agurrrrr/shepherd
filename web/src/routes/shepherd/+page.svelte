@@ -108,10 +108,16 @@
 	}
 
 	// Query-only navigations (e.g. a sidebar badge link to ?tab=attention while
-	// already on /shepherd) must move the visible tab too.
+	// already on /shepherd) must move the visible tab too. Track the last URL
+	// tab WE have seen: comparing against activeTab instead made this effect
+	// depend on activeTab, and a switch back to the default (output) tab —
+	// which deletes ?tab= — was reverted by the still-stale URL (#620).
+	let lastUrlTab = null;
 	$effect(() => {
 		const t = $page.url.searchParams.get('tab');
-		if (VALID_TABS.includes(t) && t !== activeTab) activeTab = t;
+		if (t === lastUrlTab) return;
+		lastUrlTab = t;
+		activeTab = VALID_TABS.includes(t) ? t : 'output';
 	});
 
 	let workspaceOk = $derived(status?.workspace_valid === true);
@@ -281,7 +287,7 @@
 			</span>
 			<span class="status-chip mono" title="감시 이슈 작업의 동시 pending+running 수 / 상한"
 				class:warn={delegationAtCap}>
-				위임 {status.active_delegations ?? 0}/{status.max_active_delegations ?? 0}
+				위임 {status.active_delegations ?? 0}/{status.max_active_delegations ?? 0}{#if delegationAtCap}{' '}— 상한 도달{/if}
 			</span>
 			<span class="status-chip mono" title="목자 작업과 감시 이슈 작업의 합산(자정 기준)"
 				class:warn={status.cost_limit_exceeded}>
