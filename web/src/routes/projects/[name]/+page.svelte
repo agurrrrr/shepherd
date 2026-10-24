@@ -18,6 +18,7 @@
 	import IssueTab from '$lib/components/IssueTab.svelte';
 	import ProjectSettings from '$lib/components/ProjectSettings.svelte';
 	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
+	import PageTabs from '$lib/components/PageTabs.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
 	let projectName = $state('');
@@ -37,22 +38,6 @@
 		{ id: 'settings', label: 'Settings', icon: 'settings' }
 	];
 
-	// Underline that slides to the active tab.
-	let tabsEl = $state(null);
-	let tabInk = $state({ x: 0, w: 0, ready: false });
-	$effect(() => {
-		activeTab;
-		if (!tabsEl) return;
-		const measure = () => {
-			const el = tabsEl?.querySelector('.tab.active');
-			if (el) tabInk = { x: el.offsetLeft, w: el.offsetWidth, ready: true };
-		};
-		requestAnimationFrame(measure);
-		const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-		ro?.observe(tabsEl);
-		return () => ro?.disconnect();
-	});
-
 	// Live output
 	let liveOutput = $state([]);
 	// Tracks whether the last liveOutput entry is an incomplete stream chunk
@@ -67,6 +52,9 @@
 	let hasRunningTask = $state(false);
 	// ID of the currently running task, displayed on the Working badge.
 	let runningTaskId = $state(null);
+	// Tab list for the shared PageTabs bar (#621). The Live Output tab carries
+	// the pulsing dot while this project's sheep is working.
+	let pageTabs = $derived(PROJECT_TABS.map((t) => ({ ...t, live: t.id === 'output' && sheepStatus === 'working' })));
 	// Global OpenCode "thinking" default; per-project override lives in
 	// $thinkingByProject and wins when the user has explicitly toggled.
 	let opencodeThinkingDefault = $state(false);
@@ -805,20 +793,7 @@
 		</header>
 
 		<!-- Tabs -->
-		<nav class="tabs" role="tablist" aria-label="Project sections" bind:this={tabsEl}>
-			<span class="tab-ink" style="--x: {tabInk.x}px; --w: {tabInk.w}px" class:ready={tabInk.ready} aria-hidden="true"></span>
-			{#each PROJECT_TABS as t (t.id)}
-				<button class="tab" class:active={activeTab === t.id}
-					role="tab" aria-selected={activeTab === t.id}
-					onclick={() => switchTab(t.id)}>
-					<Icon name={t.icon} size={14} stroke={1.9} />
-					<span>{t.label}</span>
-					{#if t.id === 'output' && sheepStatus === 'working'}
-						<span class="live-dot tab-live" aria-label="live"></span>
-					{/if}
-				</button>
-			{/each}
-		</nav>
+		<PageTabs tabs={pageTabs} value={activeTab} onChange={switchTab} ariaLabel="Project sections" />
 
 		<!-- Content area -->
 		<div class="content-area" class:has-input={activeTab === 'output'}>
@@ -1422,75 +1397,6 @@
 		font-style: italic;
 	}
 
-	/* ---------- Tabs ---------- */
-	.tabs {
-		position: relative;
-		display: flex;
-		gap: 2px;
-		flex-shrink: 0;
-		margin-bottom: 14px;
-		border-bottom: 1px solid var(--border);
-		overflow-x: auto;
-		scrollbar-width: none;
-		-webkit-overflow-scrolling: touch;
-	}
-
-	.tabs::-webkit-scrollbar {
-		display: none;
-	}
-
-	.tab-ink {
-		position: absolute;
-		left: 0;
-		bottom: 0;
-		height: 2px;
-		width: var(--w);
-		transform: translateX(var(--x));
-		border-radius: 2px 2px 0 0;
-		background: var(--accent);
-		box-shadow: 0 0 12px var(--accent-glow);
-		pointer-events: none;
-	}
-
-	.tab-ink.ready {
-		transition: transform 380ms var(--ease-out), width 380ms var(--ease-out);
-	}
-
-	.tab {
-		display: inline-flex;
-		align-items: center;
-		gap: 7px;
-		padding: 9px 12px 11px;
-		border: none;
-		background: none;
-		color: var(--text-tertiary);
-		font-size: var(--fs-sm);
-		font-weight: var(--fw-medium);
-		white-space: nowrap;
-		flex-shrink: 0;
-		cursor: pointer;
-		border-radius: var(--radius) var(--radius) 0 0;
-		transition: color var(--dur-1) ease, background var(--dur-1) ease;
-	}
-
-	.tab:hover {
-		color: var(--text-primary);
-		background: rgba(237, 230, 218, 0.03);
-	}
-
-	.tab.active {
-		color: var(--text-primary);
-	}
-
-	.tab.active :global(.icon) {
-		color: var(--accent);
-	}
-
-	.tab-live {
-		width: 5px;
-		height: 5px;
-	}
-
 	/* Content area: fills remaining space */
 	.content-area {
 		flex: 1;
@@ -1826,15 +1732,6 @@
 			max-width: 46vw;
 		}
 
-		.tabs {
-			margin-bottom: 10px;
-		}
-
-		.tab {
-			padding: 8px 10px 10px;
-			font-size: var(--fs-xs);
-		}
-
 		.task-history-item {
 			padding: 10px;
 		}
@@ -1958,14 +1855,6 @@
 
 		.ctl-provider .provider-select {
 			padding-left: 10px;
-		}
-
-		.tabs {
-			margin-bottom: 8px;
-		}
-
-		.tab {
-			padding: 6px 10px 8px;
 		}
 
 		.command-bar {

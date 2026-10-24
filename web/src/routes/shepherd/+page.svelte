@@ -1,34 +1,42 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
-	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
-	import { apiGet, apiPost } from '$lib/api.js';
+	import { apiGet } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
 	import { appendLiveOutput } from '$lib/liveOutput.js';
+	import { fmtCost } from '$lib/shepherdFormat.js';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
 	import ShepherdConsole from '$lib/components/ShepherdConsole.svelte';
 	import IssueDetailModal from '$lib/components/IssueDetailModal.svelte';
-	import AttentionPanel from '$lib/components/AttentionPanel.svelte';
+	import ShepherdTaskList from '$lib/components/ShepherdTaskList.svelte';
+	import ShepherdPatrolLog from '$lib/components/ShepherdPatrolLog.svelte';
+	import ShepherdIssueBoard from '$lib/components/ShepherdIssueBoard.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 
-	// Shepherd (목자) console (#598) + issue board and needs-attention panel
-	// (#599). Sections: workspace warning, status card, console + live output,
-	// recent shepherd tasks, the patrol log (#600), then the cross-project
-	// issue board with the attention panel beside it.
+	// Shepherd (목자) console (#598). The page keeps only what must survive a
+	// section tab switch in stage 2/4: shepherd status, the console with its
+	// live output, and the single shared IssueDetailModal. Recent tasks, the
+	// patrol log and the issue board (#599/#600) are split components that own
+	// their data and SSE subscriptions (#621).
 
 	let status = $state(null);      // GET /api/shepherd/status
-	let tasks = $state([]);         // GET /api/shepherd/tasks
 	let loaded = $state(false);
 	let unsubs = [];
 
 	let liveOutput = $state([]);
 	let liveOutputOpen = $state(false); // tracks an open (non-newline-terminated) tail line
 
-	const kindLabels = { command: '지시', review: '검토', patrol: '순찰' };
+	// Reload counters handed to the split components (first run is skipped by
+	// each component's effect — onMount already loads).
+	let taskRefreshKey = $state(0);
+	let boardRefreshKey = $state(0);
+
+	// Detail modal target. One modal on the page; the board and the attention
+	// panel ask for it through onOpenIssue callbacks.
+	let openIssue = $state(null);      // { projectName, issueId }
 
 	// Autonomy tiers (#601). The daemon normalizes an unset/unknown value to
 	// "execute", so status.autonomy_tier is always one of these four.
@@ -44,224 +52,9 @@
 		if (res?.data) status = res.data;
 	}
 
-	async function loadTasks() {
-		const res = await apiGet('/api/shepherd/tasks?limit=20');
-		if (res?.data) tasks = res.data.tasks || [];
-	}
-
-	// ---- Issue board (#599) -------------------------------------------------
-	// GET /api/issues (cross-project). One request per status column; the
-	// `counts` map rides on every response, so column headers come from the
-	// first column that answers. Filters live in the URL query so a reload
-	// keeps them (wiki: svelte5-select-bind-change-vs-input — selects read
-	// their bound value on `change`, so filter handlers use onchange).
-
-	const BOARD_COLUMNS = ['todo', 'in_progress', 'testing', 'failed', 'done'];
-	const columnLabels = {
-		todo: '작업전',
-		in_progress: '작업중',
-		testing: '테스트',
-		failed: '실패',
-		done: '성공'
-	};
-	const typeLabels = { design: '설계', feature: '기능', bug: '버그' };
-	const typeIcons = { design: 'layers', feature: 'sparkles', bug: 'bug' };
-	const DONE_WINDOW_MS = 7 * 24 * 3600 * 1000;
-	const BOARD_LIMIT = 50;
-
-	// Filter state (URL is the source of truth after init).
-	let filterProjects = $state([]);   // empty = all in-scope projects
-	let filterType = $state('');       // '' | design | feature | bug
-	let filterWatched = $state('');    // '' | true | false
-	let searchQ = $state('');
-
-	// Board data.
-	let board = $state({});            // status -> issue[]
-	let boardCounts = $state({});      // status -> total (filter applied, status excluded)
-	let maxReviewRounds = $state(0);   // review cap for the k/max chip
-	let boardLoaded = $state(false);
-	let boardError = $state('');
-	let doneExpanded = $state(false);   // "더 보기" for the done column
-	let narrowTab = $state('todo');    // active column on narrow screens
-	let projectChoices = $state([]);   // visible project names for the filter chips
-
-	// Attention panel refresh counter (shared debounce with the board).
-	let attentionTick = $state(0);
-
-	// ---- Patrol log (#600) ---------------------------------------------------
-	// GET /api/shepherd/patrols — every pass (auto or manual) stores a record:
-	// when the code looked, how many findings were new, which shepherd task it
-	// woke (+ that task's first summary line), and why a wake was skipped.
-	// POST /api/shepherd/patrols/run is the "지금 순찰" button — same rules as
-	// the ticker pass, so it can legitimately report a skip.
-	let patrols = $state([]);
-	let patrolLoaded = $state(false);
-	let patrolBusy = $state(false);
-	let patrolMsg = $state('');
-
-	async function loadPatrols() {
-		const res = await apiGet('/api/shepherd/patrols?limit=10');
-		if (res?.data) patrols = res.data.patrols || [];
-		patrolLoaded = true;
-	}
-
-	async function runPatrolNow() {
-		if (patrolBusy) return;
-		patrolBusy = true;
-		patrolMsg = '';
-		try {
-			const res = await apiPost('/api/shepherd/patrols/run', {});
-			if (!res?.success) {
-				patrolMsg = '순찰 실행에 실패했습니다: ' + (res?.message || '');
-			} else {
-				const rec = res.data?.patrol || {};
-				if (rec.task_id) patrolMsg = `새 이상 ${rec.new_count}개 — 목자 작업 #${rec.task_id} 적재`;
-				else if (rec.skipped_reason) patrolMsg = `기록됨 — 깨우기 건너뜀: ${rec.skipped_reason}`;
-				else if (rec.new_count > 0) patrolMsg = `새 이상 ${rec.new_count}개 기록 (목자 미호출)`;
-				else patrolMsg = '이상 없음 — 기록만 남겼습니다';
-				await Promise.all([loadPatrols(), loadStatus(), loadTasks()]);
-			}
-		} catch (e) {
-			patrolMsg = '순찰 실행에 실패했습니다: ' + (e?.message || e);
-		} finally {
-			patrolBusy = false;
-			setTimeout(() => (patrolMsg = ''), 6000);
-		}
-	}
-
-	// Detail modal target.
-	let openIssue = $state(null);      // { projectName, issueId }
-
-	function initFiltersFromUrl() {
-		const p = $page.url.searchParams;
-		filterProjects = (p.get('project') || '').split(',').map((s) => s.trim()).filter(Boolean);
-		filterType = p.get('type') || '';
-		filterWatched = p.get('watched') || '';
-		searchQ = p.get('q') || '';
-	}
-
-	function syncFiltersToUrl() {
-		const params = new URLSearchParams();
-		if (filterProjects.length) params.set('project', filterProjects.join(','));
-		if (filterType) params.set('type', filterType);
-		if (filterWatched) params.set('watched', filterWatched);
-		if (searchQ) params.set('q', searchQ);
-		const qs = params.toString();
-		goto(qs ? `?${qs}` : $page.url.pathname, { keepFocus: true, noScroll: true, replaceState: true });
-	}
-
-	function toggleProjectFilter(name) {
-		filterProjects = filterProjects.includes(name)
-			? filterProjects.filter((p) => p !== name)
-			: [...filterProjects, name];
-		syncFiltersToUrl();
-		loadBoard();
-	}
-
-	function applyBoardFilters() {
-		syncFiltersToUrl();
-		loadBoard();
-	}
-
-	function resetBoardFilters() {
-		filterProjects = [];
-		filterType = '';
-		filterWatched = '';
-		searchQ = '';
-		doneExpanded = false;
-		syncFiltersToUrl();
-		loadBoard();
-	}
-
-	let boardSeq = 0;
-
-	function boardQuery(statusName) {
-		const params = new URLSearchParams();
-		params.set('status', statusName);
-		params.set('limit', String(BOARD_LIMIT));
-		params.set('sort', 'updated');
-		if (filterProjects.length) params.set('project', filterProjects.join(','));
-		if (filterType) params.set('type', filterType);
-		if (filterWatched) params.set('watched', filterWatched);
-		if (searchQ) params.set('q', searchQ);
-		return `/api/issues?${params.toString()}`;
-	}
-
-	async function loadBoard() {
-		const seq = ++boardSeq;
-		boardError = '';
-		try {
-			const responses = await Promise.all(BOARD_COLUMNS.map((s) => apiGet(boardQuery(s))));
-			if (seq !== boardSeq) return; // stale — a newer filter won
-			const next = {};
-			for (let i = 0; i < BOARD_COLUMNS.length; i++) {
-				const res = responses[i];
-				if (!res?.success) {
-					boardError = res?.message || '이슈 보드를 불러오지 못했습니다.';
-					return;
-				}
-				next[BOARD_COLUMNS[i]] = res.data || [];
-				if (res.counts) boardCounts = res.counts;
-				if (res.max_review_rounds) maxReviewRounds = res.max_review_rounds;
-			}
-			board = next;
-			boardLoaded = true;
-		} catch (e) {
-			if (seq === boardSeq) boardError = '이슈 보드를 불러오지 못했습니다.';
-		}
-	}
-
-	let searchDebounce = null;
-	function onSearchInput() {
-		clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(applyBoardFilters, 350);
-	}
-
-	// Done column: recent 7 days first ("더 보기" reveals the rest of the page).
-	function doneItems() {
-		const all = board.done || [];
-		const cutoff = Date.now() - DONE_WINDOW_MS;
-		const parse = (s) => {
-			if (!s) return 0;
-			const t = new Date(String(s).replace(' ', 'T')).getTime();
-			return Number.isNaN(t) ? 0 : t;
-		};
-		const sorted = [...all].sort((a, b) => parse(b.completed_at || b.updated_at) - parse(a.completed_at || a.updated_at));
-		if (doneExpanded) return sorted;
-		return sorted.filter((it) => parse(it.completed_at || it.updated_at) >= cutoff);
-	}
-
-	function openBoardIssue(issue) {
-		openIssue = { projectName: issue.project_name, issueId: issue.id };
-	}
-
-	function openAttentionIssue(item) {
-		if (!item.target_id || !item.project) return;
-		openIssue = { projectName: item.project, issueId: item.target_id };
-	}
-
-	// SSE → debounced board + attention refresh (#599): events arrive in
-	// bursts (task_start then output etc.), so collapse them into one reload.
-	let sseTimer = null;
-	function scheduleBoardRefresh() {
-		clearTimeout(sseTimer);
-		sseTimer = setTimeout(() => {
-			loadBoard();
-			attentionTick += 1; // AttentionPanel reloads on tick (store updates too)
-			loadPatrols(); // an auto pass may have stored a record (#600)
-		}, 600);
-	}
-
 	onMount(async () => {
-		initFiltersFromUrl();
-		await Promise.all([loadStatus(), loadTasks(), loadBoard(), loadPatrols()]);
+		await loadStatus();
 		loaded = true;
-
-		apiGet('/api/projects')
-			.then((res) => {
-				if (res?.data) projectChoices = res.data.filter((p) => !p.hidden).map((p) => p.name);
-			})
-			.catch(() => {});
 
 		// Seed the live pane from the running task's stored output: GET
 		// /api/tasks/:id merges the in-memory lines for running tasks (#8165),
@@ -273,7 +66,8 @@
 
 		// SSE: streaming output of the manager sheep. Output events carry
 		// sheep_name but no task id, so "shepherd" + a running status is the
-		// gate (the manager only ever runs one task at a time).
+		// gate (the manager only ever runs one task at a time). Task/patrol/
+		// board sections subscribe to their own events inside their components.
 		unsubs.push(onSSE('output', (data) => {
 			if (data.sheep_name !== 'shepherd') return;
 			const st = { open: liveOutputOpen };
@@ -287,17 +81,11 @@
 				liveOutputOpen = false;
 				loadStatus();
 			}
-			scheduleBoardRefresh(); // board counts every project's task (#599)
-			loadTasks();
 		}));
 
 		for (const ev of ['task_complete', 'task_fail', 'task_stop']) {
 			unsubs.push(onSSE(ev, (data) => {
-				if (data.sheep_name === 'shepherd') {
-					loadStatus();
-					loadTasks();
-				}
-				scheduleBoardRefresh(); // board + attention: one debounced pass
+				if (data.sheep_name === 'shepherd') loadStatus();
 			}));
 		}
 
@@ -307,49 +95,18 @@
 			if (data.sheep_name === 'shepherd') loadStatus();
 		}));
 
-		// Events missed while the SSE connection was down: re-read everything.
-		unsubs.push(onSSE('reconnect', () => {
-			loadStatus();
-			loadTasks();
-			scheduleBoardRefresh();
-		}));
+		// Events missed while the SSE connection was down: re-read the status
+		// (each component reloads its own data on reconnect).
+		unsubs.push(onSSE('reconnect', () => loadStatus()));
 	});
 
 	onDestroy(() => {
-		unsubs.forEach(fn => fn?.());
-		clearTimeout(sseTimer);
-		clearTimeout(searchDebounce);
+		unsubs.forEach((fn) => fn?.());
 	});
-
-	function firstLine(text) {
-		if (!text) return '';
-		const line = String(text).trim().split('\n')[0];
-		const runes = [...line];
-		return runes.length > 120 ? runes.slice(0, 120).join('') + '…' : line;
-	}
-
-	function timeAgo(dateStr) {
-		if (!dateStr) return '';
-		const date = new Date(String(dateStr).replace(' ', 'T'));
-		const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-		if (diff < 60) return '방금';
-		if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
-		if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
-		return `${Math.floor(diff / 86400)}일 전`;
-	}
-
-	function fmtCost(n) {
-		const v = Number(n) || 0;
-		return v >= 100 ? `$${Math.round(v).toLocaleString()}` : `$${v.toFixed(2)}`;
-	}
 
 	let workspaceOk = $derived(status?.workspace_valid === true);
 	let runningTaskId = $derived(status?.running_task_id ?? 0);
 	let working = $derived(status?.status === 'working');
-
-	async function retryWorkspaceCheck() {
-		await loadStatus();
-	}
 </script>
 
 <div class="page">
@@ -491,8 +248,8 @@
 			runningTaskId={runningTaskId}
 			injectSupported={status?.inject_supported ?? false}
 			injectAvailable={status?.inject_available ?? false}
-			onSent={() => { loadStatus(); loadTasks(); }}
-			onStopped={() => { loadStatus(); loadTasks(); }}
+			onSent={() => { loadStatus(); taskRefreshKey += 1; }}
+			onStopped={() => { loadStatus(); taskRefreshKey += 1; }}
 			onInjected={() => loadStatus()}
 		/>
 
@@ -507,220 +264,19 @@
 		{/if}
 	</section>
 
-	<!-- ============ Recent shepherd tasks ============ -->
-	<section class="block" aria-label="최근 목자 작업">
-		<SectionHeader index="02" eyebrow="Log" title="최근 목자 작업" subtitle="지시·검토·순찰로 만든 작업 (최신 20개)">
-			<button class="btn btn-sm btn-ghost" onclick={async () => { await Promise.all([loadStatus(), loadTasks()]); }}>
-				<Icon name="refresh-cw" size={13} /> 새로고침
-			</button>
-		</SectionHeader>
+	<!-- ============ Split sections (#621) ============ -->
+	<ShepherdTaskList refreshKey={taskRefreshKey} onRefresh={loadStatus} />
 
-		{#if tasks.length === 0}
-			<div class="card">
-				<EmptyState icon="inbox" title="아직 목자 작업이 없습니다" description="위 콘솔에서 지시를 보내면 여기에 기록됩니다." />
-			</div>
-		{:else}
-			<div class="task-table">
-				{#each tasks as t, i (t.id)}
-					<a class="task-row reveal" style="--i: {i}" href="/tasks/{t.id}" aria-label={`목자 작업 #${t.id}`}>
-						<span class="row-kind chip chip-{t.shepherd_kind === 'command' ? 'accent' : t.shepherd_kind === 'review' ? 'queued' : 'info'}">
-							{kindLabels[t.shepherd_kind] || t.shepherd_kind}
-						</span>
-						<span class="row-id mono num">#{t.id}</span>
-						<div class="row-body">
-							<span class="row-text">{firstLine(t.summary || t.prompt || t.error)}</span>
-						</div>
-						<StatusBadge status={t.status} />
-						<span class="row-time mono num" title={t.created_at}>{timeAgo(t.created_at)}</span>
-					</a>
-				{/each}
-			</div>
-		{/if}
-	</section>
-	<!-- ============ Patrol log (#600) ============ -->
-	<section class="block" aria-label="순찰 기록">
-		<SectionHeader index="03" eyebrow="Patrol" title="순찰 기록"
-			subtitle="코드가 관리 범위를 점검한 결과입니다. 새 이상이 있을 때만 목자 순찰 작업을 만듭니다.">
-			{#if patrolMsg}
-				<span class="patrol-msg" role="status">{patrolMsg}</span>
-			{/if}
-			<button class="btn btn-sm btn-ghost" onclick={runPatrolNow} disabled={patrolBusy} aria-label="지금 순찰">
-				<Icon name={patrolBusy ? 'refresh-cw' : 'search'} size={13} /> {patrolBusy ? '순찰 중…' : '지금 순찰'}
-			</button>
-			<button class="btn btn-sm btn-ghost" onclick={loadPatrols} aria-label="새로고침">
-				<Icon name="refresh-cw" size={13} />
-			</button>
-		</SectionHeader>
+	<ShepherdPatrolLog onRan={() => { loadStatus(); taskRefreshKey += 1; }} />
 
-		{#if !patrolLoaded}
-			<div class="card" aria-busy="true">
-				<div class="skeleton" style="height: 48px"></div>
-				<div class="skeleton" style="height: 48px; margin-top: 8px"></div>
-			</div>
-		{:else if patrols.length === 0}
-			<div class="card">
-				<EmptyState icon="search" title="아직 순찰 기록이 없습니다"
-					description="순찰 주기가 켜지면 정해진 주기마다, 아니면 오른쪽 버튼으로 지금 점검할 수 있습니다." />
-			</div>
-		{:else}
-			<div class="patrol-table">
-				{#each patrols as p, i (p.id)}
-					<div class="patrol-row reveal" style="--i: {i}">
-						<span class="patrol-time mono num" title={p.created_at}>{timeAgo(p.created_at)}</span>
-						<span class="patrol-new chip {p.new_count > 0 ? 'chip-danger' : 'chip-info'} mono num"
-							title="{(p.findings || []).length}개 항목 점검">새 이상 {p.new_count}</span>
-						<div class="patrol-body">
-							{#if p.task_id}
-								<a class="patrol-task-link" href="/tasks/{p.task_id}">
-									목자 순찰 작업 #{p.task_id}
-									{#if p.task_summary}<span class="patrol-summary">{p.task_summary}</span>{/if}
-								</a>
-							{:else if p.skipped_reason}
-								<span class="patrol-skip" title={p.skipped_reason}>건너뜀 — {p.skipped_reason}</span>
-							{:else if (p.findings || []).length > 0}
-								<span class="patrol-items">{(p.findings || []).map((f) => f.title).join(' · ')}</span>
-							{:else}
-								<span class="patrol-none">확인할 항목 없음</span>
-							{/if}
-						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	</section>
-
-	<!-- ============ Issue board + attention panel (#599) ============ -->
-	<section class="block" aria-label="이슈 보드">
-		<SectionHeader index="04" eyebrow="Board" title="전 프로젝트 이슈 보드"
-			subtitle="관리 범위 안의 이슈를 상태로 봅니다. 카드를 누르면 상세에서 감시·실행을 조절합니다.">
-			<button class="btn btn-sm btn-ghost" onclick={loadBoard}>
-				<Icon name="refresh-cw" size={13} /> 새로고침
-			</button>
-		</SectionHeader>
-
-		<div class="board-filters">
-			<input
-				type="text"
-				class="input input-search board-search"
-				placeholder="제목 검색..."
-				bind:value={searchQ}
-				oninput={onSearchInput}
-			/>
-			<!-- bind:value on <select> fires on `change`, so the handler is onchange too
-			     (wiki: svelte5-select-bind-change-vs-input). -->
-			<select class="input" bind:value={filterType} onchange={applyBoardFilters} aria-label="유형 필터">
-				<option value="">모든 유형</option>
-				<option value="design">설계</option>
-				<option value="feature">기능</option>
-				<option value="bug">버그</option>
-			</select>
-			<select class="input" bind:value={filterWatched} onchange={applyBoardFilters} aria-label="감시 필터">
-				<option value="">감시 전체</option>
-				<option value="true">감시 중만</option>
-				<option value="false">감시 외만</option>
-			</select>
-			<button class="btn btn-ghost" onclick={resetBoardFilters}><Icon name="rotate-ccw" size={13} /> 초기화</button>
-		</div>
-
-		{#if projectChoices.length > 0}
-			<div class="board-projects" role="group" aria-label="프로젝트 필터">
-				{#each projectChoices as name (name)}
-					<button
-						class="proj-chip chip"
-						class:chip-accent={filterProjects.includes(name)}
-						onclick={() => toggleProjectFilter(name)}
-						aria-pressed={filterProjects.includes(name)}
-					>{name}</button>
-				{/each}
-			</div>
-		{/if}
-
-		<div class="board-layout">
-			<div class="board-main">
-				{#if boardError}
-					<div class="board-error" role="alert"><Icon name="alert-triangle" size={14} /> {boardError}</div>
-				{/if}
-
-				<!-- Narrow screens: status tabs + one list. Wide screens: 5 columns. -->
-				<div class="narrow-tabs" role="tablist" aria-label="보드 상태">
-					{#each BOARD_COLUMNS as col (col)}
-						<button class="narrow-tab" class:active={narrowTab === col} role="tab"
-							aria-selected={narrowTab === col} onclick={() => narrowTab = col}>
-							{columnLabels[col]}
-							<span class="mono num narrow-count">{boardCounts[col] ?? (board[col] || []).length}</span>
-						</button>
-					{/each}
-				</div>
-
-				<div class="board-columns">
-					{#each BOARD_COLUMNS as col (col)}
-						<div class="board-col" class:is-active={narrowTab === col}>
-							<div class="col-head">
-								<span class="col-title">{columnLabels[col]}</span>
-								<span class="col-count mono num">{boardCounts[col] ?? (board[col] || []).length}</span>
-							</div>
-							<div class="col-list">
-								{#if !boardLoaded}
-									{#each Array(2) as _}
-										<div class="skeleton" style="height: 64px"></div>
-									{/each}
-								{:else}
-									{#each (col === 'done' ? doneItems() : board[col] || []) as issue (issue.id)}
-										<div class="board-card" role="button" tabindex="0"
-											onclick={() => openBoardIssue(issue)}
-											onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBoardIssue(issue); } }}>
-											<div class="card-top">
-												<span class="chip proj-badge" title={issue.project_name}>{issue.project_name}</span>
-												<span class="type-badge {issue.type}">
-													<Icon name={typeIcons[issue.type] || 'file-text'} size={11} /> {typeLabels[issue.type] || issue.type}
-												</span>
-												{#if issue.shepherd_watch}
-													<span class="watch-flag" title="목자 감시 중 (회차 {issue.shepherd_rounds ?? 0}{maxReviewRounds ? '/' + maxReviewRounds : ''})">
-														<Icon name="eye" size={12} />
-														{maxReviewRounds ? `${issue.shepherd_rounds ?? 0}/${maxReviewRounds}` : ''}
-													</span>
-												{/if}
-											</div>
-											<div class="card-title">#{issue.id} {issue.title}</div>
-											{#if issue.shepherd_last_review}
-												<div class="card-review" title="목자 마지막 검토">{issue.shepherd_last_review}</div>
-											{/if}
-											<div class="card-foot">
-												{#if issue.last_task_status}
-													<span class="task-state mono num" class:ok={issue.last_task_status === 'completed'} class:bad={issue.last_task_status === 'failed'}>작업 {issue.last_task_status}</span>
-												{/if}
-												<span class="mono num card-time">{issue.updated_at}</span>
-											</div>
-										</div>
-									{/each}
-									{#if col === 'done' && !doneExpanded && (board.done || []).length > doneItems().length}
-										<button class="btn btn-sm btn-ghost more" onclick={() => { doneExpanded = true; }}>
-											더 보기 ({(board.done || []).length - doneItems().length})
-										</button>
-									{/if}
-									{#if (board[col] || []).length === 0 && !(col === 'done' && doneItems().length > 0)}
-										<p class="col-empty">비어 있음</p>
-									{/if}
-								{/if}
-							</div>
-						</div>
-					{/each}
-				</div>
-			</div>
-
-			<aside class="board-side" aria-label="확인 필요 항목">
-				<SectionHeader eyebrow="Attention" title="확인 필요" subtitle="실패·정체·상한 — 심각도 순서대로" />
-				<AttentionPanel tick={attentionTick} onOpenIssue={openAttentionIssue} />
-			</aside>
-		</div>
-	</section>
+	<ShepherdIssueBoard refreshKey={boardRefreshKey} onOpenIssue={(r) => (openIssue = r)} />
 
 	{#if openIssue}
 		<IssueDetailModal
 			projectName={openIssue.projectName}
 			issueId={openIssue.issueId}
 			onClose={() => openIssue = null}
-			onChanged={() => { loadBoard(); attentionTick += 1; }}
+			onChanged={() => boardRefreshKey += 1}
 		/>
 	{/if}
 </div>
@@ -808,79 +364,6 @@
 		.status-grid { grid-template-columns: 1fr 1fr; }
 	}
 
-	/* ===== Patrol log (#600) ===== */
-	.patrol-msg {
-		font-size: var(--fs-xs);
-		color: var(--text-secondary);
-		margin-right: 4px;
-	}
-
-	.patrol-table {
-		display: flex;
-		flex-direction: column;
-		padding: 4px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--bg-2);
-		box-shadow: var(--sheen);
-	}
-
-	.patrol-row {
-		display: grid;
-		grid-template-columns: 72px 88px minmax(0, 1fr);
-		align-items: center;
-		gap: 12px;
-		padding: 10px 12px;
-		border-radius: var(--radius);
-	}
-
-	.patrol-row + .patrol-row { box-shadow: 0 -1px 0 var(--border-subtle); }
-
-	.patrol-time { font-size: var(--fs-xs); color: var(--text-tertiary); }
-
-	.patrol-new { white-space: nowrap; font-size: var(--fs-2xs); justify-self: start; }
-
-	.patrol-body { min-width: 0; font-size: var(--fs-sm); }
-
-	.patrol-task-link {
-		color: var(--text-primary);
-		text-decoration: none;
-		display: inline-flex;
-		gap: 8px;
-		align-items: baseline;
-		min-width: 0;
-	}
-
-	.patrol-task-link:hover { text-decoration: underline; }
-
-	.patrol-summary {
-		color: var(--text-secondary);
-		font-size: var(--fs-xs);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		min-width: 0;
-	}
-
-	.patrol-skip { color: var(--warning); font-size: var(--fs-xs); }
-
-	.patrol-items {
-		color: var(--text-secondary);
-		font-size: var(--fs-xs);
-		display: block;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.patrol-none { color: var(--text-tertiary); font-size: var(--fs-xs); }
-
-	@media (max-width: 640px) {
-		.patrol-row { grid-template-columns: 64px minmax(0, 1fr); }
-		.patrol-new { grid-row: 2; grid-column: 2; justify-self: start; }
-		.patrol-body { grid-column: 2; }
-	}
-
 	/* Output card */
 	.output-card {
 		margin-top: var(--space-4);
@@ -895,309 +378,4 @@
 	}
 
 	.label-count { font-size: var(--fs-2xs); color: var(--text-tertiary); }
-
-	/* Recent tasks */
-	.task-table {
-		display: flex;
-		flex-direction: column;
-		padding: 4px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		background: var(--bg-2);
-		box-shadow: var(--sheen);
-	}
-
-	.task-row {
-		display: grid;
-		grid-template-columns: 52px 54px minmax(0, 1fr) auto 72px;
-		align-items: center;
-		gap: 12px;
-		padding: 10px 12px;
-		border-radius: var(--radius);
-		color: var(--text-secondary);
-		text-decoration: none;
-		transition: background var(--dur-1) ease;
-	}
-
-	.task-row + .task-row { box-shadow: 0 -1px 0 var(--border-subtle); }
-
-	.task-row:hover,
-	.task-row:focus-visible {
-		background: rgba(237, 230, 218, 0.035);
-		text-decoration: none;
-		color: var(--text-secondary);
-	}
-
-	.row-kind { white-space: nowrap; }
-
-	.row-id { color: var(--text-tertiary); font-size: var(--fs-sm); }
-
-	.row-body { min-width: 0; }
-
-	.row-text {
-		display: block;
-		font-size: var(--fs-base);
-		color: var(--text-primary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.row-time { font-size: var(--fs-xs); color: var(--text-tertiary); text-align: right; }
-
-	@media (max-width: 640px) {
-		.task-row { grid-template-columns: 48px minmax(0, 1fr) auto; }
-		.row-id, .row-time { display: none; }
-	}
-
-	/* ===== Issue board (#599) ===== */
-	.board-filters {
-		display: flex;
-		gap: 8px;
-		margin-bottom: 10px;
-		flex-wrap: wrap;
-	}
-
-	.board-search {
-		flex: 1;
-		min-width: 180px;
-		min-height: 34px;
-		font-size: var(--fs-sm);
-	}
-
-	.board-filters select {
-		min-height: 34px;
-		padding-top: 6px;
-		padding-bottom: 6px;
-		font-size: var(--fs-sm);
-	}
-
-	.board-projects {
-		display: flex;
-		gap: 6px;
-		flex-wrap: wrap;
-		margin-bottom: 14px;
-	}
-
-	.proj-chip {
-		cursor: pointer;
-		border: 1px solid var(--border-subtle);
-		background: rgba(237, 230, 218, 0.04);
-		color: var(--text-secondary);
-		font-family: inherit;
-	}
-
-	.proj-chip:hover { border-color: var(--border-strong); color: var(--text-primary); }
-
-	.board-error {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		margin-bottom: 10px;
-		color: var(--danger);
-		font-size: var(--fs-xs);
-	}
-
-	.board-layout {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) 340px;
-		gap: var(--space-4);
-		align-items: start;
-	}
-
-	.board-main { min-width: 0; }
-
-	.narrow-tabs { display: none; }
-
-	.board-columns {
-		display: grid;
-		grid-template-columns: repeat(5, minmax(0, 1fr));
-		gap: 10px;
-	}
-
-	.board-col {
-		min-width: 0;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-md);
-		background: var(--bg-2);
-		padding: 10px;
-	}
-
-	.col-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		margin-bottom: 8px;
-	}
-
-	.col-title {
-		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--text-secondary);
-	}
-
-	.col-count {
-		font-size: var(--fs-2xs);
-		color: var(--text-tertiary);
-	}
-
-	.col-list {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		max-height: 62vh;
-		overflow-y: auto;
-	}
-
-	.col-empty {
-		margin: 4px 0;
-		font-size: var(--fs-2xs);
-		color: var(--text-tertiary);
-	}
-
-	.board-card {
-		padding: 8px 10px;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius);
-		background: var(--bg-3);
-		box-shadow: var(--sheen);
-		cursor: pointer;
-		transition: border-color var(--dur-1) ease, background var(--dur-1) ease;
-	}
-
-	.board-card:hover,
-	.board-card:focus-visible {
-		border-color: var(--border-strong);
-		background: var(--bg-2);
-	}
-
-	.card-top {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		flex-wrap: wrap;
-		margin-bottom: 6px;
-	}
-
-	.proj-badge {
-		max-width: 110px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--fs-2xs);
-	}
-
-	.type-badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		padding: 0 7px;
-		border-radius: var(--radius-full);
-		font-size: var(--fs-2xs);
-		line-height: 1.8;
-		background: rgba(237, 230, 218, 0.05);
-		color: var(--text-secondary);
-	}
-
-	.type-badge.feature { background: var(--accent-soft); color: var(--accent); }
-	.type-badge.bug { background: var(--danger-soft); color: var(--danger); }
-	.type-badge.design { background: var(--queued-soft); color: var(--queued); }
-
-	.watch-flag {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		font-size: var(--fs-2xs);
-		font-family: var(--font-mono);
-		color: var(--accent);
-	}
-
-	.card-title {
-		font-size: var(--fs-sm);
-		font-weight: var(--fw-medium);
-		color: var(--text-primary);
-		line-height: 1.4;
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
-	}
-
-	.card-review {
-		margin-top: 5px;
-		font-size: var(--fs-2xs);
-		color: var(--text-secondary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.card-foot {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		margin-top: 6px;
-		font-size: var(--fs-2xs);
-		color: var(--text-tertiary);
-	}
-
-	.task-state.ok { color: var(--success); }
-	.task-state.bad { color: var(--danger); }
-
-	.more { align-self: flex-start; }
-
-	.board-side {
-		position: sticky;
-		top: var(--space-4);
-	}
-
-	@media (max-width: 1100px) {
-		.board-layout { grid-template-columns: minmax(0, 1fr); }
-
-		.board-side { position: static; }
-
-		.board-columns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-	}
-
-	@media (max-width: 860px) {
-		/* Narrow screens: status tabs pick one visible column. The columns stay
-		   in the DOM; only the active one shows. */
-		.narrow-tabs {
-			display: flex;
-			gap: 6px;
-			flex-wrap: wrap;
-			margin-bottom: 10px;
-		}
-
-		.narrow-tab {
-			display: inline-flex;
-			align-items: center;
-			gap: 6px;
-			padding: 5px 10px;
-			border: 1px solid var(--border-subtle);
-			border-radius: var(--radius-full);
-			background: none;
-			color: var(--text-secondary);
-			font-family: inherit;
-			font-size: var(--fs-xs);
-			cursor: pointer;
-		}
-
-		.narrow-tab.active {
-			border-color: var(--accent);
-			background: var(--accent-soft);
-			color: var(--accent);
-		}
-
-		.narrow-count { font-size: var(--fs-2xs); }
-
-		.board-columns { grid-template-columns: minmax(0, 1fr); }
-
-		.board-col { display: none; }
-		.board-col.is-active { display: block; }
-	}
 </style>
