@@ -5,7 +5,6 @@
 	import { apiGet } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import AttentionPanel from '$lib/components/AttentionPanel.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
 	// Cross-project issue board (#621, split out of routes/shepherd/+page.svelte;
@@ -15,11 +14,11 @@
 	// a reload keeps them (wiki: svelte5-select-bind-change-vs-input — selects
 	// read their bound value on `change`, so filter handlers use onchange).
 	//
-	// The needs-attention panel (AttentionPanel.svelte) sits beside the board,
-	// so it rides along here and shares this component's debounced SSE refresh.
-	// Cards and attention items ask the page to open the shared IssueDetailModal
-	// through `onOpenIssue({ projectName, issueId })`; when the modal changes
-	// something the page bumps `refreshKey` and both lists reload.
+	// #622: the board sits in its own tab and uses the full width — the
+	// needs-attention panel moved to the 확인 필요 tab (page-owned). Cards ask
+	// the page to open the shared IssueDetailModal through
+	// `onOpenIssue({ projectName, issueId })`; when the modal changes something
+	// the page bumps `refreshKey` and the list reloads.
 	let { refreshKey = 0, onOpenIssue = () => {} } = $props();
 
 	const BOARD_COLUMNS = ['todo', 'in_progress', 'testing', 'failed', 'done'];
@@ -51,9 +50,6 @@
 	let narrowTab = $state('todo');    // active column on narrow screens
 	let projectChoices = $state([]);   // visible project names for the filter chips
 
-	// Attention panel refresh counter (shared debounce with the board).
-	let attentionTick = $state(0);
-
 	function initFiltersFromUrl() {
 		const p = $page.url.searchParams;
 		filterProjects = (p.get('project') || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -62,12 +58,19 @@
 		searchQ = p.get('q') || '';
 	}
 
+	// Copy the CURRENT query and only rewrite the board filter keys (#622).
+	// Building a fresh URLSearchParams used to wipe `tab=board`, so a reload
+	// after touching a filter landed back on Live Output.
 	function syncFiltersToUrl() {
-		const params = new URLSearchParams();
+		const params = new URLSearchParams($page.url.searchParams);
 		if (filterProjects.length) params.set('project', filterProjects.join(','));
+		else params.delete('project');
 		if (filterType) params.set('type', filterType);
+		else params.delete('type');
 		if (filterWatched) params.set('watched', filterWatched);
+		else params.delete('watched');
 		if (searchQ) params.set('q', searchQ);
+		else params.delete('q');
 		const qs = params.toString();
 		goto(qs ? `?${qs}` : $page.url.pathname, { keepFocus: true, noScroll: true, replaceState: true });
 	}
@@ -157,11 +160,6 @@
 		onOpenIssue({ projectName: issue.project_name, issueId: issue.id });
 	}
 
-	function openAttentionIssue(item) {
-		if (!item.target_id || !item.project) return;
-		onOpenIssue({ projectName: item.project, issueId: item.target_id });
-	}
-
 	let unsubs = [];
 	let sseCleanup = null;
 
@@ -175,14 +173,13 @@
 			})
 			.catch(() => {});
 
-		// SSE → debounced board + attention refresh (#599): events arrive in
-		// bursts (task_start then output etc.), so collapse them into one reload.
+		// SSE → debounced board refresh (#599): events arrive in bursts
+		// (task_start then output etc.), so collapse them into one reload.
 		let sseTimer = null;
 		const scheduleBoardRefresh = () => {
 			clearTimeout(sseTimer);
 			sseTimer = setTimeout(() => {
 				loadBoard();
-				attentionTick += 1; // AttentionPanel reloads on tick (store updates too)
 			}, 600);
 		};
 		for (const ev of ['task_start', 'task_complete', 'task_fail', 'task_stop']) {
@@ -210,7 +207,6 @@
 			return;
 		}
 		loadBoard();
-		attentionTick += 1;
 	});
 </script>
 
@@ -259,83 +255,74 @@
 		</div>
 	{/if}
 
-	<div class="board-layout">
-		<div class="board-main">
-			{#if boardError}
-				<div class="board-error" role="alert"><Icon name="alert-triangle" size={14} /> {boardError}</div>
-			{/if}
+	{#if boardError}
+		<div class="board-error" role="alert"><Icon name="alert-triangle" size={14} /> {boardError}</div>
+	{/if}
 
-			<!-- Narrow screens: status tabs + one list. Wide screens: 5 columns. -->
-			<div class="narrow-tabs" role="tablist" aria-label="보드 상태">
-				{#each BOARD_COLUMNS as col (col)}
-					<button class="narrow-tab" class:active={narrowTab === col} role="tab"
-						aria-selected={narrowTab === col} onclick={() => narrowTab = col}>
-						{columnLabels[col]}
-						<span class="mono num narrow-count">{boardCounts[col] ?? (board[col] || []).length}</span>
-					</button>
-				{/each}
-			</div>
+	<!-- Narrow screens: status tabs + one list. Wide screens: 5 columns. -->
+	<div class="narrow-tabs" role="tablist" aria-label="보드 상태">
+		{#each BOARD_COLUMNS as col (col)}
+			<button class="narrow-tab" class:active={narrowTab === col} role="tab"
+				aria-selected={narrowTab === col} onclick={() => narrowTab = col}>
+				{columnLabels[col]}
+				<span class="mono num narrow-count">{boardCounts[col] ?? (board[col] || []).length}</span>
+			</button>
+		{/each}
+	</div>
 
-			<div class="board-columns">
-				{#each BOARD_COLUMNS as col (col)}
-					<div class="board-col" class:is-active={narrowTab === col}>
-						<div class="col-head">
-							<span class="col-title">{columnLabels[col]}</span>
-							<span class="col-count mono num">{boardCounts[col] ?? (board[col] || []).length}</span>
-						</div>
-						<div class="col-list">
-							{#if !boardLoaded}
-								{#each Array(2) as _}
-									<div class="skeleton" style="height: 64px"></div>
-								{/each}
-							{:else}
-								{#each (col === 'done' ? doneItems() : board[col] || []) as issue (issue.id)}
-									<div class="board-card" role="button" tabindex="0"
-										onclick={() => openBoardIssue(issue)}
-										onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBoardIssue(issue); } }}>
-										<div class="card-top">
-											<span class="chip proj-badge" title={issue.project_name}>{issue.project_name}</span>
-											<span class="type-badge {issue.type}">
-												<Icon name={typeIcons[issue.type] || 'file-text'} size={11} /> {typeLabels[issue.type] || issue.type}
-											</span>
-											{#if issue.shepherd_watch}
-												<span class="watch-flag" title="목자 감시 중 (회차 {issue.shepherd_rounds ?? 0}{maxReviewRounds ? '/' + maxReviewRounds : ''})">
-													<Icon name="eye" size={12} />
-													{maxReviewRounds ? `${issue.shepherd_rounds ?? 0}/${maxReviewRounds}` : ''}
-												</span>
-											{/if}
-										</div>
-										<div class="card-title">#{issue.id} {issue.title}</div>
-										{#if issue.shepherd_last_review}
-											<div class="card-review" title="목자 마지막 검토">{issue.shepherd_last_review}</div>
-										{/if}
-										<div class="card-foot">
-											{#if issue.last_task_status}
-												<span class="task-state mono num" class:ok={issue.last_task_status === 'completed'} class:bad={issue.last_task_status === 'failed'}>작업 {issue.last_task_status}</span>
-											{/if}
-											<span class="mono num card-time">{issue.updated_at}</span>
-										</div>
-									</div>
-								{/each}
-								{#if col === 'done' && !doneExpanded && (board.done || []).length > doneItems().length}
-									<button class="btn btn-sm btn-ghost more" onclick={() => { doneExpanded = true; }}>
-										더 보기 ({(board.done || []).length - doneItems().length})
-									</button>
+	<div class="board-columns">
+		{#each BOARD_COLUMNS as col (col)}
+			<div class="board-col" class:is-active={narrowTab === col}>
+				<div class="col-head">
+					<span class="col-title">{columnLabels[col]}</span>
+					<span class="col-count mono num">{boardCounts[col] ?? (board[col] || []).length}</span>
+				</div>
+				<div class="col-list">
+					{#if !boardLoaded}
+						{#each Array(2) as _}
+							<div class="skeleton" style="height: 64px"></div>
+						{/each}
+					{:else}
+						{#each (col === 'done' ? doneItems() : board[col] || []) as issue (issue.id)}
+							<div class="board-card" role="button" tabindex="0"
+								onclick={() => openBoardIssue(issue)}
+								onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBoardIssue(issue); } }}>
+								<div class="card-top">
+									<span class="chip proj-badge" title={issue.project_name}>{issue.project_name}</span>
+									<span class="type-badge {issue.type}">
+										<Icon name={typeIcons[issue.type] || 'file-text'} size={11} /> {typeLabels[issue.type] || issue.type}
+									</span>
+									{#if issue.shepherd_watch}
+										<span class="watch-flag" title="목자 감시 중 (회차 {issue.shepherd_rounds ?? 0}{maxReviewRounds ? '/' + maxReviewRounds : ''})">
+											<Icon name="eye" size={12} />
+											{maxReviewRounds ? `${issue.shepherd_rounds ?? 0}/${maxReviewRounds}` : ''}
+										</span>
+									{/if}
+								</div>
+								<div class="card-title">#{issue.id} {issue.title}</div>
+								{#if issue.shepherd_last_review}
+									<div class="card-review" title="목자 마지막 검토">{issue.shepherd_last_review}</div>
 								{/if}
-								{#if (board[col] || []).length === 0 && !(col === 'done' && doneItems().length > 0)}
-									<p class="col-empty">비어 있음</p>
-								{/if}
-							{/if}
-						</div>
-					</div>
-				{/each}
+								<div class="card-foot">
+									{#if issue.last_task_status}
+										<span class="task-state mono num" class:ok={issue.last_task_status === 'completed'} class:bad={issue.last_task_status === 'failed'}>작업 {issue.last_task_status}</span>
+									{/if}
+									<span class="mono num card-time">{issue.updated_at}</span>
+								</div>
+							</div>
+						{/each}
+						{#if col === 'done' && !doneExpanded && (board.done || []).length > doneItems().length}
+							<button class="btn btn-sm btn-ghost more" onclick={() => { doneExpanded = true; }}>
+								더 보기 ({(board.done || []).length - doneItems().length})
+							</button>
+						{/if}
+						{#if (board[col] || []).length === 0 && !(col === 'done' && doneItems().length > 0)}
+							<p class="col-empty">비어 있음</p>
+						{/if}
+					{/if}
+				</div>
 			</div>
-		</div>
-
-		<aside class="board-side" aria-label="확인 필요 항목">
-			<SectionHeader eyebrow="Attention" title="확인 필요" subtitle="실패·정체·상한 — 심각도 순서대로" />
-			<AttentionPanel tick={attentionTick} onOpenIssue={openAttentionIssue} />
-		</aside>
+		{/each}
 	</div>
 </section>
 
@@ -391,15 +378,6 @@
 		color: var(--danger);
 		font-size: var(--fs-xs);
 	}
-
-	.board-layout {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) 340px;
-		gap: var(--space-4);
-		align-items: start;
-	}
-
-	.board-main { min-width: 0; }
 
 	.narrow-tabs { display: none; }
 
@@ -544,16 +522,7 @@
 
 	.more { align-self: flex-start; }
 
-	.board-side {
-		position: sticky;
-		top: var(--space-4);
-	}
-
 	@media (max-width: 1100px) {
-		.board-layout { grid-template-columns: minmax(0, 1fr); }
-
-		.board-side { position: static; }
-
 		.board-columns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 	}
 

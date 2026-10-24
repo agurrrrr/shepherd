@@ -95,8 +95,9 @@
 		});
 	});
 
-	// Full-height app routes (project workspace) trade page padding for room.
-	let fillRoute = $derived(/^\/projects\/[^/]+\/?$/.test($page.url.pathname));
+	// Full-height app routes (project workspace, shepherd console #622) trade
+	// page padding for room.
+	let fillRoute = $derived(/^\/(projects\/[^/]+|shepherd)\/?$/.test($page.url.pathname));
 
 	// Projects flagged hidden are left out of the sidebar (still reachable via /projects)
 	let visibleProjects = $derived(($projects || []).filter(p => !p.hidden));

@@ -26,6 +26,17 @@
 	let statusMsg = $state(null); // { ok, text } | null
 	let fieldEl = $state(null);
 
+	// Floor-pinned layout (#622): a status line under the input would push the
+	// input up and shake the output pane's height, so the message renders as an
+	// absolutely positioned toast above the field. Success toasts fade out on
+	// their own; errors stay until dismissed.
+	let toastTimer = null;
+	function setStatus(msg) {
+		clearTimeout(toastTimer);
+		statusMsg = msg;
+		if (msg && msg.ok) toastTimer = setTimeout(() => { statusMsg = null; }, 4000);
+	}
+
 	// Textarea placeholders cannot ellipsize (wiki: webui-nocturne-design-system),
 	// so phones get the short hint.
 	let compact = $state(false);
@@ -75,19 +86,19 @@
 		}
 
 		sending = true;
-		statusMsg = null;
+		setStatus(null);
 		clearField();
 		injectMode = false;
 		try {
 			const res = await apiPost('/api/shepherd/tasks', { prompt: text });
 			if (res?.success) {
-				statusMsg = { ok: true, text: `지시 등록 · 작업 #${res.data.task_id}` };
+				setStatus({ ok: true, text: `지시 등록 · 작업 #${res.data.task_id}` });
 				onSent(res.data);
 			} else {
-				statusMsg = { ok: false, text: res?.message || '지시 등록에 실패했습니다' };
+				setStatus({ ok: false, text: res?.message || '지시 등록에 실패했습니다' });
 			}
 		} catch (err) {
-			statusMsg = { ok: false, text: err?.message || '지시 등록 요청이 실패했습니다' };
+			setStatus({ ok: false, text: err?.message || '지시 등록 요청이 실패했습니다' });
 		} finally {
 			sending = false;
 		}
@@ -95,19 +106,19 @@
 
 	async function handleInject(text) {
 		sending = true;
-		statusMsg = null;
+		setStatus(null);
 		clearField();
 		injectMode = false;
 		try {
 			const res = await apiPost('/api/sheep/shepherd/inject', { prompt: text });
 			if (res?.success) {
-				statusMsg = { ok: true, text: '💬 실행 중인 작업에 추가 지시를 주입했습니다' };
+				setStatus({ ok: true, text: '💬 실행 중인 작업에 추가 지시를 주입했습니다' });
 				onInjected();
 			} else {
-				statusMsg = { ok: false, text: res?.message || '주입에 실패했습니다' };
+				setStatus({ ok: false, text: res?.message || '주입에 실패했습니다' });
 			}
 		} catch (err) {
-			statusMsg = { ok: false, text: err?.message || '주입 요청이 실패했습니다' };
+			setStatus({ ok: false, text: err?.message || '주입 요청이 실패했습니다' });
 		} finally {
 			sending = false;
 		}
@@ -116,24 +127,36 @@
 	async function handleStop() {
 		if (stopping || !runningTaskId) return;
 		stopping = true;
-		statusMsg = null;
+		setStatus(null);
 		try {
 			const res = await apiPost(`/api/tasks/${runningTaskId}/stop`, {});
 			if (res?.success) {
-				statusMsg = { ok: true, text: `작업 #${runningTaskId} 중지 요청을 보냈습니다` };
+				setStatus({ ok: true, text: `작업 #${runningTaskId} 중지 요청을 보냈습니다` });
 				onStopped();
 			} else {
-				statusMsg = { ok: false, text: res?.message || '중지에 실패했습니다' };
+				setStatus({ ok: false, text: res?.message || '중지에 실패했습니다' });
 			}
 		} catch (err) {
-			statusMsg = { ok: false, text: err?.message || '중지 요청이 실패했습니다' };
+			setStatus({ ok: false, text: err?.message || '중지 요청이 실패했습니다' });
 		} finally {
 			stopping = false;
 		}
 	}
 </script>
 
-<div class="shepherd-console" class:inject={injectMode} class:locked={disabled}>
+<div class="console-wrap">
+	{#if statusMsg}
+		<div class="console-toast" class:error={!statusMsg.ok} role={statusMsg.ok ? 'status' : 'alert'}>
+			<span>{statusMsg.text}</span>
+			{#if !statusMsg.ok}
+				<button class="toast-close" onclick={() => setStatus(null)} aria-label="알림 닫기">
+					<Icon name="x" size={12} />
+				</button>
+			{/if}
+		</div>
+	{/if}
+
+	<div class="shepherd-console" class:inject={injectMode} class:locked={disabled}>
 	<span class="prompt-glyph" aria-hidden="true">
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 6 13 12 7 18"/><line x1="15" y1="18" x2="19" y2="18"/></svg>
 	</span>
@@ -189,11 +212,8 @@
 			{/if}
 		</button>
 	</div>
+	</div>
 </div>
-
-{#if statusMsg}
-	<p class="console-status" class:error={!statusMsg.ok} role={statusMsg.ok ? 'status' : 'alert'}>{statusMsg.text}</p>
-{/if}
 
 <style>
 	.shepherd-console {
@@ -327,15 +347,52 @@
 		to { transform: rotate(360deg); }
 	}
 
-	.console-status {
-		margin-top: 8px;
-		font-size: var(--fs-sm);
-		color: var(--success);
+	.console-wrap {
+		position: relative;
 	}
 
-	.console-status.error {
-		color: var(--danger);
+	/* Result message: floats over the top edge of the input so it never adds
+	   height to the floor-pinned command bar (#622). Success fades by itself;
+	   errors keep a close button and stay until dismissed. */
+	.console-toast {
+		position: absolute;
+		left: 8px;
+		right: 8px;
+		bottom: calc(100% + 6px);
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 10px;
+		border-radius: var(--radius);
+		background: var(--bg-3);
+		border: 1px solid var(--success-line, var(--border));
+		color: var(--success);
+		font-size: var(--fs-xs);
+		box-shadow: var(--shadow-2);
+		animation: rise-in var(--dur-2) var(--ease-out) backwards;
 	}
+
+	.console-toast.error {
+		color: var(--danger);
+		border-color: var(--danger-line, var(--border));
+	}
+
+	.console-toast span { flex: 1; min-width: 0; }
+
+	.toast-close {
+		display: grid;
+		place-items: center;
+		width: 20px;
+		height: 20px;
+		flex-shrink: 0;
+		border: none;
+		border-radius: var(--radius-sm);
+		background: none;
+		color: inherit;
+		cursor: pointer;
+	}
+
+	.toast-close:hover { background: var(--bg-hover); }
 
 	@media (max-width: 640px) {
 		.hint { display: none; }
