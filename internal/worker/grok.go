@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/agurrrrr/shepherd/internal/config"
@@ -44,6 +47,10 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 	// --always-approve        → auto-approve all tool executions (no prompts).
 	args := []string{"--output-format", "streaming-json", "--always-approve"}
 	args = append(args, grokModelArgs(opts.Model)...)
+	// Background-wait policy (#619): grok's built-in 10-minute cap stops the
+	// background work a long task is waiting on and exits 1, so we always pass
+	// an explicit limit from config.
+	args = append(args, grokBackgroundWaitArgs()...)
 
 	// Resume a prior grok session when one is recorded and session reuse is
 	// enabled (grok is a large-context agent, so reuse is honored like Claude/Pi).
@@ -53,8 +60,13 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 
 	// grok is a Claude-class harness, so feed it the same full system context
 	// Claude gets (MCP guide, task history, skills, wiki, sheep memory) with
-	// grok's own custom-instructions key.
+	// grok's own custom-instructions key. The execution-limit note is prepended
+	// as its own bracketed section (before the context blocks) so it reads as
+	// harness info, not as part of the user's request.
 	fullPrompt := buildPromptWithContextUsing(sheepName, prompt, "custom_prompt_grok")
+	if note := grokBackgroundWaitNote(); note != "" {
+		fullPrompt = note + "\n\n" + fullPrompt
+	}
 	// The single-turn prompt is passed via the -p flag (last, so it does not
 	// swallow following flags).
 	args = append(args, "-p", fullPrompt)
@@ -124,7 +136,10 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 		stream.flush()
 	}()
 
-	// Read stderr.
+	// Read stderr. Lines are mirrored into a capped buffer so the error
+	// classification below can scan them too — grok's background-wait notice
+	// can land on stderr instead of the streaming-json stdout (#619).
+	stderrBuf := NewCappedBuffer(maxGrokStderrBytes)
 	go func() {
 		defer wg.Done()
 		scanner := bufio.NewScanner(stderr)
@@ -133,6 +148,7 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 				return
 			}
 			line := scanner.Text()
+			stderrBuf.WriteString(line + "\n")
 			if opts.OnOutput != nil && strings.TrimSpace(line) != "" {
 				opts.OnOutput("⚠️ " + line + "\n")
 			}
@@ -150,7 +166,19 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("grok execution timeout (%v)", opts.Timeout)
 		}
-		errStr := strings.ToLower(fullOutput + " " + err.Error())
+		// Background-wait timeout (#619) is checked BEFORE the rate-limit scan:
+		// grok stopped background work we were waiting on, so the task is failed,
+		// not rate-limited. Checked before the salvage-success path too — salvaged
+		// text from a cut-off run must not turn it into a completion. The model's
+		// own text is deliberately NOT embedded in the error string: the queue
+		// retries on rate-limit substrings found anywhere in it, and a "429" in
+		// tool output would re-run the whole task. The last turn's text still
+		// reaches the task row through the streamed output lines (the processor
+		// saves them and builds the summary from the tail on failure).
+		if secs, ok := grokBackgroundWaitRanOut(fullOutput + " " + stderrBuf.String() + " " + err.Error()); ok {
+			return nil, grokBackgroundWaitError(secs)
+		}
+		errStr := strings.ToLower(fullOutput + " " + stderrBuf.String() + " " + err.Error())
 		if strings.Contains(errStr, "rate limit") ||
 			strings.Contains(errStr, "session limit") ||
 			strings.Contains(errStr, "429") ||
@@ -192,6 +220,92 @@ func grokModelArgs(modelOverride string) []string {
 		return nil
 	}
 	return []string{"-m", m}
+}
+
+// maxGrokStderrBytes bounds the mirrored stderr kept for error classification.
+// grok's headless notices (including the background-wait one, #619) can land on
+// stderr; only the tail matters, and a runaway CLI must not grow the daemon.
+const maxGrokStderrBytes = 512 * 1024
+
+// grokBackgroundWaitArgs translates config.GetGrokBackgroundWait() into the
+// grok CLI flags that bound how long a headless run waits for the background
+// work it started after its latest turn ends (#619). Without them grok uses its
+// built-in 10-minute cap, stops the work, and exits 1 — which failed tasks
+// whose real work (remote builds, model downloads) simply runs longer.
+func grokBackgroundWaitArgs() []string {
+	wait := config.GetGrokBackgroundWait()
+	if wait <= 0 {
+		// "off": exit as soon as the first turn ends; stopped background work
+		// does not affect the exit code.
+		return []string{"--no-wait-for-background"}
+	}
+	secs := int64(wait / time.Second)
+	if secs < 1 {
+		// Sub-second configs (e.g. "500ms") must not become "0", which grok
+		// would treat as an immediate wait-out with exit 1.
+		secs = 1
+	}
+	return []string{"--background-wait-timeout", strconv.FormatInt(secs, 10)}
+}
+
+// grokBackgroundWaitNote is the one-line hint prepended to grok's prompt so the
+// agent knows the real limit and can plan around it (e.g. prefer foreground
+// blocking commands, or a fresh follow-up task, over an indefinitely-watched
+// monitor). Empty only when the wait is unbounded — which we never produce.
+func grokBackgroundWaitNote() string {
+	wait := config.GetGrokBackgroundWait()
+	if wait <= 0 {
+		return "[Execution limit] This headless grok run exits as soon as your first turn ends (--no-wait-for-background). Background work you start (bash/monitor, background subagents) is stopped at that point and its results never reach you: finish the task with foreground commands, or end the turn with a clear status of what is still running."
+	}
+	return fmt.Sprintf("[Execution limit] This headless grok run waits at most %v after your latest turn ends for background work (bash/monitor, background subagents) to finish; when the wait runs out grok stops that work and exits 1. Prefer foreground blocking commands for long steps, or end the turn with a clear status of what is still running.", wait)
+}
+
+// grokBackgroundWaitRanOut detects grok's background-wait exhaustion notice in
+// combined stdout+stderr+exit text and extracts the waited seconds when present.
+// grok 1.0.67 emits one of:
+//
+//	the wait for background work ran out after 600 s and exit stopped 1 background task (...)
+//	<task> was stopped after 600 s: the wait for background work ran out.
+//
+// The seconds regexes are anchored to the notice itself, not just "after Ns"
+// anywhere in a long tool log — an unrelated "downloaded after 12 s" line must
+// not become the reported timeout. Detection is case-insensitive because the
+// notice can arrive as a streaming error event, a stderr line, or inside a
+// tool output echo.
+func grokBackgroundWaitRanOut(combined string) (int, bool) {
+	lower := strings.ToLower(combined)
+	if !strings.Contains(lower, "wait for background work ran out") {
+		return 0, false
+	}
+	for _, re := range grokBackgroundWaitSecsRes {
+		if m := re.FindStringSubmatch(lower); m != nil {
+			for _, g := range m[1:] {
+				if g != "" {
+					secs, _ := strconv.Atoi(g)
+					return secs, true
+				}
+			}
+		}
+	}
+	return 0, true
+}
+
+var grokBackgroundWaitSecsRes = []*regexp.Regexp{
+	regexp.MustCompile(`wait for background work ran out after (\d+)\s*s`),
+	regexp.MustCompile(`stopped after (\d+)\s*s[:.\s]*the wait for background work ran out`),
+}
+
+// grokBackgroundWaitError is the classified failure for a background-wait
+// timeout. The task stays failed (the stopped work means the request did not
+// actually finish) but the message says so explicitly instead of the generic
+// "grok execution failed: exit status 1", and it deliberately avoids every
+// substring the queue's IsRateLimitError matches, so it is never misclassified
+// as a retryable rate limit.
+func grokBackgroundWaitError(secs int) error {
+	if secs > 0 {
+		return fmt.Errorf("grok background wait timeout (%ds): background task stopped before completion — raise grok_background_wait or set it to off for --no-wait-for-background", secs)
+	}
+	return fmt.Errorf("grok background wait timeout: background task stopped before completion — raise grok_background_wait or set it to off for --no-wait-for-background")
 }
 
 // grokStreamState turns streaming-json thought/text/error events into

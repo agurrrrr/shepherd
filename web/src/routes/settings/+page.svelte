@@ -169,6 +169,7 @@
 			model_opencode: configData.model_opencode || '',
 			model_pi: configData.model_pi || '',
 			model_grok: configData.model_grok || '',
+			grok_background_wait: (configData.grok_background_wait || '').trim(),
 			task_timeout: (configData.task_timeout || '').trim() || '4h',
 			wiki_enabled: configData.wiki_enabled,
 			wiki_auto_ingest: configData.wiki_auto_ingest,

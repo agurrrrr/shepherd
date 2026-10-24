@@ -504,6 +504,7 @@ max_concurrent_tasks: 0      # Global concurrency ceiling (0 = unlimited)
 # Example: local opencode sequential (GPU), cloud claude unlimited.
 concurrency_limits: {}       # e.g. { opencode: 1, claude: 0 }
 task_timeout: 4h             # Per-task execution timeout ("0"/"off" = unlimited)
+grok_background_wait: ""     # grok headless background-work wait ("60m"; "" = 60m capped below task_timeout; "off" = --no-wait-for-background)
 server_port: 8585
 server_host: 0.0.0.0
 auto_approve: true

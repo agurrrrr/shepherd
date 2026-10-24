@@ -2,7 +2,7 @@
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
 	import { apiPost } from '$lib/api.js';
 
-	/** @type {{ model_grok: string, custom_prompt_grok: string, concurrency_limits: Record<string, number>, grok_path: string }} */
+	/** @type {{ model_grok: string, custom_prompt_grok: string, concurrency_limits: Record<string, number>, grok_path: string, grok_background_wait: string }} */
 	export let configData;
 	/** @type {Array<{id: string, label: string, isDefault?: boolean}>} */
 	export let modelOptions;
@@ -74,6 +74,15 @@
 	<label>Grok Binary Path</label>
 	<input class="input" type="text" bind:value={configData.grok_path} placeholder="auto-detect" />
 	<span class="hint">실제 grok 바이너리 경로. 비워두면 PATH와 기본 설치 경로에서 자동 탐지. 엔터를 기다리는 래퍼는 쓰지 마세요.</span>
+</div>
+<div class="setting-row">
+	<label>Grok Background Wait</label>
+	<input class="input" type="text" bind:value={configData.grok_background_wait} placeholder="60m (비우면 자동)" />
+	<span class="hint">
+		grok 헤드리스 실행이 턴 종료 후 백그라운드 작업(빌드·다운로드 등)을 기다리는 최대 시간.
+		grok 자체 기본값은 10분이고, 그 이상이면 grok이 작업을 멈추고 exit 1로 끝나 작업이 실패합니다 (#619).
+		비우면 60분이되 task_timeout보다는 항상 짧게 적용됩니다. <code>off</code>로 두면 첫 턴이 끝나자마자 종료합니다 (--no-wait-for-background).
+	</span>
 </div>
 <div class="setting-row">
 	<label>Grok Model</label>

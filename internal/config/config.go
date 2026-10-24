@@ -209,6 +209,16 @@ func Init() error {
 	// 무제한으로 두려면 "0", "-1", "unlimited", "none", "off" 중 하나로 지정.
 	viper.SetDefault("task_timeout", "4h")
 
+	// grok 헤드리스(-p) 실행이 턴 종료 후 백그라운드 작업(bash/monitor, 백그라운드
+	// subagent)을 기다리는 최대 시간. grok 자체 기본값은 10분이고, 시간이 다 되면
+	// grok이 백그라운드 작업을 멈추고 exit 1로 끝나 long-running 작업이 실패한다 (#619).
+	// time.ParseDuration 형식 — 예: "60m", "90s".
+	// "off"/"0"이면 --no-wait-for-background를 넘겨 첫 턴이 끝나자마자 종료한다.
+	// 비어 있으면 기본 60분을 쓰되, task_timeout이 설정돼 있으면 그보다 여유를 두고
+	// 짧게 줄인다 — 백그라운드 대기 한도가 작업 타임아웃과 충돌하면 grok이 정리할
+	// 기회 전에 데몬이 프로세스를 죽인다. GetGrokBackgroundWait 참고.
+	viper.SetDefault("grok_background_wait", "")
+
 	// max_concurrent_tasks: 동시에 실행할 수 있는 최대 작업 수 (전역 천장).
 	// 0이면 제한 없음 (전체 양이 동시에 작업 실행 가능).
 	// 이 설정은 API rate limit을 피하거나, 리소스를 분산할 때 유용하다.
@@ -349,6 +359,69 @@ func GetTaskTimeout() time.Duration {
 		return 0
 	}
 	return d
+}
+
+// DefaultGrokBackgroundWait is the fallback for grok_background_wait when the
+// key is empty or unparseable. grok's own built-in limit is only 10 minutes,
+// which kills any task whose background work (a build, a model download) runs
+// longer than that — grok stops the work and exits 1 (#619). 60 minutes covers
+// typical long builds while still bounding a stuck monitor(persistent:true).
+const DefaultGrokBackgroundWait = 60 * time.Minute
+
+// grokTaskTimeoutHeadroom is how much shorter the grok background wait is kept
+// than task_timeout. Without headroom the two deadlines collide: the daemon
+// SIGKILLs the process group at task_timeout before grok can stop its
+// background work and exit cleanly with its own message.
+const grokTaskTimeoutHeadroom = 5 * time.Minute
+
+// grokBackgroundWaitFloor keeps a task_timeout-derived cap usable: a 1m
+// task_timeout must not produce a 0s (or negative) background wait.
+const grokBackgroundWaitFloor = time.Minute
+
+// GrokBackgroundWaitOff is the special GetGrokBackgroundWait return value
+// meaning "do not wait at all" — callers pass --no-wait-for-background.
+const GrokBackgroundWaitOff = time.Duration(-1)
+
+// GetGrokBackgroundWait returns how long a headless grok run should wait for
+// the background work it started after its latest turn ends, translated into the
+// `--background-wait-timeout <secs>` / `--no-wait-for-background` pair.
+//
+//   - "off", "0", "-1", "none", "unlimited", "disable"/"disabled" →
+//     GrokBackgroundWaitOff: grok exits as soon as the first turn ends and
+//     stopped background work does not affect the exit code.
+//   - a time.ParseDuration value ("60m", "90s") → that duration.
+//   - empty or unparseable → DefaultGrokBackgroundWait (a typo must not silently
+//     drop us back to grok's 10-minute default, mirroring GetTaskTimeout).
+//
+// A positive result is always capped below task_timeout (see
+// grokTaskTimeoutHeadroom) so grok's own background-wait deadline fires before
+// the daemon's per-task deadline. task_timeout of "0"/"off" means unlimited, so
+// no cap applies. Callers treat <= 0 results as "no wait".
+func GetGrokBackgroundWait() time.Duration {
+	raw := strings.TrimSpace(viper.GetString("grok_background_wait"))
+
+	switch strings.ToLower(raw) {
+	case "off", "0", "-1", "none", "unlimited", "disable", "disabled":
+		return GrokBackgroundWaitOff
+	}
+
+	wait := DefaultGrokBackgroundWait
+	if raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil {
+			if d <= 0 {
+				return GrokBackgroundWaitOff
+			}
+			wait = d
+		}
+	}
+
+	if taskTimeout := GetTaskTimeout(); taskTimeout > 0 && wait >= taskTimeout {
+		if capped := taskTimeout - grokTaskTimeoutHeadroom; capped > grokBackgroundWaitFloor {
+			return capped
+		}
+		return grokBackgroundWaitFloor
+	}
+	return wait
 }
 
 // GetConcurrencyLimits returns the per-group concurrency limits keyed by group

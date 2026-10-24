@@ -501,6 +501,7 @@ max_concurrent_tasks: 0      # 전역 동시 실행 상한 (0 = 무제한)
 # 예: 로컬 opencode 순차(GPU 보호), 클라우드 claude 무제한
 concurrency_limits: {}       # 예: { opencode: 1, claude: 0 }
 task_timeout: 4h             # 작업 타임아웃 ("0"/"off" = 무제한)
+grok_background_wait: ""     # grok 헤드리스 백그라운드 작업 대기 ("60m"; "" = 60분이되 task_timeout보다 짧게; "off" = --no-wait-for-background)
 server_port: 8585
 server_host: 0.0.0.0
 auto_approve: true
