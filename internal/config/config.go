@@ -213,7 +213,11 @@ func Init() error {
 	// subagent)을 기다리는 최대 시간. grok 자체 기본값은 10분이고, 시간이 다 되면
 	// grok이 백그라운드 작업을 멈추고 exit 1로 끝나 long-running 작업이 실패한다 (#619).
 	// time.ParseDuration 형식 — 예: "60m", "90s".
-	// "off"/"0"이면 --no-wait-for-background를 넘겨 첫 턴이 끝나자마자 종료한다.
+	// "off"/"0"/"disable"이면 --no-wait-for-background를 넘겨 첫 턴이 끝나자마자 종료한다.
+	// "unlimited"/"none"/"-1"은 task_timeout 직전까지 기다린다 — task_timeout이
+	// 설정돼 있으면 그보다 여유를 두고 짧게, task_timeout도 무제한이면 큰 고정값(24h)을
+	// --background-wait-timeout으로 넘긴다. 이 키워드는 task_timeout의 무제한 관례와
+	// 같다 (#625).
 	// 비어 있으면 기본 60분을 쓰되, task_timeout이 설정돼 있으면 그보다 여유를 두고
 	// 짧게 줄인다 — 백그라운드 대기 한도가 작업 타임아웃과 충돌하면 grok이 정리할
 	// 기회 전에 데몬이 프로세스를 죽인다. GetGrokBackgroundWait 참고.
@@ -382,13 +386,27 @@ const grokBackgroundWaitFloor = time.Minute
 // meaning "do not wait at all" — callers pass --no-wait-for-background.
 const GrokBackgroundWaitOff = time.Duration(-1)
 
+// MaxGrokBackgroundWait is what "unlimited"/"none"/"-1" resolves to when
+// task_timeout is itself unlimited: a large finite bound we can hand to
+// --background-wait-timeout. grok's flag has no "wait forever" value, and
+// omitting it falls back to grok's own 10-minute cap — so an explicit large
+// number is required. 24h is far above any real task yet stays inside int64
+// seconds. When task_timeout is finite, unlimited resolves to just under it
+// instead (see GetGrokBackgroundWait).
+const MaxGrokBackgroundWait = 24 * time.Hour
+
 // GetGrokBackgroundWait returns how long a headless grok run should wait for
 // the background work it started after its latest turn ends, translated into the
 // `--background-wait-timeout <secs>` / `--no-wait-for-background` pair.
 //
-//   - "off", "0", "-1", "none", "unlimited", "disable"/"disabled" →
-//     GrokBackgroundWaitOff: grok exits as soon as the first turn ends and
-//     stopped background work does not affect the exit code.
+//   - "off", "0", "disable"/"disabled" → GrokBackgroundWaitOff: grok exits as
+//     soon as the first turn ends and stopped background work does not affect
+//     the exit code (--no-wait-for-background).
+//   - "unlimited", "none", "-1" → wait as long as the task may run: just under
+//     task_timeout when it is finite (same headroom cap as below), or
+//     MaxGrokBackgroundWait when task_timeout is itself unlimited. This matches
+//     task_timeout's own "unlimited"/"none"/"-1" convention (#625); the earlier
+//     reading of these as "no wait" was inverted.
 //   - a time.ParseDuration value ("60m", "90s") → that duration.
 //   - empty or unparseable → DefaultGrokBackgroundWait (a typo must not silently
 //     drop us back to grok's 10-minute default, mirroring GetTaskTimeout).
@@ -396,13 +414,24 @@ const GrokBackgroundWaitOff = time.Duration(-1)
 // A positive result is always capped below task_timeout (see
 // grokTaskTimeoutHeadroom) so grok's own background-wait deadline fires before
 // the daemon's per-task deadline. task_timeout of "0"/"off" means unlimited, so
-// no cap applies. Callers treat <= 0 results as "no wait".
+// no cap applies. Callers treat GrokBackgroundWaitOff (<= 0) results as "no
+// wait"; a max-wait result stays positive so it becomes --background-wait-timeout.
 func GetGrokBackgroundWait() time.Duration {
 	raw := strings.TrimSpace(viper.GetString("grok_background_wait"))
+	normalized := strings.ToLower(raw)
 
-	switch strings.ToLower(raw) {
-	case "off", "0", "-1", "none", "unlimited", "disable", "disabled":
+	// "No wait at all": grok drops background work as soon as the turn ends.
+	switch normalized {
+	case "off", "0", "disable", "disabled":
 		return GrokBackgroundWaitOff
+	}
+
+	// "Wait as long as the task may run" — same unlimited convention as
+	// task_timeout (#625). Resolve to just under task_timeout, falling back to a
+	// large fixed bound when task_timeout is unlimited. --background-wait-timeout
+	// has no infinite value, so this must stay positive (never omitted).
+	if normalized == "unlimited" || normalized == "none" || normalized == "-1" {
+		return grokBackgroundWaitCap()
 	}
 
 	wait := DefaultGrokBackgroundWait
@@ -416,12 +445,24 @@ func GetGrokBackgroundWait() time.Duration {
 	}
 
 	if taskTimeout := GetTaskTimeout(); taskTimeout > 0 && wait >= taskTimeout {
-		if capped := taskTimeout - grokTaskTimeoutHeadroom; capped > grokBackgroundWaitFloor {
-			return capped
-		}
-		return grokBackgroundWaitFloor
+		return grokBackgroundWaitCap()
 	}
 	return wait
+}
+
+// grokBackgroundWaitCap returns the "wait just under the task deadline" value:
+// task_timeout minus grokTaskTimeoutHeadroom, floored at grokBackgroundWaitFloor
+// so a tiny task_timeout still yields a usable wait. When task_timeout is
+// unlimited it returns MaxGrokBackgroundWait instead.
+func grokBackgroundWaitCap() time.Duration {
+	taskTimeout := GetTaskTimeout()
+	if taskTimeout <= 0 {
+		return MaxGrokBackgroundWait
+	}
+	if capped := taskTimeout - grokTaskTimeoutHeadroom; capped > grokBackgroundWaitFloor {
+		return capped
+	}
+	return grokBackgroundWaitFloor
 }
 
 // GetConcurrencyLimits returns the per-group concurrency limits keyed by group

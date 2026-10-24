@@ -49,8 +49,16 @@ func TestGrokBackgroundWaitArgs(t *testing.T) {
 			want: []string{"--no-wait-for-background"}},
 		{name: "zero", wait: "0", taskTimeout: "4h",
 			want: []string{"--no-wait-for-background"}},
+
+		// unlimited-style (#625) → wait just under task_timeout (4h - 5m =
+		// 3h55m = 14100s), NOT --no-wait-for-background.
 		{name: "unlimited", wait: "unlimited", taskTimeout: "4h",
-			want: []string{"--no-wait-for-background"}},
+			want: []string{"--background-wait-timeout", "14100"}},
+		// unlimited + unlimited task_timeout → the large fixed bound (24h =
+		// 86400s). The flag must never be omitted (that would drop back to
+		// grok's 600s default).
+		{name: "unlimited with unlimited task_timeout", wait: "unlimited", taskTimeout: "off",
+			want: []string{"--background-wait-timeout", "86400"}},
 
 		// capped below task_timeout with 5m headroom.
 		{name: "capped under task_timeout", wait: "90m", taskTimeout: "1h",

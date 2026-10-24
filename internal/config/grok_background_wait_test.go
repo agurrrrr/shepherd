@@ -29,10 +29,21 @@ func TestGetGrokBackgroundWait(t *testing.T) {
 		// off-style sentinels → no wait (caller passes --no-wait-for-background).
 		{name: "off", setting: "off", taskTimeout: "4h", want: GrokBackgroundWaitOff},
 		{name: "zero", setting: "0", taskTimeout: "4h", want: GrokBackgroundWaitOff},
-		{name: "negative one", setting: "-1", taskTimeout: "4h", want: GrokBackgroundWaitOff},
-		{name: "none", setting: "none", taskTimeout: "4h", want: GrokBackgroundWaitOff},
-		{name: "unlimited", setting: "unlimited", taskTimeout: "4h", want: GrokBackgroundWaitOff},
+		{name: "disable", setting: "disable", taskTimeout: "4h", want: GrokBackgroundWaitOff},
+		{name: "disabled", setting: "disabled", taskTimeout: "4h", want: GrokBackgroundWaitOff},
 		{name: "negative duration", setting: "-10m", taskTimeout: "4h", want: GrokBackgroundWaitOff},
+
+		// unlimited-style sentinels (#625) → wait just under task_timeout, the
+		// same convention task_timeout itself uses — NOT "no wait".
+		{name: "unlimited capped below task_timeout", setting: "unlimited", taskTimeout: "4h", want: 3*time.Hour + 55*time.Minute},
+		{name: "none capped below task_timeout", setting: "none", taskTimeout: "4h", want: 3*time.Hour + 55*time.Minute},
+		{name: "negative one capped below task_timeout", setting: "-1", taskTimeout: "4h", want: 3*time.Hour + 55*time.Minute},
+		// unlimited + unlimited task_timeout → the large fixed bound, never 0/off.
+		{name: "unlimited with unlimited task_timeout", setting: "unlimited", taskTimeout: "off", want: MaxGrokBackgroundWait},
+		{name: "none with zero task_timeout", setting: "none", taskTimeout: "0", want: MaxGrokBackgroundWait},
+		{name: "negative one with unlimited task_timeout", setting: "-1", taskTimeout: "unlimited", want: MaxGrokBackgroundWait},
+		// unlimited + tiny task_timeout still keeps the usable floor.
+		{name: "unlimited floors on tiny task_timeout", setting: "unlimited", taskTimeout: "2m", want: time.Minute},
 
 		// typo → default, never grok's own 10m (mirrors GetTaskTimeout's guard).
 		{name: "typo falls back to default", setting: "60mintues", taskTimeout: "4h", want: DefaultGrokBackgroundWait},
