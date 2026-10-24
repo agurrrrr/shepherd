@@ -18,6 +18,7 @@ package manager
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -394,7 +395,7 @@ func attentionCircuitOpen(ctx context.Context) ([]AttentionItem, error) {
 	return items, nil
 }
 
-// ---- kind: pending_backlog (severity 4) ----------------------------------
+// ---- kind: pending_backlog (severity 4, drained state lowered to 2) ------
 // A project whose OLDEST pending task is older than
 // shepherd_pending_stale_minutes. One GROUP BY query covers every in-scope
 // project, so the query count never follows the number of projects. The age
@@ -403,7 +404,36 @@ func attentionCircuitOpen(ctx context.Context) ([]AttentionItem, error) {
 // oldest task per project is MIN(id): ids are auto-increment, so the lowest
 // id is the earliest row, and its created_at is fetched in the same query.
 // Fingerprint: pending_backlog:<project id>:<oldest task id> — a new oldest
-// task (the old one dispatched or cancelled) starts a new item.
+// task (the old one dispatched or cancelled) starts a new item. The rule is
+// unchanged (#631): severity and message may vary under the same fingerprint,
+// but the fingerprint itself never gains or loses parts, so a drain-state
+// flip does not manufacture a new patrol wake.
+//
+// #631 false positives: four patrols (2026-10-24/25) rang this alarm while
+// the assigned sheep was simply draining its per-sheep FIFO behind a live
+// running task — the age of the oldest pending says nothing about whether
+// that queue is moving. Two designs were compared:
+//
+//   - Chosen: keep firing, but show the judgement material in the item.
+//     When the oldest pending's assigned sheep currently has a running task,
+//     that task id and its start time go into the message (serial-wait
+//     evidence the shepherd can dismiss without re-running the SQL/ps
+//     diagnosis), and severity drops 4 → 2. The item also reports how many
+//     pending tasks in the same project are assigned to the manager sheep
+//     with an empty shepherd_kind — the dispatch-deadzone shape (wiki
+//     manager-assigned-task-dispatch-deadzone) that hides behind a normal
+//     oldest row.
+//   - Rejected: suppress the item entirely while the sheep is running. The
+//     4th false positive (2026-10-25 06:22) showed why: the oldest pending
+//     was a normal FIFO row while a genuinely stuck manager-assigned empty-
+//     kind row (#11047) sat in the SAME project. Suppressing on "assigned
+//     sheep is running" silences the whole item and misses the real stall.
+//     A running task can also be wedged, in which case the backlog is real
+//     and suppression would hide it; the message keeps it visible instead.
+//
+// Severity 2 (not 0/1) because a serial queue behind one long task still
+// deserves a look when it lasts for hours — long_running covers a wedged
+// running task separately, but the backlog itself stays on the panel.
 
 func attentionPendingBacklogs(ctx context.Context, scope []*ent.Project, now time.Time) ([]AttentionItem, error) {
 	countQuery(AttentionPendingBacklog)
@@ -421,14 +451,39 @@ func attentionPendingBacklogs(ctx context.Context, scope []*ent.Project, now tim
 		args = append(args, id)
 	}
 
+	// One query still. The joins add the #631 judgement material per row:
+	// the oldest pending's assigned sheep, that sheep's current running
+	// task (MIN(id) is deterministic; a sheep runs at most one task at a
+	// time), and the per-project count of manager-assigned empty-kind
+	// pendings. The running task may belong to another project — the queue
+	// is per-sheep, not per-project, so it blocks this backlog just the
+	// same.
 	rows, err := raw.QueryContext(ctx,
-		`SELECT t.project_tasks, t.id, t.created_at, agg.pending_count
+		`SELECT t.project_tasks, t.id, t.created_at, agg.pending_count,
+		        s.name, run.id, run.started_at, IFNULL(dead.deadzone_count, 0)
 		   FROM tasks t
 		   JOIN (SELECT project_tasks, MIN(id) AS oldest_id, COUNT(*) AS pending_count
 		           FROM tasks
 		          WHERE status = 'pending' AND project_tasks IN (`+strings.Join(placeholders, ",")+`)
 		          GROUP BY project_tasks) agg
-		     ON t.id = agg.oldest_id`,
+		     ON t.id = agg.oldest_id
+		   LEFT JOIN sheep s
+		     ON s.id = t.sheep_tasks
+		   LEFT JOIN (SELECT r.sheep_tasks AS sid, MIN(r.id) AS rid
+		                FROM tasks r
+		               WHERE r.status = 'running' AND r.sheep_tasks IS NOT NULL
+		               GROUP BY r.sheep_tasks) m
+		     ON m.sid = t.sheep_tasks
+		   LEFT JOIN tasks run
+		     ON run.id = m.rid
+		   LEFT JOIN (SELECT d.project_tasks AS pid, COUNT(*) AS deadzone_count
+		                FROM tasks d
+		                JOIN sheep ms
+		                  ON ms.id = d.sheep_tasks AND ms.name = '`+names.ManagerName+`'
+		               WHERE d.status = 'pending'
+		                 AND (d.shepherd_kind IS NULL OR d.shepherd_kind = '')
+		               GROUP BY d.project_tasks) dead
+		     ON dead.pid = agg.project_tasks`,
 		args...)
 	if err != nil {
 		return nil, fmt.Errorf("pending_backlog query: %w", err)
@@ -444,7 +499,12 @@ func attentionPendingBacklogs(ctx context.Context, scope []*ent.Project, now tim
 	for rows.Next() {
 		var projectID, oldestTaskID, count int
 		var oldestRaw string
-		if err := rows.Scan(&projectID, &oldestTaskID, &oldestRaw, &count); err != nil {
+		var sheepName sql.NullString
+		var runningID sql.NullInt64
+		var runningStartedRaw sql.NullString
+		var deadzoneCount int
+		if err := rows.Scan(&projectID, &oldestTaskID, &oldestRaw, &count,
+			&sheepName, &runningID, &runningStartedRaw, &deadzoneCount); err != nil {
 			return nil, fmt.Errorf("pending_backlog scan: %w", err)
 		}
 		name := scopeNames[projectID]
@@ -456,7 +516,8 @@ func attentionPendingBacklogs(ctx context.Context, scope []*ent.Project, now tim
 		if !ok || now.Sub(oldest) < time.Duration(stale)*time.Minute {
 			continue
 		}
-		items = append(items, AttentionItem{
+
+		item := AttentionItem{
 			Kind:        AttentionPendingBacklog,
 			Severity:    4,
 			Fingerprint: fmt.Sprintf("%s:%d:%d", AttentionPendingBacklog, projectID, oldestTaskID),
@@ -467,7 +528,38 @@ func attentionPendingBacklogs(ctx context.Context, scope []*ent.Project, now tim
 			Project:     name,
 			CreatedAt:   oldest,
 			Detail:      map[string]interface{}{"count": count, "oldest_task_id": oldestTaskID},
-		})
+		}
+
+		if sheepName.Valid {
+			item.Detail["assigned_sheep"] = sheepName.String
+			if runningID.Valid {
+				// Serial-wait evidence: name the live running task the queue
+				// is lined up behind, whatever else this item reports.
+				item.Detail["draining_behind_task"] = int(runningID.Int64)
+				msg := fmt.Sprintf(" 담당 양 %s이(가) 지금 #%d를 실행 중이므로, 이 pending은 직렬 큐에서 순서를 기다리는 것일 수 있습니다.",
+					sheepName.String, runningID.Int64)
+				if st, ok2 := parseStoredTime(runningStartedRaw.String); ok2 {
+					item.Detail["draining_started_at"] = st.Format(time.RFC3339)
+					msg += fmt.Sprintf(" 실행 시작 시각은 %s입니다.", st.Format("2006-01-02 15:04"))
+				}
+				item.Message += msg
+				if deadzoneCount == 0 {
+					// Pure serial-wait shape — nothing in the project looks
+					// dispatch-stuck — so the alarm is worth less than a
+					// real (assigned sheep idle) backlog.
+					item.Severity = 2
+				}
+			} else {
+				item.Message += fmt.Sprintf(" 담당 양 %s은(는) 지금 대기 상태(idle)이므로 실제 정체일 가능성이 있습니다.", sheepName.String)
+			}
+		}
+		if deadzoneCount > 0 {
+			item.Detail["manager_pending_no_kind"] = deadzoneCount
+			item.Message += fmt.Sprintf(
+				" 같은 프로젝트에 목자(shepherd) 양에게 배정되었고 shepherd_kind이 빈 pending이 %d개 있습니다. #629 수정이 배포되기 전의 데몬에서는 이런 작업이 실행되지 않고 고착됩니다.",
+				deadzoneCount)
+		}
+		items = append(items, item)
 	}
 	return items, nil
 }

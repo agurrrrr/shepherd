@@ -3,7 +3,9 @@ package manager
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -301,6 +303,129 @@ func TestAttentionPendingBacklog(t *testing.T) {
 	}
 	if len(bori) != 1 || bori[0].Fingerprint == backlogs[0].Fingerprint {
 		t.Fatalf("oldest-task change must rotate the fingerprint: %+v", bori)
+	}
+}
+
+// TestAttentionPendingBacklogDrainEvidence pins the #631 rule: the item keeps
+// firing, but its severity and message carry the judgement material. Scenario
+// 1 — the assigned sheep is running a task (queue draining in normal FIFO):
+// severity drops to 2 and the message names the running task and its start
+// time. Scenario 2 — the assigned sheep is idle: severity stays 4 and the
+// message calls out the real-stall possibility. The fingerprint is identical
+// in both shapes (project + oldest task only), so a drain-state flip never
+// rotates it.
+func TestAttentionPendingBacklogDrainEvidence(t *testing.T) {
+	client := attentionTestDB(t)
+	attentionConfig(t, 120, 60, 3)
+	ctx := context.Background()
+	now := time.Now()
+
+	bori := client.Project.Create().SetName("bori").SetPath("/ws/bori").SaveX(ctx)
+	hamchi := client.Sheep.Create().SetName("햄찌").SetStatus(sheep.StatusIdle).SaveX(ctx)
+
+	// Oldest pending: 61 minutes, assigned to 햄찌.
+	old := client.Task.Create().SetPrompt("old").SetStatus(entTask.StatusPending).
+		SetProject(bori).SetSheep(hamchi).SetCreatedAt(now.Add(-61 * time.Minute)).SaveX(ctx)
+
+	// Scenario 2 (idle assigned sheep): real stall → severity 4, idle hint.
+	items, err := CollectAttention(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idleItems := itemsByKind(items)[AttentionPendingBacklog]
+	if len(idleItems) != 1 {
+		t.Fatalf("idle sheep with stale pending must fire: %+v", idleItems)
+	}
+	if idleItems[0].Severity != 4 {
+		t.Fatalf("idle-sheep stall severity = %d, want 4", idleItems[0].Severity)
+	}
+	if !strings.Contains(idleItems[0].Message, "idle") {
+		t.Fatalf("idle-sheep message must state the stall possibility: %q", idleItems[0].Message)
+	}
+
+	// Scenario 1 (assigned sheep running): serial-wait evidence, severity 2.
+	running := client.Task.Create().SetPrompt("busy").SetStatus(entTask.StatusRunning).
+		SetProject(bori).SetSheep(hamchi).
+		SetCreatedAt(now.Add(-40 * time.Minute)).SetStartedAt(now.Add(-30 * time.Minute)).SaveX(ctx)
+
+	items, err = CollectAttention(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drainItems := itemsByKind(items)[AttentionPendingBacklog]
+	if len(drainItems) != 1 {
+		t.Fatalf("draining queue must still report (evidence, not silence): %+v", drainItems)
+	}
+	it := drainItems[0]
+	if it.Severity != 2 {
+		t.Fatalf("drain-state severity = %d, want 2", it.Severity)
+	}
+	if !strings.Contains(it.Message, "#"+strconv.Itoa(running.ID)) || !strings.Contains(it.Message, "햄찌") {
+		t.Fatalf("message must name the running task and sheep: %q", it.Message)
+	}
+	if behind, _ := it.Detail["draining_behind_task"].(int); behind != running.ID {
+		t.Fatalf("detail draining_behind_task = %v, want %d", it.Detail["draining_behind_task"], running.ID)
+	}
+	if _, ok := it.Detail["draining_started_at"].(string); !ok {
+		t.Fatalf("detail must carry the running task's start time: %+v", it.Detail)
+	}
+
+	// The fingerprint survives the drain-state flip unchanged.
+	if it.Fingerprint != idleItems[0].Fingerprint {
+		t.Fatalf("fingerprint must be stable across drain flip: %q vs %q", it.Fingerprint, idleItems[0].Fingerprint)
+	}
+	if want := fmt.Sprintf("pending_backlog:%d:%d", bori.ID, old.ID); it.Fingerprint != want {
+		t.Fatalf("fingerprint = %q, want %q", it.Fingerprint, want)
+	}
+}
+
+// TestAttentionPendingBacklogDeadzone pins the mixed shape from the 4th
+// false positive (#11047): a normal oldest row plus manager-assigned
+// pending rows with an empty shepherd_kind in the same project. The item
+// must report the deadzone count so the real stall cannot hide behind the
+// normal FIFO row, and must NOT drop to severity 2 even when the oldest's
+// assigned sheep is running.
+func TestAttentionPendingBacklogDeadzone(t *testing.T) {
+	client := attentionTestDB(t)
+	attentionConfig(t, 120, 60, 3)
+	ctx := context.Background()
+	now := time.Now()
+
+	bori := client.Project.Create().SetName("bori").SetPath("/ws/bori").SaveX(ctx)
+	hamchi := client.Sheep.Create().SetName("햄찌").SetStatus(sheep.StatusIdle).SaveX(ctx)
+	mgrSheep := client.Sheep.Create().SetName(names.ManagerName).SetStatus(sheep.StatusIdle).SaveX(ctx)
+
+	// Oldest pending: normal FIFO row assigned to 햄찌 (running, so the
+	// oldest itself looks like a serial wait).
+	client.Task.Create().SetPrompt("old").SetStatus(entTask.StatusPending).
+		SetProject(bori).SetSheep(hamchi).SetCreatedAt(now.Add(-61 * time.Minute)).SaveX(ctx)
+	client.Task.Create().SetPrompt("busy").SetStatus(entTask.StatusRunning).
+		SetProject(bori).SetSheep(hamchi).
+		SetCreatedAt(now.Add(-40 * time.Minute)).SetStartedAt(now.Add(-30 * time.Minute)).SaveX(ctx)
+
+	// The hidden real stall: manager-assigned, empty kind (dispatch deadzone
+	// on a pre-#629 daemon). Created later, so it is not the oldest row.
+	client.Task.Create().SetPrompt("stuck-mgr").SetStatus(entTask.StatusPending).
+		SetProject(bori).SetSheep(mgrSheep).SetShepherdKind("").
+		SetCreatedAt(now.Add(-65 * time.Minute)).SaveX(ctx)
+
+	items, err := CollectAttention(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backlogs := itemsByKind(items)[AttentionPendingBacklog]
+	if len(backlogs) != 1 {
+		t.Fatalf("want one backlog item, got %+v", backlogs)
+	}
+	it := backlogs[0]
+	if it.Severity != 4 {
+		t.Fatalf("deadzone present → severity must stay 4, got %d", it.Severity)
+	}
+	if n, _ := it.Detail["manager_pending_no_kind"].(int); n != 1 {
+		t.Fatalf("detail manager_pending_no_kind = %v, want 1", it.Detail["manager_pending_no_kind"])
+	}
+	if !strings.Contains(it.Message, "shepherd_kind") {
+		t.Fatalf("message must surface the deadzone count: %q", it.Message)
 	}
 }
 

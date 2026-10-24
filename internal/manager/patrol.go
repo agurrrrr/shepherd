@@ -467,7 +467,7 @@ var patrolActionCandidates = map[string]string{
 	AttentionFailedTask:      "Candidate: read get_task_detail for the task; if the linked issue needs guidance, append it (issue_upsert) and re-enqueue the SAME issue (issue_execute); otherwise create a follow-up issue.",
 	AttentionLongRunning:     "Candidate: inspect with get_task_detail/get_status. Stopping a task is a user action — report the task id and what it appears stuck on.",
 	AttentionCircuitOpen:     "Candidate: resetting a sheep's circuit breaker is a sheep-side change — report the sheep name and the failure count; do not touch sheep settings yourself.",
-	AttentionPendingBacklog:  "Candidate: check why the queue stalls (get_status). If a stalled issue only needs re-enqueuing, do it; otherwise report the project and the oldest task id.",
+	AttentionPendingBacklog:  "Candidate: read the item's message first — it names whether the assigned sheep is running (normal serial drain, severity 2: dismiss unless a manager-assigned empty-kind pending is listed) or idle (real stall). For a real stall check why the queue stalls (get_status). If a stalled issue only needs re-enqueuing, do it; otherwise report the project and the oldest task id.",
 	AttentionReviewLimit:     "Candidate: if the issue's goal is met, close it (issue_upsert status=done); if not, create a follow-up issue with new scope. Resetting review rounds is a user action — mention it.",
 	AttentionUserStopped:     "Candidate: the user stopped this on purpose — do NOT re-enqueue; note it in your report only.",
 	AttentionShepherdBlocked: "Candidate: a settings problem (workspace/provider) blocks shepherd work — report which setting to fix; you cannot change settings yourself.",

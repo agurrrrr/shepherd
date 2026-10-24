@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/agurrrrr/shepherd/ent"
+	"github.com/agurrrrr/shepherd/ent/sheep"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/spf13/viper"
@@ -245,6 +246,113 @@ func finishPatrolTasks(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+	}
+}
+
+// TestPatrolPendingBacklogDrainFingerprint pins the #631 patrol behaviour: a
+// backlog caused by normal FIFO drain (assigned sheep running) is still a
+// finding — recorded under the same pending_backlog:<project>:<oldest>
+// fingerprint at lowered severity — and the wake happens exactly once. When
+// the drain state flips (the running task finishes, the sheep goes idle),
+// the fingerprint does NOT rotate: the item re-reports at full severity but
+// counts as neither new nor released, so a flapping drain state cannot spam
+// patrol wakes. Only a change of the oldest task id rotates it.
+func TestPatrolPendingBacklogDrainFingerprint(t *testing.T) {
+	client := attentionTestDB(t)
+	attentionConfig(t, 120, 60, 3)
+	patrolConfig(t, "30m", nil, 0)
+	ctx := context.Background()
+	now := time.Now()
+
+	bori := client.Project.Create().SetName("bori").SetPath("/ws/bori").SaveX(ctx)
+	hamchi := client.Sheep.Create().SetName("햄찌").SetStatus(sheep.StatusIdle).SaveX(ctx)
+
+	old := client.Task.Create().SetPrompt("queued").SetStatus(entTask.StatusPending).
+		SetProject(bori).SetSheep(hamchi).SetCreatedAt(now.Add(-61 * time.Minute)).SaveX(ctx)
+	client.Task.Create().SetPrompt("busy").SetStatus(entTask.StatusRunning).
+		SetProject(bori).SetSheep(hamchi).
+		SetCreatedAt(now.Add(-40 * time.Minute)).SetStartedAt(now.Add(-30 * time.Minute)).SaveX(ctx)
+
+	fp := fmt.Sprintf("pending_backlog:%d:%d", bori.ID, old.ID)
+
+	// Pass 1: drain-state backlog is a finding at severity 2 and wakes once.
+	rec1, err := RunPatrolPass(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec1.NewCount != 1 || rec1.TaskID == 0 {
+		t.Fatalf("drain backlog must still be reported and wake once: %+v", rec1)
+	}
+	var sev int
+	for _, f := range rec1.Findings {
+		if f.Fingerprint == fp {
+			sev = f.Severity
+		}
+	}
+	if sev != 2 {
+		t.Fatalf("drain-state finding severity = %d, want 2 (findings: %+v)", sev, rec1.Findings)
+	}
+
+	finishPatrolTasks(t)
+
+	// Pass 2 with the same state: identical fingerprint → recorded again but
+	// not new, no wake.
+	rec2, err := RunPatrolPass(now.Add(30 * time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec2.NewCount != 0 || rec2.TaskID != 0 {
+		t.Fatalf("unchanged backlog must not re-wake: %+v", rec2)
+	}
+
+	// Drain flips to a real stall (running task finishes → assigned sheep
+	// idle). The item comes back at severity 4 under the SAME fingerprint,
+	// so the patrol records it without a second wake.
+	if _, err := db.Client().Task.Update().
+		Where(entTask.StatusEQ(entTask.StatusRunning)).
+		SetStatus(entTask.StatusCompleted).Save(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rec3, err := RunPatrolPass(now.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec3.NewCount != 0 || rec3.TaskID != 0 {
+		t.Fatalf("drain→stall flip must keep the fingerprint and not re-wake: %+v", rec3)
+	}
+	sev = 0
+	for _, f := range rec3.Findings {
+		if f.Fingerprint == fp {
+			sev = f.Severity
+		}
+	}
+	if sev != 4 {
+		t.Fatalf("stall-state finding severity = %d, want 4 (findings: %+v)", sev, rec3.Findings)
+	}
+
+	// Only the oldest task changing rotates the fingerprint and wakes again.
+	if _, err := db.Client().Task.UpdateOneID(old.ID).
+		SetStatus(entTask.StatusRunning).SetStartedAt(now.Add(time.Hour)).Save(ctx); err != nil {
+		t.Fatal(err)
+	}
+	next := client.Task.Create().SetPrompt("next").SetStatus(entTask.StatusPending).
+		SetProject(bori).SetSheep(hamchi).SetCreatedAt(now.Add(-61 * time.Minute)).SaveX(ctx)
+	rec4, err := RunPatrolPass(now.Add(90 * time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec4.NewCount != 1 || rec4.TaskID == 0 {
+		t.Fatalf("new oldest task must rotate the fingerprint and wake: %+v", rec4)
+	}
+	want := fmt.Sprintf("pending_backlog:%d:%d", bori.ID, next.ID)
+	found := false
+	for _, f := range rec4.Findings {
+		if f.Fingerprint == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("rotated fingerprint %q missing from findings: %+v", want, rec4.Findings)
 	}
 }
 
