@@ -3,6 +3,7 @@
 package migrate
 
 import (
+	"entgo.io/ent/dialect/entsql"
 	"entgo.io/ent/dialect/sql/schema"
 	"entgo.io/ent/schema/field"
 )
@@ -351,6 +352,14 @@ var (
 				Name:    "task_status_created_at",
 				Unique:  false,
 				Columns: []*schema.Column{TasksColumns[4], TasksColumns[23]},
+			},
+			{
+				Name:    "task_issue_tasks",
+				Unique:  true,
+				Columns: []*schema.Column{TasksColumns[24]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "status IN ('pending', 'running')",
+				},
 			},
 		},
 	}

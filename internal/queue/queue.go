@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -149,6 +150,67 @@ func CreateTask(prompt string, sheepID, projectID int) (*ent.Task, error) {
 	return t, nil
 }
 
+// ErrDuplicateActiveTask means the issue already has a pending/running task,
+// so this enqueue was refused (#627). Callers treat it as "skip, already
+// queued" rather than a hard failure.
+var ErrDuplicateActiveTask = errors.New("issue already has an active (pending/running) task")
+
+// CreateTaskForIssue creates a pending task that is linked to an issue in the
+// SAME INSERT. The partial unique index on tasks.issue_tasks
+// (WHERE status IN ('pending','running'), ent schema #627) makes the
+// hasActiveTask-check + insert atomic at the DB level: a concurrent enqueue
+// for the same issue loses the race and gets ErrDuplicateActiveTask instead of
+// a second live row. This is the only safe enqueue path for issue work —
+// CreateTask + a later SetIssue update leaves a check-then-insert window.
+func CreateTaskForIssue(prompt string, sheepID, projectID, issueID int) (*ent.Task, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	create := client.Task.Create().
+		SetPrompt(prompt).
+		SetStatus(task.StatusPending).
+		SetSheepID(sheepID).
+		SetIssueID(issueID)
+	if projectID > 0 {
+		create = create.SetProjectID(projectID)
+	}
+
+	t, err := create.Save(ctx)
+	if err != nil {
+		if isIssueActiveUniqueViolation(err) {
+			return nil, fmt.Errorf("%w: issue #%d", ErrDuplicateActiveTask, issueID)
+		}
+		return nil, fmt.Errorf("failed to create task: %w", err)
+	}
+
+	return t, nil
+}
+
+// isIssueActiveUniqueViolation reports whether err is the SQLite UNIQUE hit on
+// the partial index task_issue_tasks (issue_tasks column).
+func isIssueActiveUniqueViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed: tasks.issue_tasks")
+}
+
+// HasActiveIssueTask reports whether the issue already has a pending or running
+// task. Enqueue paths that cannot rely on the DB constraint alone (retry copy
+// of an unlinked legacy row) use this for a friendly skip.
+func HasActiveIssueTask(issueID int) (bool, error) {
+	ctx := context.Background()
+	client := db.Client()
+
+	n, err := client.Task.Query().
+		Where(
+			task.HasIssueWith(entIssue.ID(issueID)),
+			task.StatusIn(task.StatusPending, task.StatusRunning),
+		).
+		Count(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to count active tasks for issue #%d: %w", issueID, err)
+	}
+	return n > 0, nil
+}
+
 // CreateManagerTask creates a task for the manager (shepherd commands).
 // Manager tasks don't have a project association.
 func CreateManagerTask(prompt string, sheepID int) (*ent.Task, error) {
@@ -228,6 +290,7 @@ func GetTask(id int) (*ent.Task, error) {
 		Where(task.ID(id)).
 		WithSheep().
 		WithProject().
+		WithIssue().
 		Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {

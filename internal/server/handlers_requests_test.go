@@ -77,6 +77,22 @@ func requestsApp(t *testing.T) *fiber.App {
 	return app
 }
 
+// dropIssueActiveIndex simulates a pre-#627 database: the partial unique index
+// task_issue_tasks (at most one pending/running task per issue) did not exist
+// yet, so legacy rows can already hold queued duplicates. The #626 cancel guard
+// must still protect such issues.
+func dropIssueActiveIndex(t *testing.T) {
+	t.Helper()
+	raw, err := sql.Open("sqlite", "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("reopen shared db: %v", err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec(`DROP INDEX IF EXISTS task_issue_tasks`); err != nil {
+		t.Fatalf("drop partial unique index: %v", err)
+	}
+}
+
 func shepherdReviewTasks(t *testing.T) []*ent.Task {
 	t.Helper()
 	ts, err := db.Client().Task.Query().
@@ -273,6 +289,7 @@ func TestApproveStopTaskPendingCancels(t *testing.T) {
 func TestApproveStopTaskPendingKeepsIssueWithLiveSibling(t *testing.T) {
 	ctx := context.Background()
 	client := withRequestTestEnv(t)
+	dropIssueActiveIndex(t) // pre-#627 DB: duplicates could already be queued
 	app := requestsApp(t)
 
 	proj := client.Project.Create().SetName("bori").SetPath("/ws/bori").SaveX(ctx)

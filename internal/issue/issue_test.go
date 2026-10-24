@@ -3,6 +3,7 @@ package issue
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/names"
+	"github.com/agurrrrr/shepherd/internal/queue"
 
 	entsql "entgo.io/ent/dialect/sql"
 	_ "modernc.org/sqlite"
@@ -461,5 +463,118 @@ func TestExecuteToManagerSheepTaskShape(t *testing.T) {
 	}
 	if updated.Status != entIssue.StatusInProgress {
 		t.Errorf("issue status = %s, want in_progress", updated.Status)
+	}
+}
+
+// TestExecuteRejectsDuplicateActiveTask (#627) reproduces the double-enqueue
+// incident: any enqueue path must refuse a second pending/running task for an
+// issue that already has one. The application-level hasActiveTask fast path and
+// the DB-level partial unique index (ent/schema/task.go) are both pinned here.
+func TestExecuteRejectsDuplicateActiveTask(t *testing.T) {
+	client := newTestDB(t)
+
+	viper.Set("provider_enabled_embedded", true)
+	t.Cleanup(func() { viper.Set("provider_enabled_embedded", false) })
+
+	ctx := context.Background()
+	proj := mustProject(t, client, "dup-guard", false)
+	sh, err := client.Sheep.Create().
+		SetName("worker-dup").
+		SetStatus(entSheep.StatusIdle).
+		SetProvider(entSheep.ProviderEmbedded).
+		Save(ctx)
+	if err != nil {
+		t.Fatalf("create sheep: %v", err)
+	}
+	if _, err := client.Project.UpdateOneID(proj.ID).SetSheepID(sh.ID).Save(ctx); err != nil {
+		t.Fatalf("assign sheep: %v", err)
+	}
+	iss := mustIssue(t, client, proj, "one task only", func(c *ent.IssueCreate) {
+		c.SetGoal("done")
+	})
+
+	first, err := Execute(ExecuteInput{Project: "dup-guard", IssueID: iss.ID})
+	if err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+	if len(first.TaskIDs) != 1 {
+		t.Fatalf("first Execute created %v tasks, want exactly 1", first.TaskIDs)
+	}
+
+	// Same issue, second Execute — must be refused, no second live row.
+	if _, err := Execute(ExecuteInput{Project: "dup-guard", IssueID: iss.ID}); err == nil {
+		t.Fatal("second Execute on the same issue must fail while a task is pending")
+	}
+
+	live, err := client.Task.Query().
+		Where(entTask.HasIssueWith(entIssue.ID(iss.ID)),
+			entTask.StatusIn(entTask.StatusPending, entTask.StatusRunning)).
+		Count(ctx)
+	if err != nil {
+		t.Fatalf("count live tasks: %v", err)
+	}
+	if live != 1 {
+		t.Errorf("live tasks for the issue = %d, want 1", live)
+	}
+
+	// Once the task finishes, re-enqueue is allowed again.
+	if _, err := client.Task.UpdateOneID(first.TaskIDs[0]).
+		SetStatus(entTask.StatusFailed).Save(ctx); err != nil {
+		t.Fatalf("fail the task: %v", err)
+	}
+	second, err := Execute(ExecuteInput{Project: "dup-guard", IssueID: iss.ID})
+	if err != nil {
+		t.Fatalf("Execute after the previous task failed: %v", err)
+	}
+	if len(second.TaskIDs) != 1 {
+		t.Fatalf("retry Execute created %v tasks, want exactly 1", second.TaskIDs)
+	}
+}
+
+// TestConcurrentEnqueueLosesUniqueRace (#627) pins the DB-level half of the
+// guard: even when two enqueues both pass the hasActiveTask check (the exact
+// check-then-insert window from the incident), the partial unique index lets
+// exactly one pending INSERT land for an issue and reports ErrDuplicateActiveTask
+// for the loser. This is what a raw CreateTask + later SetIssue update could
+// never guarantee.
+func TestConcurrentEnqueueLosesUniqueRace(t *testing.T) {
+	client := newTestDB(t)
+
+	ctx := context.Background()
+	proj := mustProject(t, client, "race", false)
+	iss := mustIssue(t, client, proj, "race child", func(c *ent.IssueCreate) { c.SetGoal("g") })
+	sh, err := client.Sheep.Create().SetName("racer").Save(ctx)
+	if err != nil {
+		t.Fatalf("create sheep: %v", err)
+	}
+
+	// Winner lands.
+	if _, err := queue.CreateTaskForIssue("winner", sh.ID, proj.ID, iss.ID); err != nil {
+		t.Fatalf("winner enqueue: %v", err)
+	}
+
+	// Loser: the check passes (imagine a stale read), but the INSERT must be
+	// refused by the index.
+	_, err = queue.CreateTaskForIssue("loser", sh.ID, proj.ID, iss.ID)
+	if !errors.Is(err, queue.ErrDuplicateActiveTask) {
+		t.Fatalf("loser enqueue err = %v, want ErrDuplicateActiveTask", err)
+	}
+
+	live, err := client.Task.Query().
+		Where(entTask.HasIssueWith(entIssue.ID(iss.ID)),
+			entTask.StatusIn(entTask.StatusPending, entTask.StatusRunning)).
+		Count(ctx)
+	if err != nil {
+		t.Fatalf("count live tasks: %v", err)
+	}
+	if live != 1 {
+		t.Errorf("live tasks for the issue = %d, want 1", live)
+	}
+
+	// Unlinked queue work is never covered by the index.
+	for i := 0; i < 3; i++ {
+		if _, err := queue.CreateTask("plain queue work", sh.ID, proj.ID); err != nil {
+			t.Fatalf("unlinked task %d: %v", i, err)
+		}
 	}
 }

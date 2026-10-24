@@ -6,6 +6,7 @@ package issue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -644,13 +645,20 @@ func Execute(in ExecuteInput) (*ExecuteResult, error) {
 	}
 
 	enqueued := 0
+	skipped := 0
 	for _, target := range toEnqueue {
 		// Skip issues that already have a live queue entry (avoid duplicate cascade).
+		// This is the friendly fast path; the partial unique index on
+		// tasks.issue_tasks (#627) is the real guard — it closes the window
+		// between this check and the INSERT, so a concurrent enqueue that wins
+		// the race makes CreateTaskForIssue fail with ErrDuplicateActiveTask,
+		// which we treat as "already queued" below.
 		active, aerr := hasActiveTask(ctx, client, target.ID)
 		if aerr != nil {
 			return nil, fmt.Errorf("failed to check active tasks for issue #%d: %w", target.ID, aerr)
 		}
 		if active {
+			skipped++
 			continue
 		}
 
@@ -661,6 +669,11 @@ func Execute(in ExecuteInput) (*ExecuteResult, error) {
 		// Children from Edges.Children may lack Project; use cascade projectID/sheep.
 		taskID, err := enqueueOne(ctx, client, target, sheep, projectID, in.Model)
 		if err != nil {
+			if errors.Is(err, queue.ErrDuplicateActiveTask) {
+				// Lost the race to a concurrent enqueue — the issue is queued.
+				skipped++
+				continue
+			}
 			return nil, fmt.Errorf("failed to enqueue issue #%d: %w", target.ID, err)
 		}
 		result.TaskIDs = append(result.TaskIDs, taskID)
@@ -672,7 +685,10 @@ func Execute(in ExecuteInput) (*ExecuteResult, error) {
 	}
 
 	if enqueued == 0 {
-		return nil, fmt.Errorf("no tasks enqueued: all target issues already have pending/running tasks")
+		if skipped > 0 {
+			return nil, fmt.Errorf("no tasks enqueued: all target issues already have pending/running tasks")
+		}
+		return nil, fmt.Errorf("no tasks enqueued: no target issues")
 	}
 
 	// Watch marking (#597): every issue actually enqueued in this cascade —
@@ -804,17 +820,13 @@ func enqueueOne(ctx context.Context, client *ent.Client, iss *ent.Issue, sheep *
 		iss.ID, iss.Title, typeLabel, body, iss.Goal,
 	)
 
-	t, err := queue.CreateTask(prompt, sheep.ID, projectID)
+	t, err := queue.CreateTaskForIssue(prompt, sheep.ID, projectID, iss.ID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create task: %w", err)
 	}
 
 	if model != "" {
 		queue.SetTaskModel(t.ID, model)
-	}
-
-	if _, err = client.Task.UpdateOneID(t.ID).SetIssue(iss).Save(ctx); err != nil {
-		return 0, fmt.Errorf("failed to link task to issue: %w", err)
 	}
 
 	now := time.Now()

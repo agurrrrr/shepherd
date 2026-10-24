@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -538,8 +539,21 @@ func (s *Server) handleRetryTask(c *fiber.Ctx) error {
 		projectID = t.Edges.Project.ID
 	}
 
+	// #627: inherit the issue link so the retry copy stays attached to its
+	// issue (results update issue status, wake hooks fire). CreateTaskForIssue
+	// links in the same INSERT and the partial unique index refuses a second
+	// active task for the same issue — a retry that would double-enqueue gets
+	// ErrDuplicateActiveTask instead of an orphaned duplicate row.
 	var newTask *ent.Task
-	if projectID > 0 {
+	if t.Edges.Issue != nil {
+		if active, aerr := queue.HasActiveIssueTask(t.Edges.Issue.ID); aerr == nil && active {
+			return fail(c, fiber.StatusConflict, fmt.Sprintf("issue #%d already has a pending/running task", t.Edges.Issue.ID))
+		}
+		newTask, err = queue.CreateTaskForIssue(t.Prompt, t.Edges.Sheep.ID, projectID, t.Edges.Issue.ID)
+		if err != nil {
+			return fail(c, fiber.StatusInternalServerError, err.Error())
+		}
+	} else if projectID > 0 {
 		newTask, err = queue.CreateTask(t.Prompt, t.Edges.Sheep.ID, projectID)
 	} else if t.ShepherdKind != "" {
 		// Shepherd task retry (#594): keep the kind and the priority so the
@@ -598,6 +612,7 @@ func (s *Server) handleRetryFromTask(c *fiber.Ctx) error {
 		).
 		WithSheep().
 		WithProject().
+		WithIssue().
 		Order(ent.Asc(entTask.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -617,8 +632,22 @@ func (s *Server) handleRetryFromTask(c *fiber.Ctx) error {
 		if ft.Edges.Project != nil {
 			projectID = ft.Edges.Project.ID
 		}
+
+		// #627: this bulk retry was the source of the 2026-10-24 incident — it
+		// created six unlinked copies (#11000~#11005, all within ~18ms) that
+		// no hasActiveTask check or cascade delay could see. The copy must
+		// inherit the issue link, and an issue that already has a live task
+		// must not get a second one.
 		var newTask *ent.Task
-		if projectID > 0 {
+		if ft.Edges.Issue != nil {
+			if active, aerr := queue.HasActiveIssueTask(ft.Edges.Issue.ID); aerr == nil && active {
+				continue
+			}
+			newTask, err = queue.CreateTaskForIssue(ft.Prompt, ft.Edges.Sheep.ID, projectID, ft.Edges.Issue.ID)
+			if err != nil {
+				continue
+			}
+		} else if projectID > 0 {
 			newTask, err = queue.CreateTask(ft.Prompt, ft.Edges.Sheep.ID, projectID)
 		} else {
 			newTask, err = queue.CreateManagerTask(ft.Prompt, ft.Edges.Sheep.ID)

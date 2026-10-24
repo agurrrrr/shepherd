@@ -37,6 +37,23 @@ func withTestDB(t *testing.T) *ent.Client {
 	return client
 }
 
+// dropIssueActiveIndex simulates a pre-#627 database: the partial unique index
+// task_issue_tasks (at most one pending/running task per issue) did not exist
+// yet, so legacy rows can already hold queued duplicates. The #626 cancel guard
+// must still protect such issues — cancelling one duplicate may not fail an
+// issue that keeps a live sibling.
+func dropIssueActiveIndex(t *testing.T) {
+	t.Helper()
+	raw, err := sql.Open("sqlite", "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("reopen shared db: %v", err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec(`DROP INDEX IF EXISTS task_issue_tasks`); err != nil {
+		t.Fatalf("drop partial unique index: %v", err)
+	}
+}
+
 func TestStatusToKorean(t *testing.T) {
 	tests := []struct {
 		status   task.Status
@@ -171,6 +188,7 @@ func TestCancelPendingTask_FailsLinkedIssue(t *testing.T) {
 // Only the last live cancellation transitions the issue.
 func TestCancelPendingTask_KeepsIssueWhileSiblingActive(t *testing.T) {
 	client := withTestDB(t)
+	dropIssueActiveIndex(t) // pre-#627 DB: duplicates could already be queued
 	ctx := context.Background()
 
 	p := client.Project.Create().SetName("demo").SetPath("/tmp/demo").SaveX(ctx)
@@ -219,6 +237,7 @@ func TestCancelPendingTask_KeepsIssueWhileSiblingActive(t *testing.T) {
 // counts as live work too (#626): the guard mirrors internal/issue.hasActiveTask.
 func TestCancelPendingTask_RunningSiblingKeepsIssue(t *testing.T) {
 	client := withTestDB(t)
+	dropIssueActiveIndex(t) // pre-#627 DB: duplicates could already be queued
 	ctx := context.Background()
 
 	p := client.Project.Create().SetName("demo").SetPath("/tmp/demo").SaveX(ctx)
@@ -253,6 +272,7 @@ func TestCancelPendingTask_RunningSiblingKeepsIssue(t *testing.T) {
 // guard, so the issue lands at failed only after its last queued row is gone.
 func TestCancelPendingTasks_BulkKeepsIssueUntilLastLive(t *testing.T) {
 	client := withTestDB(t)
+	dropIssueActiveIndex(t) // pre-#627 DB: duplicates could already be queued
 	ctx := context.Background()
 
 	p := client.Project.Create().SetName("demo").SetPath("/tmp/demo").SaveX(ctx)
@@ -370,6 +390,7 @@ func TestDeleteTask_FailsLinkedIssue(t *testing.T) {
 // has a live sibling.
 func TestDeleteTask_KeepsIssueWhileSiblingActive(t *testing.T) {
 	client := withTestDB(t)
+	dropIssueActiveIndex(t) // pre-#627 DB: duplicates could already be queued
 	ctx := context.Background()
 
 	p := client.Project.Create().SetName("demo").SetPath("/tmp/demo").SaveX(ctx)

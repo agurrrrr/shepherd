@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"entgo.io/ent"
+	"entgo.io/ent/dialect/entsql"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
 	"entgo.io/ent/schema/index"
@@ -101,11 +102,23 @@ func (Task) Fields() []ent.Field {
 // status is used by the dashboard/status counters (GROUP BY status) and
 // created_at by the time-window scans; the composite index serves queries that
 // filter on both (e.g. today's completed/failed counts).
+//
+// The partial unique index on the issue edge (#627) is the DB-level guard
+// against double-enqueue: at most one pending/running task may be linked to an
+// issue at any time. Every enqueue path (issue.Execute cascade, web execute,
+// approved execute_issue request, retry / retry-from inheritance) inserts the
+// issue link in the same INSERT, so the check-then-insert race between
+// hasActiveTask and task creation is closed by this constraint instead of by
+// application-level checks. NULL issue_tasks rows (plain queue work) are not
+// covered — SQLite treats NULLs as distinct in unique indexes.
 func (Task) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("status"),
 		index.Fields("created_at"),
 		index.Fields("status", "created_at"),
+		index.Edges("issue").
+			Unique().
+			Annotations(entsql.IndexWhere("status IN ('pending', 'running')")),
 	}
 }
 

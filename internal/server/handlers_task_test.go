@@ -7,11 +7,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
 
+	entIssue "github.com/agurrrrr/shepherd/ent/issue"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/db"
 )
@@ -21,6 +23,120 @@ func withServerTestDB(t *testing.T) {
 	client := newTestClient(t)
 	prev := db.ReplaceClient(client)
 	t.Cleanup(func() { db.ReplaceClient(prev) })
+}
+
+func retryApp(t *testing.T) *fiber.App {
+	t.Helper()
+	s := &Server{hub: NewSSEHub()}
+	app := fiber.New()
+	app.Post("/api/tasks/:id/retry", s.handleRetryTask)
+	app.Post("/api/tasks/:id/retry-from", s.handleRetryFromTask)
+	return app
+}
+
+// TestRetryFromInheritsIssueLink (#627) reproduces the 2026-10-24 incident:
+// bulk retry-from created six unlinked copies (#11000~#11005) within ~18ms,
+// bypassing both the hasActiveTask guard and the cascade delay, and the copies
+// lost the issue link so issue status and results diverged. The copy must now
+// inherit the issue link, and an issue that already has a live task must not
+// receive a second one through this path either.
+func TestRetryFromInheritsIssueLink(t *testing.T) {
+	withServerTestDB(t)
+	ctx := context.Background()
+	app := retryApp(t)
+
+	client := db.Client()
+	sh := client.Sheep.Create().SetName("retry-sheep").SaveX(ctx)
+	proj := client.Project.Create().SetName("bori").SetPath("/ws/bori").SetSheep(sh).SaveX(ctx)
+	iss := client.Issue.Create().SetTitle("queued once").SetProject(proj).SaveX(ctx)
+
+	failed := client.Task.Create().
+		SetPrompt("[이슈 #627 repro] queued once").
+		SetStatus(entTask.StatusFailed).
+		SetSheep(sh).SetProject(proj).SetIssueID(iss.ID).
+		SaveX(ctx)
+
+	code, out := postJSON(t, app, "/api/tasks/"+strconv.Itoa(failed.ID)+"/retry-from", nil)
+	if code != http.StatusOK {
+		t.Fatalf("retry-from: %d %v", code, out)
+	}
+	created, _ := out["data"].(map[string]any)["created_tasks"].([]any)
+	if len(created) != 1 {
+		t.Fatalf("created_tasks = %v, want exactly one copy", out["data"])
+	}
+	copyID := int(created[0].(float64))
+
+	row := client.Task.Query().Where(entTask.ID(copyID)).WithIssue().OnlyX(ctx)
+	if row.Edges.Issue == nil || row.Edges.Issue.ID != iss.ID {
+		t.Errorf("retry copy issue link = %v, want issue #%d inherited", row.Edges.Issue, iss.ID)
+	}
+
+	// Second retry-from: the original is still failed so it is matched again,
+	// but the issue already has the pending copy — the path must skip it and
+	// create nothing.
+	code, out = postJSON(t, app, "/api/tasks/"+strconv.Itoa(failed.ID)+"/retry-from", nil)
+	if code != http.StatusOK {
+		t.Fatalf("second retry-from status = %d %v, want 200 with zero copies", code, out)
+	}
+	if again, _ := out["data"].(map[string]any)["created_tasks"].([]any); len(again) != 0 {
+		t.Errorf("second retry-from created %v, want none — issue already has a live task", again)
+	}
+	live, err := client.Task.Query().
+		Where(entTask.HasIssueWith(entIssue.ID(iss.ID)),
+			entTask.StatusIn(entTask.StatusPending, entTask.StatusRunning)).
+		Count(ctx)
+	if err != nil {
+		t.Fatalf("count live: %v", err)
+	}
+	if live != 1 {
+		t.Errorf("live tasks for issue = %d, want 1", live)
+	}
+}
+
+// TestRetryTaskInheritsIssueLinkAndSkipsDuplicates covers the single retry:
+// the copy keeps the issue link, and a retry that would double-enqueue an issue
+// that already has a live task is refused with 409.
+func TestRetryTaskInheritsIssueLinkAndSkipsDuplicates(t *testing.T) {
+	withServerTestDB(t)
+	ctx := context.Background()
+	app := retryApp(t)
+
+	client := db.Client()
+	sh := client.Sheep.Create().SetName("retry-sheep2").SaveX(ctx)
+	proj := client.Project.Create().SetName("bori2").SetPath("/ws/bori2").SetSheep(sh).SaveX(ctx)
+	iss := client.Issue.Create().SetTitle("retry target").SetProject(proj).SaveX(ctx)
+
+	stopped := client.Task.Create().
+		SetPrompt("stopped issue task").
+		SetStatus(entTask.StatusStopped).
+		SetSheep(sh).SetProject(proj).SetIssueID(iss.ID).
+		SaveX(ctx)
+
+	code, out := postJSON(t, app, "/api/tasks/"+strconv.Itoa(stopped.ID)+"/retry", nil)
+	if code != http.StatusOK {
+		t.Fatalf("retry: %d %v", code, out)
+	}
+	data := out["data"].(map[string]any)
+	newID := int(data["task_id"].(float64))
+	row := client.Task.Query().Where(entTask.ID(newID)).WithIssue().OnlyX(ctx)
+	if row.Edges.Issue == nil || row.Edges.Issue.ID != iss.ID {
+		t.Fatalf("retry copy issue link = %v, want issue #%d", row.Edges.Issue, iss.ID)
+	}
+
+	// The copy is pending: retrying the same stopped task again must conflict.
+	if code, out = postJSON(t, app, "/api/tasks/"+strconv.Itoa(stopped.ID)+"/retry", nil); code != http.StatusConflict {
+		t.Fatalf("second retry status = %d %v, want 409", code, out)
+	}
+	live, err := client.Task.Query().
+		Where(entTask.HasIssueWith(entIssue.ID(iss.ID)),
+			entTask.StatusIn(entTask.StatusPending, entTask.StatusRunning)).
+		Count(ctx)
+	if err != nil {
+		t.Fatalf("count live: %v", err)
+	}
+	if live != 1 {
+		t.Errorf("live tasks for issue = %d, want 1", live)
+	}
 }
 
 func newCancelApp(t *testing.T) *fiber.App {
