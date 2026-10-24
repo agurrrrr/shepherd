@@ -288,6 +288,74 @@ func TestHandleUpdateShepherdConfigKeepsModelForSameProvider(t *testing.T) {
 	}
 }
 
+// TestHandleShepherdConfigNotificationFields (#602): GET reports the documented
+// defaults when the keys are unset (viper.Reset in withShepherdTestEnv), and a
+// PATCH round-trips all three switches.
+func TestHandleShepherdConfigNotificationFields(t *testing.T) {
+	withShepherdTestEnv(t)
+	app := shepherdApp(t)
+
+	// Defaults: notify on, quiet patrol on, mute delegated off.
+	code, payload := getShepherdConfig(t, app)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d payload=%v", code, payload)
+	}
+	data := payload["data"].(map[string]any)
+	if data["notify"] != true {
+		t.Errorf("notify default = %v, want true", data["notify"])
+	}
+	if data["notify_quiet_patrol"] != true {
+		t.Errorf("notify_quiet_patrol default = %v, want true", data["notify_quiet_patrol"])
+	}
+	if data["mute_delegated_notifications"] != false {
+		t.Errorf("mute_delegated_notifications default = %v, want false", data["mute_delegated_notifications"])
+	}
+
+	// Save the opposite of every default.
+	code, _ = patchShepherdConfig(t, app, map[string]interface{}{
+		"notify":                       false,
+		"notify_quiet_patrol":          false,
+		"mute_delegated_notifications": true,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("patch status = %d payload=%v", code, payload)
+	}
+	if viper.GetBool("shepherd_notify") {
+		t.Error("shepherd_notify should be false after save")
+	}
+	if viper.GetBool("shepherd_notify_quiet_patrol") {
+		t.Error("shepherd_notify_quiet_patrol should be false after save")
+	}
+	if !viper.GetBool("shepherd_mute_delegated_notifications") {
+		t.Error("shepherd_mute_delegated_notifications should be true after save")
+	}
+
+	// GET reflects the saved values.
+	code, payload = getShepherdConfig(t, app)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d", code)
+	}
+	data = payload["data"].(map[string]any)
+	if data["notify"] != false {
+		t.Errorf("notify = %v, want false", data["notify"])
+	}
+	if data["notify_quiet_patrol"] != false {
+		t.Errorf("notify_quiet_patrol = %v, want false", data["notify_quiet_patrol"])
+	}
+	if data["mute_delegated_notifications"] != true {
+		t.Errorf("mute_delegated_notifications = %v, want true", data["mute_delegated_notifications"])
+	}
+
+	// A partial save (no notification keys) must not clobber them.
+	code, _ = patchShepherdConfig(t, app, map[string]interface{}{"instructions": "x"})
+	if code != http.StatusOK {
+		t.Fatalf("partial patch status = %d", code)
+	}
+	if !viper.GetBool("shepherd_mute_delegated_notifications") {
+		t.Error("partial save clobbered shepherd_mute_delegated_notifications")
+	}
+}
+
 func TestHandleUpdateShepherdConfigSavesInstructionsAndScope(t *testing.T) {
 	withShepherdTestEnv(t)
 

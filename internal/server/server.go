@@ -25,6 +25,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/embedded"
 	"github.com/agurrrrr/shepherd/internal/llmslots"
 	"github.com/agurrrrr/shepherd/internal/magi"
+	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/mcp"
 	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/push"
@@ -340,9 +341,10 @@ func (s *Server) WireProcessorCallbacks() {
 			"task_id": taskID, "sheep_name": sheepName,
 			"project_name": projectName, "summary": summary,
 		}})
-		// Discord + PWA Web Push
-		go s.sendDiscordComplete(taskID, sheepName, projectName, summary)
-		go push.NotifyComplete(taskID, sheepName, projectName, summary)
+		// Discord + PWA Web Push. Shepherd tasks report as "목자 보고" and
+		// watched-issue completions can be muted (#602) — the decision lives
+		// in manager.AnnounceTaskComplete.
+		go manager.AnnounceTaskComplete(taskID, sheepName, projectName, summary)
 	}
 	s.processor.OnTaskFail = func(taskID int, sheepName, projectName, errMsg string) {
 		s.hub.Broadcast(SSEEvent{Type: "task_fail", Data: map[string]interface{}{
@@ -385,17 +387,6 @@ func (s *Server) WireSchedulerCallbacks() {
 			"task_id":       taskID,
 		}})
 	}
-}
-
-// sendDiscordComplete sends a Discord notification for task completion.
-// It looks up task details from the DB to include cost and modified files.
-func (s *Server) sendDiscordComplete(taskID int, sheepName, projectName, summary string) {
-	task, err := queue.GetTask(taskID)
-	if err != nil {
-		return
-	}
-
-	s.discord.SendTaskComplete(taskID, sheepName, projectName, summary, task.CostUsd, task.FilesModified)
 }
 
 // --- Auth handlers ---

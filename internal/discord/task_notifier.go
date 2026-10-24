@@ -88,6 +88,69 @@ func (n *TaskNotifier) SendTaskComplete(taskID int, sheepName, projectName, summ
 	}
 }
 
+// SendShepherdReport sends the "목자 보고" notification for a finished
+// shepherd (목자) task (#602). It replaces the generic completion notice for
+// those tasks: the title names the kind (검토/순찰/지시) and the body carries
+// the shepherd's own report. Gate: the discord master switch only — the
+// per-report decision (shepherd_notify, quiet patrol) is made by manager
+// before calling this.
+func (n *TaskNotifier) SendShepherdReport(taskID int, kind, report string, costUSD float64) {
+	if !config.GetBool("discord_notifications_enabled") {
+		return
+	}
+
+	webhookURL := config.GetString("discord_webhook_url")
+	if webhookURL == "" {
+		return
+	}
+
+	truncate := func(s string, max int) string {
+		r := strings.ReplaceAll(s, "\n", " ")
+		r = strings.ReplaceAll(r, "\r", "")
+		r = strings.Join(strings.Fields(r), " ")
+		if len(r) > max {
+			return r[:max] + "..."
+		}
+		return r
+	}
+
+	fields := []EmbedField{
+		{Name: "Report", Value: shepherdReportLabel(kind), Inline: true},
+		{Name: "Task", Value: fmt.Sprintf("#%d", taskID), Inline: true},
+	}
+	if costUSD > 0 {
+		fields = append(fields, EmbedField{Name: "Cost", Value: fmt.Sprintf("$%.4f", costUSD), Inline: true})
+	}
+
+	embed := Embed{
+		Title:       "🐑 " + shepherdReportLabel(kind),
+		Description: truncate(report, 1500),
+		Color:       0x6C8AE4, // periwinkle — the shepherd's own colour
+		Fields:      fields,
+		Footer:      &EmbedFooter{Text: "Shepherd"},
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+	}
+
+	if err := n.notifier.Send(webhookURL, "", []Embed{embed}); err != nil {
+		// Silent fail - don't block task flow
+		_ = err
+	}
+}
+
+// shepherdReportLabel renders the Korean title for one shepherd report kind.
+func shepherdReportLabel(kind string) string {
+	switch kind {
+	case "review":
+		return "목자 보고 · 검토"
+	case "patrol":
+		return "목자 보고 · 순찰"
+	case "command":
+		return "목자 보고 · 지시"
+	default:
+		return "목자 보고"
+	}
+}
+
 // SendHandoffDepthAlert warns when a task's context-overflow handoff chain has
 // grown deep — a sign the model may be looping without making progress. It
 // shares the master discord_notifications_enabled switch (no separate toggle)

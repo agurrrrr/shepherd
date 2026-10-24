@@ -70,6 +70,19 @@ func NotifyFail(taskID int, sheepName, projectName, errMsg string) {
 	}
 }
 
+// NotifyShepherdReport sends a Web Push for a finished shepherd (목자) task
+// (#602). The per-report decision (shepherd_notify, quiet patrol) is made in
+// manager before calling this, so only the webpush master switch is checked
+// here — the report is its own notification class, not a task completion.
+func NotifyShepherdReport(taskID int, kind, report string) {
+	if !enabled() {
+		return
+	}
+	if _, err := sendAll(ShepherdReportPayload(taskID, kind, report), false); err != nil {
+		log.Printf("[push] shepherd report notify: %v", err)
+	}
+}
+
 // SendResult is the outcome of a fan-out send.
 type SendResult struct {
 	Sent    int `json:"sent"`

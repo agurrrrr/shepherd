@@ -10,6 +10,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/discord"
+	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/project"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/skill"
@@ -124,22 +125,19 @@ func handleTaskComplete(args map[string]interface{}) (string, error) {
 		return "", err
 	}
 
-	// Discord notification
-	go func() {
-		task, err := queue.GetTask(taskID)
-		if err != nil {
-			return
+	// Discord + Web Push notification. Shepherd tasks report as "목자 보고"
+	// and watched-issue completions can be muted (#602). The MCP path uses
+	// the shared announce entry point so both completion routes agree.
+	sheepName, projectName := "-", "-"
+	if t, err := queue.GetTask(taskID); err == nil {
+		if t.Edges.Sheep != nil {
+			sheepName = t.Edges.Sheep.Name
 		}
-		sheepName := "-"
-		if task.Edges.Sheep != nil {
-			sheepName = task.Edges.Sheep.Name
+		if t.Edges.Project != nil {
+			projectName = t.Edges.Project.Name
 		}
-		projectName := "-"
-		if task.Edges.Project != nil {
-			projectName = task.Edges.Project.Name
-		}
-		discord.NewTaskNotifier().SendTaskComplete(taskID, sheepName, projectName, summary, task.CostUsd, task.FilesModified)
-	}()
+	}
+	go manager.AnnounceTaskComplete(taskID, sheepName, projectName, summary)
 
 	return fmt.Sprintf("작업 #%d 완료됨", taskID), nil
 }

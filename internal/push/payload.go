@@ -50,6 +50,28 @@ func TestPayload() Payload {
 	}
 }
 
+// ShepherdReportPayload builds the "목자 보고" notification for a finished
+// shepherd task (#602). It links to the Shepherd console instead of the task
+// page, because the report's meaning lives next to the issue board.
+func ShepherdReportPayload(taskID int, kind, report string) Payload {
+	label := "목자 보고"
+	switch kind {
+	case "review":
+		label = "목자 보고 · 검토"
+	case "patrol":
+		label = "목자 보고 · 순찰"
+	case "command":
+		label = "목자 보고 · 지시"
+	}
+	return Payload{
+		Title:  label,
+		Body:   bodyLine(taskID, report),
+		URL:    "/shepherd",
+		Tag:    fmt.Sprintf("shepherd-report-%d", taskID),
+		Status: "completed",
+	}
+}
+
 func title(kind, projectName string) string {
 	projectName = strings.TrimSpace(projectName)
 	if projectName == "" || projectName == "-" {

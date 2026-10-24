@@ -18,7 +18,7 @@ Three ways to drive it:
 
 ### Core Concepts
 
-- **Shepherd (Manager)** — Analyzes each task and routes it to the right worker
+- **Shepherd (Manager)** — A special manager sheep with no project. It delegates work through issues, wakes up when delegated work finishes, reviews the result, and reports back (see [Shepherd Orchestration](#shepherd-orchestration))
 - **Sheep (Workers)** — Individual AI agent instances, each assigned to a project and a provider
 - **Projects** — Codebases the sheep work on
 - **Providers** — The AI backend a sheep uses (Claude, OpenCode, Pi, Grok, Embedded, MAGI)
@@ -146,7 +146,8 @@ The Web UI is a Svelte SPA embedded in the Go binary. After starting the daemon 
 
 | Page | Path | Description |
 |------|------|-------------|
-| Dashboard | `/` | Sheep status cards, running tasks, command input, live output |
+| Dashboard | `/` | Sheep status cards, running tasks, live output |
+| Shepherd | `/shepherd` | Shepherd console: give the shepherd an instruction, review its report, browse the cross-project issue board and the needs-attention panel |
 | Sheep | `/sheep` | Create, delete, assign, and change a sheep's provider/model |
 | Projects | `/projects` | Project list and management |
 | Project Detail | `/projects/:name` | Tabs: **Live Output**, **Task History**, **Files**, **Git**, **Schedules**, **Skills**, **Issues**, **Wiki**, **Settings** |
@@ -210,6 +211,40 @@ Shepherd includes a lightweight per-project issue tracker:
 3. Click **Execute** (`POST /api/projects/:name/issues/:id/execute`) to enqueue a coding task linked to that issue
 
 Flow: **Issue → execute → task queue → sheep runs the work → result stays linked to the issue**. You can also import external trackers via CLI (`shepherd queue import-issues …`).
+
+Issues can be listed across **all** projects (omit `project_name` in the REST/MCP call, or pass `--all` to `shepherd issue list`). Cross-project rows are prefixed with the project name; hidden projects are excluded unless you opt in.
+
+---
+
+## Shepherd Orchestration
+
+Beyond running one task at a time, Shepherd has a **manager** (the shepherd, 목자): a special sheep with no project that delegates work through issues and looks after the results. Configure it under **Settings → 목자 (Shepherd)** and drive it from the **Shepherd console** (`/shepherd`).
+
+**Workspace.** The shepherd works in `workspace_path` (the first field of the 목자 tab). This is the directory its tasks run in — normally the root that holds all your projects. The management *scope* is separate: every non-hidden project minus an exclusion list, so projects outside the workspace are still managed (they are only flagged as "outside workspace").
+
+**Provider and model.** The shepherd's provider is the manager sheep's row (`sheep.provider`); pick it in the 목자 tab. Its model comes from `shepherd_model` and is applied as a per-task override, so a non-claude provider or an embedded endpoint works too.
+
+**Delegate with issues.** The shepherd never edits code itself. It writes an issue with `issue_upsert`, then enqueues it with `issue_execute(watch=true)`. The `watch` flag marks the issue as shepherd-delegated and is what makes the shepherd wake up later.
+
+**Wake and review.** When a task on a watched issue finishes (completed, failed, or stopped by a question), the daemon enqueues a shepherd `review` task. The shepherd reads the result and picks one move: close the issue as `done`, re-enqueue the same issue with added guidance, or open a follow-up issue. If a review task is already pending, the new event is merged into it instead of stacking a second review.
+
+**Autonomy tiers.** `shepherd_autonomy` sets how far the shepherd acts alone: `report` (read and report only), `plan` (create/edit issues, ask before executing), `execute` (run watched issues within caps, ask before stopping a task — the default), `full` (may stop tasks). Deleting an issue is never a direct tool at any tier — it only runs through a user-approved request on the Shepherd screen. If the provider cannot identify the caller, the daemon skips the tier check.
+
+**Caps.** Automatic waking is bounded so it never loops: `shepherd_max_review_rounds` per issue, `shepherd_max_wakeups_per_day`, `shepherd_max_active_delegations` (concurrent pending+running watched tasks), and `shepherd_daily_cost_limit_usd`. Over any cap, waking stops and the issue surfaces in the needs-attention panel instead.
+
+**Periodic patrol.** Every `shepherd_patrol_interval` the daemon re-checks the whole scope with plain code (no LLM) and wakes the shepherd only for problems that are **new since the last pass**. Turning `shepherd_patrol_wake` off keeps the patrol log but stops the waking.
+
+**Report notifications.** Shepherd tasks (review / patrol / command) announce as **"목자 보고" (Shepherd report)** instead of the generic "task complete", with the shepherd's own report as the body. `shepherd_notify` turns these off; `shepherd_notify_quiet_patrol` drops reports that carry no news (a patrol with nothing new, or a review that changed no issue when that can be determined); `shepherd_mute_delegated_notifications` drops the generic completion notice for watched-issue work so it is not reported twice. Failure and user-stop notices are always sent.
+
+```
+user ──instruction──▶ Shepherd console ──issue_upsert / issue_execute(watch)──▶ project sheep task
+                                                                              │ completed · failed · question
+shepherd review task ◀── wake (round +1, caps checked, merge into pending) ◀──┘
+   ├─ met: close issue done + report
+   ├─ short: re-enqueue same issue with guidance
+   └─ different scope: new follow-up issue + enqueue
+periodic patrol ──only on new findings──▶ shepherd patrol task
+```
 
 ---
 
@@ -472,7 +507,7 @@ task_timeout: 4h             # Per-task execution timeout ("0"/"off" = unlimited
 server_port: 8585
 server_host: 0.0.0.0
 auto_approve: true
-workspace_path: ""           # Optional default workspace root
+workspace_path: ""           # the shepherd's working directory (Settings → 목자)
 enable_file_browser: true    # Project Files tab + /files API
 
 # Per-provider toggles and default models
@@ -522,6 +557,30 @@ webpush_enabled: true
 webpush_notify_on_complete: true
 webpush_notify_on_fail: true
 # webpush_vapid_public / webpush_vapid_private are auto-generated on first use
+
+# Shepherd (목자) orchestration — see "Shepherd Orchestration" above
+workspace_path: ""                # the shepherd's working directory (set in Settings → 목자)
+shepherd_model: ""                # empty = the provider's default model; embedded takes an endpoint id
+shepherd_instructions: ""         # extra operating instructions appended to the built-in ones
+shepherd_scope_exclude: []        # project names the shepherd must not manage
+shepherd_scope_include_hidden: false  # manage hidden projects too
+# Wake caps (0 or negative = built-in default)
+shepherd_max_review_rounds: 3     # review rounds per issue
+shepherd_max_wakeups_per_day: 30  # automatic wakes per day (local midnight)
+# Needs-attention thresholds (0 = built-in default)
+shepherd_stuck_minutes: 120       # a running task older than this is "stuck"
+shepherd_pending_stale_minutes: 60 # oldest pending task older than this is "backlog"
+# Periodic patrol (code-only scope check; wakes the shepherd only on new findings)
+shepherd_patrol_interval: "30m"   # "0" = off; a nonzero value is raised to a 5-minute floor
+shepherd_patrol_wake: true        # false = record the pass but never wake
+# Autonomy and caps
+shepherd_autonomy: execute        # report | plan | execute | full
+shepherd_max_active_delegations: 3 # concurrent pending+running watched tasks (0 = default 3)
+shepherd_daily_cost_limit_usd: 0  # daily combined spend cap (0 = no limit)
+# Report notifications
+shepherd_notify: true                    # send the "목자 보고" report for shepherd tasks
+shepherd_notify_quiet_patrol: true       # skip reports with no news (no-new patrol / no-issue-change review)
+shepherd_mute_delegated_notifications: false # drop the generic completion notice for watched-issue work
 
 # Authentication (set via 'shepherd auth setup')
 auth_username: admin

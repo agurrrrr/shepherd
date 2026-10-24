@@ -117,7 +117,23 @@ func buildShepherdConfig() (map[string]interface{}, error) {
 		"autonomy":               manager.AutonomyTier(),
 		"max_active_delegations": manager.MaxActiveDelegations(),
 		"daily_cost_limit_usd":   manager.DailyCostLimitUSD(),
+		// Report notifications (#602). shepherd_notify and quiet_patrol default
+		// to true, mute_delegated to false; the two true-defaults are read the
+		// way patrol.go reads patrol_wake (absent = the documented default),
+		// because tests reset viper.
+		"notify":                       boolSettingDefaultTrue("shepherd_notify"),
+		"notify_quiet_patrol":          boolSettingDefaultTrue("shepherd_notify_quiet_patrol"),
+		"mute_delegated_notifications": config.GetBool("shepherd_mute_delegated_notifications"),
 	}, nil
+}
+
+// boolSettingDefaultTrue reads a bool key whose absent value means true, so a
+// test that resets viper still sees the documented default (#602).
+func boolSettingDefaultTrue(key string) bool {
+	if v := config.Get(key); v == nil {
+		return true
+	}
+	return config.GetBool(key)
 }
 
 // patrolIntervalSetting returns the stored raw string, or the documented
@@ -180,6 +196,10 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 		Autonomy             *string  `json:"autonomy"`
 		MaxActiveDelegations *int     `json:"max_active_delegations"`
 		DailyCostLimitUSD    *float64 `json:"daily_cost_limit_usd"`
+		// Report notifications (#602). Absent = leave alone.
+		Notify                     *bool `json:"notify"`
+		NotifyQuietPatrol          *bool `json:"notify_quiet_patrol"`
+		MuteDelegatedNotifications *bool `json:"mute_delegated_notifications"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -285,6 +305,17 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 			return fail(c, fiber.StatusBadRequest, "daily_cost_limit_usd must be >= 0 (0 = no limit)")
 		}
 		values["shepherd_daily_cost_limit_usd"] = *body.DailyCostLimitUSD
+	}
+
+	// Report notifications (#602). Plain booleans; absent = leave alone.
+	if body.Notify != nil {
+		values["shepherd_notify"] = *body.Notify
+	}
+	if body.NotifyQuietPatrol != nil {
+		values["shepherd_notify_quiet_patrol"] = *body.NotifyQuietPatrol
+	}
+	if body.MuteDelegatedNotifications != nil {
+		values["shepherd_mute_delegated_notifications"] = *body.MuteDelegatedNotifications
 	}
 
 	// Provider change: validate against the enabled-provider switches, then

@@ -125,6 +125,19 @@ func Init() error {
 	viper.SetDefault("shepherd_max_active_delegations", 3)
 	viper.SetDefault("shepherd_daily_cost_limit_usd", 0)
 
+	// 목자 보고 알림 (#602). 목자 작업(review/patrol/command)의 완료 알림은
+	// 일반 작업 완료 알림과 다른 제목("목자 보고")으로 나간다.
+	//   shepherd_notify                        : 목자 보고 알림을 보낼지 (기본 켜짐).
+	//   shepherd_notify_quiet_patrol           : 새 이상이 없던 순찰과, 이슈를 하나도
+	//                                            바꾸지 않은 검토(판단 가능할 때만)는
+	//                                            알리지 않는다 (기본 켜짐).
+	//   shepherd_mute_delegated_notifications  : 감시 이슈 작업의 일반 완료 알림을
+	//                                            끈다. 목자가 검토해서 보고하므로
+	//                                            알림이 중복되기 때문 (기본 꺼짐).
+	viper.SetDefault("shepherd_notify", true)
+	viper.SetDefault("shepherd_notify_quiet_patrol", true)
+	viper.SetDefault("shepherd_mute_delegated_notifications", false)
+
 	// shell: 임베디드 프로바이더의 bash 도구가 명령을 실행할 셸 실행 파일.
 	// 빈 값이면 OS별 자동 탐지 (Unix: bash → sh, Windows: Git Bash → pwsh →
 	// powershell). 자동 탐지가 빗나갔을 때의 탈출구이므로 값은 실행 파일

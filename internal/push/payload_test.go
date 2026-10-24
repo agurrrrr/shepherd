@@ -49,3 +49,33 @@ func Test_CompletePayload_개행은공백으로(t *testing.T) {
 		t.Errorf("body = %q", got.Body)
 	}
 }
+
+func Test_ShepherdReportPayload_종류별제목과콘솔링크(t *testing.T) {
+	cases := []struct {
+		kind  string
+		title string
+	}{
+		{"review", "목자 보고 · 검토"},
+		{"patrol", "목자 보고 · 순찰"},
+		{"command", "목자 보고 · 지시"},
+		{"unknown", "목자 보고"},
+	}
+	for _, c := range cases {
+		got := ShepherdReportPayload(41, c.kind, "이슈 #7을 done으로 닫았습니다")
+		if got.Title != c.title {
+			t.Errorf("kind %q title = %q, want %q", c.kind, got.Title, c.title)
+		}
+		if got.Body != "#41 이슈 #7을 done으로 닫았습니다" {
+			t.Errorf("body = %q", got.Body)
+		}
+		if got.URL != "/shepherd" {
+			t.Errorf("url = %q, want /shepherd", got.URL)
+		}
+		if got.Tag != "shepherd-report-41" {
+			t.Errorf("tag = %q", got.Tag)
+		}
+		if got.Status != "completed" {
+			t.Errorf("status = %q", got.Status)
+		}
+	}
+}

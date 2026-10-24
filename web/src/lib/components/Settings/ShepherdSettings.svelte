@@ -45,6 +45,12 @@
 	let autonomy = $state('execute');
 	let maxActiveDelegations = $state(0);
 	let dailyCostLimitUsd = $state(0);
+	// Report notifications (#602). notify / notifyQuietPatrol default true,
+	// muteDelegatedNotifications defaults false. The daemon decides per report;
+	// these switches only turn the whole class or the quiet rules on and off.
+	let notify = $state(true);
+	let notifyQuietPatrol = $state(true);
+	let muteDelegatedNotifications = $state(false);
 
 	const tierChoices = [
 		{ value: 'report', label: '보고만', desc: '읽고 보고만 합니다. 이슈를 만들거나 실행하지 않습니다.' },
@@ -95,9 +101,14 @@
 		maxWakeupsPerDay = Number(payload.max_wakeups_per_day ?? 0);
 		stuckMinutes = Number(payload.stuck_minutes ?? 0);
 		pendingStaleMinutes = Number(payload.pending_stale_minutes ?? 0);
+		patrolInterval = payload.patrol_interval || '30m';
+		patrolWake = payload.patrol_wake !== false;
 		autonomy = payload.autonomy || 'execute';
 		maxActiveDelegations = Number(payload.max_active_delegations ?? 0);
 		dailyCostLimitUsd = Number(payload.daily_cost_limit_usd ?? 0);
+		notify = payload.notify !== false;
+		notifyQuietPatrol = payload.notify_quiet_patrol !== false;
+		muteDelegatedNotifications = payload.mute_delegated_notifications === true;
 		validationError = payload.workspace_error || '';
 
 		const next = {};
@@ -176,9 +187,14 @@
 				max_wakeups_per_day: Math.max(0, Math.trunc(Number(maxWakeupsPerDay) || 0)),
 				stuck_minutes: Math.max(0, Math.trunc(Number(stuckMinutes) || 0)),
 				pending_stale_minutes: Math.max(0, Math.trunc(Number(pendingStaleMinutes) || 0)),
+				patrol_interval: patrolInterval.trim(),
+				patrol_wake: patrolWake,
 				autonomy,
 				max_active_delegations: Math.max(0, Math.trunc(Number(maxActiveDelegations) || 0)),
-				daily_cost_limit_usd: Math.max(0, Number(dailyCostLimitUsd) || 0)
+				daily_cost_limit_usd: Math.max(0, Number(dailyCostLimitUsd) || 0),
+				notify,
+				notify_quiet_patrol: notifyQuietPatrol,
+				mute_delegated_notifications: muteDelegatedNotifications
 			});
 			if (res?.success && res.data) {
 				applyPayload(res.data);
@@ -377,6 +393,38 @@
 				</label>
 			</div>
 			<span class="hint">직전 순찰 이후 새로 생긴 이상이 있을 때만 목자 순찰 작업을 만듭니다. 끄면 순찰 기록만 남기고 목자는 깨우지 않습니다.</span>
+		</section>
+
+		<!-- Report notifications (#602): shepherd tasks (검토·순찰·지시) report as
+		     "목자 보고" instead of the generic "작업 완료". Quiet mode drops the
+		     reports that carry no news; mute drops the generic completion notice
+		     for watched-issue work so it is not reported twice. -->
+		<section class="block">
+			<h3 class="block-title">목자 보고 알림</h3>
+			<div class="setting-row">
+				<label for="sh-notify">목자 보고 보내기</label>
+				<label class="toggle" for="sh-notify">
+					<input id="sh-notify" type="checkbox" bind:checked={notify} />
+					<span>{notify ? '보냄' : '안 보냄'}</span>
+				</label>
+			</div>
+			<span class="hint">목자 작업(검토·순찰·지시)이 끝나면 "작업 완료" 대신 <strong>목자 보고</strong> 제목으로 웹 푸시와 Discord에 알립니다. 본문에는 목자의 보고 문장이 들어갑니다.</span>
+			<div class="setting-row">
+				<label for="sh-notify-quiet">이상 없는 순찰은 알리지 않기</label>
+				<label class="toggle" for="sh-notify-quiet">
+					<input id="sh-notify-quiet" type="checkbox" bind:checked={notifyQuietPatrol} />
+					<span>{notifyQuietPatrol ? '조용히' : '모두 알림'}</span>
+				</label>
+			</div>
+			<span class="hint">새 이상이 없던 순찰은 알리지 않습니다. 검토 작업이 이슈를 하나도 바꾸지 않은 경우도 알리지 않지만, 판단할 정보가 없으면 그 검토는 그대로 알립니다.</span>
+			<div class="setting-row">
+				<label for="sh-mute-delegated">감시 이슈의 일반 완료 알림 끄기</label>
+				<label class="toggle" for="sh-mute-delegated">
+					<input id="sh-mute-delegated" type="checkbox" bind:checked={muteDelegatedNotifications} />
+					<span>{muteDelegatedNotifications ? '끄음' : '보냄'}</span>
+				</label>
+			</div>
+			<span class="hint">목자가 감시하는 이슈의 작업이 끝나면 목자가 검토해서 보고하므로, 같은 일의 일반 "작업 완료" 알림을 생략합니다. 실패·사용자 중단 알림은 이 설정과 무관하게 항상 보냅니다.</span>
 		</section>
 
 		<!-- Autonomy (#601): how far the shepherd acts on its own. Deleting an

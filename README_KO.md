@@ -18,7 +18,7 @@ Shepherd는 여러 AI 코딩 에이전트("양")를 서로 다른 코드베이�
 
 ### 핵심 개념
 
-- **Shepherd (Manager, 목자)** — 각 작업을 분석해 적절한 워커로 라우팅
+- **Shepherd (Manager, 목자)** — 프로젝트가 없는 특별한 양입니다. 이슈로 작업을 위임하고, 위임한 작업이 끝나면 깨어나 결과를 검토한 뒤 보고합니다 (아래 [목자(Shepherd) 오케스트레이션](#목자shepherd-오케스트레이션) 참고)
 - **Sheep (Worker, 양)** — 개별 AI 에이전트 인스턴스. 각각 하나의 프로젝트와 프로바이더에 배정됨
 - **Project (프로젝트)** — 양이 작업하는 코드베이스
 - **Provider (프로바이더)** — 양이 사용하는 AI 백엔드 (Claude, OpenCode, Pi, Grok, Embedded, MAGI)
@@ -146,7 +146,8 @@ Web UI는 Go 바이너리에 임베드된 Svelte SPA입니다. 데몬 기동 후
 
 | 페이지 | 경로 | 설명 |
 |------|------|-------------|
-| 대시보드 | `/` | 양 상태 카드, 실행 중 작업, 커맨드 입력, 라이브 출력 |
+| 대시보드 | `/` | 양 상태 카드, 실행 중 작업, 라이브 출력 |
+| Shepherd | `/shepherd` | 목자 콘솔: 목자에게 지시하고 보고를 확인하며, 전 프로젝트 이슈 보드와 확인 필요 항목을 살펴봅니다 |
 | 양 | `/sheep` | 생성·삭제·배정·프로바이더/모델 변경 |
 | 프로젝트 | `/projects` | 프로젝트 목록·관리 |
 | 프로젝트 상세 | `/projects/:name` | 탭: **Live Output**, **Task History**, **Files**, **Git**, **Schedules**, **Skills**, **Issues**, **Wiki**, **Settings** |
@@ -208,6 +209,40 @@ GET /api/events?token=<access_token>
 3. **Execute** (`POST /api/projects/:name/issues/:id/execute`)로 해당 이슈에 연결된 코딩 작업을 큐에 넣음
 
 흐름: **이슈 → execute → 작업 큐 → 양이 실행 → 결과가 이슈에 연결**. CLI로 외부 트래커 import도 가능합니다 (`shepherd queue import-issues …`).
+
+이슈는 **전체 프로젝트**를 가로질러 조회할 수도 있습니다 (REST/MCP 호출에서 `project_name`을 생략하거나 `shepherd issue list --all` 사용). 가로질러 조회한 행은 프로젝트 이름 접두사가 붙고, 숨김 프로젝트는 선택하지 않으면 제외됩니다.
+
+---
+
+## 목자(Shepherd) 오케스트레이션
+
+한 번에 하나의 작업만 실행하는 것을 넘어, Shepherd에는 **목자**가 있습니다. 목자는 프로젝트가 없는 특별한 양으로, 이슈로 작업을 위임하고 결과를 돌봅니다. **설정 → 목자** 탭에서 설정하고, **목자 콘솔**(`/shepherd`)에서 지시합니다.
+
+**워크스페이스.** 목자는 `workspace_path`(목자 탭의 첫 입력칸)에서 일합니다. 이 디렉터리가 목자 작업이 실행되는 자리로, 보통 모든 프로젝트를 담고 있는 최상위 경로입니다. 관리 *범위*는 워크스페이스와 별개로 정합니다. 숨기지 않은 모든 프로젝트에서 제외 목록을 뺀 것이 범위이므로, 워크스페이스 밖 프로젝트도 관리 대상에 남고 화면에만 "워크스페이스 밖" 표시가 붙습니다.
+
+**프로바이더와 모델.** 목자의 프로바이더는 매니저 양 행(`sheep.provider`)이며 목자 탭에서 고릅니다. 모델은 `shepherd_model`에서 가져와 작업별 override로 넣으므로, claude가 아닌 프로바이더나 embedded 엔드포인트도 쓸 수 있습니다.
+
+**이슈로 위임합니다.** 목자는 코드를 직접 고치지 않습니다. `issue_upsert`로 이슈를 쓰고, `issue_execute(watch=true)`로 적재합니다. `watch` 표시가 이 이슈가 목자 위임임을 나타내고, 나중에 목자를 깨우는 기준이 됩니다.
+
+**깨어나서 검토합니다.** 감시 이슈의 작업이 끝나면(완료·실패·질문 중단) 데몬이 목자 `review` 작업을 적재합니다. 목자는 결과를 읽고 한 가지를 고릅니다. 이슈를 `done`으로 닫거나, 같은 이슈에 보완 지시를 덧붙여 다시 적재하거나, 후속 이슈를 만듭니다. pending 검토 작업이 이미 있으면 새 사건을 그 작업에 합치고, 검토를 하나 더 쌓지 않습니다.
+
+**권한 단계.** `shepherd_autonomy`가 목자가 스스로 어디까지 할지 정합니다. `report`(읽고 보고만) / `plan`(이슈 생성·수정, 실행은 요청) / `execute`(감시 이슈를 상한 안에서 실행, 작업 중지는 요청 — 기본값) / `full`(작업 중지까지)입니다. 이슈 삭제는 어떤 단계에서도 직접 도구가 아니며, 오직 목자 화면의 사용자 승인으로만 실행됩니다. 프로바이더가 호출자를 식별하지 못하면 데몬은 단계 검사를 건너뜁니다.
+
+**상한.** 자동 깨우기는 무한 반복이 생기지 않게 상한을 둡니다. 이슈별 `shepherd_max_review_rounds`, 하루 `shepherd_max_wakeups_per_day`, 동시 위임 `shepherd_max_active_delegations`(감시 이슈의 pending+running 작업 수), 하루 비용 `shepherd_daily_cost_limit_usd`입니다. 상한을 넘으면 깨우기가 멈추고 이슈가 확인 필요 패널에 올라갑니다.
+
+**주기 순찰.** `shepherd_patrol_interval`마다 데몬이 관리 범위 전체를 순수 코드로(LLM 없이) 다시 점검하고, **직전 순찰 이후 새로 생긴 이상에서만** 목자를 깨웁니다. `shepherd_patrol_wake`를 끄면 순찰 기록은 남되 목자는 깨우지 않습니다.
+
+**보고 알림.** 목자 작업(검토·순찰·지시)은 일반적인 "작업 완료" 대신 **"목자 보고"** 제목으로 알리고, 본문에는 목자의 보고 문장이 들어갑니다. `shepherd_notify`는 이 알림을 끄고, `shepherd_notify_quiet_patrol`은 새 이상이 없던 순찰과 이슈를 하나도 바꾸지 않은 검토(판단 가능할 때만)처럼 전할 내용이 없는 보고를 생략합니다. `shepherd_mute_delegated_notifications`는 감시 이슈 작업의 일반 완료 알림을 없애, 같은 일이 두 번 보고되지 않게 합니다. 실패·사용자 중단 알림은 항상 보냅니다.
+
+```
+사용자 ──지시──▶ 목자 콘솔 ──issue_upsert / issue_execute(watch)──▶ 프로젝트 양 작업
+                                                                     │ 완료 · 실패 · 질문
+목자 검토 작업 ◀── 깨우기 (회차 +1, 상한 확인, pending 검토에 합치기) ◀──┘
+   ├─ 충족: 이슈 done으로 닫고 보고
+   ├─ 미흡: 같은 이슈를 보완 지시와 함께 재적재
+   └─ 범위 다름: 후속 이슈 생성 + 적재
+주기 순찰 ──새 이상이 있을 때만──▶ 목자 순찰 작업
+```
 
 ---
 
@@ -469,7 +504,7 @@ task_timeout: 4h             # 작업 타임아웃 ("0"/"off" = 무제한)
 server_port: 8585
 server_host: 0.0.0.0
 auto_approve: true
-workspace_path: ""           # 선택적 기본 워크스페이스 루트
+workspace_path: ""           # 목자의 작업 디렉터리 (설정 → 목자 탭)
 enable_file_browser: true    # Files 탭 + /files API
 
 # 프로바이더 on/off 및 기본 모델
@@ -519,6 +554,30 @@ webpush_enabled: true
 webpush_notify_on_complete: true
 webpush_notify_on_fail: true
 # webpush_vapid_public / webpush_vapid_private 는 첫 사용 시 자동 생성
+
+# 목자(Shepherd) 오케스트레이션 — 위 "목자(Shepherd) 오케스트레이션" 절 참고
+# (워크스페이스는 위 workspace_path 키를 그대로 씁니다)
+shepherd_model: ""                # 빈 값 = 프로바이더 기본 모델. embedded는 엔드포인트 ID
+shepherd_instructions: ""         # 기본 운영 지침 뒤에 붙이는 사용자 지침
+shepherd_scope_exclude: []        # 목자가 관리하지 않을 프로젝트 이름
+shepherd_scope_include_hidden: false  # 숨김 프로젝트도 관리할지
+# 깨우기 상한 (0이나 음수 = 내장 기본값)
+shepherd_max_review_rounds: 3     # 이슈별 검토 회차
+shepherd_max_wakeups_per_day: 30  # 하루 자동 깨우기 상한 (자정 기준)
+# 확인 필요 임계값 (0 = 내장 기본값)
+shepherd_stuck_minutes: 120       # running 작업이 이 시간을 넘으면 오래 실행 중
+shepherd_pending_stale_minutes: 60 # 가장 오래된 pending 작업이 이 시간을 넘으면 적체
+# 주기 순찰 (코드로 범위를 점검하고 새 이상에서만 깨움)
+shepherd_patrol_interval: "30m"   # "0"이면 끔. 켠 값은 최소 5분으로 올림
+shepherd_patrol_wake: true        # false면 순찰 기록만 남기고 깨우지 않음
+# 권한 단계와 상한
+shepherd_autonomy: execute        # report | plan | execute | full
+shepherd_max_active_delegations: 3 # 감시 이슈의 동시 pending+running 상한 (0 = 기본 3)
+shepherd_daily_cost_limit_usd: 0  # 하루 합산 비용 상한 (0 = 제한 없음)
+# 보고 알림
+shepherd_notify: true                    # 목자 작업의 "목자 보고" 알림을 보낼지
+shepherd_notify_quiet_patrol: true       # 전할 내용 없는 보고(새 이상 없는 순찰·이슈를 안 바꾼 검토)는 생략
+shepherd_mute_delegated_notifications: false # 감시 이슈 작업의 일반 완료 알림을 없앨지
 
 # 인증 ('shepherd auth setup'으로 설정)
 auth_username: admin
