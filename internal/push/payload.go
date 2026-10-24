@@ -51,8 +51,9 @@ func TestPayload() Payload {
 }
 
 // ShepherdReportPayload builds the "목자 보고" notification for a finished
-// shepherd task (#602). It links to the Shepherd console instead of the task
-// page, because the report's meaning lives next to the issue board.
+// shepherd task (#602). The report body IS that task's result, so #623 links
+// straight to the task page with from=shepherd&tab=history — the back link
+// there returns to the 목자 작업 tab.
 func ShepherdReportPayload(taskID int, kind, report string) Payload {
 	label := "목자 보고"
 	switch kind {
@@ -66,7 +67,7 @@ func ShepherdReportPayload(taskID int, kind, report string) Payload {
 	return Payload{
 		Title:  label,
 		Body:   bodyLine(taskID, report),
-		URL:    "/shepherd",
+		URL:    fmt.Sprintf("/tasks/%d?from=shepherd&tab=history", taskID),
 		Tag:    fmt.Sprintf("shepherd-report-%d", taskID),
 		Status: "completed",
 	}

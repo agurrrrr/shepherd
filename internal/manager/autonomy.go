@@ -310,7 +310,7 @@ func notifyCostLimitDefault(spent, limit float64) error {
 		if _, err := push.SendToAll(push.Payload{
 			Title:  title,
 			Body:   body,
-			URL:    "/shepherd",
+			URL:    "/shepherd?tab=attention", // the cap warning belongs to the 확인 필요 tab (#623)
 			Tag:    "shepherd-cost-limit",
 			Status: "warning",
 		}, true); err != nil {

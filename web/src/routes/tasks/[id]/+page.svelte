@@ -53,10 +53,20 @@
 	let isReverted = $derived(!!task?.reverted_at);
 	let from = $derived.by(() => $page.url.searchParams.get('from'));
 	let backFromProject = $derived(from === 'project' && task?.project);
+	// Shepherd screens pass ?from=shepherd&tab=<tab> (#623) — the tab they
+	// sent us from (history / patrols / output / attention). No tab means the
+	// 목자 작업 list, the shepherd screen's default "back" home.
+	let backFromShepherd = $derived(from === 'shepherd');
+	let shepherdBackTab = $derived.by(() => {
+		const t = $page.url.searchParams.get('tab');
+		return ['output', 'history', 'patrols', 'board', 'attention'].includes(t) ? t : 'history';
+	});
 	let backLink = $derived(backFromProject
 		? `/projects/${encodeURIComponent(task.project)}?tab=history`
-		: '/tasks');
-	let backLabel = $derived(backFromProject ? task.project : 'Tasks');
+		: backFromShepherd
+			? `/shepherd?tab=${shepherdBackTab}`
+			: '/tasks');
+	let backLabel = $derived(backFromProject ? task.project : backFromShepherd ? 'Shepherd' : 'Tasks');
 
 	onMount(async () => {
 		const res = await apiGet(`/api/tasks/${taskId}`);

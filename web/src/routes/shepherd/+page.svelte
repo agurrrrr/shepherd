@@ -6,6 +6,7 @@
 	import { onSSE } from '$lib/sse.js';
 	import { appendLiveOutput } from '$lib/liveOutput.js';
 	import { fmtCost } from '$lib/shepherdFormat.js';
+	import { shepherdAttention } from '$lib/stores.js';
 	import PageTabs from '$lib/components/PageTabs.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
@@ -121,8 +122,16 @@
 		(status?.active_delegations ?? 0) >= (status?.max_active_delegations ?? 0)
 	);
 	// Tab list for the shared PageTabs bar: live dot on Live Output while the
-	// manager is working. Count badge on 확인 필요 comes in stage 3/4.
-	let pageTabs = $derived(SHEPHERD_TABS.map((t) => ({ ...t, live: t.id === 'output' && working })));
+	// manager is working, and the 확인 필요 count badge (#623) reads the same
+	// shepherdAttention store as the sidebar badge, so both numbers always
+	// match (attention.js assembles items + pending requests in one place).
+	let pageTabs = $derived(
+		SHEPHERD_TABS.map((t) => ({
+			...t,
+			live: t.id === 'output' && working,
+			badge: t.id === 'attention' ? $shepherdAttention : 0
+		}))
+	);
 
 	// MAGI provider -> slot panel; [SUB:...] demux lines -> subagent panel.
 	// Same routing as the project screen (#7575): without it OutputViewer
@@ -321,7 +330,8 @@
 						<Icon name="terminal" size={28} />
 						<p>아래 입력창으로 목자에게 지시를 보내면 실시간 출력이 여기에 나옵니다.</p>
 						{#if recentTask}
-							<a class="recent-link" href="/tasks/{recentTask.id}">최근 작업 #{recentTask.id} 결과 보기</a>
+							<!-- from=shepherd&tab=output: the task page's back link returns to this tab (#623). -->
+							<a class="recent-link" href="/tasks/{recentTask.id}?from=shepherd&tab=output">최근 작업 #{recentTask.id} 결과 보기</a>
 						{/if}
 					</div>
 				{/if}
@@ -336,12 +346,14 @@
 
 		{#if activeTab === 'patrols'}
 			<div class="tab-fill" role="tabpanel" id="panel-patrols" aria-labelledby="tab-patrols">
-				<ShepherdPatrolLog onRan={() => { loadStatus(); taskRefreshKey += 1; }} />
+				<ShepherdPatrolLog onRan={() => { loadStatus(); taskRefreshKey += 1; }} {status} />
 			</div>
 		{/if}
 
 		{#if activeTab === 'board'}
-			<div class="tab-fill" role="tabpanel" id="panel-board" aria-labelledby="tab-board">
+			<!-- The board manages its own height: filters stay pinned and each
+			     column scrolls inside itself, so this pane must NOT scroll (#623). -->
+			<div class="tab-fill board-pane" role="tabpanel" id="panel-board" aria-labelledby="tab-board">
 				<ShepherdIssueBoard refreshKey={boardRefreshKey} onOpenIssue={(r) => (openIssue = r)} />
 			</div>
 		{/if}
@@ -650,7 +662,12 @@
 		min-height: 0;
 		overflow-y: auto;
 		padding: 2px 2px 8px;
+		display: flex;
+		flex-direction: column;
 	}
+
+	/* Board pane: no scrolling here — the columns scroll inside themselves. */
+	.tab-fill.board-pane { overflow: hidden; }
 
 	/* ---------- Command bar: pinned under the output ---------- */
 	.command-bar {

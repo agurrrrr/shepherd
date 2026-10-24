@@ -375,7 +375,7 @@ func notifyRequestCreated(rec *ShepherdRequestRecord) {
 		if _, err := push.SendToAll(push.Payload{
 			Title:  title,
 			Body:   body,
-			URL:    "/shepherd",
+			URL:    "/shepherd?tab=attention", // the request waits in the 확인 필요 tab (#623)
 			Tag:    fmt.Sprintf("shepherd-request-%d", rec.ID),
 			Status: "warning",
 		}, true); err != nil {

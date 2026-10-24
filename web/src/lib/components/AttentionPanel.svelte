@@ -1,5 +1,5 @@
 <script>
-	import { apiGet, apiPost } from '$lib/api.js';
+	import { apiPost } from '$lib/api.js';
 	import { refreshShepherdAttention } from '$lib/attention.js';
 	import { shepherdAttention } from '$lib/stores.js';
 	import Icon from '$lib/components/Icon.svelte';
@@ -54,7 +54,10 @@
 	async function load() {
 		loading = true;
 		error = '';
-		const [result, reqResult] = await Promise.all([refreshShepherdAttention(), loadRequests()]);
+		// Shared fetch (#623): the store count (items + pending requests) is
+		// what the sidebar badge and the tab badge read, so the panel consumes
+		// the same result instead of firing its own request pair.
+		const { items: result, requests: reqResult } = await refreshShepherdAttention();
 		if (result === null) {
 			error = '확인 필요 항목을 불러오지 못했습니다.';
 			items = [];
@@ -63,15 +66,6 @@
 		}
 		requests = reqResult;
 		loading = false;
-	}
-
-	async function loadRequests() {
-		try {
-			const res = await apiGet('/api/shepherd/requests?status=pending');
-			return res?.success && Array.isArray(res.data?.requests) ? res.data.requests : [];
-		} catch {
-			return [];
-		}
 	}
 
 	async function decideRequest(req, decision) {
@@ -189,7 +183,9 @@
 <div class="attention-panel card">
 	<div class="panel-head">
 		<span class="eyebrow">Needs attention</span>
-		{#if items.length > 0}
+		{#if $shepherdAttention > 0}
+			<!-- Same store the sidebar badge and the tab badge read (#623):
+			     items + pending requests, so all three numbers match. -->
 			<span class="count chip chip-danger mono num" aria-label="{$shepherdAttention}개 확인 필요">{$shepherdAttention}</span>
 		{/if}
 		<span class="panel-head-spacer"></span>
@@ -200,117 +196,127 @@
 		<div class="panel-error" role="alert"><Icon name="alert-triangle" size={14} /> {error}</div>
 	{/if}
 
-	{#if requests.length > 0}
-		<div class="request-head">
-			<span class="eyebrow">Shepherd requests</span>
-			<span class="count chip chip-danger mono num" aria-label="{requests.length}개의 목자 요청">{requests.length}</span>
-		</div>
-		<ul class="request-list">
-			{#each requests as req (req.id)}
-				<li class="request-item" class:busy={requestBusy[req.id]}>
-					<span class="request-icon" aria-hidden="true">
-						<Icon name={kindIcons.cost_limit} size={15} />
-					</span>
-					<div class="request-body">
-						<div class="request-title-row">
-							<strong class="request-kind">{requestKindLabels[req.kind] || req.kind}</strong>
-							{#if req.requester_sheep}
-								<span class="request-chip chip">{req.requester_sheep}</span>
-							{/if}
-							{#if req.project_name}
-								<span class="request-chip chip">{req.project_name}</span>
-							{/if}
-							{#if req.created_at && !String(req.created_at).startsWith('0001')}
-								<span class="request-time mono num" title={req.created_at}>{timeAgo(req.created_at)}</span>
-							{/if}
-						</div>
-						{#if requestTargetLabel(req)}
-							<p class="request-target mono">{requestTargetLabel(req)}</p>
-						{/if}
-						{#if req.reason}
-							<p class="request-reason">{req.reason}</p>
-						{/if}
-						<div class="request-actions">
-							<button
-								class="btn btn-sm btn-primary"
-								onclick={() => decideRequest(req, 'approve')}
-								disabled={requestBusy[req.id]}
-							>승인</button>
-							<button
-								class="btn btn-sm btn-ghost reject"
-								onclick={() => decideRequest(req, 'reject')}
-								disabled={requestBusy[req.id]}
-							>거절</button>
-						</div>
-					</div>
-				</li>
-			{/each}
-		</ul>
-	{/if}
+	<!-- #623: the panel used to live in a 340px side column. On the 확인 필요
+	     tab it owns the full width, so wide screens split the two zones into
+	     columns and cap each column's measure so sentences stay readable.
+	     Narrow screens keep the stacked order (requests first, then items). -->
+	<div class="panel-zones">
+		{#if requests.length > 0}
+			<section class="zone zone-requests" aria-label="목자 요청">
+				<div class="request-head">
+					<span class="eyebrow">Shepherd requests</span>
+					<span class="count chip chip-danger mono num" aria-label="{requests.length}개의 목자 요청">{requests.length}</span>
+				</div>
+				<ul class="request-list">
+					{#each requests as req (req.id)}
+						<li class="request-item" class:busy={requestBusy[req.id]}>
+							<span class="request-icon" aria-hidden="true">
+								<Icon name={kindIcons.cost_limit} size={15} />
+							</span>
+							<div class="request-body">
+								<div class="request-title-row">
+									<strong class="request-kind">{requestKindLabels[req.kind] || req.kind}</strong>
+									{#if req.requester_sheep}
+										<span class="request-chip chip">{req.requester_sheep}</span>
+									{/if}
+									{#if req.project_name}
+										<span class="request-chip chip">{req.project_name}</span>
+									{/if}
+									{#if req.created_at && !String(req.created_at).startsWith('0001')}
+										<span class="request-time mono num" title={req.created_at}>{timeAgo(req.created_at)}</span>
+									{/if}
+								</div>
+								{#if requestTargetLabel(req)}
+									<p class="request-target mono">{requestTargetLabel(req)}</p>
+								{/if}
+								{#if req.reason}
+									<p class="request-reason">{req.reason}</p>
+								{/if}
+								<div class="request-actions">
+									<button
+										class="btn btn-sm btn-primary"
+										onclick={() => decideRequest(req, 'approve')}
+										disabled={requestBusy[req.id]}
+									>승인</button>
+									<button
+										class="btn btn-sm btn-ghost reject"
+										onclick={() => decideRequest(req, 'reject')}
+										disabled={requestBusy[req.id]}
+									>거절</button>
+								</div>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
 
-	{#if loading && items.length === 0}
-		<div class="panel-loading" aria-busy="true">
-			{#each Array(3) as _}
-				<div class="skeleton" style="height: 52px"></div>
-			{/each}
-		</div>
-	{:else if items.length === 0}
-		<div class="panel-empty">
-			<Icon name="check-circle" size={20} />
-			<p>확인할 항목이 없습니다.</p>
-		</div>
-	{:else}
-		<ul class="item-list">
-			{#each items as item (item.fingerprint)}
-				<li class="item sev-{Math.min(item.severity, 7)}" class:busy={busyMap[item.fingerprint]}>
-					<span class="item-icon" aria-hidden="true">
-						<Icon name={kindIcons[item.kind] || 'alert-triangle'} size={15} />
-					</span>
-					<div class="item-body">
-						<div class="item-title-row">
-							<strong class="item-title">{item.title}</strong>
-							{#if item.project}
-								<span class="item-project chip">{item.project}</span>
-							{/if}
-							{#if item.created_at && !item.created_at.startsWith('0001')}
-								<span class="item-time mono num" title={item.created_at}>{timeAgo(item.created_at)}</span>
-							{/if}
-						</div>
-						<p class="item-message">{item.message}</p>
-						<div class="item-actions">
-							{#if actionUrl(item.action_kind) || item.action_kind === 'reset_sheep'}
-								<button
-									class="btn btn-sm"
-									class:btn-danger={item.action_kind === 'stop_task'}
-									onclick={() => runAction(item)}
-									disabled={busyMap[item.fingerprint]}
-								>{actionLabel(item.action_kind)}</button>
-							{/if}
-							{#if item.action_kind === 'open_issue' && item.target_id}
-								<button class="btn btn-sm" onclick={() => onOpenIssue(item)}>이슈 열기</button>
-							{/if}
-							{#if linkHref(item)}
-								<a class="btn btn-sm" href={linkHref(item)}>
-									{item.action_kind === 'open_settings' ? '목자 설정' : '프로젝트'}
-									<Icon name="arrow-up-right" size={12} />
-								</a>
-							{/if}
-							{#if item.target_id && (item.action_kind === 'retry_task' || item.action_kind === 'stop_task')}
-								<a class="btn btn-sm btn-ghost" href="/tasks/{item.target_id}">작업 상세</a>
-							{/if}
-							<span class="item-actions-spacer"></span>
-							<button
-								class="btn btn-sm btn-ghost ack"
-								onclick={() => ack(item)}
-								disabled={busyMap[item.fingerprint]}
-								title="확인했습니다 — 같은 지문의 새 문제가 생기기 전까지는 보여주지 않습니다"
-							><Icon name="check" size={12} stroke={2.4} /> 확인함</button>
-						</div>
-					</div>
-				</li>
-			{/each}
-		</ul>
-	{/if}
+		<section class="zone zone-items" aria-label="확인 필요 항목">
+			{#if loading && items.length === 0}
+				<div class="panel-loading" aria-busy="true">
+					{#each Array(3) as _}
+						<div class="skeleton" style="height: 52px"></div>
+					{/each}
+				</div>
+			{:else if items.length === 0}
+				<div class="panel-empty">
+					<Icon name="check-circle" size={20} />
+					<p>확인할 항목이 없습니다.</p>
+				</div>
+			{:else}
+				<ul class="item-list">
+					{#each items as item (item.fingerprint)}
+						<li class="item sev-{Math.min(item.severity, 7)}" class:busy={busyMap[item.fingerprint]}>
+							<span class="item-icon" aria-hidden="true">
+								<Icon name={kindIcons[item.kind] || 'alert-triangle'} size={15} />
+							</span>
+							<div class="item-body">
+								<div class="item-title-row">
+									<strong class="item-title">{item.title}</strong>
+									{#if item.project}
+										<span class="item-project chip">{item.project}</span>
+									{/if}
+									{#if item.created_at && !item.created_at.startsWith('0001')}
+										<span class="item-time mono num" title={item.created_at}>{timeAgo(item.created_at)}</span>
+									{/if}
+								</div>
+								<p class="item-message">{item.message}</p>
+								<div class="item-actions">
+									{#if actionUrl(item.action_kind) || item.action_kind === 'reset_sheep'}
+										<button
+											class="btn btn-sm"
+											class:btn-danger={item.action_kind === 'stop_task'}
+											onclick={() => runAction(item)}
+											disabled={busyMap[item.fingerprint]}
+										>{actionLabel(item.action_kind)}</button>
+									{/if}
+									{#if item.action_kind === 'open_issue' && item.target_id}
+										<button class="btn btn-sm" onclick={() => onOpenIssue(item)}>이슈 열기</button>
+									{/if}
+									{#if linkHref(item)}
+										<a class="btn btn-sm" href={linkHref(item)}>
+											{item.action_kind === 'open_settings' ? '목자 설정' : '프로젝트'}
+											<Icon name="arrow-up-right" size={12} />
+										</a>
+									{/if}
+									{#if item.target_id && (item.action_kind === 'retry_task' || item.action_kind === 'stop_task')}
+										<a class="btn btn-sm btn-ghost" href="/tasks/{item.target_id}?from=shepherd&tab=attention">작업 상세</a>
+									{/if}
+									<span class="item-actions-spacer"></span>
+									<button
+										class="btn btn-sm btn-ghost ack"
+										onclick={() => ack(item)}
+										disabled={busyMap[item.fingerprint]}
+										title="확인했습니다 — 같은 지문의 새 문제가 생기기 전까지는 보여주지 않습니다"
+									><Icon name="check" size={12} stroke={2.4} /> 확인함</button>
+								</div>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
+	</div>
 </div>
 
 <style>
@@ -348,6 +354,22 @@
 		color: var(--danger);
 		font-size: var(--fs-xs);
 	}
+
+	/* Full-width layout (#623): requests and items sit side by side on wide
+	   screens, each capped at a readable measure instead of stretching the
+	   sentence across the whole tab. Narrow screens stack them. */
+	.panel-zones {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+		gap: 16px;
+		align-items: start;
+	}
+
+	.zone { min-width: 0; }
+
+	.zone-items { max-width: 72ch; }
+
+	.zone-requests { max-width: 64ch; }
 
 	.panel-loading {
 		display: flex;

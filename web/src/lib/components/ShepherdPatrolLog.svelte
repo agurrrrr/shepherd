@@ -3,33 +3,51 @@
 	import { apiGet, apiPost } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
 	import { timeAgo } from '$lib/shepherdFormat.js';
-	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
-	// Patrol log (#621, split out of routes/shepherd/+page.svelte; records
-	// from #600). GET /api/shepherd/patrols — every pass (auto or manual)
-	// stores a record: when the code looked, how many findings were new, which
-	// shepherd task it woke (+ that task's first summary line), and why a wake
-	// was skipped. POST /api/shepherd/patrols/run is the "지금 순찰" button —
-	// same rules as the ticker pass, so it can legitimately report a skip.
+	// Patrol log (#621 split; #623 polish). Records come from
+	// GET /api/shepherd/patrols — every pass (auto or manual) stores one: when
+	// the code looked, how many findings were new, which shepherd task it woke
+	// (+ that task's first summary line), and why a wake was skipped.
+	// POST /api/shepherd/patrols/run is the "지금 순찰" button — same rules as
+	// the ticker pass, so it can legitimately report a skip.
 	//
-	// Owns its data and SSE subscription: an auto pass may store a record, so
-	// the debounced board-refresh events (task_start / task_complete / ... /
-	// reconnect) reload the list here. `refreshKey` lets the page force a
-	// reload; `onRan` tells the page to re-read the shepherd status after a
-	// manual run (the task list refreshes itself via the task_start SSE).
-	let { refreshKey = 0, onRan = () => {} } = $props();
+	// #623: the tab starts at 30 records and grows by 30 per "더 보기" click;
+	// the endpoint caps at 100 (handlers_patrol.go), and rows older than 30
+	// days are pruned by the pass itself, so the cap gets an honest caption.
+	// A row expands in place to list its findings (kind/severity/title/message,
+	// plus a board link when the finding carries a project) — the old one-line
+	// join of titles was always cut off.
+	let { refreshKey = 0, onRan = () => {}, status = null } = $props();
+
+	const PAGE_STEP = 30;
+	const API_CAP = 100; // handlers_patrol.go clamps limit to 100
 
 	let patrols = $state([]);
+	let patrolLimit = $state(PAGE_STEP);
 	let patrolLoaded = $state(false);
 	let patrolBusy = $state(false);
 	let patrolMsg = $state('');
+	let expandedId = $state(null);
+
+	const severityLabels = { 0: '낮음', 1: '낮음', 2: '보통', 3: '보통', 4: '높음', 5: '높음' };
+
+	function severityChipClass(sev) {
+		if (sev >= 5) return 'chip-danger';
+		if (sev >= 3) return 'chip-accent';
+		return 'chip-info';
+	}
 
 	async function loadPatrols() {
-		const res = await apiGet('/api/shepherd/patrols?limit=10');
+		const res = await apiGet(`/api/shepherd/patrols?limit=${patrolLimit}`);
 		if (res?.data) patrols = res.data.patrols || [];
 		patrolLoaded = true;
+	}
+
+	function loadMore() {
+		patrolLimit = Math.min(patrolLimit + PAGE_STEP, API_CAP);
+		loadPatrols();
 	}
 
 	async function runPatrolNow() {
@@ -55,6 +73,10 @@
 			patrolBusy = false;
 			setTimeout(() => (patrolMsg = ''), 6000);
 		}
+	}
+
+	function toggleRow(id) {
+		expandedId = expandedId === id ? null : id;
 	}
 
 	let unsubs = [];
@@ -91,19 +113,34 @@
 	});
 </script>
 
-<section class="block" aria-label="순찰 기록">
-	<SectionHeader index="03" eyebrow="Patrol" title="순찰 기록"
-		subtitle="코드가 관리 범위를 점검한 결과입니다. 새 이상이 있을 때만 목자 순찰 작업을 만듭니다.">
+<section class="patrol-tab" aria-label="순찰 기록">
+	<!-- One line: patrol cadence / next pass on the left, actions on the right. -->
+	<div class="patrol-bar">
+		{#if status?.patrol_enabled}
+			<span class="cadence-chip chip mono" title="다음 자동 순찰 시각">
+				순찰 주기 {status.patrol_interval || '—'} · 다음 순찰 {(status.next_patrol_at || '').slice(5, 16) || '—'}
+			</span>
+		{:else if status}
+			<span class="cadence-chip chip cadence-off">
+				순찰이 꺼져 있습니다. <a class="cadence-link" href="/settings">설정 → 목자</a>에서 켤 수 있습니다.
+			</span>
+		{:else}
+			<span class="skeleton cadence-skeleton" aria-hidden="true"></span>
+		{/if}
+
 		{#if patrolMsg}
 			<span class="patrol-msg" role="status">{patrolMsg}</span>
 		{/if}
+
+		<span class="patrol-bar-spacer"></span>
+
 		<button class="btn btn-sm btn-ghost" onclick={runPatrolNow} disabled={patrolBusy} aria-label="지금 순찰">
 			<Icon name={patrolBusy ? 'refresh-cw' : 'search'} size={13} /> {patrolBusy ? '순찰 중…' : '지금 순찰'}
 		</button>
 		<button class="btn btn-sm btn-ghost" onclick={loadPatrols} aria-label="새로고침">
 			<Icon name="refresh-cw" size={13} />
 		</button>
-	</SectionHeader>
+	</div>
 
 	{#if !patrolLoaded}
 		<div class="card" aria-busy="true">
@@ -118,38 +155,122 @@
 	{:else}
 		<div class="patrol-table">
 			{#each patrols as p, i (p.id)}
-				<div class="patrol-row reveal" style="--i: {i}">
-					<span class="patrol-time mono num" title={p.created_at}>{timeAgo(p.created_at)}</span>
-					<span class="patrol-new chip {p.new_count > 0 ? 'chip-danger' : 'chip-info'} mono num"
-						title="{(p.findings || []).length}개 항목 점검">새 이상 {p.new_count}</span>
-					<div class="patrol-body">
-						{#if p.task_id}
-							<a class="patrol-task-link" href="/tasks/{p.task_id}">
-								목자 순찰 작업 #{p.task_id}
-								{#if p.task_summary}<span class="patrol-summary">{p.task_summary}</span>{/if}
-							</a>
-						{:else if p.skipped_reason}
-							<span class="patrol-skip" title={p.skipped_reason}>건너뜀 — {p.skipped_reason}</span>
-						{:else if (p.findings || []).length > 0}
-							<span class="patrol-items">{(p.findings || []).map((f) => f.title).join(' · ')}</span>
-						{:else}
-							<span class="patrol-none">확인할 항목 없음</span>
-						{/if}
+				{@const findings = p.findings || []}
+				<div class="patrol-entry reveal" style="--i: {i}">
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<div class="patrol-row" role="button" tabindex="0"
+						aria-expanded={expandedId === p.id}
+						onclick={() => toggleRow(p.id)}
+						onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRow(p.id); } }}>
+						<span class="patrol-caret" aria-hidden="true">
+							<Icon name={expandedId === p.id ? 'chevron-down' : 'chevron-right'} size={13} />
+						</span>
+						<span class="patrol-time mono num" title={p.created_at}>{timeAgo(p.created_at)}</span>
+						<span class="patrol-new chip {p.new_count > 0 ? 'chip-danger' : 'chip-info'} mono num"
+							title="{findings.length}개 항목 점검">새 이상 {p.new_count}</span>
+						<div class="patrol-body">
+							{#if p.task_id}
+								<a class="patrol-task-link" href="/tasks/{p.task_id}?from=shepherd&tab=patrols"
+									onclick={(e) => e.stopPropagation()}>
+									목자 순찰 작업 #{p.task_id}
+									{#if p.task_summary}<span class="patrol-summary">{p.task_summary}</span>{/if}
+								</a>
+							{:else if p.skipped_reason}
+								<span class="patrol-skip" title={p.skipped_reason}>건너뜀 — {p.skipped_reason}</span>
+							{:else if findings.length > 0}
+								<span class="patrol-items">{findings.length}개 점검 항목 — 행을 눌러 보세요</span>
+							{:else}
+								<span class="patrol-none">확인할 항목 없음</span>
+							{/if}
+						</div>
 					</div>
+
+					{#if expandedId === p.id}
+						{#if findings.length > 0}
+							<ul class="finding-list">
+								{#each findings as f, fi (f.fingerprint || fi)}
+									<li class="finding sev-{Math.min(f.severity ?? 0, 7)}">
+										<span class="finding-sev chip {severityChipClass(f.severity ?? 0)} mono num"
+											title="심각도 {f.severity}">{severityLabels[f.severity] ?? ('sev ' + f.severity)}</span>
+										<div class="finding-body">
+											<strong class="finding-title">{f.title}</strong>
+											{#if f.message}<p class="finding-message">{f.message}</p>{/if}
+										</div>
+										{#if f.project}
+											<!-- The finding carries only a project name (PatrolFinding), so the
+											     link opens the board tab with that project filter — no issue id. -->
+											<a class="finding-project chip" href="/shepherd?tab=board&project={encodeURIComponent(f.project)}"
+												title="이슈 보드에서 {f.project} 보기">{f.project}<Icon name="arrow-up-right" size={11} /></a>
+										{/if}
+									</li>
+								{/each}
+							</ul>
+						{:else}
+							<p class="finding-empty">이 순찰은 점검 항목을 기록하지 않았습니다.</p>
+						{/if}
+					{/if}
 				</div>
 			{/each}
 		</div>
+
+		{#if patrols.length >= patrolLimit && patrolLimit < API_CAP}
+			<button class="btn btn-sm btn-ghost more" onclick={loadMore}>
+				더 보기 (지금 {patrols.length}개까지)
+			</button>
+		{:else if patrols.length >= API_CAP}
+			<p class="patrol-cap">최근 100개까지만 보여 줍니다. 순찰 기록은 30일이 지나면 지워집니다.</p>
+		{/if}
 	{/if}
 </section>
 
 <style>
-	/* ===== Patrol log (#600) ===== */
+	.patrol-tab {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+
+	/* ---------- Top bar: cadence + actions ---------- */
+	.patrol-bar {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+		margin-bottom: 12px;
+	}
+
+	.cadence-chip {
+		font-size: var(--fs-2xs);
+		background: rgba(237, 230, 218, 0.04);
+		border-color: var(--border-subtle);
+		color: var(--text-secondary);
+	}
+
+	.cadence-link { color: var(--accent); text-decoration: none; }
+	.cadence-link:hover { text-decoration: underline; }
+
+	.cadence-off {
+		color: var(--warning);
+		background: var(--warning-soft, rgba(244, 184, 96, 0.12));
+		border-color: var(--warning-line, rgba(244, 184, 96, 0.25));
+	}
+
+	.cadence-skeleton {
+		display: inline-block;
+		width: 220px;
+		height: 22px;
+		border-radius: var(--radius-full);
+	}
+
 	.patrol-msg {
 		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 		margin-right: 4px;
 	}
 
+	.patrol-bar-spacer { margin-left: auto; }
+
+	/* ---------- Rows ---------- */
 	.patrol-table {
 		display: flex;
 		flex-direction: column;
@@ -160,16 +281,22 @@
 		box-shadow: var(--sheen);
 	}
 
+	.patrol-entry + .patrol-entry { box-shadow: 0 -1px 0 var(--border-subtle); }
+
 	.patrol-row {
 		display: grid;
-		grid-template-columns: 72px 88px minmax(0, 1fr);
+		grid-template-columns: 18px 72px 88px minmax(0, 1fr);
 		align-items: center;
 		gap: 12px;
 		padding: 10px 12px;
 		border-radius: var(--radius);
+		cursor: pointer;
 	}
 
-	.patrol-row + .patrol-row { box-shadow: 0 -1px 0 var(--border-subtle); }
+	.patrol-row:hover,
+	.patrol-row:focus-visible { background: rgba(237, 230, 218, 0.035); }
+
+	.patrol-caret { color: var(--text-tertiary); display: inline-flex; }
 
 	.patrol-time { font-size: var(--fs-xs); color: var(--text-tertiary); }
 
@@ -210,9 +337,81 @@
 
 	.patrol-none { color: var(--text-tertiary); font-size: var(--fs-xs); }
 
+	/* ---------- Expanded findings ---------- */
+	.finding-list {
+		list-style: none;
+		margin: 0;
+		padding: 4px 12px 12px 42px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.finding {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr) auto;
+		align-items: start;
+		gap: 10px;
+		padding: 8px 10px;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius);
+		background: var(--bg-3);
+	}
+
+	.finding.sev-5, .finding.sev-6, .finding.sev-7 { border-color: var(--danger-line, rgba(224, 108, 117, 0.3)); }
+
+	.finding-sev { font-size: var(--fs-2xs); white-space: nowrap; }
+
+	.finding-body { min-width: 0; }
+
+	.finding-title { font-size: var(--fs-sm); color: var(--text-primary); font-weight: var(--fw-medium); }
+
+	.finding-message {
+		margin: 4px 0 0;
+		font-size: var(--fs-xs);
+		color: var(--text-secondary);
+		overflow-wrap: anywhere;
+	}
+
+	.finding-project {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		max-width: 150px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--fs-2xs);
+		text-decoration: none;
+		color: var(--text-secondary);
+		border: 1px solid var(--border-subtle);
+		background: rgba(237, 230, 218, 0.04);
+	}
+
+	.finding-project:hover { border-color: var(--border-strong); color: var(--text-primary); text-decoration: none; }
+
+	.finding-empty {
+		margin: 0;
+		padding: 0 12px 12px 42px;
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+	}
+
+	.more { align-self: flex-start; margin-top: 10px; }
+
+	.patrol-cap {
+		margin: 10px 0 0;
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+	}
+
 	@media (max-width: 640px) {
-		.patrol-row { grid-template-columns: 64px minmax(0, 1fr); }
+		.patrol-row { grid-template-columns: 18px minmax(0, 1fr); }
+		.patrol-time { grid-column: 2; }
 		.patrol-new { grid-row: 2; grid-column: 2; justify-self: start; }
 		.patrol-body { grid-column: 2; }
+		.finding-list { padding-left: 12px; }
+		.finding { grid-template-columns: auto minmax(0, 1fr); }
+		.finding-project { grid-column: 2; justify-self: start; }
 	}
 </style>

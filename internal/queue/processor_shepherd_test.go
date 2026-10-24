@@ -331,6 +331,98 @@ func TestListShepherdTasks(t *testing.T) {
 	}
 }
 
+// ListShepherdTasksFiltered adds offset paging + prompt/summary search, and
+// CountShepherdTasks counts the same filter (#623). Created timestamps are
+// pinned so the newest-first order is deterministic.
+func TestListShepherdTasksFilterPagingSearch(t *testing.T) {
+	client, _ := shepherdDispatchTestEnv(t)
+
+	ctx := context.Background()
+	mgr := client.Sheep.Query().Where(sheep.Name(names.ManagerName)).OnlyX(ctx)
+
+	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	mk := func(kind, prompt, summary string, minute int) *ent.Task {
+		row := client.Task.Create().
+			SetPrompt(prompt).
+			SetStatus(task.StatusPending).
+			SetSheepID(mgr.ID).
+			SetShepherdKind(kind).
+			SetCreatedAt(base.Add(time.Minute * time.Duration(minute))).
+			SaveX(ctx)
+		if summary != "" {
+			row = client.Task.UpdateOneID(row.ID).SetSummary(summary).SaveX(ctx)
+		}
+		return row
+	}
+
+	first := mk("command", "check the workspace flock", "", 0)
+	second := mk("review", "unrelated prompt", "report mentions workspace health", 1)
+	mk("patrol", "patrol sweep", "", 2) // newest, no match for "workspace"
+
+	// Count matches the same filter regardless of Limit/Offset.
+	total, err := CountShepherdTasks(ShepherdTaskFilter{})
+	if err != nil {
+		t.Fatalf("CountShepherdTasks: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("total = %d, want 3", total)
+	}
+
+	// Offset paging: page 2 with limit 2 returns the oldest row.
+	page2, err := ListShepherdTasksFiltered(ShepherdTaskFilter{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("ListShepherdTasksFiltered(offset): %v", err)
+	}
+	if len(page2) != 1 || page2[0].ID != first.ID {
+		t.Errorf("offset page = %+v, want only #%d", page2, first.ID)
+	}
+
+	// Search hits the prompt field.
+	byPrompt, err := ListShepherdTasksFiltered(ShepherdTaskFilter{Query: "flock"})
+	if err != nil {
+		t.Fatalf("ListShepherdTasksFiltered(query prompt): %v", err)
+	}
+	if len(byPrompt) != 1 || byPrompt[0].ID != first.ID {
+		t.Errorf("prompt search = %+v, want only #%d", byPrompt, first.ID)
+	}
+
+	// Search hits the summary field (same Or() shape as GET /api/tasks).
+	bySummary, err := ListShepherdTasksFiltered(ShepherdTaskFilter{Query: "workspace health"})
+	if err != nil {
+		t.Fatalf("ListShepherdTasksFiltered(query summary): %v", err)
+	}
+	if len(bySummary) != 1 || bySummary[0].ID != second.ID {
+		t.Errorf("summary search = %+v, want only #%d", bySummary, second.ID)
+	}
+
+	// Count honors the search term too, so total_pages is right.
+	matched, err := CountShepherdTasks(ShepherdTaskFilter{Query: "workspace"})
+	if err != nil {
+		t.Fatalf("CountShepherdTasks(query): %v", err)
+	}
+	if matched != 2 {
+		t.Errorf("count(query=workspace) = %d, want 2 (prompt + summary rows)", matched)
+	}
+
+	// Filters compose: kind + query.
+	combo, err := ListShepherdTasksFiltered(ShepherdTaskFilter{Kind: "review", Query: "workspace"})
+	if err != nil {
+		t.Fatalf("ListShepherdTasksFiltered(kind+query): %v", err)
+	}
+	if len(combo) != 1 || combo[0].ID != second.ID {
+		t.Errorf("kind+query = %+v, want only #%d", combo, second.ID)
+	}
+
+	// The thin wrapper keeps working unchanged.
+	wrapped, err := ListShepherdTasks("patrol", "", 0)
+	if err != nil {
+		t.Fatalf("ListShepherdTasks wrapper: %v", err)
+	}
+	if len(wrapped) != 1 {
+		t.Errorf("wrapper = %+v, want the single patrol row", wrapped)
+	}
+}
+
 // CreateManagerTask keeps its old shape (priority 0, no kind).
 func TestCreateManagerTaskUnchangedShape(t *testing.T) {
 	client, _ := shepherdDispatchTestEnv(t)

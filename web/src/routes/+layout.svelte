@@ -165,21 +165,30 @@
 	}
 </script>
 
-{#snippet navLink(href, icon, label, active, dot = '', badge = 0)}
-	<a {href} class="nav-item" class:active aria-current={active ? 'page' : undefined}>
-		<Icon name={icon} size={17} stroke={1.75} />
-		<span>{label}</span>
-		{#if dot || badge > 0}
-			<span class="nav-tail">
-				{#if dot}
-					<span class="status-dot {dot}" aria-hidden="true"></span>
-				{/if}
-				{#if badge > 0}
-					<span class="nav-badge mono num" title="{badge}개 확인 필요">{badge}</span>
-				{/if}
-			</span>
+{#snippet navLink(href, icon, label, active, dot = '', badge = 0, badgeHref = '')}
+	<!-- #623: badgeHref turns the count chip into its own link (the Shepherd
+	     row's 확인 필요 badge opens ?tab=attention). The chip cannot nest
+	     inside the nav <a>, so it sits next to it in a row wrapper. -->
+	<div class="nav-row">
+		<a {href} class="nav-item" class:active aria-current={active ? 'page' : undefined}>
+			<Icon name={icon} size={17} stroke={1.75} />
+			<span>{label}</span>
+			{#if dot || (badge > 0 && !badgeHref)}
+				<span class="nav-tail">
+					{#if dot}
+						<span class="status-dot {dot}" aria-hidden="true"></span>
+					{/if}
+					{#if badge > 0 && !badgeHref}
+						<span class="nav-badge mono num" title="{badge}개 확인 필요">{badge}</span>
+					{/if}
+				</span>
+			{/if}
+		</a>
+		{#if badge > 0 && badgeHref}
+			<a class="nav-badge nav-badge-link mono num" href={badgeHref}
+				title="{badge}개 확인 필요 — 확인 필요 탭에서 열기">{badge}</a>
 		{/if}
-	</a>
+	</div>
 {/snippet}
 
 {#if $page.url.pathname === '/login'}
@@ -221,7 +230,7 @@
 			<nav class="sidebar-nav" aria-label="Primary">
 				<span class="nav-label">Watch</span>
 				{@render navLink('/', 'layout-dashboard', 'Dashboard', $page.url.pathname === '/')}
-				{@render navLink('/shepherd', 'sheep', 'Shepherd', $page.url.pathname.startsWith('/shepherd'), shepherdWorking ? 'working' : '', $shepherdAttention)}
+				{@render navLink('/shepherd', 'sheep', 'Shepherd', $page.url.pathname.startsWith('/shepherd'), shepherdWorking ? 'working' : '', $shepherdAttention, '/shepherd?tab=attention')}
 
 				<!-- Projects accordion -->
 				<div class="nav-group">
@@ -485,7 +494,16 @@
 		line-height: 18px;
 	}
 
-	/* Attention badge slot on nav items (Shepherd row, #598; filled in stage #7) */
+	/* Attention badge slot on nav items (Shepherd row, #598; badge became a
+	   link to the 확인 필요 tab in #623) */
+	.nav-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.nav-row .nav-item { min-width: 0; }
+
 	.nav-tail {
 		margin-left: auto;
 		display: inline-flex;
@@ -504,6 +522,17 @@
 		border-radius: var(--radius-full);
 		line-height: 17px;
 	}
+
+	/* #623: the badge is its own link — flex-shrink: 0 keeps it beside the
+	   (possibly truncated) label instead of collapsing. */
+	.nav-badge-link {
+		flex-shrink: 0;
+		margin-left: auto;
+		text-decoration: none;
+		cursor: pointer;
+	}
+
+	.nav-badge-link:hover { filter: brightness(1.2); }
 
 	.nav-chevron {
 		display: inline-flex;

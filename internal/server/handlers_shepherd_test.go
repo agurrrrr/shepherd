@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -623,6 +624,93 @@ func TestHandleListShepherdTasksFilters(t *testing.T) {
 	}
 
 	for _, bad := range []string{"?kind=bogus", "?status=bogus", "?limit=0", "?limit=abc"} {
+		if code, _ = getShepherdTasks(t, app, bad); code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", bad, code)
+		}
+	}
+}
+
+// Pagination + search (#623): page/q are accepted, the data object carries
+// total/total_pages/page, and a limit-only call (the console's limit=1 link)
+// keeps working. Bad page values are a 400.
+func TestHandleListShepherdTasksPagingSearch(t *testing.T) {
+	withShepherdTestEnv(t)
+	app := shepherdApp(t)
+	ctx := context.Background()
+
+	mgr, err := worker.GetOrCreateManager()
+	if err != nil {
+		t.Fatalf("GetOrCreateManager: %v", err)
+	}
+
+	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		db.Client().Task.Create().
+			SetPrompt(fmt.Sprintf("command task %d", i)).
+			SetStatus(task.StatusCompleted).
+			SetSheepID(mgr.ID).SetShepherdKind("command").
+			SetCreatedAt(base.Add(time.Duration(i) * time.Minute)).SaveX(ctx)
+	}
+	needle := db.Client().Task.Create().
+		SetPrompt("ordinary prompt").
+		SetSummary("the summary mentions needle here").
+		SetStatus(task.StatusCompleted).
+		SetSheepID(mgr.ID).SetShepherdKind("review").
+		SetCreatedAt(base.Add(10 * time.Minute)).SaveX(ctx)
+
+	dataOf := func(payload map[string]any) map[string]any {
+		return payload["data"].(map[string]any)
+	}
+
+	// Page 1 of 2 with limit=2: newest first, total fields present.
+	code, payload := getShepherdTasks(t, app, "?page=1&limit=2")
+	if code != http.StatusOK {
+		t.Fatalf("page=1: status = %d payload=%v", code, payload)
+	}
+	data := dataOf(payload)
+	if data["total"] != float64(4) || data["total_pages"] != float64(2) || data["page"] != float64(1) {
+		t.Errorf("paging fields = total=%v total_pages=%v page=%v, want 4/2/1",
+			data["total"], data["total_pages"], data["page"])
+	}
+	items := data["tasks"].([]any)
+	if len(items) != 2 || int(items[0].(map[string]any)["id"].(float64)) != needle.ID {
+		t.Errorf("page 1 items = %v, want 2 rows starting with the newest #%d", items, needle.ID)
+	}
+
+	// Page 2 exists and returns the rest.
+	code, payload = getShepherdTasks(t, app, "?page=2&limit=2")
+	if code != http.StatusOK {
+		t.Fatalf("page=2: status = %d", code)
+	}
+	data = dataOf(payload)
+	if len(data["tasks"].([]any)) != 2 || data["page"] != float64(2) {
+		t.Errorf("page 2 = %v, want 2 items with page=2", data["tasks"])
+	}
+
+	// Search matches prompt OR summary — same fields as GET /api/tasks.
+	code, payload = getShepherdTasks(t, app, "?q=needle")
+	if code != http.StatusOK {
+		t.Fatalf("q=needle: status = %d", code)
+	}
+	data = dataOf(payload)
+	items = data["tasks"].([]any)
+	if data["total"] != float64(1) || len(items) != 1 ||
+		int(items[0].(map[string]any)["id"].(float64)) != needle.ID {
+		t.Errorf("q=needle = total=%v items=%v, want only the summary match #%d", data["total"], items, needle.ID)
+	}
+
+	// limit-only callers (the empty-output "최근 작업" link sends limit=1)
+	// are unaffected.
+	code, payload = getShepherdTasks(t, app, "?limit=1")
+	if code != http.StatusOK {
+		t.Fatalf("limit=1: status = %d", code)
+	}
+	data = dataOf(payload)
+	if len(data["tasks"].([]any)) != 1 || data["total"] != float64(4) {
+		t.Errorf("limit=1 = %v, want 1 item with total=4", data["tasks"])
+	}
+
+	for _, bad := range []string{"?page=0", "?page=-1", "?page=abc"} {
 		if code, _ = getShepherdTasks(t, app, bad); code != http.StatusBadRequest {
 			t.Errorf("%s: status = %d, want 400", bad, code)
 		}

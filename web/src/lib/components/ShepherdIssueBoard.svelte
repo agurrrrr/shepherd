@@ -327,9 +327,15 @@
 </section>
 
 <style>
-	/* Section spacing — the page's .block rule is scoped, so each split
-	   section carries its own copy (#621). */
-	.block { margin-bottom: var(--space-8); }
+	/* #623: the board sits in its own full-height tab pane (the page gives it
+	   a flex column with overflow hidden). The filter rows and project chips
+	   stay pinned at the top of the tab; only .col-list scrolls. */
+	.block {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
+	}
 
 	/* ===== Issue board (#599) ===== */
 	.board-filters {
@@ -385,10 +391,16 @@
 		display: grid;
 		grid-template-columns: repeat(5, minmax(0, 1fr));
 		gap: 10px;
+		flex: 1;
+		min-height: 0;
+		align-items: stretch;
 	}
 
 	.board-col {
+		display: flex;
+		flex-direction: column;
 		min-width: 0;
+		min-height: 0;
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
 		background: var(--bg-2);
@@ -420,7 +432,8 @@
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
-		max-height: 62vh;
+		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
 	}
 
@@ -522,11 +535,12 @@
 
 	.more { align-self: flex-start; }
 
-	@media (max-width: 1100px) {
-		.board-columns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-	}
-
-	@media (max-width: 860px) {
+	/* #623: the board lost its 340px side panel, so it owns the whole tab.
+	   Five columns stay five columns down to the mobile breakpoint — the old
+	   1100px "three columns" step was sized for the split layout and left
+	   dead space on a full-width screen. Below 768px (the mobile topbar's
+	   own breakpoint) the status tabs pick one visible column instead. */
+	@media (max-width: 768px) {
 		/* Narrow screens: status tabs pick one visible column. The columns stay
 		   in the DOM; only the active one shows. */
 		.narrow-tabs {

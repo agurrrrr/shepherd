@@ -555,6 +555,12 @@ func (s *Server) handleCreateShepherdTask(c *fiber.Ctx) error {
 }
 
 // GET /api/shepherd/tasks
+//
+// Filters: kind, status, q (prompt/summary substring — same fields as GET
+// /api/tasks), plus pagination page (1-based) and limit (#623). The data
+// object carries total/total_pages/page next to the tasks array; callers that
+// only send `limit` (the console's "recent task" link sends limit=1) keep
+// working unchanged.
 func (s *Server) handleListShepherdTasks(c *fiber.Ctx) error {
 	kind := strings.TrimSpace(c.Query("kind"))
 	if kind != "" && !manager.ValidKind(kind) {
@@ -578,10 +584,43 @@ func (s *Server) handleListShepherdTasks(c *fiber.Ctx) error {
 		}
 		limit = n
 	}
+	if limit > 100 {
+		limit = 100 // the screen lists a page, not the whole table
+	}
 
-	tasks, err := queue.ListShepherdTasks(kind, status, limit)
+	// page is strict (#623): 0, negatives, and non-numbers are a client error.
+	page := 1
+	if raw := strings.TrimSpace(c.Query("page")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			return fail(c, fiber.StatusBadRequest, "page must be a positive integer")
+		}
+		page = n
+	}
+
+	q := strings.TrimSpace(c.Query("q"))
+
+	filter := queue.ShepherdTaskFilter{Kind: kind, Status: status, Query: q}
+
+	total, err := queue.CountShepherdTasks(filter)
 	if err != nil {
 		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	filter.Offset = (page - 1) * limit
+	filter.Limit = limit
+
+	tasks, err := queue.ListShepherdTasksFiltered(filter)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	totalPages := total / limit
+	if total%limit > 0 {
+		totalPages++
+	}
+	if totalPages < 1 {
+		totalPages = 1
 	}
 
 	items := make([]map[string]interface{}, 0, len(tasks))
@@ -607,7 +646,10 @@ func (s *Server) handleListShepherdTasks(c *fiber.Ctx) error {
 	}
 
 	return success(c, map[string]interface{}{
-		"tasks": items,
-		"count": len(items),
+		"tasks":       items,
+		"count":       len(items),
+		"total":       total,
+		"total_pages": totalPages,
+		"page":        page,
 	})
 }

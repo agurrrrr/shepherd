@@ -325,49 +325,101 @@ func ListTasksByProject(projectName string) ([]*ent.Task, error) {
 	return tasks, nil
 }
 
-// ListShepherdTasks returns shepherd (목자) tasks — tasks whose shepherd_kind
-// is non-empty (#594) — newest first, optionally filtered by kind
-// ("command"/"review"/"patrol") and status. Only the columns the shepherd
-// console renders are selected: the task row carries the full output log, and
-// loading it for every row made list queries read hundreds of megabytes
-// (same reasoning as ListTasksByProject).
-func ListShepherdTasks(kind, status string, limit int) ([]*ent.Task, error) {
-	ctx := context.Background()
+// ShepherdTaskFilter narrows the shepherd (목자) task list (#623). Query is a
+// substring matched against prompt OR summary — the same pair of fields and
+// the same Or() shape GET /api/tasks uses (handlers_task.go), so search feels
+// identical across screens. Limit/Offset drive pagination; zero Limit means
+// "no cap" (the wrapper ListShepherdTasks relies on that).
+type ShepherdTaskFilter struct {
+	Kind   string // "" = every kind
+	Status string // "" = every status
+	Query  string // "" = no search
+	Limit  int
+	Offset int
+}
+
+// shepherdTaskBase builds the shared filtered query for list + count so the
+// two never drift apart (#623: the response carries `total` for the same
+// filter). Select/Order/Offset/Limit live in the list path — ent's COUNT
+// chokes on a selected-column list, and GET /api/tasks counts before
+// selecting too.
+func shepherdTaskBase(f ShepherdTaskFilter) *ent.TaskQuery {
 	client := db.ReadClient()
 
-	query := client.Task.Query().
-		Where(task.ShepherdKindNEQ("")).
-		Select(
-			task.FieldID,
-			task.FieldStatus,
-			task.FieldPrompt,
-			task.FieldSummary,
-			task.FieldError,
-			task.FieldShepherdKind,
-			task.FieldModel,
-			task.FieldCostUsd,
-			task.FieldCreatedAt,
-			task.FieldStartedAt,
-			task.FieldCompletedAt,
-		).
-		Order(ent.Desc(task.FieldCreatedAt))
+	query := client.Task.Query().Where(task.ShepherdKindNEQ(""))
 
-	if kind != "" {
-		query = query.Where(task.ShepherdKindEQ(kind))
+	if f.Kind != "" {
+		query = query.Where(task.ShepherdKindEQ(f.Kind))
 	}
-	if status != "" {
-		query = query.Where(task.StatusEQ(task.Status(status)))
+	if f.Status != "" {
+		query = query.Where(task.StatusEQ(task.Status(f.Status)))
 	}
-	if limit > 0 {
-		query = query.Limit(limit)
+	if q := strings.TrimSpace(f.Query); q != "" {
+		query = query.Where(
+			task.Or(
+				task.PromptContains(q),
+				task.SummaryContains(q),
+			),
+		)
+	}
+	return query
+}
+
+// ListShepherdTasksFiltered returns shepherd tasks (#594: shepherd_kind is
+// non-empty) newest first, with offset pagination and prompt/summary search
+// (#623). Only the columns the shepherd console renders are selected: the
+// task row carries the full output log, and loading it for every row made
+// list queries read hundreds of megabytes (same reasoning as
+// ListTasksByProject).
+func ListShepherdTasksFiltered(f ShepherdTaskFilter) ([]*ent.Task, error) {
+	ctx := context.Background()
+
+	sel := shepherdTaskBase(f).Select(
+		task.FieldID,
+		task.FieldStatus,
+		task.FieldPrompt,
+		task.FieldSummary,
+		task.FieldError,
+		task.FieldShepherdKind,
+		task.FieldModel,
+		task.FieldCostUsd,
+		task.FieldCreatedAt,
+		task.FieldStartedAt,
+		task.FieldCompletedAt,
+	).Order(ent.Desc(task.FieldCreatedAt))
+
+	if f.Offset > 0 {
+		sel = sel.Offset(f.Offset)
+	}
+	if f.Limit > 0 {
+		sel = sel.Limit(f.Limit)
 	}
 
-	tasks, err := query.All(ctx)
+	tasks, err := sel.All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list shepherd tasks: %w", err)
 	}
 
 	return tasks, nil
+}
+
+// CountShepherdTasks counts the rows ListShepherdTasksFiltered would return
+// for the same filter without Limit/Offset (the `total` field of the list
+// response, #623).
+func CountShepherdTasks(f ShepherdTaskFilter) (int, error) {
+	ctx := context.Background()
+
+	total, err := shepherdTaskBase(f).Count(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count shepherd tasks: %w", err)
+	}
+	return total, nil
+}
+
+// ListShepherdTasks is the thin pre-#623 wrapper (kind/status/limit, no
+// offset or search) kept so older callers keep compiling.
+func ListShepherdTasks(kind, status string, limit int) ([]*ent.Task, error) {
+	return ListShepherdTasksFiltered(ShepherdTaskFilter{Kind: kind, Status: status, Limit: limit})
 }
 
 // ShepherdTodayStats counts shepherd (목자) tasks created today and sums their
