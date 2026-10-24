@@ -502,11 +502,28 @@ func (p *Processor) dispatchShepherd(maxConcurrent int, groupLimits map[string]i
 		return
 	}
 
-	// Workspace gate: the manager's working directory. Unset or missing →
-	// leave the task pending for the next tick.
-	workspace, wsErr := p.shepherdWorkspace()
-	if wsErr != "" {
-		return
+	// Work directory. Two shapes reach here (#629):
+	//   - kind-marked shepherd tasks (command/review/patrol) have no project
+	//     row by design, so the configured workspace_path is their working
+	//     directory. Unset or missing → leave the task pending for the next
+	//     tick: shepherd work is user-visible intent, so failing it silently
+	//     would lose the request.
+	//   - project-linked manager tasks (issue_execute, POST /api/tasks with an
+	//     explicit project, retry copies) run in that project's path — the
+	//     same directory an ordinary sheep would use for the same work. They
+	//     must not depend on workspace_path: the issue asked for a task to run
+	//     against its project, and that is exactly what the link records.
+	workDir := ""
+	projectName := ""
+	if task.Edges.Project != nil {
+		workDir = task.Edges.Project.Path
+		projectName = task.Edges.Project.Name
+	} else {
+		workspace, wsErr := p.shepherdWorkspace()
+		if wsErr != "" {
+			return
+		}
+		workDir = workspace
 	}
 
 	// Gate 1: global ceiling (includes tasks dispatched earlier this tick).
@@ -531,10 +548,11 @@ func (p *Processor) dispatchShepherd(maxConcurrent int, groupLimits map[string]i
 		return
 	}
 
-	// projectName is empty for shepherd tasks: there is no project row. The
-	// SSE hub, Discord notifier, and web push all tolerate an empty project
-	// (Discord renders "-", push titles omit it).
-	go p.executeTask(names.ManagerName, "", workspace, task.ID, task.Prompt)
+	// projectName is empty for kind-marked shepherd tasks: there is no project
+	// row. The SSE hub, Discord notifier, and web push all tolerate an empty
+	// project (Discord renders "-", push titles omit it). Project-linked
+	// manager tasks (#629) carry their real project name instead.
+	go p.executeTask(names.ManagerName, projectName, workDir, task.ID, task.Prompt)
 	dispatchedByGroup[gKey]++
 }
 
@@ -675,10 +693,16 @@ func (p *Processor) executeTask(sheepName, projectName, projectPath string, task
 		}
 	})
 
-	// Shepherd (목자) task handling (#594). shepherd_kind is non-empty only on
-	// manager tasks created by manager.EnqueueShepherdTask.
+	// Shepherd (목자) task handling (#594, extended by #629). shepherd_kind is
+	// non-empty only on manager tasks created by manager.EnqueueShepherdTask.
+	// A manager task WITHOUT a kind but WITH a project link (issue_execute,
+	// POST /api/tasks, retry copies) is a normal coding job for the manager
+	// sheep: it checkpoints and reports like an ordinary task, but still needs
+	// opts.WorkDir because the manager sheep itself has no project edge —
+	// selectWorkDir would otherwise fail with "no project assigned".
 	shepherdKind := GetTaskShepherdKind(taskID)
 	isShepherdTask := shepherdKind != ""
+	isManagerProjectTask := !isShepherdTask && names.IsManager(sheepName)
 
 	// Start checkpoint: snapshot the working tree before the agent runs. The
 	// snapshot is best effort — a failure is recorded on the task but never
@@ -725,11 +749,15 @@ func (p *Processor) executeTask(sheepName, projectName, projectPath string, task
 	// follow-ups inherit this so they do not fall back to the provider default.
 	opts.Model = GetTaskModel(taskID)
 
-	if isShepherdTask {
-		// The dispatcher passes the validated workspace_path as projectPath;
-		// the manager has no project row, so ExecuteInteractive takes the
-		// directory from opts.WorkDir instead.
+	if isShepherdTask || isManagerProjectTask {
+		// The dispatcher passes the resolved working directory as projectPath;
+		// the manager sheep has no project edge of its own, so
+		// ExecuteInteractive takes the directory from opts.WorkDir instead.
+		// For kind-marked shepherd tasks that is the validated workspace_path;
+		// for project-linked manager tasks (#629) it is the task's project path.
 		opts.WorkDir = projectPath
+	}
+	if isShepherdTask {
 		// review/patrol prompts already carry every context they need, so they
 		// always start a fresh session — resuming would grow the context with
 		// every review round. command follows the global session_reuse config.
@@ -873,8 +901,10 @@ func (p *Processor) executeTask(sheepName, projectName, projectPath string, task
 	// Auto-ingest: trigger wiki update after successful task completion.
 	// Shepherd tasks skip it (#594): the shepherd changes no code, so there is
 	// nothing to document, and the ingest callback runs on the manager sheep
-	// itself (it would nest a manager run inside a manager run).
-	if config.GetBool("wiki_auto_ingest") && !isShepherdTask {
+	// itself (it would nest a manager run inside a manager run). Project-linked
+	// manager tasks (#629) DO change code, but the same nesting hazard applies
+	// while the manager run is still live — skip them too.
+	if config.GetBool("wiki_auto_ingest") && !isShepherdTask && !isManagerProjectTask {
 		wiki.TriggerIngest(taskID, projectName, prompt, result.Result, result.FilesModified)
 	}
 

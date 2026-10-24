@@ -7,10 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/viper"
+
 	"github.com/agurrrrr/shepherd/ent"
 	entIssue "github.com/agurrrrr/shepherd/ent/issue"
+	entSheep "github.com/agurrrrr/shepherd/ent/sheep"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/names"
 
 	entsql "entgo.io/ent/dialect/sql"
 	_ "modernc.org/sqlite"
@@ -387,5 +391,75 @@ func TestCascadeEnqueueDelayPositive(t *testing.T) {
 	// Guard against accidental zero/negative that reintroduces cascade races.
 	if cascadeEnqueueDelay < time.Second {
 		t.Fatalf("cascadeEnqueueDelay=%v; want at least 1s to space bulk enqueue", cascadeEnqueueDelay)
+	}
+}
+
+// TestExecuteToManagerSheepTaskShape (#629) pins the row issue_execute creates
+// when sheep_name is the manager (목자) sheep: linked to the issue's project,
+// assigned to the manager, shepherd_kind empty. That exact shape used to be
+// invisible to both dispatch paths — worker.List() excludes the manager and
+// GetPendingShepherdTaskBySheep required a non-empty kind — so the task stuck
+// in pending forever (tasks #11015/#11016/#11027). The queue-side relaxation
+// (task.Or(ShepherdKindNEQ(""), HasProject())) keys off the project link, so
+// this test guards the half of the contract the issue package owns: the link
+// must stay, and the kind must stay empty (a 목자 command/patrol is not what an
+// issue task is). The end-to-end dispatch proof lives in
+// internal/queue/processor_shepherd_test.go.
+func TestExecuteToManagerSheepTaskShape(t *testing.T) {
+	client := newTestDB(t)
+
+	viper.Set("provider_enabled_embedded", true)
+	t.Cleanup(func() { viper.Set("provider_enabled_embedded", false) })
+
+	ctx := context.Background()
+	proj := mustProject(t, client, "manager-target", false)
+	iss := mustIssue(t, client, proj, "needs the shepherd", func(c *ent.IssueCreate) {
+		c.SetGoal("done")
+	})
+
+	mgr, err := client.Sheep.Create().
+		SetName(names.ManagerName).
+		SetStatus(entSheep.StatusIdle).
+		SetProvider(entSheep.ProviderEmbedded).
+		Save(ctx)
+	if err != nil {
+		t.Fatalf("create manager sheep: %v", err)
+	}
+
+	res, err := Execute(ExecuteInput{Project: "manager-target", IssueID: iss.ID, SheepName: names.ManagerName})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(res.TaskIDs) != 1 {
+		t.Fatalf("TaskIDs = %v, want exactly one task", res.TaskIDs)
+	}
+
+	row, err := client.Task.Query().
+		Where(entTask.ID(res.TaskIDs[0])).
+		WithSheep().
+		WithProject().
+		Only(ctx)
+	if err != nil {
+		t.Fatalf("reload task: %v", err)
+	}
+	if row.Edges.Sheep == nil || row.Edges.Sheep.ID != mgr.ID {
+		t.Errorf("task sheep edge = %v, want the manager #%d", row.Edges.Sheep, mgr.ID)
+	}
+	if row.Edges.Project == nil || row.Edges.Project.ID != proj.ID {
+		t.Errorf("task project link = %v, want project #%d — this link is what lets the manager dispatcher pick the task up (#629)", row.Edges.Project, proj.ID)
+	}
+	if row.ShepherdKind != "" {
+		t.Errorf("task shepherd_kind = %q, want empty (issue tasks are not command/review/patrol)", row.ShepherdKind)
+	}
+	if row.Status != entTask.StatusPending {
+		t.Errorf("task status = %s, want pending", row.Status)
+	}
+
+	updated, err := client.Issue.Get(ctx, iss.ID)
+	if err != nil {
+		t.Fatalf("reload issue: %v", err)
+	}
+	if updated.Status != entIssue.StatusInProgress {
+		t.Errorf("issue status = %s, want in_progress", updated.Status)
 	}
 }

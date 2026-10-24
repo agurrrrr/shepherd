@@ -502,12 +502,24 @@ func GetPendingTaskBySheep(sheepID int) (*ent.Task, error) {
 	return t, nil
 }
 
-// GetPendingShepherdTaskBySheep returns the next pending shepherd (목자) task
-// for the given sheep — only tasks with a non-empty shepherd_kind (#594).
-// Legacy project-less manager tasks (kind empty, e.g. an old MCP-created
-// manager task) are deliberately NOT dispatched: they could never run before
-// this issue either (no project → ExecuteInteractive failed), and letting the
-// dispatcher hand them the workspace would silently change their fate.
+// GetPendingShepherdTaskBySheep returns the next pending manager (목자) task
+// for the given sheep (#594, relaxed by #629).
+//
+// Two shapes qualify:
+//   - shepherd tasks with a non-empty shepherd_kind (command/review/patrol);
+//   - manager tasks that carry a project link but no kind. These are created
+//     by issue_execute (issue.enqueueOne → CreateTask), by POST /api/tasks with
+//     an explicit project, and by the retry paths. Before #629 neither
+//     dispatcher saw them: the ordinary loop skips the manager because
+//     worker.List() excludes it, and this query's kind filter excluded them
+//     too — so they sat pending forever. The project link is what makes them
+//     runnable (the dispatcher uses that project's path as the work dir), so
+//     exactly those rows are now included.
+//
+// Legacy project-LESS manager tasks with an empty kind are still NOT
+// dispatched: they could never run (no project, and the workspace fallback is
+// a 목자-only semantic), and letting the dispatcher hand them the workspace
+// would silently change their fate.
 // Higher priority first, then FIFO within the same priority.
 func GetPendingShepherdTaskBySheep(sheepID int) (*ent.Task, error) {
 	ctx := context.Background()
@@ -517,7 +529,10 @@ func GetPendingShepherdTaskBySheep(sheepID int) (*ent.Task, error) {
 		Where(
 			task.StatusEQ(task.StatusPending),
 			task.HasSheepWith(sheep.ID(sheepID)),
-			task.ShepherdKindNEQ(""),
+			task.Or(
+				task.ShepherdKindNEQ(""),
+				task.HasProject(),
+			),
 		).
 		WithSheep().
 		WithProject().

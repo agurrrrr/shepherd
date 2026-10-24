@@ -498,8 +498,12 @@ func DefaultInteractiveOptions(onOutput OutputHandler, onInput InputHandler) Int
 //   - Sheep with an assigned project: always the project path. opts.WorkDir is
 //     ignored, so ordinary sheep runs keep their current behavior exactly.
 //   - Manager sheep (목자) without a project and with opts.WorkDir set: the
-//     workspace directory the queue dispatcher passed. Shepherd tasks have no
-//     project row by design (see the #592 design note: no fake project).
+//     working directory the queue dispatcher passed. Shepherd tasks have no
+//     project row by design (see the #592 design note: no fake project), so
+//     WorkDir carries workspace_path. Project-linked manager tasks (#629 —
+//     issue_execute, POST /api/tasks with an explicit project) also arrive
+//     here: the manager sheep row itself has no project edge, so WorkDir
+//     carries that task's project path instead.
 //   - Everything else (including the wiki auto-ingest callback in
 //     cmd/shepherd/main.go and the YouTrack import, which call
 //     ExecuteInteractive(names.ManagerName, ...) WITHOUT opts.WorkDir): keep

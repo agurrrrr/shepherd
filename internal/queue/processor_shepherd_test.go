@@ -181,6 +181,196 @@ func TestDispatchShepherdIgnoresTasksWithoutKind(t *testing.T) {
 	}
 }
 
+// #629 regression: a manager task WITH a project link but an empty
+// shepherd_kind — exactly the shape issue_execute creates — must dispatch.
+// Before the fix neither dispatcher saw it: worker.List() excludes the manager,
+// and GetPendingShepherdTaskBySheep filtered on a non-empty kind, so the task
+// sat pending forever (tasks #11015/#11016/#11027).
+func TestDispatchShepherdDispatchesProjectLinkedKindlessTask(t *testing.T) {
+	client, _ := shepherdDispatchTestEnv(t)
+
+	// The project path is the work directory, so a project-linked manager task
+	// must not depend on workspace_path. Prove that by clearing it: the old
+	// code would have deferred every manager task here.
+	viper.Set("workspace_path", "")
+
+	ctx := context.Background()
+	mgr := client.Sheep.Query().Where(sheep.Name(names.ManagerName)).OnlyX(ctx)
+	proj := client.Project.Create().
+		SetName("issue-project").
+		SetPath(t.TempDir()).
+		SaveX(ctx)
+	created := client.Task.Create().
+		SetPrompt("issue work handed to the manager sheep").
+		SetStatus(task.StatusPending).
+		SetSheepID(mgr.ID).
+		SetProjectID(proj.ID).
+		SaveX(ctx)
+
+	p := NewProcessor(time.Second)
+	p.checkAndExecutePendingTasks()
+
+	if !worker.IsTaskRunning(names.ManagerName) {
+		t.Fatalf("manager sheep was not claimed for a project-linked kind-less task")
+	}
+
+	got := waitTaskSettled(t, client, names.ManagerName, created.ID)
+	if got.Status != task.StatusFailed {
+		t.Fatalf("task status = %s, want failed (embedded executor missing in test env)", got.Status)
+	}
+	if !strings.Contains(got.Error, "embedded executor not initialized") {
+		t.Errorf("task error = %q; want the embedded-executor error, which proves the run reached the provider stage (not 'no project assigned' and not a workspace deferral)", got.Error)
+	}
+}
+
+// #629: the project-linked manager task must run in ITS project's directory,
+// not in workspace_path. A fake embedded executor captures the path the worker
+// actually received.
+func TestDispatchShepherdProjectLinkedTaskUsesProjectPath(t *testing.T) {
+	client, _ := shepherdDispatchTestEnv(t)
+
+	// A workspace that is NOT the project path: if the dispatcher reused it,
+	// the captured path below would differ from the project path.
+	workspace := t.TempDir()
+	viper.Set("workspace_path", workspace)
+
+	// Capture what ExecuteInteractive hands to the provider layer.
+	var gotSheep, gotPath string
+	worker.SetEmbeddedExecutor(func(
+		ctx context.Context,
+		sheepName, projectPath string,
+		prompt string,
+		opts worker.InteractiveOptions,
+		cancel context.CancelFunc,
+		injectCh <-chan string,
+	) (*worker.ExecuteResult, error) {
+		gotSheep, gotPath = sheepName, projectPath
+		return &worker.ExecuteResult{Result: "done"}, nil
+	})
+	t.Cleanup(func() { worker.SetEmbeddedExecutor(nil) })
+
+	ctx := context.Background()
+	mgr := client.Sheep.Query().Where(sheep.Name(names.ManagerName)).OnlyX(ctx)
+	proj := client.Project.Create().
+		SetName("workdir-check").
+		SetPath(t.TempDir()).
+		SaveX(ctx)
+	created := client.Task.Create().
+		SetPrompt("run this in the project directory").
+		SetStatus(task.StatusPending).
+		SetSheepID(mgr.ID).
+		SetProjectID(proj.ID).
+		SaveX(ctx)
+
+	p := NewProcessor(time.Second)
+	p.checkAndExecutePendingTasks()
+
+	got := waitTaskSettled(t, client, names.ManagerName, created.ID)
+	if got.Status != task.StatusCompleted {
+		t.Fatalf("task status = %s (error=%q), want completed", got.Status, got.Error)
+	}
+	if gotSheep != names.ManagerName {
+		t.Errorf("executor sheep = %q, want %q", gotSheep, names.ManagerName)
+	}
+	if gotPath != proj.Path {
+		t.Errorf("work dir = %q, want the project path %q (workspace_path %q must not be used for project-linked manager tasks)", gotPath, proj.Path, workspace)
+	}
+}
+
+// #629: kind-marked shepherd tasks keep using workspace_path — the relaxation
+// must not move 목자 work into some project directory.
+func TestDispatchShepherdKindTaskStillUsesWorkspace(t *testing.T) {
+	client, _ := shepherdDispatchTestEnv(t)
+
+	workspace := t.TempDir()
+	viper.Set("workspace_path", workspace)
+
+	var gotPath string
+	worker.SetEmbeddedExecutor(func(
+		ctx context.Context,
+		sheepName, projectPath string,
+		prompt string,
+		opts worker.InteractiveOptions,
+		cancel context.CancelFunc,
+		injectCh <-chan string,
+	) (*worker.ExecuteResult, error) {
+		gotPath = projectPath
+		return &worker.ExecuteResult{Result: "done"}, nil
+	})
+	t.Cleanup(func() { worker.SetEmbeddedExecutor(nil) })
+
+	ctx := context.Background()
+	mgr := client.Sheep.Query().Where(sheep.Name(names.ManagerName)).OnlyX(ctx)
+	created := createShepherdTask(t, client, mgr.ID, "command", 1)
+
+	p := NewProcessor(time.Second)
+	p.checkAndExecutePendingTasks()
+
+	got := waitTaskSettled(t, client, names.ManagerName, created.ID)
+	if got.Status != task.StatusCompleted {
+		t.Fatalf("task status = %s (error=%q), want completed", got.Status, got.Error)
+	}
+	if gotPath != workspace {
+		t.Errorf("work dir = %q, want workspace_path %q", gotPath, workspace)
+	}
+}
+
+// #629: GetPendingShepherdTaskBySheep now returns project-linked kind-less
+// manager tasks, still ordered priority-desc / created-asc, and still excludes
+// project-LESS kind-less rows.
+func TestGetPendingShepherdTaskBySheepIncludesProjectLinkedKindless(t *testing.T) {
+	client, _ := shepherdDispatchTestEnv(t)
+
+	ctx := context.Background()
+	mgr := client.Sheep.Query().Where(sheep.Name(names.ManagerName)).OnlyX(ctx)
+	proj := client.Project.Create().
+		SetName("mixed-order").
+		SetPath(t.TempDir()).
+		SaveX(ctx)
+
+	base := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
+	issueTask := client.Task.Create().
+		SetPrompt("issue work").
+		SetStatus(task.StatusPending).
+		SetSheepID(mgr.ID).
+		SetProjectID(proj.ID).
+		SetCreatedAt(base).
+		SaveX(ctx)
+	legacy := client.Task.Create().
+		SetPrompt("legacy project-less").
+		SetStatus(task.StatusPending).
+		SetSheepID(mgr.ID).
+		SetCreatedAt(base.Add(-time.Hour)).
+		SaveX(ctx)
+	command := createShepherdTask(t, client, mgr.ID, "command", 1)
+
+	first, err := GetPendingShepherdTaskBySheep(mgr.ID)
+	if err != nil {
+		t.Fatalf("GetPendingShepherdTaskBySheep: %v", err)
+	}
+	if first == nil || first.ID != command.ID {
+		t.Errorf("first = %v, want the priority-1 command #%d", first, command.ID)
+	}
+
+	_ = client.Task.UpdateOneID(command.ID).SetStatus(task.StatusCompleted).SaveX(ctx)
+	second, err := GetPendingShepherdTaskBySheep(mgr.ID)
+	if err != nil {
+		t.Fatalf("GetPendingShepherdTaskBySheep: %v", err)
+	}
+	if second == nil || second.ID != issueTask.ID {
+		t.Errorf("second = %v, want the project-linked issue task #%d", second, issueTask.ID)
+	}
+
+	_ = client.Task.UpdateOneID(issueTask.ID).SetStatus(task.StatusCompleted).SaveX(ctx)
+	third, err := GetPendingShepherdTaskBySheep(mgr.ID)
+	if err != nil {
+		t.Fatalf("GetPendingShepherdTaskBySheep: %v", err)
+	}
+	if third != nil {
+		t.Errorf("third = %v, want nil (legacy project-less kind-less task #%d stays excluded)", third, legacy.ID)
+	}
+}
+
 // Ordinary sheep dispatch keeps working unchanged: a project-assigned sheep
 // with a pending task still dispatches through the normal loop.
 func TestDispatchShepherdDoesNotAffectOrdinarySheep(t *testing.T) {
