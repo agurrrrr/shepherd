@@ -2832,6 +2832,32 @@ func runServeForeground() {
 	srv.WireProcessorCallbacks()
 	srv.WireSchedulerCallbacks()
 
+	// Shepherd user-confirmation requests (#601): a new request or a decision
+	// broadcasts an SSE event so the open needs-attention panel refreshes its
+	// "목자 요청" list without a poll. The cost-limit hook fires the first time
+	// today's combined spend crosses shepherd_daily_cost_limit_usd, so the
+	// status card flips to the over-cap state right away too.
+	manager.RegisterRequestNotifyHook(func(rec *manager.ShepherdRequestRecord, event string) {
+		srv.Hub().Broadcast(server.SSEEvent{Type: event, Data: map[string]interface{}{
+			"id":          rec.ID,
+			"kind":        rec.Kind,
+			"status":      rec.Status,
+			"project":     rec.ProjectName,
+			"target_id":   rec.TargetID,
+			"reason":      rec.Reason,
+			"sheep_name":  rec.RequesterSheep,
+			"task_id":     rec.RequestedByTask,
+		}})
+	})
+	defer manager.RegisterRequestNotifyHook(nil)
+	manager.RegisterCostLimitHook(func(spent, limit float64) {
+		srv.Hub().Broadcast(server.SSEEvent{Type: "shepherd_cost_limit", Data: map[string]interface{}{
+			"spent_usd": spent,
+			"limit_usd": limit,
+		}})
+	})
+	defer manager.RegisterCostLimitHook(nil)
+
 	// Write PID
 	if err := daemon.WritePID(); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  Failed to write PID file: %v\n", err)

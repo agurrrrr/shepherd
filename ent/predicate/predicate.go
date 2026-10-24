@@ -33,6 +33,9 @@ type ShepherdAck func(*sql.Selector)
 // ShepherdPatrol is the predicate function for shepherdpatrol builders.
 type ShepherdPatrol func(*sql.Selector)
 
+// ShepherdRequest is the predicate function for shepherdrequest builders.
+type ShepherdRequest func(*sql.Selector)
+
 // Skill is the predicate function for skill builders.
 type Skill func(*sql.Selector)
 

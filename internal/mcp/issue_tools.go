@@ -16,6 +16,15 @@ func (s *Server) registerIssueTools() {
 	s.tools["issue_execute"] = handleIssueExecute
 }
 
+// registerShepherdTools attaches the two #601 tools. task_stop mutates task
+// state (DB write + provider kill), so it belongs to dbWriteToolNames and the
+// client forwards it to the daemon; request_user_action writes
+// shepherd_requests, so it forwards too.
+func (s *Server) registerShepherdTools() {
+	s.tools["task_stop"] = handleTaskStop
+	s.tools["request_user_action"] = handleRequestUserAction
+}
+
 func getIssueToolsList() []Tool {
 	return []Tool{
 		{
@@ -217,6 +226,12 @@ func handleIssueGet(args map[string]interface{}) (string, error) {
 }
 
 func handleIssueUpsert(args map[string]interface{}) (string, error) {
+	// Autonomy gate (#601): a shepherd caller needs at least `plan`. Ordinary
+	// sheep, users, and unidentified providers are untouched.
+	if err := checkShepherdPermission("issue_upsert", args); err != nil {
+		return "", err
+	}
+
 	projectName := toString(args["project_name"])
 	if projectName == "" {
 		return "", fmt.Errorf("project_name is required")
@@ -293,6 +308,16 @@ func handleIssueUpsert(args map[string]interface{}) (string, error) {
 }
 
 func handleIssueExecute(args map[string]interface{}) (string, error) {
+	// Autonomy gates (#601): a shepherd caller needs `execute` AND must be
+	// inside the delegation-count / daily-cost caps. Ordinary sheep, users,
+	// and unidentified providers are untouched.
+	if err := checkShepherdPermission("issue_execute", args); err != nil {
+		return "", err
+	}
+	if err := checkShepherdExecuteCaps(args); err != nil {
+		return "", err
+	}
+
 	projectName := toString(args["project_name"])
 	id := toInt(args["id"])
 	if projectName == "" || id <= 0 {
@@ -302,7 +327,7 @@ func handleIssueExecute(args map[string]interface{}) (string, error) {
 	// Watch marking (#597): explicit watch=true, or a caller that is itself a
 	// task running on the manager (목자) sheep — the shepherd delegates through
 	// issue_execute, so everything it enqueues should be reviewed when it ends.
-	watch := toBool(args["watch"]) || callerIsShepherdTask(CallerTaskIDFromArgs(args))
+	watch := toBool(args["watch"]) || callerIsShepherdTask(callerTaskIDOrEnv(args))
 
 	res, err := issue.Execute(issue.ExecuteInput{
 		Project:   projectName,

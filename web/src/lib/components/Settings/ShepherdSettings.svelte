@@ -38,6 +38,20 @@
 	// to a 5-minute floor by the daemon) plus the wake switch.
 	let patrolInterval = $state('30m');
 	let patrolWake = $state(true);
+	// Autonomy (#601). tier is one of report/plan/execute/full (GET returns the
+	// effective value, so an unset config shows "execute"). The two caps mirror
+	// the daemon: max_active_delegations 0 → default 3, daily_cost_limit_usd 0 →
+	// no limit.
+	let autonomy = $state('execute');
+	let maxActiveDelegations = $state(0);
+	let dailyCostLimitUsd = $state(0);
+
+	const tierChoices = [
+		{ value: 'report', label: '보고만', desc: '읽고 보고만 합니다. 이슈를 만들거나 실행하지 않습니다.' },
+		{ value: 'plan', label: '계획', desc: '이슈를 만들고 고칠 수 있습니다 (issue_upsert). 실행은 요청합니다.' },
+		{ value: 'execute', label: '실행', desc: '감시 이슈를 상한 안에서 실행합니다 (issue_execute). 작업 중단은 요청합니다. 기본값입니다.' },
+		{ value: 'full', label: '전권', desc: '작업 중단(task_stop)까지 스스로 합니다. 이슈 삭제는 어떤 단계에서도 승인 전용입니다.' }
+	];
 	/** name -> true when the project is managed (unchecked names become shepherd_scope_exclude) */
 	let managed = $state({});
 
@@ -81,6 +95,9 @@
 		maxWakeupsPerDay = Number(payload.max_wakeups_per_day ?? 0);
 		stuckMinutes = Number(payload.stuck_minutes ?? 0);
 		pendingStaleMinutes = Number(payload.pending_stale_minutes ?? 0);
+		autonomy = payload.autonomy || 'execute';
+		maxActiveDelegations = Number(payload.max_active_delegations ?? 0);
+		dailyCostLimitUsd = Number(payload.daily_cost_limit_usd ?? 0);
 		validationError = payload.workspace_error || '';
 
 		const next = {};
@@ -158,7 +175,10 @@
 				max_review_rounds: Math.max(0, Math.trunc(Number(maxReviewRounds) || 0)),
 				max_wakeups_per_day: Math.max(0, Math.trunc(Number(maxWakeupsPerDay) || 0)),
 				stuck_minutes: Math.max(0, Math.trunc(Number(stuckMinutes) || 0)),
-				pending_stale_minutes: Math.max(0, Math.trunc(Number(pendingStaleMinutes) || 0))
+				pending_stale_minutes: Math.max(0, Math.trunc(Number(pendingStaleMinutes) || 0)),
+				autonomy,
+				max_active_delegations: Math.max(0, Math.trunc(Number(maxActiveDelegations) || 0)),
+				daily_cost_limit_usd: Math.max(0, Number(dailyCostLimitUsd) || 0)
 			});
 			if (res?.success && res.data) {
 				applyPayload(res.data);
@@ -359,6 +379,52 @@
 			<span class="hint">직전 순찰 이후 새로 생긴 이상이 있을 때만 목자 순찰 작업을 만듭니다. 끄면 순찰 기록만 남기고 목자는 깨우지 않습니다.</span>
 		</section>
 
+		<!-- Autonomy (#601): how far the shepherd acts on its own. Deleting an
+		     issue is never a direct tool at any tier — it only runs through a
+		     user-approved request, so the panel (not this form) handles it. -->
+		<section class="block">
+			<h3 class="block-title">자율성과 상한</h3>
+			<div class="setting-row column">
+				<label>권한 단계</label>
+				<div class="tier-list">
+					{#each tierChoices as tier (tier.value)}
+						<label class="tier-option" class:active={autonomy === tier.value}>
+							<input type="radio" name="sh-autonomy" value={tier.value} bind:group={autonomy} />
+							<span class="tier-text">
+								<span class="tier-label">{tier.label}</span>
+								<span class="tier-desc">{tier.desc}</span>
+							</span>
+						</label>
+					{/each}
+				</div>
+			</div>
+			<span class="hint">모든 요청형 동작(이슈 삭제 등)은 단계와 무관하게 목자 화면에서 사용자가 승인합니다. 프로바이더가 호출자를 식별하지 못하면 데몬은 이 단계 검사를 건너뜁니다. 그 사실은 이 설정으로 막을 수 없습니다.</span>
+			<div class="setting-row">
+				<label for="sh-max-delegations">동시 위임 상한</label>
+				<input
+					id="sh-max-delegations"
+					class="input"
+					type="number"
+					min="0"
+					max="100"
+					bind:value={maxActiveDelegations}
+				/>
+			</div>
+			<span class="hint">감시 이슈에서 동시에 pending·running으로 둘 수 있는 작업 수입니다. 넘으면 목자는 새 작업을 쌓지 않고 끝나길 기다립니다. 0은 기본값 3개.</span>
+			<div class="setting-row">
+				<label for="sh-daily-cost-limit">하루 비용 상한 (USD)</label>
+				<input
+					id="sh-daily-cost-limit"
+					class="input"
+					type="number"
+					min="0"
+					step="0.5"
+					bind:value={dailyCostLimitUsd}
+				/>
+			</div>
+			<span class="hint">하루(자정 기준) 목자 작업과 감시 이슈 작업의 합산 비용 상한입니다. 넘으면 자동 깨우기가 멈추고 확인 필요에 비용 항목이 생깁니다. 0은 제한 없음.</span>
+		</section>
+
 		<!-- Scope: "every visible project minus the exclusion list". A project
 		     registered later joins automatically, so this is a checklist of the
 		     projects that exist right now, not an allow-list. -->
@@ -510,6 +576,52 @@
 
 	.hint.ok {
 		color: var(--success);
+	}
+
+	/* Autonomy tier radios (#601) — a stacked list, each row with a label and a description. */
+	.tier-list {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.tier-option {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
+		padding: 8px 12px;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius);
+		cursor: pointer;
+	}
+
+	.tier-option.active {
+		border-color: var(--accent);
+		background: var(--bg-3);
+	}
+
+	.tier-option input[type='radio'] {
+		margin-top: 3px;
+		flex-shrink: 0;
+	}
+
+	.tier-text {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	.tier-label {
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.tier-desc {
+		font-size: 12px;
+		color: var(--text-tertiary);
+		line-height: 1.5;
 	}
 
 	.scope-head {

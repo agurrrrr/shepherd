@@ -15,6 +15,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheepname"
 	"github.com/agurrrrr/shepherd/ent/shepherdack"
 	"github.com/agurrrrr/shepherd/ent/shepherdpatrol"
+	"github.com/agurrrrr/shepherd/ent/shepherdrequest"
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
@@ -203,6 +204,28 @@ func init() {
 	shepherdpatrolDescSkippedReason := shepherdpatrolFields[4].Descriptor()
 	// shepherdpatrol.DefaultSkippedReason holds the default value on creation for the skipped_reason field.
 	shepherdpatrol.DefaultSkippedReason = shepherdpatrolDescSkippedReason.Default.(string)
+	shepherdrequestFields := schema.ShepherdRequest{}.Fields()
+	_ = shepherdrequestFields
+	// shepherdrequestDescKind is the schema descriptor for kind field.
+	shepherdrequestDescKind := shepherdrequestFields[0].Descriptor()
+	// shepherdrequest.KindValidator is a validator for the "kind" field. It is called by the builders before save.
+	shepherdrequest.KindValidator = shepherdrequestDescKind.Validators[0].(func(string) error)
+	// shepherdrequestDescTargetID is the schema descriptor for target_id field.
+	shepherdrequestDescTargetID := shepherdrequestFields[2].Descriptor()
+	// shepherdrequest.DefaultTargetID holds the default value on creation for the target_id field.
+	shepherdrequest.DefaultTargetID = shepherdrequestDescTargetID.Default.(int)
+	// shepherdrequestDescStatus is the schema descriptor for status field.
+	shepherdrequestDescStatus := shepherdrequestFields[4].Descriptor()
+	// shepherdrequest.DefaultStatus holds the default value on creation for the status field.
+	shepherdrequest.DefaultStatus = shepherdrequestDescStatus.Default.(string)
+	// shepherdrequestDescRequestedByTaskID is the schema descriptor for requested_by_task_id field.
+	shepherdrequestDescRequestedByTaskID := shepherdrequestFields[5].Descriptor()
+	// shepherdrequest.DefaultRequestedByTaskID holds the default value on creation for the requested_by_task_id field.
+	shepherdrequest.DefaultRequestedByTaskID = shepherdrequestDescRequestedByTaskID.Default.(int)
+	// shepherdrequestDescCreatedAt is the schema descriptor for created_at field.
+	shepherdrequestDescCreatedAt := shepherdrequestFields[6].Descriptor()
+	// shepherdrequest.DefaultCreatedAt holds the default value on creation for the created_at field.
+	shepherdrequest.DefaultCreatedAt = shepherdrequestDescCreatedAt.Default.(func() time.Time)
 	skillFields := schema.Skill{}.Fields()
 	_ = skillFields
 	// skillDescName is the schema descriptor for name field.

@@ -17,6 +17,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/checkpoint"
 	"github.com/agurrrrr/shepherd/internal/daemon"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/worker"
 )
 
 // IssueTaskEvent describes one finished task that was linked to an issue
@@ -649,6 +650,33 @@ func StopTaskWithOutput(id int, reason string, output []string) error {
 	notifyTaskFinished(id)
 
 	return nil
+}
+
+// StopTaskByID is the common "stop a running task" entry point shared by
+// POST /api/tasks/:id/stop (web), `shepherd task stop` (CLI), and the MCP
+// task_stop tool (#601). It loads the task, kills the provider process through
+// worker.StopTask, then records the stopped row with the captured output —
+// exactly what handleStopTask did inline before #601. Callers outside queue
+// cannot reach worker.StopTask directly (mcp imports neither queue nor worker;
+// manager imports queue), so routing this through queue is the single path.
+func StopTaskByID(id int, reason string) error {
+	t, err := GetTask(id)
+	if err != nil {
+		return err // already "task #N not found" shaped
+	}
+	if t.Status != task.StatusRunning {
+		return fmt.Errorf("task #%d is not running (status: %s)", id, t.Status)
+	}
+	if t.Edges.Sheep == nil {
+		return fmt.Errorf("task #%d has no assigned sheep", id)
+	}
+
+	result, err := worker.StopTask(t.Edges.Sheep.Name)
+	if err != nil {
+		return fmt.Errorf("stop provider process: %w", err)
+	}
+
+	return StopTaskWithOutput(id, reason, result.OutputLines)
 }
 
 // SetTaskCheckpointStart records the start checkpoint of a task. dir is the

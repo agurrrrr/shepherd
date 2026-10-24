@@ -102,7 +102,12 @@ func TestBuildShepherdContextSections(t *testing.T) {
 		"[Managed Projects]",
 		"bori | /ws/bori | 양순이(claude) working | pending=1 | running=#",
 		"todo=1/in_progress=0/testing=0/failed=0",
-		"[Autonomy]\n" + AutonomyNotice,
+		// #601: the [Autonomy] section is live — tier line, both caps, and the
+		// request_user_action pointer replace the old flat AutonomyNotice.
+		"[Autonomy]\ntier: execute — issue create/edit + enqueue allowed (caps apply); stopping tasks is refused",
+		"delegation cap: at most 3 watched-issue tasks pending/running at once (currently 0)",
+		"daily cost cap: none",
+		"request_user_action(kind, project_name, target_id, reason)",
 		"[User Shepherd Instructions]\n이슈를 닫기 전에 테스트 통과를 확인하라.",
 	} {
 		if !strings.Contains(out, want) {

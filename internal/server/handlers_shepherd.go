@@ -111,6 +111,12 @@ func buildShepherdConfig() (map[string]interface{}, error) {
 		// switch (absent = true, matching patrol.go).
 		"patrol_interval": patrolIntervalSetting(),
 		"patrol_wake":     patrolWakeSetting(),
+		// Autonomy (#601). Effective values, not raw keys: an unset or unknown
+		// shepherd_autonomy resolves to "execute", and a non-positive cap falls
+		// back inside manager — the form must show what is actually enforced.
+		"autonomy":               manager.AutonomyTier(),
+		"max_active_delegations": manager.MaxActiveDelegations(),
+		"daily_cost_limit_usd":   manager.DailyCostLimitUSD(),
 	}, nil
 }
 
@@ -163,12 +169,17 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 		MaxReviewRounds  *int `json:"max_review_rounds"`
 		MaxWakeupsPerDay *int `json:"max_wakeups_per_day"`
 		// Attention thresholds (#599). Absent = leave alone.
-		StuckMinutes        *int  `json:"stuck_minutes"`
-		PendingStaleMinutes *int  `json:"pending_stale_minutes"`
+		StuckMinutes        *int `json:"stuck_minutes"`
+		PendingStaleMinutes *int `json:"pending_stale_minutes"`
 		// Patrol (#600). patrol_interval is the raw duration string ("30m",
 		// "0" = off); patrol_wake is the wake switch. Absent = leave alone.
 		PatrolInterval *string `json:"patrol_interval"`
 		PatrolWake     *bool   `json:"patrol_wake"`
+		// Autonomy (#601). autonomy is one of report/plan/execute/full; the two
+		// caps are 0 = "use the built-in default / no limit". Absent = alone.
+		Autonomy             *string  `json:"autonomy"`
+		MaxActiveDelegations *int     `json:"max_active_delegations"`
+		DailyCostLimitUSD    *float64 `json:"daily_cost_limit_usd"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return fail(c, fiber.StatusBadRequest, "invalid request body")
@@ -246,6 +257,34 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 	}
 	if body.PatrolWake != nil {
 		values["shepherd_patrol_wake"] = *body.PatrolWake
+	}
+
+	// Autonomy (#601). Only the four named tiers are accepted — manager.
+	// AutonomyTier would silently fall an unknown value back to "execute", so
+	// the API rejects typos instead of storing a value that means something
+	// else at read time. The caps follow the same 0-means-default convention
+	// as the wake caps: negatives are rejected, 0 on the cost key means
+	// "no limit" (its documented default), 0 on delegations falls back to 3.
+	if body.Autonomy != nil {
+		tier := strings.ToLower(strings.TrimSpace(*body.Autonomy))
+		switch tier {
+		case manager.AutonomyReport, manager.AutonomyPlan, manager.AutonomyExecute, manager.AutonomyFull:
+			values["shepherd_autonomy"] = tier
+		default:
+			return fail(c, fiber.StatusBadRequest, "autonomy must be one of report, plan, execute, full")
+		}
+	}
+	if body.MaxActiveDelegations != nil {
+		if *body.MaxActiveDelegations < 0 {
+			return fail(c, fiber.StatusBadRequest, "max_active_delegations must be >= 0 (0 = default 3)")
+		}
+		values["shepherd_max_active_delegations"] = *body.MaxActiveDelegations
+	}
+	if body.DailyCostLimitUSD != nil {
+		if *body.DailyCostLimitUSD < 0 {
+			return fail(c, fiber.StatusBadRequest, "daily_cost_limit_usd must be >= 0 (0 = no limit)")
+		}
+		values["shepherd_daily_cost_limit_usd"] = *body.DailyCostLimitUSD
 	}
 
 	// Provider change: validate against the enabled-provider switches, then
@@ -400,6 +439,29 @@ func (s *Server) handleGetShepherdStatus(c *fiber.Ctx) error {
 		payload["patrol_interval"] = manager.PatrolInterval().String()
 	} else {
 		payload["patrol_enabled"] = false
+	}
+
+	// Autonomy card (#601): the tier in force, both caps, and the live numbers
+	// they gate on. today_cost is the *combined* window the cost cap bills
+	// against (shepherd tasks + watched-issue tasks since local midnight) — it
+	// differs from today_cost_usd above, which counts shepherd tasks only.
+	// A failed query degrades to zeros with exceeded=false rather than failing
+	// the whole status call: the console header must keep rendering.
+	payload["autonomy_tier"] = manager.AutonomyTier()
+	payload["max_active_delegations"] = manager.MaxActiveDelegations()
+	if active, err := manager.ActiveDelegations(); err == nil {
+		payload["active_delegations"] = active
+	} else {
+		payload["active_delegations"] = 0
+	}
+	if exceeded, spent, limit, err := manager.CostLimitStatus(time.Now()); err == nil {
+		payload["today_cost"] = spent
+		payload["daily_cost_limit_usd"] = limit
+		payload["cost_limit_exceeded"] = exceeded
+	} else {
+		payload["today_cost"] = 0.0
+		payload["daily_cost_limit_usd"] = manager.DailyCostLimitUSD()
+		payload["cost_limit_exceeded"] = false
 	}
 
 	return success(c, payload)

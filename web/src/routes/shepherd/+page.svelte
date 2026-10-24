@@ -30,6 +30,15 @@
 
 	const kindLabels = { command: '지시', review: '검토', patrol: '순찰' };
 
+	// Autonomy tiers (#601). The daemon normalizes an unset/unknown value to
+	// "execute", so status.autonomy_tier is always one of these four.
+	const tierLabels = {
+		report: '보고만',
+		plan: '계획',
+		execute: '실행',
+		full: '전권'
+	};
+
 	async function loadStatus() {
 		const res = await apiGet('/api/shepherd/status');
 		if (res?.data) status = res.data;
@@ -407,8 +416,38 @@
 						<dd class="mono num">{status.today_task_count ?? 0}</dd>
 					</div>
 					<div class="status-cell">
-						<dt>오늘 비용</dt>
-						<dd class="mono num">{fmtCost(status.today_cost_usd)}</dd>
+						<dt>오늘 목자 비용</dt>
+						<dd class="mono num" title="목자 작업(지시·검토·순찰)에만 든 비용">
+							{fmtCost(status.today_cost_usd)}
+						</dd>
+					</div>
+					<div class="status-cell">
+						<dt>권한 단계</dt>
+						<dd title="목자가 스스로 할 수 있는 범위 — settings에서 바꿉니다">
+							<span class="chip chip-mono">{tierLabels[status.autonomy_tier] || status.autonomy_tier || '—'}</span>
+						</dd>
+					</div>
+					<div class="status-cell">
+						<dt>위임 상한</dt>
+						<dd class="mono num" title="감시 이슈 작업의 동시 pending+running 수 / 상한">
+							{#if status.max_active_delegations > 0 && status.active_delegations >= status.max_active_delegations}
+								<span class="status-warn">{status.active_delegations ?? 0}/{status.max_active_delegations}</span>
+							{:else}
+								{status.active_delegations ?? 0}/{status.max_active_delegations ?? 0}
+							{/if}
+						</dd>
+					</div>
+					<div class="status-cell">
+						<dt>하루 비용 상한</dt>
+						<dd class="mono num" title="목자 작업 + 감시 이슈 작업의 합산 창(자정 기준)">
+							{#if status.cost_limit_exceeded}
+								<span class="status-warn">{fmtCost(status.today_cost)} / {fmtCost(status.daily_cost_limit_usd)} — 초과</span>
+							{:else if status.daily_cost_limit_usd > 0}
+								{fmtCost(status.today_cost)} / {fmtCost(status.daily_cost_limit_usd)}
+							{:else}
+								{fmtCost(status.today_cost)} · 제한 없음
+							{/if}
+						</dd>
 					</div>
 					<div class="status-cell">
 						<dt>서킷 브레이커</dt>

@@ -109,6 +109,11 @@ var blockedShepherdMCPTools = map[string]bool{
 	"issue_execute": true,
 	"wiki_create":   true,
 	"wiki_edit":     true,
+	// #601 shepherd tools: task_stop stops live work and request_user_action
+	// files user-confirmation requests — both mutate state, so parallel MAGI
+	// proposers must never reach them.
+	"task_stop":           true,
+	"request_user_action": true,
 }
 
 // blockedBrowserTools is intentionally empty — all browser tools are allowed

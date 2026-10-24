@@ -1,0 +1,406 @@
+// User-confirmation requests for the shepherd (#601).
+//
+// Anything the autonomy tier refuses (stopping tasks below `full`, deleting
+// issues at ANY tier, executing under a cost cap) can still be asked for: the
+// shepherd calls request_user_action, a row lands in shepherd_requests, and
+// the user approves or rejects it on the Shepherd screen's needs-attention
+// panel. Approving runs the action server-side with the same code paths the
+// web buttons use, stores the outcome in `result`, and enqueues a shepherd
+// `review` task carrying the decision (coalesced into a pending review task
+// per #597's merge rule). Rejecting records the note and runs nothing.
+//
+// Requests are edge-free plain-id rows: deleting a target never cascades, and
+// an approval against a vanished target fails softly into `result`.
+package manager
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"github.com/agurrrrr/shepherd/ent"
+	entreq "github.com/agurrrrr/shepherd/ent/shepherdrequest"
+	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/discord"
+	"github.com/agurrrrr/shepherd/internal/issue"
+	"github.com/agurrrrr/shepherd/internal/push"
+	"github.com/agurrrrr/shepherd/internal/queue"
+)
+
+// Request kinds (#601 §4). The kind decides what approval does.
+const (
+	RequestStopTask    = "stop_task"
+	RequestExecuteIssue = "execute_issue"
+	RequestDeleteIssue = "delete_issue"
+	RequestOther       = "other"
+)
+
+// Request statuses.
+const (
+	RequestPending  = "pending"
+	RequestApproved = "approved"
+	RequestRejected = "rejected"
+)
+
+// ValidRequestKind reports whether kind is one of the four request kinds.
+func ValidRequestKind(kind string) bool {
+	switch kind {
+	case RequestStopTask, RequestExecuteIssue, RequestDeleteIssue, RequestOther:
+		return true
+	}
+	return false
+}
+
+// ShepherdRequestRecord is the API shape of one shepherd_requests row. The
+// requester (task + sheep) rides along so the panel can show WHO asked — the
+// spec requires showing the requesting task and sheep even for non-shepherd
+// callers.
+type ShepherdRequestRecord struct {
+	ID               int        `json:"id"`
+	Kind             string     `json:"kind"`
+	ProjectName      string     `json:"project_name,omitempty"`
+	TargetID         int        `json:"target_id,omitempty"`
+	Reason           string     `json:"reason,omitempty"`
+	Status           string     `json:"status"`
+	RequestedByTask  int        `json:"requested_by_task_id,omitempty"`
+	RequesterSheep   string     `json:"requester_sheep,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	DecidedAt        *time.Time `json:"decided_at,omitempty"`
+	Result           string     `json:"result,omitempty"`
+}
+
+// requestNotifyHook is the daemon's SSE broadcast seam (registered in
+// main.go). It fires after a request is created, approved, or rejected so
+// open panels refresh.
+var requestNotifyHook func(rec *ShepherdRequestRecord, event string)
+
+// RegisterRequestNotifyHook connects the SSE hub; pass nil to clear.
+func RegisterRequestNotifyHook(fn func(rec *ShepherdRequestRecord, event string)) {
+	requestNotifyHook = fn
+}
+
+// CreateShepherdRequest stores a new pending request and notifies (web push +
+// Discord + SSE). Every caller — shepherd or not — may create one; the panel
+// labels the requesting task and sheep either way.
+func CreateShepherdRequest(kind, projectName string, targetID int, reason string, callerTaskID int) (*ShepherdRequestRecord, error) {
+	kind = strings.TrimSpace(kind)
+	if !ValidRequestKind(kind) {
+		return nil, fmt.Errorf("kind must be one of stop_task, execute_issue, delete_issue, other (got %q)", kind)
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return nil, fmt.Errorf("reason is required")
+	}
+	projectName = strings.TrimSpace(projectName)
+
+	// Target sanity: task/issue kinds need their target, and issue kinds need
+	// the project so approval can scope the lookup.
+	switch kind {
+	case RequestStopTask:
+		if targetID <= 0 {
+			return nil, fmt.Errorf("target_id (the task id) is required for stop_task")
+		}
+	case RequestExecuteIssue, RequestDeleteIssue:
+		if targetID <= 0 {
+			return nil, fmt.Errorf("target_id (the issue id) is required for %s", kind)
+		}
+		if projectName == "" {
+			return nil, fmt.Errorf("project_name is required for %s", kind)
+		}
+	}
+
+	ctx := context.Background()
+	row, err := db.Client().ShepherdRequest.Create().
+		SetKind(kind).
+		SetProjectName(projectName).
+		SetTargetID(targetID).
+		SetReason(reason).
+		SetStatus(RequestPending).
+		SetRequestedByTaskID(callerTaskID).
+		Save(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create shepherd request: %w", err)
+	}
+
+	rec := toRequestRecord(row)
+	notifyRequestCreated(rec)
+	broadcastRequest(rec, "shepherd_request_new")
+	return rec, nil
+}
+
+// ListShepherdRequests returns requests newest-first, optionally filtered by
+// status. limit<=0 → default 50 (max 200).
+func ListShepherdRequests(status string, limit int) ([]ShepherdRequestRecord, error) {
+	ctx := context.Background()
+	if db.Client() == nil {
+		return nil, fmt.Errorf("database is not initialized")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	q := db.Client().ShepherdRequest.Query()
+	if s := strings.TrimSpace(status); s != "" && s != "all" {
+		q = q.Where(entreq.Status(s))
+	}
+	rows, err := q.Order(ent.Desc(entreq.FieldCreatedAt), ent.Desc(entreq.FieldID)).Limit(limit).All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list shepherd requests: %w", err)
+	}
+
+	recs := make([]ShepherdRequestRecord, 0, len(rows))
+	for _, r := range rows {
+		recs = append(recs, *toRequestRecord(r))
+	}
+	return recs, nil
+}
+
+// toRequestRecord maps a row and resolves the requester's sheep name (one
+// query per row; lists are small and only rendered in the panel).
+func toRequestRecord(r *ent.ShepherdRequest) *ShepherdRequestRecord {
+	rec := &ShepherdRequestRecord{
+		ID:              r.ID,
+		Kind:            r.Kind,
+		ProjectName:     r.ProjectName,
+		TargetID:        r.TargetID,
+		Reason:          r.Reason,
+		Status:          r.Status,
+		RequestedByTask: r.RequestedByTaskID,
+		CreatedAt:       r.CreatedAt,
+		DecidedAt:       r.DecidedAt,
+		Result:          r.Result,
+	}
+	if r.RequestedByTaskID > 0 {
+		if t, err := queue.GetTask(r.RequestedByTaskID); err == nil && t != nil && t.Edges.Sheep != nil {
+			rec.RequesterSheep = t.Edges.Sheep.Name
+		}
+	}
+	return rec
+}
+
+// ApproveShepherdRequest runs the kind's action, stores the outcome, and
+// wakes a shepherd review task with the decision. A vanished/invalid target
+// is recorded in `result` — the approval itself still counts as decided, so a
+// stale request cannot wedge the panel.
+func ApproveShepherdRequest(id int) (*ShepherdRequestRecord, error) {
+	ctx := context.Background()
+	row, err := db.Client().ShepherdRequest.Query().Where(entreq.ID(id)).Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return nil, fmt.Errorf("request #%d not found", id)
+		}
+		return nil, fmt.Errorf("load shepherd request: %w", err)
+	}
+	if row.Status != RequestPending {
+		return nil, fmt.Errorf("request #%d is already %s", id, row.Status)
+	}
+
+	result := runRequestAction(row)
+
+	now := time.Now()
+	updated, err := db.Client().ShepherdRequest.UpdateOneID(row.ID).
+		SetStatus(RequestApproved).
+		SetDecidedAt(now).
+		SetResult(result).
+		Save(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store approval: %w", err)
+	}
+
+	rec := toRequestRecord(updated)
+	enqueueDecisionReview(rec, RequestApproved)
+	broadcastRequest(rec, "shepherd_request_decided")
+	return rec, nil
+}
+
+// RejectShepherdRequest records the rejection (with the user's note) and runs
+// NO action. The shepherd still wakes: knowing the user said no is what lets
+// it change course instead of waiting forever.
+func RejectShepherdRequest(id int, note string) (*ShepherdRequestRecord, error) {
+	ctx := context.Background()
+	row, err := db.Client().ShepherdRequest.Query().Where(entreq.ID(id)).Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return nil, fmt.Errorf("request #%d not found", id)
+		}
+		return nil, fmt.Errorf("load shepherd request: %w", err)
+	}
+	if row.Status != RequestPending {
+		return nil, fmt.Errorf("request #%d is already %s", id, row.Status)
+	}
+
+	result := strings.TrimSpace(note)
+	if result == "" {
+		result = "사용자가 거절했습니다."
+	}
+
+	now := time.Now()
+	updated, err := db.Client().ShepherdRequest.UpdateOneID(row.ID).
+		SetStatus(RequestRejected).
+		SetDecidedAt(now).
+		SetResult(result).
+		Save(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store rejection: %w", err)
+	}
+
+	rec := toRequestRecord(updated)
+	enqueueDecisionReview(rec, RequestRejected)
+	broadcastRequest(rec, "shepherd_request_decided")
+	return rec, nil
+}
+
+// runRequestAction executes the approved action. Return text always lands in
+// `result` (success or failure) — an approval never returns a bare error to
+// the UI for target problems, only for infrastructure failures above.
+func runRequestAction(row *ent.ShepherdRequest) string {
+	switch row.Kind {
+	case RequestStopTask:
+		if err := queue.StopTaskByID(row.TargetID, "stopped by shepherd request"); err != nil {
+			return fmt.Sprintf("작업 중지 실패: %v", err)
+		}
+		return fmt.Sprintf("작업 #%d 중지 완료", row.TargetID)
+
+	case RequestExecuteIssue:
+		res, err := issue.Execute(issue.ExecuteInput{
+			Project: row.ProjectName,
+			IssueID: row.TargetID,
+			Watch:   true, // an approved delegation is watched work (#597)
+		})
+		if err != nil {
+			return fmt.Sprintf("이슈 실행 실패: %v", err)
+		}
+		if wakeProcessor != nil {
+			wakeProcessor.ProcessPendingNow()
+		}
+		return fmt.Sprintf("이슈 #%d 실행 적재 완료 (task %v)", row.TargetID, res.TaskIDs)
+
+	case RequestDeleteIssue:
+		// Deletion is ONLY reachable through this approved path — no MCP tool
+		// deletes issues at any autonomy tier (#601 §1).
+		if err := issue.Delete(row.ProjectName, row.TargetID); err != nil {
+			return fmt.Sprintf("이슈 삭제 실패: %v", err)
+		}
+		return fmt.Sprintf("이슈 #%d 삭제 완료", row.TargetID)
+
+	case RequestOther:
+		return "승인 기록만 남겼습니다 (실행할 조치 없음)."
+
+	default:
+		return fmt.Sprintf("알 수 없는 kind %q — 조치 없음", row.Kind)
+	}
+}
+
+const decisionReviewHeader = `[Shepherd request decision]
+The user decided on a request you (or another sheep) raised. Follow up per the review procedure; do NOT re-create the same request.`
+
+// enqueueDecisionReview wakes the shepherd with the decision, merged into a
+// pending review task when one exists (#597 coalescing rule).
+func enqueueDecisionReview(rec *ShepherdRequestRecord, decision string) {
+	block := fmt.Sprintf("- request #%d (%s): %s — target: %s, project: %s\n- reason given: %s\n- user result: %s",
+		rec.ID, kindLabel(rec.Kind), decision, requestTargetLabel(rec), orDash(rec.ProjectName), rec.Reason, rec.Result)
+
+	appendMu.Lock()
+	appended := queue.AppendToPendingReviewTaskPrompt(decisionReviewHeader + "\n\n" + block)
+	appendMu.Unlock()
+
+	if appended {
+		log.Printf("[shepherd-request] #%d decision merged into a pending review task", rec.ID)
+		return
+	}
+
+	t, err := EnqueueShepherdTask(KindReview, decisionReviewHeader+"\n\n"+block, 0)
+	if err != nil {
+		log.Printf("[shepherd-request] enqueue review for request #%d: %v", rec.ID, err)
+		return
+	}
+	log.Printf("[shepherd-request] #%d %s → enqueued shepherd review task #%d", rec.ID, decision, t.ID)
+
+	if wakeProcessor != nil {
+		wakeProcessor.ProcessPendingNow()
+	}
+}
+
+func kindLabel(kind string) string {
+	switch kind {
+	case RequestStopTask:
+		return "작업 중지"
+	case RequestExecuteIssue:
+		return "이슈 실행"
+	case RequestDeleteIssue:
+		return "이슈 삭제"
+	default:
+		return "기타"
+	}
+}
+
+func requestTargetLabel(rec *ShepherdRequestRecord) string {
+	switch rec.Kind {
+	case RequestStopTask:
+		return fmt.Sprintf("task #%d", rec.TargetID)
+	case RequestExecuteIssue, RequestDeleteIssue:
+		return fmt.Sprintf("issue #%d", rec.TargetID)
+	default:
+		if rec.TargetID > 0 {
+			return fmt.Sprintf("#%d", rec.TargetID)
+		}
+		return "없음"
+	}
+}
+
+func orDash(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "-"
+	}
+	return s
+}
+
+// ---- notifications ---------------------------------------------------------
+
+// notifyRequestCreated sends the web-push + Discord notice for a new pending
+// request (#601 §4: "기존 웹 푸시와 Discord 알림 함수로 알립니다"). The push
+// payload is built inline because push.Payload's task-shaped helpers do not
+// fit requests; both channels stay config-gated.
+func notifyRequestCreated(rec *ShepherdRequestRecord) {
+	title := fmt.Sprintf("Shepherd · 목자 요청 #%d", rec.ID)
+	body := fmt.Sprintf("%s 승인/거절 대기 — %s", kindLabel(rec.Kind), firstLine(rec.Reason, "사유 없음"))
+
+	if config.GetBool("webpush_enabled") {
+		if _, err := push.SendToAll(push.Payload{
+			Title:  title,
+			Body:   body,
+			URL:    "/shepherd",
+			Tag:    fmt.Sprintf("shepherd-request-%d", rec.ID),
+			Status: "warning",
+		}, true); err != nil {
+			log.Printf("[shepherd-request] web push #%d: %v", rec.ID, err)
+		}
+	}
+
+	if config.GetBool("discord_notifications_enabled") {
+		webhookURL := config.GetString("discord_webhook_url")
+		if webhookURL != "" {
+			if err := discord.New().Send(webhookURL, "", []discord.Embed{{
+				Title:       title,
+				Description: body,
+				Color:       0xFFA500,
+			}}); err != nil {
+				log.Printf("[shepherd-request] discord #%d: %v", rec.ID, err)
+			}
+		}
+	}
+}
+
+// broadcastRequest fires the daemon's SSE hook (panel badge refresh). Safe
+// when no hook is registered (CLI, tests).
+func broadcastRequest(rec *ShepherdRequestRecord, event string) {
+	if requestNotifyHook != nil {
+		requestNotifyHook(rec, event)
+	}
+}

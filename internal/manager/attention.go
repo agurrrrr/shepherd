@@ -45,6 +45,7 @@ const (
 	AttentionReviewLimit     = "review_limit"
 	AttentionUserStopped     = "user_stopped"
 	AttentionShepherdBlocked = "shepherd_blocked"
+	AttentionCostLimit       = "cost_limit"
 )
 
 // Defaults for the two new settings (#599). A stored value <= 0 falls back to
@@ -190,6 +191,12 @@ func CollectAttention(now time.Time) ([]AttentionItem, error) {
 		return nil, err
 	}
 	items = append(items, blocked...)
+
+	costItems, err := attentionCostLimit(now)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, costItems...)
 
 	acked, err := ackedFingerprints(ctx)
 	if err != nil {
@@ -629,6 +636,36 @@ func attentionShepherdBlocked(ctx context.Context) ([]AttentionItem, error) {
 		ActionKind:  "open_settings",
 		CreatedAt:   t.CreatedAt,
 		Detail:      map[string]interface{}{"task_id": t.ID, "shepherd_kind": t.ShepherdKind},
+	}}, nil
+}
+
+// ---- kind: cost_limit (severity 6) ----------------------------------------
+// Today's combined spend (shepherd tasks + watched-issue tasks, #601) has
+// reached shepherd_daily_cost_limit_usd: automatic waking and shepherd
+// delegation are refused until local midnight rolls the window over. The
+// fingerprint embeds the LOCAL DATE, so yesterday's ack never suppresses
+// today's item and the item disappears by itself the next day (the window
+// resets; no cleanup job needed). One query; limit<=0 means "no cap" and
+// reports nothing.
+
+func attentionCostLimit(now time.Time) ([]AttentionItem, error) {
+	countQuery(AttentionCostLimit)
+	exceeded, spent, limit, err := CostLimitStatus(now)
+	if err != nil {
+		return nil, fmt.Errorf("cost_limit query: %w", err)
+	}
+	if !exceeded {
+		return []AttentionItem{}, nil
+	}
+	return []AttentionItem{{
+		Kind:        AttentionCostLimit,
+		Severity:    6,
+		Fingerprint: fmt.Sprintf("%s:%s", AttentionCostLimit, now.Format("2006-01-02")),
+		Title:       fmt.Sprintf("하루 비용 상한에 닿았습니다 ($%.2f/$%.2f)", spent, limit),
+		Message:     "목자 작업과 감시 이슈 작업의 오늘 합산 비용이 상한을 넘었습니다. 자동 깨우기와 목자의 이슈 적재가 거부됩니다. 자정이 지나면 자동으로 풀립니다.",
+		ActionKind:  "open_settings",
+		CreatedAt:   now,
+		Detail:      map[string]interface{}{"spent_usd": spent, "limit_usd": limit},
 	}}, nil
 }
 

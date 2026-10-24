@@ -52,6 +52,7 @@ const (
 	SkipWakeDisabled   = "깨우기 꺼짐"
 	SkipPatrolBusy     = "순찰 작업 진행 중"
 	SkipDailyCap       = "하루 깨우기 상한 도달"
+	SkipCostCap        = "하루 비용 상한 도달"
 	SkipCollectionFail = "점검 실패"
 )
 
@@ -173,6 +174,24 @@ func RunPatrolPassWithCollect(now time.Time, collect func(time.Time) ([]Attentio
 
 	items, collectErr := collect(now)
 
+	// Cost-limit state for this pass (#601 §3): when today's combined spend
+	// has reached the cap, automatic waking stops (the SkipCostCap branch
+	// below) and the one-per-day notice fires. Computing it once here keeps
+	// the notice independent of the other wake gates — a pass with patrolling
+	// off in the wake switch still notifies. CollectAttention raises the
+	// cost_limit attention item for the panel.
+	costExceeded, costSpent, costLimit := false, 0.0, 0.0
+	if collectErr == nil {
+		var costErr error
+		costExceeded, costSpent, costLimit, costErr = CostLimitStatus(now)
+		if costErr != nil {
+			log.Printf("[shepherd-patrol] cost-limit check: %v", costErr)
+			costExceeded = true // fail closed like wakeBudgetExhausted: no wakes on a broken count
+		} else if costExceeded {
+			MaybeNotifyCostLimit(now, costSpent, costLimit)
+		}
+	}
+
 	// The previous pass's fingerprints are the baseline for "new". No previous
 	// pass (fresh install / retention wiped everything) means every current
 	// item is new — the first pass after enabling patrol reports what is
@@ -217,6 +236,8 @@ func RunPatrolPassWithCollect(now time.Time, collect func(time.Time) ([]Attentio
 			rec.SkippedReason = SkipPatrolBusy
 		case wakeBudgetExhausted(now):
 			rec.SkippedReason = SkipDailyCap
+		case costExceeded:
+			rec.SkippedReason = SkipCostCap
 		default:
 			t, enqErr := EnqueueShepherdTask(KindPatrol, buildPatrolPrompt(newItems), 0)
 			if enqErr != nil {
@@ -434,11 +455,10 @@ func (p *Patrol) runPass(now time.Time) {
 const patrolPromptHeader = `[Shepherd patrol report]
 The periodic patrol (plain code checks, no LLM) found problems that were NOT present at the previous pass. Work through the list; act on what you are allowed to act on.`
 
-// patrolActionNotice is the fixed closing instruction. When stage #601 adds
-// the request_user_action tool this line becomes "request those actions with
-// request_user_action"; until then stop/delete requests go through the final
-// report, matching OperatingInstructions' ban wording (#595).
-const patrolActionNotice = "Do the actions you are allowed to do yourself: re-enqueue issues with added guidance (issue_upsert + issue_execute), create follow-up issues, close issues whose goal is met. Anything that needs stopping a task or deleting things or changing settings must NOT be done by you — report it to the user in your final message instead."
+// patrolActionNotice is the fixed closing instruction. #601 gave the shepherd
+// the request_user_action tool, so stop/delete/settings asks now go through a
+// user-approval request instead of only the final report.
+const patrolActionNotice = "Do the actions you are allowed to do yourself: re-enqueue issues with added guidance (issue_upsert + issue_execute), create follow-up issues, close issues whose goal is met. Anything that needs stopping a task, deleting things or changing settings: raise it with request_user_action(kind, project_name, target_id, reason) and note it in your final message too — never work around a permission refusal."
 
 // patrolActionCandidates maps an attention kind to the shepherd-side action
 // candidate printed under each item. These mirror AttentionPanel's buttons

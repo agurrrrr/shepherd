@@ -420,28 +420,19 @@ func (s *Server) handleStopTask(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusBadRequest, "invalid task ID")
 	}
 
-	// Get the task to find which sheep is running it
-	t, err := queue.GetTask(id)
-	if err != nil {
-		return fail(c, fiber.StatusNotFound, err.Error())
-	}
-
-	if t.Status != entTask.StatusRunning {
-		return fail(c, fiber.StatusBadRequest, "task is not running")
-	}
-
-	if t.Edges.Sheep == nil {
-		return fail(c, fiber.StatusInternalServerError, "task has no assigned sheep")
-	}
-
-	// Stop the running task
-	result, err := worker.StopTask(t.Edges.Sheep.Name)
-	if err != nil {
+	// Common stop path (#601): queue.StopTaskByID is what the MCP task_stop
+	// tool and the CLI use too, so all three behave identically (worker kill +
+	// stopped row + issue sync + finish hook). The reason stays the historical
+	// "stopped by user" string — wake rule 3 keys on it.
+	if err := queue.StopTaskByID(id, "stopped by user"); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return fail(c, fiber.StatusNotFound, err.Error())
+		}
+		if strings.Contains(err.Error(), "is not running") || strings.Contains(err.Error(), "no assigned sheep") {
+			return fail(c, fiber.StatusBadRequest, err.Error())
+		}
 		return fail(c, fiber.StatusInternalServerError, err.Error())
 	}
-
-	// Mark task as stopped
-	_ = queue.StopTaskWithOutput(id, "stopped by user", result.OutputLines)
 
 	return success(c, map[string]interface{}{
 		"task_id": id,

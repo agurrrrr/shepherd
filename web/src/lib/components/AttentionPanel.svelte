@@ -1,5 +1,5 @@
 <script>
-	import { apiPost } from '$lib/api.js';
+	import { apiGet, apiPost } from '$lib/api.js';
 	import { refreshShepherdAttention } from '$lib/attention.js';
 	import { shepherdAttention } from '$lib/stores.js';
 	import Icon from '$lib/components/Icon.svelte';
@@ -16,14 +16,22 @@
 	//   open_settings → link to /settings (목자 탭)
 	// "확인함" posts the fingerprint to /api/shepherd/attention/ack; the item
 	// disappears until its fingerprint changes (new failure, new round...).
+	//
+	// The #601 section on top lists pending shepherd requests
+	// (GET /api/shepherd/requests?status=pending). Approving runs the requested
+	// action server-side (POST .../approve), rejecting records a note
+	// (POST .../reject) — either decision wakes the shepherd for review.
 
 	let { onOpenIssue = () => {}, tick = 0 } = $props();
 
 	let items = $state([]);
+	let requests = $state([]);
 	let loading = $state(false);
 	let error = $state('');
 	/** fingerprint -> true while its action/ack request is in flight */
 	let busyMap = $state({});
+	/** request id -> true while its approve/reject request is in flight */
+	let requestBusy = $state({});
 
 	const kindIcons = {
 		failed_task: 'x-circle',
@@ -32,20 +40,63 @@
 		pending_backlog: 'clock',
 		review_limit: 'alert-triangle',
 		user_stopped: 'pause-circle',
-		shepherd_blocked: 'alert-triangle'
+		shepherd_blocked: 'alert-triangle',
+		cost_limit: 'zap'
+	};
+
+	const requestKindLabels = {
+		stop_task: '작업 중지',
+		execute_issue: '이슈 실행',
+		delete_issue: '이슈 삭제',
+		other: '기타'
 	};
 
 	async function load() {
 		loading = true;
 		error = '';
-		const result = await refreshShepherdAttention();
+		const [result, reqResult] = await Promise.all([refreshShepherdAttention(), loadRequests()]);
 		if (result === null) {
 			error = '확인 필요 항목을 불러오지 못했습니다.';
 			items = [];
 		} else {
 			items = result;
 		}
+		requests = reqResult;
 		loading = false;
+	}
+
+	async function loadRequests() {
+		try {
+			const res = await apiGet('/api/shepherd/requests?status=pending');
+			return res?.success && Array.isArray(res.data?.requests) ? res.data.requests : [];
+		} catch {
+			return [];
+		}
+	}
+
+	async function decideRequest(req, decision) {
+		requestBusy = { ...requestBusy, [req.id]: true };
+		error = '';
+		try {
+			const body = decision === 'reject' ? { note: '사용자가 거절했습니다.' } : {};
+			const res = await apiPost(`/api/shepherd/requests/${req.id}/${decision}`, body);
+			if (!res?.success) {
+				error = res?.message || '요청 처리에 실패했습니다.';
+			}
+		} catch (e) {
+			error = '요청 처리에 실패했습니다: ' + (e?.message || e);
+		} finally {
+			requestBusy = { ...requestBusy, [req.id]: false };
+			load();
+		}
+	}
+
+	function requestTargetLabel(req) {
+		if (req.kind === 'stop_task' && req.target_id) return `작업 #${req.target_id}`;
+		if ((req.kind === 'execute_issue' || req.kind === 'delete_issue') && req.target_id) {
+			return `이슈 #${req.target_id}${req.project_name ? ' · ' + req.project_name : ''}`;
+		}
+		return '';
 	}
 
 	// Mount load, plus a re-load whenever the page bumps `tick` (SSE debounce
@@ -147,6 +198,54 @@
 
 	{#if error}
 		<div class="panel-error" role="alert"><Icon name="alert-triangle" size={14} /> {error}</div>
+	{/if}
+
+	{#if requests.length > 0}
+		<div class="request-head">
+			<span class="eyebrow">Shepherd requests</span>
+			<span class="count chip chip-danger mono num" aria-label="{requests.length}개의 목자 요청">{requests.length}</span>
+		</div>
+		<ul class="request-list">
+			{#each requests as req (req.id)}
+				<li class="request-item" class:busy={requestBusy[req.id]}>
+					<span class="request-icon" aria-hidden="true">
+						<Icon name={kindIcons.cost_limit} size={15} />
+					</span>
+					<div class="request-body">
+						<div class="request-title-row">
+							<strong class="request-kind">{requestKindLabels[req.kind] || req.kind}</strong>
+							{#if req.requester_sheep}
+								<span class="request-chip chip">{req.requester_sheep}</span>
+							{/if}
+							{#if req.project_name}
+								<span class="request-chip chip">{req.project_name}</span>
+							{/if}
+							{#if req.created_at && !String(req.created_at).startsWith('0001')}
+								<span class="request-time mono num" title={req.created_at}>{timeAgo(req.created_at)}</span>
+							{/if}
+						</div>
+						{#if requestTargetLabel(req)}
+							<p class="request-target mono">{requestTargetLabel(req)}</p>
+						{/if}
+						{#if req.reason}
+							<p class="request-reason">{req.reason}</p>
+						{/if}
+						<div class="request-actions">
+							<button
+								class="btn btn-sm btn-primary"
+								onclick={() => decideRequest(req, 'approve')}
+								disabled={requestBusy[req.id]}
+							>승인</button>
+							<button
+								class="btn btn-sm btn-ghost reject"
+								onclick={() => decideRequest(req, 'reject')}
+								disabled={requestBusy[req.id]}
+							>거절</button>
+						</div>
+					</div>
+				</li>
+			{/each}
+		</ul>
 	{/if}
 
 	{#if loading && items.length === 0}
@@ -344,4 +443,85 @@
 
 	.ack { color: var(--text-tertiary); }
 	.ack:hover { color: var(--success); }
+
+	/* Shepherd requests (#601) — the approve/reject queue on top of the panel. */
+	.request-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+
+	.request-list {
+		list-style: none;
+		margin: 0 0 12px;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.request-item {
+		display: flex;
+		gap: 10px;
+		padding: 10px 12px;
+		border: 1px solid var(--border-subtle);
+		border-left: 3px solid var(--accent);
+		border-radius: var(--radius);
+		background: var(--bg-3);
+	}
+
+	.request-item.busy { opacity: 0.6; }
+
+	.request-icon {
+		flex-shrink: 0;
+		margin-top: 2px;
+		color: var(--accent);
+	}
+
+	.request-body { flex: 1; min-width: 0; }
+
+	.request-title-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+
+	.request-kind {
+		font-size: var(--fs-sm);
+		color: var(--text-primary);
+	}
+
+	.request-chip { font-size: var(--fs-2xs); }
+
+	.request-time {
+		margin-left: auto;
+		font-size: var(--fs-2xs);
+		color: var(--text-tertiary);
+	}
+
+	.request-target {
+		margin: 4px 0 0;
+		font-size: var(--fs-xs);
+		color: var(--text-secondary);
+	}
+
+	.request-reason {
+		margin: 4px 0 0;
+		font-size: var(--fs-xs);
+		color: var(--text-secondary);
+		word-break: keep-all;
+	}
+
+	.request-actions {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
+		margin-top: 8px;
+	}
+
+	.reject { color: var(--text-tertiary); }
+	.reject:hover { color: var(--danger); }
 </style>

@@ -139,6 +139,12 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	// Periodic patrol (#600): records + manual "run now".
 	api.Get("/shepherd/patrols", s.handleListPatrols)
 	api.Post("/shepherd/patrols/run", s.handleRunPatrol)
+	// Shepherd user-confirmation requests (#601): the panel's "목자 요청"
+	// list plus approve/reject, which run the requested action server-side
+	// and wake the shepherd with a review task.
+	api.Get("/shepherd/requests", s.handleListShepherdRequests)
+	api.Post("/shepherd/requests/:id/approve", s.handleApproveShepherdRequest)
+	api.Post("/shepherd/requests/:id/reject", s.handleRejectShepherdRequest)
 	api.Get("/config/system-prompt-preview", s.handleSystemPromptPreview)
 	api.Get("/config/model-options", s.handleGetModelOptions)
 	api.Post("/config/grok-models/refresh", s.handleRefreshGrokModels)

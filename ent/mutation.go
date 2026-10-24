@@ -21,6 +21,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheepname"
 	"github.com/agurrrrr/shepherd/ent/shepherdack"
 	"github.com/agurrrrr/shepherd/ent/shepherdpatrol"
+	"github.com/agurrrrr/shepherd/ent/shepherdrequest"
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
@@ -45,6 +46,7 @@ const (
 	TypeSheepName       = "SheepName"
 	TypeShepherdAck     = "ShepherdAck"
 	TypeShepherdPatrol  = "ShepherdPatrol"
+	TypeShepherdRequest = "ShepherdRequest"
 	TypeSkill           = "Skill"
 	TypeTask            = "Task"
 	TypeWikiPage        = "WikiPage"
@@ -7850,6 +7852,912 @@ func (m *ShepherdPatrolMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *ShepherdPatrolMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown ShepherdPatrol edge %s", name)
+}
+
+// ShepherdRequestMutation represents an operation that mutates the ShepherdRequest nodes in the graph.
+type ShepherdRequestMutation struct {
+	config
+	op                      Op
+	typ                     string
+	id                      *int
+	kind                    *string
+	project_name            *string
+	target_id               *int
+	addtarget_id            *int
+	reason                  *string
+	status                  *string
+	requested_by_task_id    *int
+	addrequested_by_task_id *int
+	created_at              *time.Time
+	decided_at              *time.Time
+	result                  *string
+	clearedFields           map[string]struct{}
+	done                    bool
+	oldValue                func(context.Context) (*ShepherdRequest, error)
+	predicates              []predicate.ShepherdRequest
+}
+
+var _ ent.Mutation = (*ShepherdRequestMutation)(nil)
+
+// shepherdrequestOption allows management of the mutation configuration using functional options.
+type shepherdrequestOption func(*ShepherdRequestMutation)
+
+// newShepherdRequestMutation creates new mutation for the ShepherdRequest entity.
+func newShepherdRequestMutation(c config, op Op, opts ...shepherdrequestOption) *ShepherdRequestMutation {
+	m := &ShepherdRequestMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeShepherdRequest,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withShepherdRequestID sets the ID field of the mutation.
+func withShepherdRequestID(id int) shepherdrequestOption {
+	return func(m *ShepherdRequestMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ShepherdRequest
+		)
+		m.oldValue = func(ctx context.Context) (*ShepherdRequest, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ShepherdRequest.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withShepherdRequest sets the old ShepherdRequest of the mutation.
+func withShepherdRequest(node *ShepherdRequest) shepherdrequestOption {
+	return func(m *ShepherdRequestMutation) {
+		m.oldValue = func(context.Context) (*ShepherdRequest, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ShepherdRequestMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ShepherdRequestMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ShepherdRequestMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ShepherdRequestMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ShepherdRequest.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetKind sets the "kind" field.
+func (m *ShepherdRequestMutation) SetKind(s string) {
+	m.kind = &s
+}
+
+// Kind returns the value of the "kind" field in the mutation.
+func (m *ShepherdRequestMutation) Kind() (r string, exists bool) {
+	v := m.kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKind returns the old "kind" field's value of the ShepherdRequest entity.
+// If the ShepherdRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdRequestMutation) OldKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKind: %w", err)
+	}
+	return oldValue.Kind, nil
+}
+
+// ResetKind resets all changes to the "kind" field.
+func (m *ShepherdRequestMutation) ResetKind() {
+	m.kind = nil
+}
+
+// SetProjectName sets the "project_name" field.
+func (m *ShepherdRequestMutation) SetProjectName(s string) {
+	m.project_name = &s
+}
+
+// ProjectName returns the value of the "project_name" field in the mutation.
+func (m *ShepherdRequestMutation) ProjectName() (r string, exists bool) {
+	v := m.project_name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProjectName returns the old "project_name" field's value of the ShepherdRequest entity.
+// If the ShepherdRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdRequestMutation) OldProjectName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProjectName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProjectName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProjectName: %w", err)
+	}
+	return oldValue.ProjectName, nil
+}
+
+// ClearProjectName clears the value of the "project_name" field.
+func (m *ShepherdRequestMutation) ClearProjectName() {
+	m.project_name = nil
+	m.clearedFields[shepherdrequest.FieldProjectName] = struct{}{}
+}
+
+// ProjectNameCleared returns if the "project_name" field was cleared in this mutation.
+func (m *ShepherdRequestMutation) ProjectNameCleared() bool {
+	_, ok := m.clearedFields[shepherdrequest.FieldProjectName]
+	return ok
+}
+
+// ResetProjectName resets all changes to the "project_name" field.
+func (m *ShepherdRequestMutation) ResetProjectName() {
+	m.project_name = nil
+	delete(m.clearedFields, shepherdrequest.FieldProjectName)
+}
+
+// SetTargetID sets the "target_id" field.
+func (m *ShepherdRequestMutation) SetTargetID(i int) {
+	m.target_id = &i
+	m.addtarget_id = nil
+}
+
+// TargetID returns the value of the "target_id" field in the mutation.
+func (m *ShepherdRequestMutation) TargetID() (r int, exists bool) {
+	v := m.target_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTargetID returns the old "target_id" field's value of the ShepherdRequest entity.
+// If the ShepherdRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdRequestMutation) OldTargetID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTargetID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTargetID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTargetID: %w", err)
+	}
+	return oldValue.TargetID, nil
+}
+
+// AddTargetID adds i to the "target_id" field.
+func (m *ShepherdRequestMutation) AddTargetID(i int) {
+	if m.addtarget_id != nil {
+		*m.addtarget_id += i
+	} else {
+		m.addtarget_id = &i
+	}
+}
+
+// AddedTargetID returns the value that was added to the "target_id" field in this mutation.
+func (m *ShepherdRequestMutation) AddedTargetID() (r int, exists bool) {
+	v := m.addtarget_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTargetID resets all changes to the "target_id" field.
+func (m *ShepherdRequestMutation) ResetTargetID() {
+	m.target_id = nil
+	m.addtarget_id = nil
+}
+
+// SetReason sets the "reason" field.
+func (m *ShepherdRequestMutation) SetReason(s string) {
+	m.reason = &s
+}
+
+// Reason returns the value of the "reason" field in the mutation.
+func (m *ShepherdRequestMutation) Reason() (r string, exists bool) {
+	v := m.reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReason returns the old "reason" field's value of the ShepherdRequest entity.
+// If the ShepherdRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdRequestMutation) OldReason(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReason: %w", err)
+	}
+	return oldValue.Reason, nil
+}
+
+// ClearReason clears the value of the "reason" field.
+func (m *ShepherdRequestMutation) ClearReason() {
+	m.reason = nil
+	m.clearedFields[shepherdrequest.FieldReason] = struct{}{}
+}
+
+// ReasonCleared returns if the "reason" field was cleared in this mutation.
+func (m *ShepherdRequestMutation) ReasonCleared() bool {
+	_, ok := m.clearedFields[shepherdrequest.FieldReason]
+	return ok
+}
+
+// ResetReason resets all changes to the "reason" field.
+func (m *ShepherdRequestMutation) ResetReason() {
+	m.reason = nil
+	delete(m.clearedFields, shepherdrequest.FieldReason)
+}
+
+// SetStatus sets the "status" field.
+func (m *ShepherdRequestMutation) SetStatus(s string) {
+	m.status = &s
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *ShepherdRequestMutation) Status() (r string, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the ShepherdRequest entity.
+// If the ShepherdRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdRequestMutation) OldStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *ShepherdRequestMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetRequestedByTaskID sets the "requested_by_task_id" field.
+func (m *ShepherdRequestMutation) SetRequestedByTaskID(i int) {
+	m.requested_by_task_id = &i
+	m.addrequested_by_task_id = nil
+}
+
+// RequestedByTaskID returns the value of the "requested_by_task_id" field in the mutation.
+func (m *ShepherdRequestMutation) RequestedByTaskID() (r int, exists bool) {
+	v := m.requested_by_task_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestedByTaskID returns the old "requested_by_task_id" field's value of the ShepherdRequest entity.
+// If the ShepherdRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdRequestMutation) OldRequestedByTaskID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestedByTaskID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestedByTaskID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestedByTaskID: %w", err)
+	}
+	return oldValue.RequestedByTaskID, nil
+}
+
+// AddRequestedByTaskID adds i to the "requested_by_task_id" field.
+func (m *ShepherdRequestMutation) AddRequestedByTaskID(i int) {
+	if m.addrequested_by_task_id != nil {
+		*m.addrequested_by_task_id += i
+	} else {
+		m.addrequested_by_task_id = &i
+	}
+}
+
+// AddedRequestedByTaskID returns the value that was added to the "requested_by_task_id" field in this mutation.
+func (m *ShepherdRequestMutation) AddedRequestedByTaskID() (r int, exists bool) {
+	v := m.addrequested_by_task_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRequestedByTaskID resets all changes to the "requested_by_task_id" field.
+func (m *ShepherdRequestMutation) ResetRequestedByTaskID() {
+	m.requested_by_task_id = nil
+	m.addrequested_by_task_id = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ShepherdRequestMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ShepherdRequestMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ShepherdRequest entity.
+// If the ShepherdRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdRequestMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ShepherdRequestMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetDecidedAt sets the "decided_at" field.
+func (m *ShepherdRequestMutation) SetDecidedAt(t time.Time) {
+	m.decided_at = &t
+}
+
+// DecidedAt returns the value of the "decided_at" field in the mutation.
+func (m *ShepherdRequestMutation) DecidedAt() (r time.Time, exists bool) {
+	v := m.decided_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDecidedAt returns the old "decided_at" field's value of the ShepherdRequest entity.
+// If the ShepherdRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdRequestMutation) OldDecidedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDecidedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDecidedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDecidedAt: %w", err)
+	}
+	return oldValue.DecidedAt, nil
+}
+
+// ClearDecidedAt clears the value of the "decided_at" field.
+func (m *ShepherdRequestMutation) ClearDecidedAt() {
+	m.decided_at = nil
+	m.clearedFields[shepherdrequest.FieldDecidedAt] = struct{}{}
+}
+
+// DecidedAtCleared returns if the "decided_at" field was cleared in this mutation.
+func (m *ShepherdRequestMutation) DecidedAtCleared() bool {
+	_, ok := m.clearedFields[shepherdrequest.FieldDecidedAt]
+	return ok
+}
+
+// ResetDecidedAt resets all changes to the "decided_at" field.
+func (m *ShepherdRequestMutation) ResetDecidedAt() {
+	m.decided_at = nil
+	delete(m.clearedFields, shepherdrequest.FieldDecidedAt)
+}
+
+// SetResult sets the "result" field.
+func (m *ShepherdRequestMutation) SetResult(s string) {
+	m.result = &s
+}
+
+// Result returns the value of the "result" field in the mutation.
+func (m *ShepherdRequestMutation) Result() (r string, exists bool) {
+	v := m.result
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResult returns the old "result" field's value of the ShepherdRequest entity.
+// If the ShepherdRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ShepherdRequestMutation) OldResult(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResult is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResult requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResult: %w", err)
+	}
+	return oldValue.Result, nil
+}
+
+// ClearResult clears the value of the "result" field.
+func (m *ShepherdRequestMutation) ClearResult() {
+	m.result = nil
+	m.clearedFields[shepherdrequest.FieldResult] = struct{}{}
+}
+
+// ResultCleared returns if the "result" field was cleared in this mutation.
+func (m *ShepherdRequestMutation) ResultCleared() bool {
+	_, ok := m.clearedFields[shepherdrequest.FieldResult]
+	return ok
+}
+
+// ResetResult resets all changes to the "result" field.
+func (m *ShepherdRequestMutation) ResetResult() {
+	m.result = nil
+	delete(m.clearedFields, shepherdrequest.FieldResult)
+}
+
+// Where appends a list predicates to the ShepherdRequestMutation builder.
+func (m *ShepherdRequestMutation) Where(ps ...predicate.ShepherdRequest) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ShepherdRequestMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ShepherdRequestMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ShepherdRequest, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ShepherdRequestMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ShepherdRequestMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ShepherdRequest).
+func (m *ShepherdRequestMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ShepherdRequestMutation) Fields() []string {
+	fields := make([]string, 0, 9)
+	if m.kind != nil {
+		fields = append(fields, shepherdrequest.FieldKind)
+	}
+	if m.project_name != nil {
+		fields = append(fields, shepherdrequest.FieldProjectName)
+	}
+	if m.target_id != nil {
+		fields = append(fields, shepherdrequest.FieldTargetID)
+	}
+	if m.reason != nil {
+		fields = append(fields, shepherdrequest.FieldReason)
+	}
+	if m.status != nil {
+		fields = append(fields, shepherdrequest.FieldStatus)
+	}
+	if m.requested_by_task_id != nil {
+		fields = append(fields, shepherdrequest.FieldRequestedByTaskID)
+	}
+	if m.created_at != nil {
+		fields = append(fields, shepherdrequest.FieldCreatedAt)
+	}
+	if m.decided_at != nil {
+		fields = append(fields, shepherdrequest.FieldDecidedAt)
+	}
+	if m.result != nil {
+		fields = append(fields, shepherdrequest.FieldResult)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ShepherdRequestMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case shepherdrequest.FieldKind:
+		return m.Kind()
+	case shepherdrequest.FieldProjectName:
+		return m.ProjectName()
+	case shepherdrequest.FieldTargetID:
+		return m.TargetID()
+	case shepherdrequest.FieldReason:
+		return m.Reason()
+	case shepherdrequest.FieldStatus:
+		return m.Status()
+	case shepherdrequest.FieldRequestedByTaskID:
+		return m.RequestedByTaskID()
+	case shepherdrequest.FieldCreatedAt:
+		return m.CreatedAt()
+	case shepherdrequest.FieldDecidedAt:
+		return m.DecidedAt()
+	case shepherdrequest.FieldResult:
+		return m.Result()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ShepherdRequestMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case shepherdrequest.FieldKind:
+		return m.OldKind(ctx)
+	case shepherdrequest.FieldProjectName:
+		return m.OldProjectName(ctx)
+	case shepherdrequest.FieldTargetID:
+		return m.OldTargetID(ctx)
+	case shepherdrequest.FieldReason:
+		return m.OldReason(ctx)
+	case shepherdrequest.FieldStatus:
+		return m.OldStatus(ctx)
+	case shepherdrequest.FieldRequestedByTaskID:
+		return m.OldRequestedByTaskID(ctx)
+	case shepherdrequest.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case shepherdrequest.FieldDecidedAt:
+		return m.OldDecidedAt(ctx)
+	case shepherdrequest.FieldResult:
+		return m.OldResult(ctx)
+	}
+	return nil, fmt.Errorf("unknown ShepherdRequest field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ShepherdRequestMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case shepherdrequest.FieldKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKind(v)
+		return nil
+	case shepherdrequest.FieldProjectName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProjectName(v)
+		return nil
+	case shepherdrequest.FieldTargetID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTargetID(v)
+		return nil
+	case shepherdrequest.FieldReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReason(v)
+		return nil
+	case shepherdrequest.FieldStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case shepherdrequest.FieldRequestedByTaskID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestedByTaskID(v)
+		return nil
+	case shepherdrequest.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case shepherdrequest.FieldDecidedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDecidedAt(v)
+		return nil
+	case shepherdrequest.FieldResult:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResult(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ShepherdRequest field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ShepherdRequestMutation) AddedFields() []string {
+	var fields []string
+	if m.addtarget_id != nil {
+		fields = append(fields, shepherdrequest.FieldTargetID)
+	}
+	if m.addrequested_by_task_id != nil {
+		fields = append(fields, shepherdrequest.FieldRequestedByTaskID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ShepherdRequestMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case shepherdrequest.FieldTargetID:
+		return m.AddedTargetID()
+	case shepherdrequest.FieldRequestedByTaskID:
+		return m.AddedRequestedByTaskID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ShepherdRequestMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case shepherdrequest.FieldTargetID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTargetID(v)
+		return nil
+	case shepherdrequest.FieldRequestedByTaskID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRequestedByTaskID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ShepherdRequest numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ShepherdRequestMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(shepherdrequest.FieldProjectName) {
+		fields = append(fields, shepherdrequest.FieldProjectName)
+	}
+	if m.FieldCleared(shepherdrequest.FieldReason) {
+		fields = append(fields, shepherdrequest.FieldReason)
+	}
+	if m.FieldCleared(shepherdrequest.FieldDecidedAt) {
+		fields = append(fields, shepherdrequest.FieldDecidedAt)
+	}
+	if m.FieldCleared(shepherdrequest.FieldResult) {
+		fields = append(fields, shepherdrequest.FieldResult)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ShepherdRequestMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ShepherdRequestMutation) ClearField(name string) error {
+	switch name {
+	case shepherdrequest.FieldProjectName:
+		m.ClearProjectName()
+		return nil
+	case shepherdrequest.FieldReason:
+		m.ClearReason()
+		return nil
+	case shepherdrequest.FieldDecidedAt:
+		m.ClearDecidedAt()
+		return nil
+	case shepherdrequest.FieldResult:
+		m.ClearResult()
+		return nil
+	}
+	return fmt.Errorf("unknown ShepherdRequest nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ShepherdRequestMutation) ResetField(name string) error {
+	switch name {
+	case shepherdrequest.FieldKind:
+		m.ResetKind()
+		return nil
+	case shepherdrequest.FieldProjectName:
+		m.ResetProjectName()
+		return nil
+	case shepherdrequest.FieldTargetID:
+		m.ResetTargetID()
+		return nil
+	case shepherdrequest.FieldReason:
+		m.ResetReason()
+		return nil
+	case shepherdrequest.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case shepherdrequest.FieldRequestedByTaskID:
+		m.ResetRequestedByTaskID()
+		return nil
+	case shepherdrequest.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case shepherdrequest.FieldDecidedAt:
+		m.ResetDecidedAt()
+		return nil
+	case shepherdrequest.FieldResult:
+		m.ResetResult()
+		return nil
+	}
+	return fmt.Errorf("unknown ShepherdRequest field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ShepherdRequestMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ShepherdRequestMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ShepherdRequestMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ShepherdRequestMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ShepherdRequestMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ShepherdRequestMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ShepherdRequestMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown ShepherdRequest unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ShepherdRequestMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown ShepherdRequest edge %s", name)
 }
 
 // SkillMutation represents an operation that mutates the Skill nodes in the graph.

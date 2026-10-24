@@ -89,5 +89,5 @@ func ListCoreToolDefs() []Tool {
 			},
 		},
 	}
-	return append(core, getIssueToolsList()...)
+	return append(core, append(getIssueToolsList(), getShepherdToolsList()...)...)
 }

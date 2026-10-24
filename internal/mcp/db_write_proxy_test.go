@@ -3,14 +3,18 @@ package mcp
 import (
 	"strings"
 	"testing"
+
+	"github.com/agurrrrr/shepherd/internal/config"
 )
 
 func TestDBWriteToolNames_ExpectedSet(t *testing.T) {
 	want := map[string]bool{
-		"wiki_create":   true,
-		"wiki_edit":     true,
-		"issue_upsert":  true,
-		"issue_execute": true,
+		"wiki_create":         true,
+		"wiki_edit":           true,
+		"issue_upsert":        true,
+		"issue_execute":       true,
+		"task_stop":           true, // #601
+		"request_user_action": true, // #601
 	}
 	if len(dbWriteToolNames) != len(want) {
 		t.Fatalf("dbWriteToolNames len=%d, want %d: %v", len(dbWriteToolNames), len(want), dbWriteToolNames)
@@ -27,8 +31,15 @@ func TestDBWriteToolNames_ExpectedSet(t *testing.T) {
 // is not reachable they fail with a daemon-missing error rather than a local
 // validation/DB error (e.g. "content required" from handleWikiCreate).
 func TestNewClient_DBWriteToolsForwardWhenDaemonDown(t *testing.T) {
-	// Ensure no runtime.json points at a live daemon for this process, or
-	// that if one exists the error still looks like a proxy path.
+	// Isolate GetConfigDir so daemon.ReadRuntime finds no runtime.json even on
+	// a machine that runs a live daemon: every db-write tool must take the
+	// deterministic "daemon is not running" forwarder path. Without this, an
+	// operator's running daemon answers the call and — when it predates the
+	// tool — replies "unknown tool", which looks like an unregistered local
+	// forwarder and breaks the test.
+	prevDir := config.UseTempConfigDir(t.TempDir())
+	t.Cleanup(func() { config.UseTempConfigDir(prevDir) })
+
 	// We call with intentionally incomplete args so a local handler would
 	// return a validation error immediately without needing DB.
 	client := NewClient(true) // minimal: no browser tools

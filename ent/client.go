@@ -24,6 +24,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheepname"
 	"github.com/agurrrrr/shepherd/ent/shepherdack"
 	"github.com/agurrrrr/shepherd/ent/shepherdpatrol"
+	"github.com/agurrrrr/shepherd/ent/shepherdrequest"
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
@@ -53,6 +54,8 @@ type Client struct {
 	ShepherdAck *ShepherdAckClient
 	// ShepherdPatrol is the client for interacting with the ShepherdPatrol builders.
 	ShepherdPatrol *ShepherdPatrolClient
+	// ShepherdRequest is the client for interacting with the ShepherdRequest builders.
+	ShepherdRequest *ShepherdRequestClient
 	// Skill is the client for interacting with the Skill builders.
 	Skill *SkillClient
 	// Task is the client for interacting with the Task builders.
@@ -81,6 +84,7 @@ func (c *Client) init() {
 	c.SheepName = NewSheepNameClient(c.config)
 	c.ShepherdAck = NewShepherdAckClient(c.config)
 	c.ShepherdPatrol = NewShepherdPatrolClient(c.config)
+	c.ShepherdRequest = NewShepherdRequestClient(c.config)
 	c.Skill = NewSkillClient(c.config)
 	c.Task = NewTaskClient(c.config)
 	c.WikiPage = NewWikiPageClient(c.config)
@@ -186,6 +190,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		SheepName:       NewSheepNameClient(cfg),
 		ShepherdAck:     NewShepherdAckClient(cfg),
 		ShepherdPatrol:  NewShepherdPatrolClient(cfg),
+		ShepherdRequest: NewShepherdRequestClient(cfg),
 		Skill:           NewSkillClient(cfg),
 		Task:            NewTaskClient(cfg),
 		WikiPage:        NewWikiPageClient(cfg),
@@ -218,6 +223,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		SheepName:       NewSheepNameClient(cfg),
 		ShepherdAck:     NewShepherdAckClient(cfg),
 		ShepherdPatrol:  NewShepherdPatrolClient(cfg),
+		ShepherdRequest: NewShepherdRequestClient(cfg),
 		Skill:           NewSkillClient(cfg),
 		Task:            NewTaskClient(cfg),
 		WikiPage:        NewWikiPageClient(cfg),
@@ -252,8 +258,8 @@ func (c *Client) Close() error {
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.BrowserSession, c.Issue, c.MCPServer, c.Project, c.Schedule, c.Sheep,
-		c.SheepName, c.ShepherdAck, c.ShepherdPatrol, c.Skill, c.Task, c.WikiPage,
-		c.WikiPageVersion,
+		c.SheepName, c.ShepherdAck, c.ShepherdPatrol, c.ShepherdRequest, c.Skill,
+		c.Task, c.WikiPage, c.WikiPageVersion,
 	} {
 		n.Use(hooks...)
 	}
@@ -264,8 +270,8 @@ func (c *Client) Use(hooks ...Hook) {
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.BrowserSession, c.Issue, c.MCPServer, c.Project, c.Schedule, c.Sheep,
-		c.SheepName, c.ShepherdAck, c.ShepherdPatrol, c.Skill, c.Task, c.WikiPage,
-		c.WikiPageVersion,
+		c.SheepName, c.ShepherdAck, c.ShepherdPatrol, c.ShepherdRequest, c.Skill,
+		c.Task, c.WikiPage, c.WikiPageVersion,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -292,6 +298,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.ShepherdAck.mutate(ctx, m)
 	case *ShepherdPatrolMutation:
 		return c.ShepherdPatrol.mutate(ctx, m)
+	case *ShepherdRequestMutation:
+		return c.ShepherdRequest.mutate(ctx, m)
 	case *SkillMutation:
 		return c.Skill.mutate(ctx, m)
 	case *TaskMutation:
@@ -1758,6 +1766,139 @@ func (c *ShepherdPatrolClient) mutate(ctx context.Context, m *ShepherdPatrolMuta
 	}
 }
 
+// ShepherdRequestClient is a client for the ShepherdRequest schema.
+type ShepherdRequestClient struct {
+	config
+}
+
+// NewShepherdRequestClient returns a client for the ShepherdRequest from the given config.
+func NewShepherdRequestClient(c config) *ShepherdRequestClient {
+	return &ShepherdRequestClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `shepherdrequest.Hooks(f(g(h())))`.
+func (c *ShepherdRequestClient) Use(hooks ...Hook) {
+	c.hooks.ShepherdRequest = append(c.hooks.ShepherdRequest, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `shepherdrequest.Intercept(f(g(h())))`.
+func (c *ShepherdRequestClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ShepherdRequest = append(c.inters.ShepherdRequest, interceptors...)
+}
+
+// Create returns a builder for creating a ShepherdRequest entity.
+func (c *ShepherdRequestClient) Create() *ShepherdRequestCreate {
+	mutation := newShepherdRequestMutation(c.config, OpCreate)
+	return &ShepherdRequestCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ShepherdRequest entities.
+func (c *ShepherdRequestClient) CreateBulk(builders ...*ShepherdRequestCreate) *ShepherdRequestCreateBulk {
+	return &ShepherdRequestCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ShepherdRequestClient) MapCreateBulk(slice any, setFunc func(*ShepherdRequestCreate, int)) *ShepherdRequestCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ShepherdRequestCreateBulk{err: fmt.Errorf("calling to ShepherdRequestClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ShepherdRequestCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ShepherdRequestCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ShepherdRequest.
+func (c *ShepherdRequestClient) Update() *ShepherdRequestUpdate {
+	mutation := newShepherdRequestMutation(c.config, OpUpdate)
+	return &ShepherdRequestUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ShepherdRequestClient) UpdateOne(_m *ShepherdRequest) *ShepherdRequestUpdateOne {
+	mutation := newShepherdRequestMutation(c.config, OpUpdateOne, withShepherdRequest(_m))
+	return &ShepherdRequestUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ShepherdRequestClient) UpdateOneID(id int) *ShepherdRequestUpdateOne {
+	mutation := newShepherdRequestMutation(c.config, OpUpdateOne, withShepherdRequestID(id))
+	return &ShepherdRequestUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ShepherdRequest.
+func (c *ShepherdRequestClient) Delete() *ShepherdRequestDelete {
+	mutation := newShepherdRequestMutation(c.config, OpDelete)
+	return &ShepherdRequestDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ShepherdRequestClient) DeleteOne(_m *ShepherdRequest) *ShepherdRequestDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ShepherdRequestClient) DeleteOneID(id int) *ShepherdRequestDeleteOne {
+	builder := c.Delete().Where(shepherdrequest.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ShepherdRequestDeleteOne{builder}
+}
+
+// Query returns a query builder for ShepherdRequest.
+func (c *ShepherdRequestClient) Query() *ShepherdRequestQuery {
+	return &ShepherdRequestQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeShepherdRequest},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ShepherdRequest entity by its id.
+func (c *ShepherdRequestClient) Get(ctx context.Context, id int) (*ShepherdRequest, error) {
+	return c.Query().Where(shepherdrequest.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ShepherdRequestClient) GetX(ctx context.Context, id int) *ShepherdRequest {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *ShepherdRequestClient) Hooks() []Hook {
+	return c.hooks.ShepherdRequest
+}
+
+// Interceptors returns the client interceptors.
+func (c *ShepherdRequestClient) Interceptors() []Interceptor {
+	return c.inters.ShepherdRequest
+}
+
+func (c *ShepherdRequestClient) mutate(ctx context.Context, m *ShepherdRequestMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ShepherdRequestCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ShepherdRequestUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ShepherdRequestUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ShepherdRequestDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ShepherdRequest mutation op: %q", m.Op())
+	}
+}
+
 // SkillClient is a client for the Skill schema.
 type SkillClient struct {
 	config
@@ -2390,11 +2531,12 @@ func (c *WikiPageVersionClient) mutate(ctx context.Context, m *WikiPageVersionMu
 type (
 	hooks struct {
 		BrowserSession, Issue, MCPServer, Project, Schedule, Sheep, SheepName,
-		ShepherdAck, ShepherdPatrol, Skill, Task, WikiPage, WikiPageVersion []ent.Hook
+		ShepherdAck, ShepherdPatrol, ShepherdRequest, Skill, Task, WikiPage,
+		WikiPageVersion []ent.Hook
 	}
 	inters struct {
 		BrowserSession, Issue, MCPServer, Project, Schedule, Sheep, SheepName,
-		ShepherdAck, ShepherdPatrol, Skill, Task, WikiPage,
+		ShepherdAck, ShepherdPatrol, ShepherdRequest, Skill, Task, WikiPage,
 		WikiPageVersion []ent.Interceptor
 	}
 )

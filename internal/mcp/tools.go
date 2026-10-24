@@ -33,6 +33,7 @@ func (s *Server) registerCoreTools() {
 	s.tools["skill_load"] = handleSkillLoad
 	s.registerWikiTools()
 	s.registerIssueTools()
+	s.registerShepherdTools()
 }
 
 // registerTools registers every tool in-process — daemon use only, since

@@ -41,6 +41,10 @@ var browserToolNames = []string{
 var dbWriteToolNames = []string{
 	"wiki_create", "wiki_edit",
 	"issue_upsert", "issue_execute",
+	// #601: task_stop kills a provider process + writes the stopped row in the
+	// daemon; request_user_action writes shepherd_requests and notifies. Both
+	// are daemon-side by nature, so the stdio child forwards them too.
+	"task_stop", "request_user_action",
 }
 
 // registerBrowserForwarders attaches an HTTP-forwarder handler for every

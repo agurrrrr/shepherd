@@ -179,6 +179,18 @@ func handleIssueTaskFinished(ev queue.IssueTaskEvent) {
 		return
 	}
 
+	// Rule 7: daily cost limit (#601). Over the cap, automatic waking stops —
+	// the cost_limit attention item (with its one-time push/Discord notice)
+	// is raised from here and from the patrol pass, not by a background timer.
+	if exceeded, spent, limit, cerr := CostLimitStatus(time.Now()); cerr != nil {
+		log.Printf("[shepherd-wake] cost-limit check: %v", cerr)
+	} else if exceeded {
+		log.Printf("[shepherd-wake] daily cost limit reached ($%.2f/$%.2f) — not waking for issue #%d task #%d (needs attention)",
+			spent, limit, ev.IssueID, ev.TaskID)
+		MaybeNotifyCostLimit(time.Now(), spent, limit)
+		return
+	}
+
 	// Count the round before building the prompt so "review round k/max" shows
 	// this wake's number.
 	if _, err := client.Issue.UpdateOneID(iss.ID).AddShepherdRounds(1).Save(ctx); err != nil {

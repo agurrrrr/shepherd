@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/agurrrrr/shepherd/ent"
 	entissue "github.com/agurrrrr/shepherd/ent/issue"
@@ -37,17 +38,69 @@ Review procedure (when this task is a review of a delegated task):
   3. Follow-up with a different scope: create a new issue and enqueue it.
 - If the task stopped on a question: if you can answer it, append the answer to the issue body and re-enqueue. If only the user can answer, do NOT re-enqueue — put the question verbatim into your report.
 
-Forbidden:
-- Do not stop tasks, do not delete issues, do not change sheep settings.
-- Until the request_user_action tool exists, ask the user through your report instead of acting on your own.
+Actions beyond your permission tier:
+- The [Autonomy] section states what you may do. Anything refused by a permission error must NOT be attempted another way: call request_user_action(kind, project_name, target_id, reason) and wait — the user decides on the Shepherd screen, and the decision wakes you back up as a review task.
+- Deleting an issue is never yours to do at any tier; raise request_user_action(kind=delete_issue) instead.
+- Changing sheep settings stays out of reach: report what must change instead.
 
 Report format:
 - Your final message is a report to the user. State briefly what you checked, which issues you created/closed/re-enqueued, and what the user must decide. If the configured language is "ko", write the report in Korean.`
 
-// AutonomyNotice is the fixed permission-stage line for the [Autonomy] section.
-// Stage #601 replaces it with real per-tier values; until then the wording is
-// constant so tests and previews stay stable.
+// AutonomyNotice is the fixed fallback line for the [Autonomy] section when
+// the live numbers cannot be read (DB down). #601 filled the section with the
+// real tier, caps, today's spend, and active delegations — see autonomySection.
 const AutonomyNotice = "issue create + execute allowed; stop/delete not allowed"
+
+// autonomySection renders the live [Autonomy] block (#601 §5): the effective
+// tier with what each tier allows, both caps with their current readings, and
+// the request_user_action pointer that replaces the old flat bans. It degrades
+// to AutonomyNotice plus whatever is known when a query fails — a broken
+// counter must not cost the shepherd its instructions.
+func autonomySection() string {
+	tier := AutonomyTier()
+
+	var sb strings.Builder
+	sb.WriteString("[Autonomy]\n")
+	fmt.Fprintf(&sb, "tier: %s — %s\n", tier, tierDescription(tier))
+
+	maxActive := maxActiveDelegations()
+	if active, err := ActiveDelegations(); err == nil {
+		fmt.Fprintf(&sb, "delegation cap: at most %d watched-issue tasks pending/running at once (currently %d)\n", maxActive, active)
+	} else {
+		fmt.Fprintf(&sb, "delegation cap: at most %d watched-issue tasks pending/running at once (current count unavailable)\n", maxActive)
+	}
+
+	limit := dailyCostLimitUSD()
+	if limit > 0 {
+		if spent, err := DailyCostToday(time.Now()); err == nil {
+			fmt.Fprintf(&sb, "daily cost cap: $%.2f — used today $%.2f (shepherd + watched-issue work combined)\n", limit, spent)
+		} else {
+			fmt.Fprintf(&sb, "daily cost cap: $%.2f (today's spend unavailable)\n", limit)
+		}
+	} else {
+		sb.WriteString("daily cost cap: none\n")
+	}
+
+	sb.WriteString("Anything a permission error refuses: call request_user_action(kind, project_name, target_id, reason) and wait — the user's decision wakes you as a review task. Deleting issues is never yours at any tier. Providers that cannot pass the caller task id are not permission-checked; the rules above still bind you.")
+	return sb.String()
+}
+
+// tierDescription spells out one tier for the prompt (English, like the rest
+// of the system context).
+func tierDescription(tier string) string {
+	switch tier {
+	case AutonomyReport:
+		return "read and report only; creating or enqueueing issues is refused"
+	case AutonomyPlan:
+		return "issue create/edit allowed; enqueueing (issue_execute) is refused"
+	case AutonomyExecute:
+		return "issue create/edit + enqueue allowed (caps apply); stopping tasks is refused"
+	case AutonomyFull:
+		return "issue create/edit + enqueue + task_stop allowed; issue delete still needs the user"
+	default:
+		return AutonomyNotice
+	}
+}
 
 // scopeTableMaxChars caps the [Managed Projects] section. The scope can hold
 // more than 50 projects, so the table must not grow without bound; when it
@@ -96,8 +149,9 @@ func BuildShepherdContext() string {
 	sb.WriteString(table)
 	sb.WriteString("\n\n")
 
-	// [Autonomy]
-	sb.WriteString("[Autonomy]\n" + AutonomyNotice + "\n")
+	// [Autonomy] — live tier + caps + today's numbers (#601).
+	sb.WriteString(autonomySection())
+	sb.WriteString("\n")
 
 	// [User Shepherd Instructions] — the user's own additions, always last.
 	if instr := strings.TrimSpace(config.GetString("shepherd_instructions")); instr != "" {

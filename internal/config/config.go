@@ -46,6 +46,18 @@ func UseTempConfigFile(path string) {
 	viper.SetConfigFile(path)
 }
 
+// UseTempConfigDir points GetConfigDir — and everything derived from it, like
+// daemon/runtime.json — at dir instead of ~/.shepherd, returning the previous
+// value so the caller can restore it. Tests that must NOT reach whatever
+// daemon happens to run on this machine install this (see the MCP forwarder
+// tests): with an empty dir, daemon.ReadRuntime finds no runtime.json and the
+// forwarder takes its deterministic "daemon is not running" path.
+func UseTempConfigDir(dir string) string {
+	prev := configDir
+	configDir = dir
+	return prev
+}
+
 func Init() error {
 	// 설정 디렉토리 생성
 	if err := os.MkdirAll(configDir, 0755); err != nil {
@@ -101,6 +113,17 @@ func Init() error {
 	//   shepherd_patrol_wake     : 새 이상에서 목자를 깨울지. 끄면 기록만 한다.
 	viper.SetDefault("shepherd_patrol_interval", "30m")
 	viper.SetDefault("shepherd_patrol_wake", true)
+
+	// 자동 권한 단계와 상한 (#601). 기본값은 2026-10-23 결정대로 "이슈 생성과
+	// 실행까지는 자동, 작업 중지와 이슈 삭제는 사용자 확인"이다.
+	//   shepherd_autonomy             : report(조회·보고만) / plan(이슈 생성·수정)
+	//                                   / execute(생성·실행) / full(작업 중지).
+	//                                   알 수 없는 값은 execute로 되돌린다 (manager/autonomy.go).
+	//   shepherd_max_active_delegations: 감시 이슈 작업의 동시 pending+running 상한.
+	//   shepherd_daily_cost_limit_usd : 하루 비용 상한 (USD). 0이면 제한하지 않는다.
+	viper.SetDefault("shepherd_autonomy", "execute")
+	viper.SetDefault("shepherd_max_active_delegations", 3)
+	viper.SetDefault("shepherd_daily_cost_limit_usd", 0)
 
 	// shell: 임베디드 프로바이더의 bash 도구가 명령을 실행할 셸 실행 파일.
 	// 빈 값이면 OS별 자동 탐지 (Unix: bash → sh, Windows: Git Bash → pwsh →
@@ -258,6 +281,11 @@ func GetInt(key string) int {
 
 func GetBool(key string) bool {
 	return viper.GetBool(key)
+}
+
+// GetFloat reads a float setting (e.g. shepherd_daily_cost_limit_usd).
+func GetFloat(key string) float64 {
+	return viper.GetFloat64(key)
 }
 
 func Set(key string, value interface{}) error {

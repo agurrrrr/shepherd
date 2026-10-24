@@ -162,9 +162,9 @@ func TestPatrolWakesOnlyOnNew(t *testing.T) {
 	}
 
 	// The wake prompt carries the per-kind action candidate and the
-	// do-yourself / report-the-rest instruction (#600).
+	// do-yourself / request_user_action instruction (#600 as revised by #601).
 	woken := shepherdTasksByKind(t, KindPatrol)[1]
-	for _, needle := range []string{"Candidate:", "issue_execute", "report it to the user"} {
+	for _, needle := range []string{"Candidate:", "issue_execute", "request_user_action"} {
 		if !strings.Contains(woken.Prompt, needle) {
 			t.Fatalf("patrol prompt missing %q:\n%s", needle, woken.Prompt)
 		}

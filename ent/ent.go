@@ -21,6 +21,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheepname"
 	"github.com/agurrrrr/shepherd/ent/shepherdack"
 	"github.com/agurrrrr/shepherd/ent/shepherdpatrol"
+	"github.com/agurrrrr/shepherd/ent/shepherdrequest"
 	"github.com/agurrrrr/shepherd/ent/skill"
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
@@ -94,6 +95,7 @@ func checkColumn(t, c string) error {
 			sheepname.Table:       sheepname.ValidColumn,
 			shepherdack.Table:     shepherdack.ValidColumn,
 			shepherdpatrol.Table:  shepherdpatrol.ValidColumn,
+			shepherdrequest.Table: shepherdrequest.ValidColumn,
 			skill.Table:           skill.ValidColumn,
 			task.Table:            task.ValidColumn,
 			wikipage.Table:        wikipage.ValidColumn,
