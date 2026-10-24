@@ -222,6 +222,115 @@ func TestApproveStopTaskFailureLandsInResult(t *testing.T) {
 	}
 }
 
+// TestApproveStopTaskPendingCancels pins #626 cause 1: a stop_task approval
+// whose target is still queued must go through the daemon's cancel path
+// (queue.CancelPendingTask, the same one POST /api/tasks/:id/cancel uses) and
+// record a success phrase. Before #626 this failed with
+// "task #N is not running (status: pending)" and the row stayed queued.
+func TestApproveStopTaskPendingCancels(t *testing.T) {
+	ctx := context.Background()
+	client := withRequestTestEnv(t)
+	app := requestsApp(t)
+
+	workerSh := client.Sheep.Create().SetName("양순이").SetProvider(sheep.ProviderClaude).
+		SetStatus(sheep.StatusIdle).SaveX(ctx)
+	proj := client.Project.Create().SetName("bori").SetPath("/ws/bori").SetSheep(workerSh).SaveX(ctx)
+	queued := client.Task.Create().SetPrompt("duplicate in queue").SetStatus(entTask.StatusPending).
+		SetSheep(workerSh).SetProject(proj).SaveX(ctx)
+
+	rec, err := manager.CreateShepherdRequest(manager.RequestStopTask, "", queued.ID, "중복 대기 작업이라 취소합니다", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, out := postJSON(t, app, "/api/shepherd/requests/"+strconv.Itoa(rec.ID)+"/approve", nil)
+	if code != http.StatusOK {
+		t.Fatalf("approve: %d %v", code, out)
+	}
+	row := out["data"].(map[string]any)["request"].(map[string]any)
+	if row["status"] != manager.RequestApproved {
+		t.Fatalf("status = %v, want approved", row["status"])
+	}
+	if !strings.Contains(row["result"].(string), "대기 취소 완료") {
+		t.Errorf("pending target must record the cancel success phrase: %v", row["result"])
+	}
+
+	got := client.Task.GetX(ctx, queued.ID)
+	if got.Status != entTask.StatusStopped {
+		t.Errorf("task status = %s, want stopped (cancelled)", got.Status)
+	}
+	if got.Error != "cancelled by user" {
+		t.Errorf("task error = %q, want the same marker POST /api/tasks/:id/cancel writes", got.Error)
+	}
+	if len(shepherdReviewTasks(t)) != 1 {
+		t.Error("the shepherd must be woken with the cancel outcome")
+	}
+}
+
+// TestApproveStopTaskPendingKeepsIssueWithLiveSibling pins #626 cause 3 through
+// the approval path: cancelling one of two queued duplicates must not mark the
+// issue failed while a live sibling remains.
+func TestApproveStopTaskPendingKeepsIssueWithLiveSibling(t *testing.T) {
+	ctx := context.Background()
+	client := withRequestTestEnv(t)
+	app := requestsApp(t)
+
+	proj := client.Project.Create().SetName("bori").SetPath("/ws/bori").SaveX(ctx)
+	iss := client.Issue.Create().SetTitle("duplicate queue").SetStatus("in_progress").
+		SetProject(proj).SaveX(ctx)
+	first := client.Task.Create().SetPrompt("drop me").SetStatus(entTask.StatusPending).
+		SetIssueID(iss.ID).SetProject(proj).SaveX(ctx)
+	client.Task.Create().SetPrompt("will run").SetStatus(entTask.StatusPending).
+		SetIssueID(iss.ID).SetProject(proj).SaveX(ctx)
+
+	rec, err := manager.CreateShepherdRequest(manager.RequestStopTask, "", first.ID, "중복 취소", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, out := postJSON(t, app, "/api/shepherd/requests/"+strconv.Itoa(rec.ID)+"/approve", nil); code != http.StatusOK {
+		t.Fatalf("approve: %d %v", code, out)
+	}
+
+	got := client.Issue.GetX(ctx, iss.ID)
+	if got.Status != entIssue.StatusInProgress {
+		t.Errorf("issue status = %s, want in_progress while a queued sibling remains", got.Status)
+	}
+}
+
+// TestApproveStopTaskRunningStillUsesStopPath shows the running branch is
+// unchanged: it still calls queue.StopTaskByID (the worker kill), so a running
+// row with no live provider process fails softly instead of being cancelled.
+func TestApproveStopTaskRunningStillUsesStopPath(t *testing.T) {
+	ctx := context.Background()
+	client := withRequestTestEnv(t)
+	app := requestsApp(t)
+
+	workerSh := client.Sheep.Create().SetName("양순이").SetProvider(sheep.ProviderClaude).
+		SetStatus(sheep.StatusIdle).SaveX(ctx)
+	live := client.Task.Create().SetPrompt("actually running").SetStatus(entTask.StatusRunning).
+		SetSheep(workerSh).SaveX(ctx)
+
+	rec, err := manager.CreateShepherdRequest(manager.RequestStopTask, "", live.ID, "멈춰 주세요", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out := postJSON(t, app, "/api/shepherd/requests/"+strconv.Itoa(rec.ID)+"/approve", nil)
+	if code != http.StatusOK {
+		t.Fatalf("approve: %d %v", code, out)
+	}
+	row := out["data"].(map[string]any)["request"].(map[string]any)
+	result := row["result"].(string)
+	// No provider process is registered for this sheep in tests, so the stop
+	// path fails at the worker layer — proof it took the STOP branch and never
+	// touched the pending-cancel branch.
+	if !strings.Contains(result, "작업 중지 실패") || !strings.Contains(result, "no running task") {
+		t.Errorf("running target must go through StopTaskByID: %v", result)
+	}
+	if got := client.Task.GetX(ctx, live.ID); got.Status != entTask.StatusRunning {
+		t.Errorf("running task status = %s, want untouched running row", got.Status)
+	}
+}
+
 func TestApproveExecuteIssueEnqueuesWatchedWork(t *testing.T) {
 	ctx := context.Background()
 	client := withRequestTestEnv(t)

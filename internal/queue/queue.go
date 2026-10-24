@@ -801,6 +801,50 @@ func issueHasCompletedAt(i *ent.Issue) bool {
 	return i != nil && i.CompletedAt != nil && !i.CompletedAt.IsZero()
 }
 
+// hasOtherActiveIssueTask reports whether the issue linked to taskID still has
+// a pending or running task besides taskID itself (#626). The predicate mirrors
+// internal/issue.hasActiveTask — HasIssueWith(issueID) + StatusIn(pending,
+// running) — minus the row being cancelled or deleted. A task with no linked
+// issue reports false: there is nothing to protect.
+func hasOtherActiveIssueTask(ctx context.Context, client *ent.Client, taskID int) bool {
+	tasks, err := client.Task.Query().
+		Where(task.ID(taskID), task.HasIssue()).
+		WithIssue().
+		All(ctx)
+	if err != nil || len(tasks) == 0 || tasks[0].Edges.Issue == nil {
+		return false
+	}
+
+	n, err := client.Task.Query().
+		Where(
+			task.HasIssueWith(entIssue.ID(tasks[0].Edges.Issue.ID)),
+			task.StatusIn(task.StatusPending, task.StatusRunning),
+			task.IDNEQ(taskID),
+		).
+		Count(ctx)
+	if err != nil {
+		// Fail open: a query error keeps today's unconditional transition.
+		return false
+	}
+	return n > 0
+}
+
+// updateIssueStatusUnlessIssueStillActive is the guarded form of
+// updateIssueStatusOnTaskComplete used by the cancel/delete paths (#626).
+//
+// Only the LAST pending/running task of an issue may move that issue to failed.
+// Cancelling one duplicate row while a sibling is still queued used to mark the
+// issue failed with completed_at set, and the failed+completed_at guard in
+// updateIssueStatusOnTaskComplete then blocked the surviving task from moving
+// the issue back to testing — the issue stayed stuck at failed forever.
+func updateIssueStatusUnlessIssueStillActive(taskID int, newIssueStatus entIssue.Status) {
+	ctx := context.Background()
+	if hasOtherActiveIssueTask(ctx, db.Client(), taskID) {
+		return
+	}
+	updateIssueStatusOnTaskComplete(taskID, newIssueStatus)
+}
+
 // updateIssueStatusOnTaskComplete updates the linked issue status when a task finishes.
 // If the task is linked to an issue and the issue is not already done/failed (user-finalized),
 // it transitions the issue to the given status.
@@ -1060,7 +1104,7 @@ func CancelPendingTask(id int) error {
 		return fmt.Errorf("task #%d is not pending (status: %s)", id, t.Status)
 	}
 
-	updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+	updateIssueStatusUnlessIssueStillActive(id, entIssue.StatusFailed)
 
 	notifyTaskFinished(id)
 	return nil
@@ -1068,7 +1112,9 @@ func CancelPendingTask(id int) error {
 
 // DeleteTask removes a task row. The linked issue is synced to failed first —
 // updateIssueStatusOnTaskComplete re-queries the task row, so it must run
-// before the delete (afterwards the query would match 0 rows).
+// before the delete (afterwards the query would match 0 rows). The #626 guard
+// applies here too: deleting one queued duplicate must not fail an issue that
+// still has a live pending/running sibling.
 func DeleteTask(id int) error {
 	ctx := context.Background()
 	client := db.Client()
@@ -1085,7 +1131,7 @@ func DeleteTask(id int) error {
 	}
 
 	if t.Edges.Issue != nil {
-		updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+		updateIssueStatusUnlessIssueStillActive(id, entIssue.StatusFailed)
 		// Hook before the row disappears — notifyTaskFinished re-queries it.
 		notifyTaskFinished(id)
 	}
@@ -1180,9 +1226,13 @@ func taskIDsWhere(ctx context.Context, client *ent.Client, preds ...predicate.Ta
 // It is also the wake-hook entry for bulk paths (#597): RecoverStuckTasks
 // failures wake the shepherd, while user-cancel markers keep it asleep via
 // isUserStopReason.
+//
+// The #626 guard runs per ID: an issue that still has a pending/running task
+// (one that this bulk pass did not touch) keeps its status. Only when the last
+// live task of the issue was cancelled/recovered does the issue move to failed.
 func syncIssuesFailedForTasks(taskIDs []int) {
 	for _, id := range taskIDs {
-		updateIssueStatusOnTaskComplete(id, entIssue.StatusFailed)
+		updateIssueStatusUnlessIssueStillActive(id, entIssue.StatusFailed)
 		notifyTaskFinished(id)
 	}
 }

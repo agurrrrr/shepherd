@@ -22,6 +22,7 @@ import (
 
 	"github.com/agurrrrr/shepherd/ent"
 	entreq "github.com/agurrrrr/shepherd/ent/shepherdrequest"
+	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/discord"
@@ -262,6 +263,21 @@ func RejectShepherdRequest(id int, note string) (*ShepherdRequestRecord, error) 
 func runRequestAction(row *ent.ShepherdRequest) string {
 	switch row.Kind {
 	case RequestStopTask:
+		// #626: one user-facing "작업 중지" request covers both queue states.
+		// A pending row has no provider process to kill, so approval runs the
+		// same cancel path as POST /api/tasks/:id/cancel (queue.CancelPending-
+		// Task); a running row keeps queue.StopTaskByID (= POST /api/tasks/:id/
+		// stop). The UI and the request kind stay unchanged.
+		t, err := queue.GetTask(row.TargetID)
+		if err != nil {
+			return fmt.Sprintf("작업 중지 실패: %v", err)
+		}
+		if t.Status == entTask.StatusPending {
+			if err := queue.CancelPendingTask(row.TargetID); err != nil {
+				return fmt.Sprintf("작업 대기 취소 실패: %v", err)
+			}
+			return fmt.Sprintf("작업 #%d 대기 취소 완료", row.TargetID)
+		}
 		if err := queue.StopTaskByID(row.TargetID, "stopped by shepherd request"); err != nil {
 			return fmt.Sprintf("작업 중지 실패: %v", err)
 		}

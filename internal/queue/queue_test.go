@@ -165,6 +165,140 @@ func TestCancelPendingTask_FailsLinkedIssue(t *testing.T) {
 	}
 }
 
+// TestCancelPendingTask_KeepsIssueWhileSiblingActive pins the #626 guard: one
+// issue with two queued duplicates. Cancelling the first must NOT move the
+// issue to failed — the surviving task still has to be able to report success.
+// Only the last live cancellation transitions the issue.
+func TestCancelPendingTask_KeepsIssueWhileSiblingActive(t *testing.T) {
+	client := withTestDB(t)
+	ctx := context.Background()
+
+	p := client.Project.Create().SetName("demo").SetPath("/tmp/demo").SaveX(ctx)
+	iss := client.Issue.Create().
+		SetTitle("duplicate queue").
+		SetProjectID(p.ID).
+		SetStatus(entIssue.StatusInProgress).
+		SaveX(ctx)
+	first := client.Task.Create().
+		SetPrompt("duplicate to drop").
+		SetStatus(task.StatusPending).
+		SetIssueID(iss.ID).
+		SaveX(ctx)
+	second := client.Task.Create().
+		SetPrompt("the one that will run").
+		SetStatus(task.StatusPending).
+		SetIssueID(iss.ID).
+		SaveX(ctx)
+
+	if err := CancelPendingTask(first.ID); err != nil {
+		t.Fatalf("CancelPendingTask(first): %v", err)
+	}
+
+	got := client.Issue.GetX(ctx, iss.ID)
+	if got.Status != entIssue.StatusInProgress {
+		t.Errorf("issue status after cancelling one of two = %s, want in_progress", got.Status)
+	}
+	if got.CompletedAt != nil && !got.CompletedAt.IsZero() {
+		t.Error("completed_at must stay unset while a live task remains — setting it wedges the issue at failed")
+	}
+
+	if err := CancelPendingTask(second.ID); err != nil {
+		t.Fatalf("CancelPendingTask(second): %v", err)
+	}
+
+	got = client.Issue.GetX(ctx, iss.ID)
+	if got.Status != entIssue.StatusFailed {
+		t.Errorf("issue status after cancelling the last live task = %s, want failed", got.Status)
+	}
+	if got.CompletedAt == nil || got.CompletedAt.IsZero() {
+		t.Error("completed_at should be set once no pending/running task remains")
+	}
+}
+
+// TestCancelPendingTask_RunningSiblingKeepsIssue shows the running sibling
+// counts as live work too (#626): the guard mirrors internal/issue.hasActiveTask.
+func TestCancelPendingTask_RunningSiblingKeepsIssue(t *testing.T) {
+	client := withTestDB(t)
+	ctx := context.Background()
+
+	p := client.Project.Create().SetName("demo").SetPath("/tmp/demo").SaveX(ctx)
+	iss := client.Issue.Create().
+		SetTitle("one running, one queued").
+		SetProjectID(p.ID).
+		SetStatus(entIssue.StatusInProgress).
+		SaveX(ctx)
+	queued := client.Task.Create().
+		SetPrompt("queued duplicate").
+		SetStatus(task.StatusPending).
+		SetIssueID(iss.ID).
+		SaveX(ctx)
+	client.Task.Create().
+		SetPrompt("already running").
+		SetStatus(task.StatusRunning).
+		SetIssueID(iss.ID).
+		SaveX(ctx)
+
+	if err := CancelPendingTask(queued.ID); err != nil {
+		t.Fatalf("CancelPendingTask: %v", err)
+	}
+
+	got := client.Issue.GetX(ctx, iss.ID)
+	if got.Status != entIssue.StatusInProgress {
+		t.Errorf("issue status = %s, want in_progress while a running task remains", got.Status)
+	}
+}
+
+// TestCancelPendingTasks_BulkKeepsIssueUntilLastLive covers the bulk path:
+// CancelPendingTasks → syncIssuesFailedForTasks must apply the same per-issue
+// guard, so the issue lands at failed only after its last queued row is gone.
+func TestCancelPendingTasks_BulkKeepsIssueUntilLastLive(t *testing.T) {
+	client := withTestDB(t)
+	ctx := context.Background()
+
+	p := client.Project.Create().SetName("demo").SetPath("/tmp/demo").SaveX(ctx)
+	iss := client.Issue.Create().
+		SetTitle("bulk duplicates").
+		SetProjectID(p.ID).
+		SetStatus(entIssue.StatusInProgress).
+		SaveX(ctx)
+	for i := 0; i < 2; i++ {
+		client.Task.Create().
+			SetPrompt("queued duplicate").
+			SetStatus(task.StatusPending).
+			SetIssueID(iss.ID).
+			SaveX(ctx)
+	}
+
+	count, err := CancelPendingTasks()
+	if err != nil {
+		t.Fatalf("CancelPendingTasks: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("cancelled = %d, want 2", count)
+	}
+
+	got := client.Issue.GetX(ctx, iss.ID)
+	if got.Status != entIssue.StatusFailed {
+		t.Errorf("issue status after the last live task was cancelled = %s, want failed", got.Status)
+	}
+
+	// A live sibling outside the bulk set keeps the issue untouched.
+	iss2 := client.Issue.Create().
+		SetTitle("sibling survives").
+		SetProjectID(p.ID).
+		SetStatus(entIssue.StatusTesting).
+		SaveX(ctx)
+	client.Task.Create().SetPrompt("queued").SetStatus(task.StatusPending).SetIssueID(iss2.ID).SaveX(ctx)
+	client.Task.Create().SetPrompt("running").SetStatus(task.StatusRunning).SetIssueID(iss2.ID).SaveX(ctx)
+
+	if _, err := CancelPendingTasks(); err != nil {
+		t.Fatalf("CancelPendingTasks(second issue): %v", err)
+	}
+	if got := client.Issue.GetX(ctx, iss2.ID); got.Status != entIssue.StatusTesting {
+		t.Errorf("issue with a surviving running task = %s, want testing", got.Status)
+	}
+}
+
 func TestDeleteTask_RemovesRow(t *testing.T) {
 	client := withTestDB(t)
 	ctx := context.Background()
@@ -228,6 +362,40 @@ func TestDeleteTask_FailsLinkedIssue(t *testing.T) {
 	}
 	if got.CompletedAt == nil || got.CompletedAt.IsZero() {
 		t.Error("issue completed_at should be set")
+	}
+}
+
+// TestDeleteTask_KeepsIssueWhileSiblingActive applies the #626 guard to the
+// delete path: removing one queued duplicate must not fail an issue that still
+// has a live sibling.
+func TestDeleteTask_KeepsIssueWhileSiblingActive(t *testing.T) {
+	client := withTestDB(t)
+	ctx := context.Background()
+
+	p := client.Project.Create().SetName("demo").SetPath("/tmp/demo").SaveX(ctx)
+	iss := client.Issue.Create().
+		SetTitle("delete one of two").
+		SetProjectID(p.ID).
+		SetStatus(entIssue.StatusInProgress).
+		SaveX(ctx)
+	gone := client.Task.Create().
+		SetPrompt("duplicate to delete").
+		SetStatus(task.StatusPending).
+		SetIssueID(iss.ID).
+		SaveX(ctx)
+	client.Task.Create().
+		SetPrompt("sibling stays queued").
+		SetStatus(task.StatusPending).
+		SetIssueID(iss.ID).
+		SaveX(ctx)
+
+	if err := DeleteTask(gone.ID); err != nil {
+		t.Fatalf("DeleteTask: %v", err)
+	}
+
+	got := client.Issue.GetX(ctx, iss.ID)
+	if got.Status != entIssue.StatusInProgress {
+		t.Errorf("issue status = %s, want in_progress while a queued sibling remains", got.Status)
 	}
 }
 

@@ -3,7 +3,11 @@
 // task_stop(task_id, reason) — allowed ONLY for shepherd callers at the
 // `full` tier. It shares the daemon's stop implementation with
 // POST /api/tasks/:id/stop via queue.StopTaskByID, so web, CLI, and MCP stop
-// a task identically (issue #601 §2).
+// a task identically (issue #601 §2). Since #626 it also handles pending
+// rows: a pending target is cancelled through queue.CancelPendingTask, the
+// exact path POST /api/tasks/:id/cancel uses. The autonomy gate is unchanged
+// — the same `task_stop` tier entry guards both branches, so this never
+// becomes a way around the tier limit.
 //
 // request_user_action(kind, project_name, target_id, reason) — any caller may
 // raise one (sheep AND shepherd); the panel shows who asked. This is how a
@@ -14,6 +18,7 @@ package mcp
 import (
 	"fmt"
 
+	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/queue"
 )
@@ -22,12 +27,13 @@ func getShepherdToolsList() []Tool {
 	return []Tool{
 		{
 			Name: "task_stop",
-			Description: "실행 중인 작업 하나를 중지합니다. 목자(매니저 양) 호출자는 autonomy 단계가 full일 때만 쓸 수 있습니다. " +
-				"일반 양·사용자 호출은 지금과 같이 제한이 없습니다. 웹의 POST /api/tasks/:id/stop과 완전히 같은 경로로 동작합니다.",
+			Description: "작업 하나를 중지·취소합니다. 대상이 running이면 프로세스를 종료하고, pending이면 큐에서 취소합니다(#626). " +
+				"목자(매니저 양) 호출자는 autonomy 단계가 full일 때만 쓸 수 있습니다. " +
+				"일반 양·사용자 호출은 지금과 같이 제한이 없습니다. 웹의 POST /api/tasks/:id/stop(running)·POST /api/tasks/:id/cancel(pending)과 완전히 같은 서버 경로로 동작합니다.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
-					"task_id": {Type: "number", Description: "중지할 작업 ID (running이어야 함)"},
+					"task_id": {Type: "number", Description: "중지·취소할 작업 ID (pending 또는 running)"},
 					"reason":  {Type: "string", Description: "중지 사유 (기록에 남는다)"},
 				},
 				Required: []string{"task_id"},
@@ -58,6 +64,8 @@ func getShepherdToolsList() []Tool {
 
 func handleTaskStop(args map[string]interface{}) (string, error) {
 	// Tier gate: only `full` shepherds are refused below; other callers pass.
+	// #626 added the pending-cancel branch below WITHOUT touching this gate —
+	// the same `task_stop` tier entry guards both branches.
 	if err := checkShepherdPermission("task_stop", args); err != nil {
 		return "", err
 	}
@@ -69,6 +77,20 @@ func handleTaskStop(args map[string]interface{}) (string, error) {
 	reason := toString(args["reason"])
 	if reason == "" {
 		reason = "stopped by shepherd request"
+	}
+
+	// A pending row has no provider process to kill, so it goes through the
+	// daemon's cancel path — the exact one POST /api/tasks/:id/cancel uses
+	// (queue.CancelPendingTask, which records error "cancelled by user").
+	t, err := queue.GetTask(id)
+	if err != nil {
+		return "", err
+	}
+	if t.Status == entTask.StatusPending {
+		if err := queue.CancelPendingTask(id); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("작업 #%d를 큐에서 취소했습니다 (사유: %s). 감시 이슈였다면 review 작업으로 검토가 시작됩니다.", id, reason), nil
 	}
 
 	if err := queue.StopTaskByID(id, reason); err != nil {

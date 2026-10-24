@@ -207,6 +207,63 @@ func TestCallerTaskIDFromEnvFallback(t *testing.T) {
 	}
 }
 
+// TestTaskStopCancelsPendingTask pins #626 cause 2: the MCP task_stop tool now
+// covers queued rows too, through the daemon's cancel path (the same one
+// POST /api/tasks/:id/cancel uses). The autonomy gate is unchanged — a shepherd
+// below `full` is still refused for a pending target, and `full` cancels.
+func TestTaskStopCancelsPendingTask(t *testing.T) {
+	f := newAutonomyFixture(t)
+	ctx := context.Background()
+
+	queued := f.client.Task.Create().SetPrompt("queued duplicate").
+		SetStatus(entTask.StatusPending).SaveX(ctx)
+
+	// Below `full` a shepherd must be refused for the pending target as well:
+	// the cancel branch must not become a way around the tier limit.
+	setTier(t, manager.AutonomyExecute)
+	if _, err := handleTaskStop(SetCallerTaskID(map[string]interface{}{
+		"task_id": queued.ID,
+	}, f.shepherdTask)); err == nil || !strings.Contains(err.Error(), "request_user_action") {
+		t.Fatalf("pending cancel below full must be refused by the gate: %v", err)
+	}
+	if got := f.client.Task.GetX(ctx, queued.ID); got.Status != entTask.StatusPending {
+		t.Errorf("refused call must not touch the row: status = %s", got.Status)
+	}
+
+	// At `full` the same tool cancels the queued row.
+	setTier(t, manager.AutonomyFull)
+	out, err := handleTaskStop(SetCallerTaskID(map[string]interface{}{
+		"task_id": queued.ID, "reason": "중복 대기 작업",
+	}, f.shepherdTask))
+	if err != nil {
+		t.Fatalf("task_stop at full on a pending task: %v", err)
+	}
+	if !strings.Contains(out, "취소") {
+		t.Errorf("output should name the cancel: %q", out)
+	}
+
+	got := f.client.Task.GetX(ctx, queued.ID)
+	if got.Status != entTask.StatusStopped {
+		t.Errorf("task status = %s, want stopped (cancelled)", got.Status)
+	}
+	if got.Error != "cancelled by user" {
+		t.Errorf("task error = %q, want the same marker the web cancel path writes", got.Error)
+	}
+
+	// Ordinary sheep keep today's unrestricted behaviour on the cancel branch.
+	queued2 := f.client.Task.Create().SetPrompt("sheep-visible duplicate").
+		SetStatus(entTask.StatusPending).SaveX(ctx)
+	setTier(t, manager.AutonomyReport)
+	if _, err := handleTaskStop(SetCallerTaskID(map[string]interface{}{
+		"task_id": queued2.ID,
+	}, f.workerTask)); err != nil {
+		t.Errorf("ordinary sheep must not be permission-checked on cancel: %v", err)
+	}
+	if got := f.client.Task.GetX(ctx, queued2.ID); got.Status != entTask.StatusStopped {
+		t.Errorf("sheep cancel left status = %s, want stopped", got.Status)
+	}
+}
+
 // TestRequestUserActionHandlerCreatesRow pins the tool → manager wiring: valid
 // kinds land a pending row carrying the caller; bad kind/reason/target are
 // refused before anything is stored. request_user_action itself is never
