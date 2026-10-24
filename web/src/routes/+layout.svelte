@@ -186,7 +186,8 @@
 		</a>
 		{#if badge > 0 && badgeHref}
 			<a class="nav-badge nav-badge-link mono num" href={badgeHref}
-				title="{badge}개 확인 필요 — 확인 필요 탭에서 열기">{badge}</a>
+				title="{badge}개 확인 필요 — 확인 필요 탭에서 열기"
+				aria-label="확인 필요 {badge}건 — 확인 필요 탭에서 열기">{badge}</a>
 		{/if}
 	</div>
 {/snippet}

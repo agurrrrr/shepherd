@@ -147,7 +147,7 @@ The Web UI is a Svelte SPA embedded in the Go binary. After starting the daemon 
 | Page | Path | Description |
 |------|------|-------------|
 | Dashboard | `/` | Sheep status cards, running tasks, live output |
-| Shepherd | `/shepherd` | Shepherd console: give the shepherd an instruction, review its report, browse the cross-project issue board and the needs-attention panel |
+| Shepherd | `/shepherd` | Full-height console with five tabs (`?tab=`): **Live Output** (streaming output, instruction input pinned at the bottom), **목자 작업** (shepherd task list with filters and pagination), **순찰 기록** (patrol log), **이슈 보드** (cross-project issue board), **확인 필요** (needs-attention panel, count badge) |
 | Sheep | `/sheep` | Create, delete, assign, and change a sheep's provider/model |
 | Projects | `/projects` | Project list and management |
 | Project Detail | `/projects/:name` | Tabs: **Live Output**, **Task History**, **Files**, **Git**, **Schedules**, **Skills**, **Issues**, **Wiki**, **Settings** |
@@ -219,6 +219,8 @@ Issues can be listed across **all** projects (omit `project_name` in the REST/MC
 ## Shepherd Orchestration
 
 Beyond running one task at a time, Shepherd has a **manager** (the shepherd, 목자): a special sheep with no project that delegates work through issues and looks after the results. Configure it under **Settings → 목자 (Shepherd)** and drive it from the **Shepherd console** (`/shepherd`).
+
+**The console screen.** `/shepherd` is a full-height app page like the project workspace: a header (status pill, provider/model chips linking to Settings), a one-line status row (autonomy tier, delegation `n/m`, daily cost, today's tasks, next patrol — warnings carry text, not just color), and five tabs kept in the `?tab=` query: **Live Output** (`output`, streaming output with the instruction input pinned at the bottom; Enter sends, Shift+Enter adds a line; Stop/Inject buttons appear while running), **목자 작업** (`history`, filterable and paginated task list), **순찰 기록** (`patrols`), **이슈 보드** (`board`), and **확인 필요** (`attention`, count badge shared with the sidebar). The page itself never scrolls — scrolling happens inside each tab. Push notifications link to the right tab: attention requests to `?tab=attention`, shepherd reports to `/tasks/<id>?from=shepherd&tab=history`.
 
 **Workspace.** The shepherd works in `workspace_path` (the first field of the 목자 tab). This is the directory its tasks run in — normally the root that holds all your projects. The management *scope* is separate: every non-hidden project minus an exclusion list, so projects outside the workspace are still managed (they are only flagged as "outside workspace").
 
@@ -749,6 +751,7 @@ GET  /api/system/status            # System stats
 POST /api/system/restart           # Restart daemon
 GET  /api/events                   # SSE stream
 POST /api/shepherd/tasks           # Send an instruction to the shepherd console (/shepherd)
+GET  /api/shepherd/tasks           # List shepherd tasks (?kind=&status=&q=&page=&limit=; returns total/total_pages/page)
 GET  /api/shepherd/status          # Shepherd provider, model, workspace, breaker state
 POST /api/embedded/run             # Embedded agent in cwd, request-scoped SSE
 POST /api/upload                   # File upload (10MB limit)
@@ -821,6 +824,7 @@ Capture with non-sensitive dummy data and a consistent dark UI. Files live under
 |--------|------|--------|
 | ✅ | `webui-dashboard.png` | Dashboard — activity, recent tasks, stats, command input |
 | ✅ | `webui-magi-stream.png` | MAGI Live Output — 3-way parallel stream + personas + verdict |
+| ⬜ | `webui-shepherd-console.png` | Shepherd `/shepherd` — Live Output tab with pinned instruction bar, status row chips |
 | ⬜ | `webui-project-output.png` | Project → Live Output with full modern tab bar |
 | ⬜ | `webui-settings-providers.png` | Settings — provider enable toggles |
 | ⬜ | `webui-settings-embedded.png` | Settings → Embedded endpoints |

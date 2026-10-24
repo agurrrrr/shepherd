@@ -147,7 +147,7 @@ Web UI는 Go 바이너리에 임베드된 Svelte SPA입니다. 데몬 기동 후
 | 페이지 | 경로 | 설명 |
 |------|------|-------------|
 | 대시보드 | `/` | 양 상태 카드, 실행 중 작업, 라이브 출력 |
-| Shepherd | `/shepherd` | 목자 콘솔: 목자에게 지시하고 보고를 확인하며, 전 프로젝트 이슈 보드와 확인 필요 항목을 살펴봅니다 |
+| Shepherd | `/shepherd` | 화면을 채우는 콘솔, 탭 다섯 개(`?tab=`): **Live Output**(실시간 출력, 지시 입력창은 바닥 고정), **목자 작업**(필터·페이지 넘김 가능한 작업 목록), **순찰 기록**, **이슈 보드**(전 프로젝트), **확인 필요**(개수 뱃지) |
 | 양 | `/sheep` | 생성·삭제·배정·프로바이더/모델 변경 |
 | 프로젝트 | `/projects` | 프로젝트 목록·관리 |
 | 프로젝트 상세 | `/projects/:name` | 탭: **Live Output**, **Task History**, **Files**, **Git**, **Schedules**, **Skills**, **Issues**, **Wiki**, **Settings** |
@@ -217,6 +217,8 @@ GET /api/events?token=<access_token>
 ## 목자(Shepherd) 오케스트레이션
 
 한 번에 하나의 작업만 실행하는 것을 넘어, Shepherd에는 **목자**가 있습니다. 목자는 프로젝트가 없는 특별한 양으로, 이슈로 작업을 위임하고 결과를 돌봅니다. **설정 → 목자** 탭에서 설정하고, **목자 콘솔**(`/shepherd`)에서 지시합니다.
+
+**콘솔 화면.** `/shepherd`는 프로젝트 작업 화면처럼 높이를 채우는 페이지입니다. 머리글(상태 알약, 설정으로 가는 프로바이더·모델 칩)과 한 줄 상태 줄(권한 단계, 위임 `n/m`, 하루 비용, 오늘 작업, 다음 순찰 — 경고는 색이 아니라 글자로 알려 줌) 아래에 탭 다섯 개가 `?tab=` 쿼리로 유지됩니다. **Live Output**(`output`, 실시간 출력과 바닥 고정 입력창. Enter로 전송, Shift+Enter로 줄바꿈, 실행 중에는 중지·주입 버튼), **목자 작업**(`history`, 필터·페이지 넘김 가능한 목록), **순찰 기록**(`patrols`), **이슈 보드**(`board`), **확인 필요**(`attention`, 사이드바와 같은 개수 뱃지)입니다. 페이지 자체는 스크롤하지 않고, 스크롤은 탭 내용 안에서만 생깁니다. 웹 푸시는 맞는 탭으로 연결됩니다. 확인 요청은 `?tab=attention`, 목자 보고는 `/tasks/<id>?from=shepherd&tab=history`.
 
 **워크스페이스.** 목자는 `workspace_path`(목자 탭의 첫 입력칸)에서 일합니다. 이 디렉터리가 목자 작업이 실행되는 자리로, 보통 모든 프로젝트를 담고 있는 최상위 경로입니다. 관리 *범위*는 워크스페이스와 별개로 정합니다. 숨기지 않은 모든 프로젝트에서 제외 목록을 뺀 것이 범위이므로, 워크스페이스 밖 프로젝트도 관리 대상에 남고 화면에만 "워크스페이스 밖" 표시가 붙습니다.
 
@@ -746,6 +748,7 @@ GET  /api/system/status
 POST /api/system/restart
 GET  /api/events
 POST /api/shepherd/tasks           # 목자 콘솔(/shepherd)에 지시 보내기
+GET  /api/shepherd/tasks           # 목자 작업 목록 (?kind=&status=&q=&page=&limit=; total/total_pages/page 반환)
 GET  /api/shepherd/status          # 목자 프로바이더, 모델, 워크스페이스, 서킷 브레이커 상태
 POST /api/embedded/run             # cwd에서 임베디드 에이전트 실행, 요청 단위 SSE
 POST /api/upload

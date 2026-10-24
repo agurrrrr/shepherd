@@ -64,7 +64,9 @@
 				<span class="live-dot tab-live" aria-label="live"></span>
 			{/if}
 			{#if t.badge > 0}
-				<span class="tab-badge mono num">{t.badge}</span>
+				<!-- #624: the bare number is unreadable out of context — screen
+				     readers get "확인 필요 3건" (label + count) instead. -->
+				<span class="tab-badge mono num" aria-label="{t.label} {t.badge}건">{t.badge}</span>
 			{/if}
 		</button>
 	{/each}
