@@ -539,15 +539,31 @@
 	   Five columns stay five columns down to the mobile breakpoint — the old
 	   1100px "three columns" step was sized for the split layout and left
 	   dead space on a full-width screen. Below 768px (the mobile topbar's
-	   own breakpoint) the status tabs pick one visible column instead. */
-	@media (max-width: 768px) {
+	   own breakpoint) the status tabs pick one visible column instead.
+
+	   #634: on these narrow screens the board no longer scrolls inside a
+	   column. The page turns the whole board pane into the scroll container
+	   (+page.svelte: `.tab-fill.board-pane { overflow-y: auto }`), so every
+	   section here must grow to its natural content height instead of being
+	   pinned to the pane height. Without `flex: 0 0 auto` on .block and
+	   .board-columns, `flex:1; min-height:0` capped them at the leftover pane
+	   height and the list overflow was clipped by the pane again — the bug.
+
+	   The short-screen branch (max-height:600px AND max-width:1100px, e.g. a
+	   landscape phone at 844×390) joins it: measured there, five columns left
+	   only ~99px of width and the folded header squeezed every .col-list to
+	   clientHeight 0 — no inner scroller could reach the list end. One status
+	   tab + pane scroll is the only layout that reaches the bottom on such a
+	   short viewport. Wide-but-short desktop windows (>1100px) keep the five
+	   columns; their columns stay tall enough to scroll inside. */
+	@media (max-width: 768px), (max-height: 600px) and (max-width: 1100px) {
 		/* Narrow screens: status tabs pick one visible column. The columns stay
 		   in the DOM; only the active one shows. */
 		.narrow-tabs {
 			display: flex;
 			gap: 6px;
 			flex-wrap: wrap;
-			margin-bottom: 10px;
+			margin-bottom: 8px;
 		}
 
 		.narrow-tab {
@@ -572,9 +588,34 @@
 
 		.narrow-count { font-size: var(--fs-2xs); }
 
-		.board-columns { grid-template-columns: minmax(0, 1fr); }
+		/* The pane scrolls, so the section and the grid take natural height. */
+		.block { flex: 0 0 auto; }
+		.board-columns { flex: 0 0 auto; grid-template-columns: minmax(0, 1fr); }
 
+		/* Kept as a flex column (not `display:block`): the col-head/col-list
+		   chain stays intact and .col-list simply grows to its content height.
+		   Scrolling is the pane's job here — see the note above (#634). */
 		.board-col { display: none; }
-		.board-col.is-active { display: block; }
+		.board-col.is-active { display: flex; flex-direction: column; }
+
+		/* No inner scroller on mobile/landscape: the list expands fully so the
+		   pane's single vertical scroll reaches every card and "더 보기". */
+		.col-list { overflow: visible; }
+
+		/* ~78 project chips wrapped onto many rows ate the whole viewport on a
+		   phone (#634). One horizontally scrollable row keeps them reachable and
+		   leaves the height to the list. */
+		.board-projects {
+			flex-wrap: nowrap;
+			overflow-x: auto;
+			padding-bottom: 6px; /* room for the horizontal scrollbar */
+			margin-bottom: 8px;
+			scrollbar-width: thin;
+		}
+
+		.proj-chip { flex: 0 0 auto; white-space: nowrap; }
+
+		/* Trim the pinned header stack so more of the list fits above the fold. */
+		.board-filters { margin-bottom: 8px; }
 	}
 </style>

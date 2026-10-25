@@ -357,8 +357,10 @@
 		{/if}
 
 		{#if activeTab === 'board'}
-			<!-- The board manages its own height: filters stay pinned and each
-			     column scrolls inside itself, so this pane must NOT scroll (#623). -->
+			<!-- Desktop: the board manages its own height — filters stay pinned and
+			     each column scrolls inside itself, so this pane must NOT scroll (#623).
+			     Mobile/short screens flip that: the pane becomes the single vertical
+			     scroller and the columns grow to natural height (#634). -->
 			<div class="tab-fill board-pane" role="tabpanel" id="panel-board" aria-labelledby="tab-board">
 				<ShepherdIssueBoard refreshKey={boardRefreshKey} onOpenIssue={(r) => (openIssue = r)} />
 			</div>
@@ -717,6 +719,11 @@
 			overflow-x: hidden;
 		}
 
+		/* #634: on mobile the board pane itself is the scroll container — the
+		   columns no longer scroll inside themselves (see ShepherdIssueBoard's
+		   matching @media block). Desktop keeps `overflow:hidden` above. */
+		.tab-fill.board-pane { overflow-y: auto; }
+
 		.project-head {
 			gap: 10px;
 			padding-bottom: 10px;
@@ -738,6 +745,15 @@
 	@media (max-height: 600px) {
 		.shepherd-page {
 			min-height: 240px;
+		}
+
+		/* #634: short-and-narrow viewports (landscape phones) mirror the mobile
+		   board — one status tab, natural heights, and the pane is the scroller.
+		   Five columns here left every .col-list with clientHeight 0 in
+		   measurement, so per-column scrolling could not reach the list end.
+		   Mirrors the media query in ShepherdIssueBoard.svelte. */
+		@media (max-height: 600px) and (max-width: 1100px) {
+			.tab-fill.board-pane { overflow-y: auto; }
 		}
 
 		.project-head {
