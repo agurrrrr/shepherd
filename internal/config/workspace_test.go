@@ -24,11 +24,6 @@ func TestValidateWorkspacePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	t.Run("empty is allowed and stays empty", func(t *testing.T) {
 		got, err := ValidateWorkspacePath("")
 		if err != nil || got != "" {
@@ -61,16 +56,24 @@ func TestValidateWorkspacePath(t *testing.T) {
 	})
 
 	t.Run("relative path resolves against cwd", func(t *testing.T) {
-		rel, err := filepath.Rel(cwd, sub)
+		// Chdir into tmp instead of computing a path relative to the package
+		// dir: on Windows CI the temp dir (C:) and the checkout (D:) sit on
+		// different volumes, so no relative path between them exists.
+		t.Chdir(tmp)
+		// Build the expectation from Getwd, not tmp, so a symlinked temp dir
+		// (macOS /var -> /private/var) or an 8.3 short name (RUNNER~1) still
+		// matches what filepath.Abs produces.
+		wd, err := os.Getwd()
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := ValidateWorkspacePath(rel)
+		want := filepath.Join(wd, "code")
+		got, err := ValidateWorkspacePath("code")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != sub {
-			t.Fatalf("got %q, want %q", got, sub)
+		if got != want {
+			t.Fatalf("got %q, want %q", got, want)
 		}
 	})
 
