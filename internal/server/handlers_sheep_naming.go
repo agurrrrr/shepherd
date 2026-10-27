@@ -10,6 +10,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 )
 
 // sheepNamingProviders are the providers a user may pick for sheep naming.
@@ -30,7 +31,7 @@ func buildSheepNamingConfig() map[string]interface{} {
 		}
 	}
 
-	modelOptions, modelSelectable := modelOptionsFor(provider, "프로바이더 기본값")
+	modelOptions, modelSelectable := modelOptionsFor(provider, i18n.T().Server.ProviderDefaultModel)
 
 	return map[string]interface{}{
 		"enabled":          config.GetBool("sheep_name_llm_enabled"),

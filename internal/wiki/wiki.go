@@ -15,6 +15,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/wikipage"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 )
 
 func findProjectByName(projectName string) (*ent.Project, error) {
@@ -125,7 +126,7 @@ func CreatePageWithOptions(projectName, slug, title, category, content string, t
 	if content != "" {
 		summary := opts.Summary
 		if summary == "" {
-			summary = "초기 생성"
+			summary = i18n.T().Wiki.InitCreated
 		}
 		_, _ = SavePageVersion(projectName, slug, content, summary, opts.Author)
 	}
@@ -693,7 +694,7 @@ func WarnInvalidLinks(projectName, content string) []string {
 	for i, s := range invalid {
 		quoted[i] = fmt.Sprintf("%q", s)
 	}
-	fmt.Fprintf(os.Stderr, "⚠️ 페이지에 유효하지 않은 링크가 있습니다: %s\n", strings.Join(quoted, ", "))
+	fmt.Fprintf(os.Stderr, "%s\n", fmt.Sprintf(i18n.T().Wiki.InvalidLinksFmt, strings.Join(quoted, ", ")))
 
 	return invalid
 }

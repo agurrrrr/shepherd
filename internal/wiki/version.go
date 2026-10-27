@@ -9,6 +9,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/wikipageversion"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 )
 
 // SavePageVersion saves a snapshot of a wiki page's content as a version record.
@@ -22,7 +23,7 @@ func SavePageVersion(projectName, pageSlug, content, summary, author string) (*e
 	}
 
 	if summary == "" {
-		summary = "내용 변경"
+		summary = i18n.T().Wiki.ContentChanged
 	}
 
 	v, err := client.WikiPageVersion.Create().
@@ -67,7 +68,7 @@ func PageVersionHistoryFormatted(projectName, pageSlug string) (string, error) {
 	}
 
 	if len(versions) == 0 {
-		return fmt.Sprintf("페이지 %q 에 대한 버전 히스토리가 없습니다.\n", pageSlug), nil
+		return fmt.Sprintf(i18n.T().Wiki.NoHistoryFmt+"\n", pageSlug), nil
 	}
 
 	// Sort by created_at ascending for display (oldest first)
@@ -76,7 +77,7 @@ func PageVersionHistoryFormatted(projectName, pageSlug string) (string, error) {
 	})
 
 	var result string
-	result += fmt.Sprintf("pages/%s 변경 이력\n", pageSlug)
+	result += fmt.Sprintf(i18n.T().Wiki.HistoryTitleFmt+"\n", pageSlug)
 	result += "──────────────────────────────\n"
 	for i, v := range versions {
 		result += fmt.Sprintf("%d. %s — %s\n",

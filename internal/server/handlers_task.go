@@ -15,6 +15,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/checkpoint"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/taskchanges"
 	"github.com/agurrrrr/shepherd/internal/worker"
@@ -291,9 +292,9 @@ func (s *Server) handleGetTask(c *fiber.Ctx) error {
 		"model":             t.Model,
 		// shepherd_kind marks 목자 tasks (#598): the task detail page hides the
 		// project link and shows a "no checkpoints" notice when it is non-empty.
-		"shepherd_kind":     t.ShepherdKind,
-		"duration_sec":      taskDurationSec(t),
-		"created_at":        t.CreatedAt.Format("2006-01-02 15:04:05"),
+		"shepherd_kind": t.ShepherdKind,
+		"duration_sec":  taskDurationSec(t),
+		"created_at":    t.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 	if !t.StartedAt.IsZero() {
 		result["started_at"] = t.StartedAt.Format("2006-01-02 15:04:05")
@@ -692,6 +693,6 @@ func (s *Server) handleInjectPrompt(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"success": true,
-		"message": "프롬프트가 주입되었습니다",
+		"message": i18n.T().Server.PromptInjected,
 	})
 }

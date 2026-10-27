@@ -12,6 +12,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/browser"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/names"
 )
 
@@ -388,7 +389,7 @@ func ProviderDisplayName(provider sheep.Provider) string {
 	case sheep.ProviderGrok:
 		return "Grok"
 	case sheep.ProviderEmbedded:
-		return "임베디드"
+		return i18n.T().Provider.Embedded
 	case sheep.ProviderAuto:
 		return "auto"
 	default:

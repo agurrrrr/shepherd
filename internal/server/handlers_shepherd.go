@@ -9,6 +9,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/names"
 	"github.com/agurrrrr/shepherd/internal/project"
@@ -82,7 +83,7 @@ func buildShepherdConfig() (map[string]interface{}, error) {
 	}
 
 	provider := string(mgr.Provider)
-	modelOptions, modelSelectable := modelOptionsFor(provider, "프로바이더 기본값")
+	modelOptions, modelSelectable := modelOptionsFor(provider, i18n.T().Server.ProviderDefaultModel)
 
 	return map[string]interface{}{
 		"workspace_path":        normalized,

@@ -11,6 +11,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/wikipage"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 )
 
 // WikiIssue represents a lint finding.
@@ -54,7 +55,7 @@ func Lint(projectName string) []WikiIssue {
 			issues = append(issues, WikiIssue{
 				Type:    "orphan",
 				Slug:    p.Slug,
-				Message: fmt.Sprintf("페이지 %q 은 다른 페이지에서 참조되지 않습니다", p.Slug),
+				Message: fmt.Sprintf(i18n.T().Wiki.LintOrphanFmt, p.Slug),
 			})
 		}
 	}
@@ -67,7 +68,7 @@ func Lint(projectName string) []WikiIssue {
 			issues = append(issues, WikiIssue{
 				Type:    "stale",
 				Slug:    p.Slug,
-				Message: fmt.Sprintf("페이지 %q 가 %d일 동안 업데이트되지 않았습니다", p.Slug, daysAgo),
+				Message: fmt.Sprintf(i18n.T().Wiki.LintStaleFmt, p.Slug, daysAgo),
 			})
 		}
 	}
@@ -80,7 +81,7 @@ func Lint(projectName string) []WikiIssue {
 				issues = append(issues, WikiIssue{
 					Type:    "duplicate",
 					Slug:    pages[i].Slug,
-					Message: fmt.Sprintf("페이지 %q 과 %q 의 내용이 %.0f%% 유사합니다 (복사/붙여넣기 확인)", pages[i].Slug, pages[j].Slug, sim*100),
+					Message: fmt.Sprintf(i18n.T().Wiki.LintSimilarFmt, pages[i].Slug, pages[j].Slug, sim*100),
 				})
 			}
 		}
@@ -96,7 +97,7 @@ func Lint(projectName string) []WikiIssue {
 					issues = append(issues, WikiIssue{
 						Type:    "contradiction",
 						Slug:    p.Slug,
-						Message: fmt.Sprintf("페이지 %q 는 auto_generated=true 이지만 파일 시스템의 내용과 DB 내용이 다릅니다", p.Slug),
+						Message: fmt.Sprintf(i18n.T().Wiki.LintDriftFmt, p.Slug),
 					})
 				}
 			}

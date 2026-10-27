@@ -14,21 +14,21 @@ import (
 	"github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/checkpoint"
 	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 )
 
 // Reasons reported when a change summary cannot be produced. They are shown
 // verbatim in the UI, CLI, and MCP output.
 const (
-	ReasonDisabled  = "checkpoint disabled"
-	ReasonNotGit    = "not a git repository"
-	ReasonTooLarge  = "too large"
-	ReasonNoEnd     = "no end snapshot"
-	ReasonPruned    = "snapshot pruned"
-	ReasonRunning   = "running"
+	ReasonDisabled = "checkpoint disabled"
+	ReasonNotGit   = "not a git repository"
+	ReasonTooLarge = "too large"
+	ReasonNoEnd    = "no end snapshot"
+	ReasonPruned   = "snapshot pruned"
+	ReasonRunning  = "running"
 	// ReasonShepherd marks shepherd (목자) tasks: the dispatcher skips
 	// beginCheckpoint for them (#594), so they never have snapshots by design.
 	ReasonShepherd = "shepherd task"
-	liveWarningText = "작업이 끝난 뒤의 변경도 섞여 있습니다"
 )
 
 // File is one changed path between two snapshots.
@@ -138,7 +138,7 @@ func Build(ctx context.Context, t *ent.Task, live bool) *ChangeSet {
 		end = snap.Commit
 		cs.Live = true
 		if t.Status != task.StatusRunning {
-			cs.Warning = liveWarningText
+			cs.Warning = i18n.T().Changes.LiveWarning
 		}
 	} else if !checkpoint.CommitExists(ctx, t.CheckpointDir, end) {
 		cs.Reason = ReasonPruned

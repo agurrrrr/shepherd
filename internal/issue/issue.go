@@ -18,6 +18,7 @@ import (
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/worker"
 )
@@ -791,7 +792,7 @@ func ChildrenChecklist(iss *ent.Issue) string {
 		if c.Status == entIssue.StatusDone {
 			mark = "x"
 		}
-		sb.WriteString(fmt.Sprintf("- [%s] #%d %s (%s)\n", mark, c.ID, c.Title, statusLabel(string(c.Status))))
+		sb.WriteString(fmt.Sprintf("- [%s] #%d %s (%s)\n", mark, c.ID, c.Title, llmStatusLabel(string(c.Status))))
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }
@@ -924,7 +925,29 @@ func validateParent(ctx context.Context, client *ent.Client, projectName string,
 	return nil
 }
 
+// statusLabel renders an issue status in the current display language (#665).
 func statusLabel(s string) string {
+	switch s {
+	case "todo":
+		return i18n.T().IssueStatus.Todo
+	case "in_progress":
+		return i18n.T().IssueStatus.InProgress
+	case "testing":
+		return i18n.T().IssueStatus.Testing
+	case "failed":
+		return i18n.T().IssueStatus.Failed
+	case "done":
+		return i18n.T().IssueStatus.Done
+	default:
+		return s
+	}
+}
+
+// llmStatusLabel is the Korean status text the LLM-facing prompt blocks use.
+// The prompt format (ChildrenChecklist, issue prompt) is a stable contract and
+// is deliberately NOT localized (#665 constraint), so ChildrenChecklist keeps
+// calling this instead of statusLabel.
+func llmStatusLabel(s string) string {
 	switch s {
 	case "todo":
 		return "작업전"
