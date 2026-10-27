@@ -1,44 +1,59 @@
 <script>
+	// Empty state: a resting pixel sheep on a black well. The list/inbox kinds
+	// are pixel maps from $lib/pixel/icons.js drawn through the same renderer.
+	import { SHEEP_REST } from '$lib/pixel/sprites.js';
+
 	let { title = '', description = '', icon = 'sheep', children } = $props();
+
+	const LIST = [
+		'xx.xxxxxx',
+		'.........',
+		'xx.xxxxxx',
+		'.........',
+		'xx.xxxxxx'
+	];
+	const INBOX = [
+		'.xxxxxxx.',
+		'xx.....xx',
+		'xx.....xx',
+		'xxx...xxx',
+		'.xxxxxxx.',
+		'..xx.xx..',
+		'x.......x',
+		'xxxxxxxxx'
+	];
+
+	function rects(map) {
+		const w = Math.max(...map.map((r) => r.length));
+		let out = '';
+		map.forEach((row, y) => {
+			let x = 0;
+			while (x < row.length) {
+				const c = row[x];
+				if (c === '.') { x++; continue; }
+				let run = 1;
+				while (row[x + run] === c) run++;
+				const fill = c === 'x' ? 'currentColor' : `var(--px-${c})`;
+				out += `<rect x="${x}" y="${y}" width="${run}" height="1" fill="${fill}"/>`;
+				x += run;
+			}
+		});
+		return { w, h: map.length, body: out };
+	}
+
+	const sprite = $derived(icon === 'list' ? rects(LIST) : icon === 'inbox' ? rects(INBOX) : rects(SHEEP_REST));
+	const scale = 4;
 </script>
 
 <div class="empty">
 	<div class="empty-icon" aria-hidden="true">
-		{#if icon === 'sheep'}
-			<svg width="52" height="52" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-				<!-- Wool body -->
-				<circle cx="20" cy="32" r="6" />
-				<circle cx="32" cy="26" r="7" />
-				<circle cx="44" cy="32" r="6" />
-				<circle cx="26" cy="38" r="6" />
-				<circle cx="38" cy="38" r="6" />
-				<!-- Head -->
-				<ellipse cx="50" cy="34" rx="6" ry="5" />
-				<!-- Ear -->
-				<path d="M53 30 L57 27" />
-				<!-- Eye -->
-				<circle cx="52" cy="33" r="0.6" fill="currentColor" stroke="none" />
-				<!-- Legs -->
-				<line x1="22" y1="44" x2="22" y2="50" />
-				<line x1="30" y1="46" x2="30" y2="52" />
-				<line x1="40" y1="46" x2="40" y2="52" />
-				<line x1="48" y1="44" x2="48" y2="50" />
-			</svg>
-		{:else if icon === 'list'}
-			<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-				<line x1="8" y1="6" x2="21" y2="6"/>
-				<line x1="8" y1="12" x2="21" y2="12"/>
-				<line x1="8" y1="18" x2="21" y2="18"/>
-				<line x1="3" y1="6" x2="3.01" y2="6"/>
-				<line x1="3" y1="12" x2="3.01" y2="12"/>
-				<line x1="3" y1="18" x2="3.01" y2="18"/>
-			</svg>
-		{:else if icon === 'inbox'}
-			<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-				<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-				<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"/>
-			</svg>
-		{/if}
+		<svg
+			class="px"
+			viewBox="0 0 {sprite.w} {sprite.h}"
+			width={sprite.w * scale}
+			height={sprite.h * scale}
+			shape-rendering="crispEdges"
+		>{@html sprite.body}</svg>
 	</div>
 	<h3 class="empty-title">{title}</h3>
 	{#if description}
@@ -69,25 +84,27 @@
 		width: 96px;
 		height: 96px;
 		margin-bottom: var(--space-3);
-		border-radius: 50%;
+		background: #000;
+		box-shadow: inset 0 0 0 2px var(--hi);
 		color: var(--wool);
-		background:
-			radial-gradient(circle at 50% 40%, rgba(244, 184, 96, 0.12), transparent 62%),
-			rgba(237, 230, 218, 0.025);
-		box-shadow: inset 0 0 0 1px var(--border-subtle);
 	}
 
 	.empty-icon :global(svg) {
-		opacity: 0.85;
+		opacity: 0.92;
+	}
+
+	.empty-icon :global(.px) {
+		image-rendering: pixelated;
 	}
 
 	.empty-title {
 		font-family: var(--font-display);
-		font-size: 26px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
-		line-height: 1.1;
-		letter-spacing: -0.01em;
+		line-height: 1.5;
+		letter-spacing: 0;
 		color: var(--text-primary);
+		text-shadow: 3px 3px 0 #000;
 		margin: 0;
 	}
 

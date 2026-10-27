@@ -4,6 +4,7 @@
 	import { login } from '$lib/api.js';
 	import BrandMark from '$lib/components/BrandMark.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { SHEEP, SHEEP_REST, DECO } from '$lib/pixel/sprites.js';
 
 	let id = $state('');
 	let password = $state('');
@@ -27,27 +28,25 @@
 	}
 
 	// --- Night pasture -------------------------------------------------
-	// Deterministic scatter so the scene is identical on every visit.
+	// Deterministic scatter so the scene is identical on every visit. Pixel
+	// sheep sit on a flat green pasture; a few blink awake like the dashboard.
 	function rng(seed) {
 		return () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 	}
 	const r = rng(7);
-	const stars = Array.from({ length: 64 }, () => ({
-		x: r() * 100,
-		y: r() * 46,
-		s: 1 + r() * 1.6,
-		d: (r() * 6).toFixed(2),
-		t: (3 + r() * 5).toFixed(2)
+	const stars = Array.from({ length: 26 }, () => ({
+		x: r() * 98,
+		y: r() * 40,
+		big: r() > 0.6,
+		d: (r() * 3).toFixed(2)
 	}));
-	const flock = Array.from({ length: 44 }, () => {
-		const x = 3 + r() * 94;
-		const crest = 70 + Math.sin((x / 100) * Math.PI * 1.3 + 0.5) * 4;
-		return { x, y: crest + 4 + r() * 18, d: (r() * 6).toFixed(2), t: (4 + r() * 3).toFixed(2) };
+	const flock = Array.from({ length: 12 }, (_, i) => {
+		const x = 4 + (i / 12) * 92 + r() * 4;
+		return { x, y: 74 + r() * 16 };
 	});
 
 	// A few sheep wake up and fall asleep again, like the real dashboard.
-	let awake = $state([5, 19, 33]);
-	let lamp = $state({ x: 38, y: 62 });
+	let awake = $state([2, 6, 9]);
 	let now = $state(new Date());
 
 	onMount(() => {
@@ -64,14 +63,6 @@
 		};
 	});
 
-	function onMove(e) {
-		const rect = e.currentTarget.getBoundingClientRect();
-		lamp = {
-			x: ((e.clientX - rect.left) / rect.width) * 100,
-			y: ((e.clientY - rect.top) / rect.height) * 100
-		};
-	}
-
 	let clock = $derived(now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
 	// Same day-part boundaries as the dashboard greeting.
 	let watchName = $derived.by(() => {
@@ -81,6 +72,23 @@
 		if (h >= 18 && h < 23) return 'Evening watch';
 		return 'Night watch';
 	});
+
+	function rects(map, scale) {
+		let out = '';
+		map.forEach((row, y) => {
+			let x = 0;
+			while (x < row.length) {
+				const c = row[x];
+				if (c === '.') { x++; continue; }
+				let run = 1;
+				while (row[x + run] === c) run++;
+				const fill = c === 'x' ? 'currentColor' : `var(--px-${c})`;
+				out += `<rect x="${x * scale}" y="${y * scale}" width="${run * scale}" height="${scale}" fill="${fill}"/>`;
+				x += run;
+			}
+		});
+		return out;
+	}
 </script>
 
 <svelte:head>
@@ -89,36 +97,26 @@
 
 <div class="login-page">
 	<!-- ============ Scene ============ -->
-	<section class="scene" onpointermove={onMove} style="--lx: {lamp.x}%; --ly: {lamp.y}%" aria-hidden="true">
+	<section class="scene" aria-hidden="true">
 		<div class="sky"></div>
-		<div class="lamp"></div>
+		<div class="ground"></div>
 
-		{#each stars as st}
-			<span class="star" style="left: {st.x}%; top: {st.y}%; --s: {st.s}px; --d: {st.d}s; --t: {st.t}s"></span>
+		{#each stars as st, i (i)}
+			<span class="star" class:big={st.big} style="left: {st.x}%; top: {st.y}%; --d: {st.d}s">
+				<svg viewBox="0 0 {st.big ? 5 : 3} {st.big ? 5 : 3}" width={(st.big ? 5 : 3) * 2} height={(st.big ? 5 : 3) * 2} shape-rendering="crispEdges">
+					{@html rects(st.big ? DECO.starBig : DECO.star, 1)}
+				</svg>
+			</span>
 		{/each}
 
-		<svg class="hills" viewBox="0 0 100 40" preserveAspectRatio="none">
-			<defs>
-				<linearGradient id="hill-back" x1="0" y1="0" x2="0" y2="1">
-					<stop offset="0" stop-color="#17171a" />
-					<stop offset="1" stop-color="#0d0d0f" />
-				</linearGradient>
-				<linearGradient id="hill-front" x1="0" y1="0" x2="0" y2="1">
-					<stop offset="0" stop-color="#1b1a19" />
-					<stop offset="1" stop-color="#0b0b0c" />
-				</linearGradient>
-			</defs>
-			<path d="M0 12 C 18 2, 34 4, 52 10 S 84 18, 100 6 L100 40 L0 40 Z" fill="url(#hill-back)" />
-			<path d="M0 22 C 14 14, 30 12, 46 17 S 78 28, 100 18 L100 40 L0 40 Z" fill="url(#hill-front)" />
-			<path d="M0 22 C 14 14, 30 12, 46 17 S 78 28, 100 18" fill="none" stroke="rgba(244,184,96,0.12)" stroke-width="0.15" vector-effect="non-scaling-stroke" />
-		</svg>
+		<div class="moon">
+			<svg viewBox="0 0 {DECO.moon[0].length} {DECO.moon.length}" width={DECO.moon[0].length * 5} height={DECO.moon.length * 5} shape-rendering="crispEdges">
+				{@html rects(DECO.moon, 1)}
+			</svg>
+		</div>
 
-		{#each flock as sh, i}
-			<span
-				class="sheep"
-				class:awake={awake.includes(i)}
-				style="left: {sh.x}%; top: {sh.y}%; --d: {sh.d}s; --t: {sh.t}s"
-			></span>
+		{#each flock as sh, i (i)}
+			<span class="sheep" class:awake={awake.includes(i)} style="left: {sh.x}%; top: {sh.y}%"></span>
 		{/each}
 
 		<div class="scene-copy">
@@ -130,8 +128,7 @@
 				Keep watch<br />over <em>your flock.</em>
 			</h1>
 			<p class="scene-sub">
-				Shepherd runs a flock of AI coding agents across your projects.
-				Hand out the work, watch it happen live, and step in whenever you need to.
+				Pixel sheep do the chores: issues, tasks, schedules and wikis — while you keep the lantern.
 			</p>
 		</div>
 
@@ -142,11 +139,16 @@
 		</footer>
 	</section>
 
-	<!-- ============ Form ============ -->
+	<!-- ============ Panel ============ -->
 	<main class="panel">
 		<form class="login-card" onsubmit={handleSubmit}>
 			<div class="brand">
-				<BrandMark size={36} live />
+				<BrandMark size={34} live={!loading} />
+				<span class="sheep-mark">
+					<svg viewBox="0 0 {SHEEP[0].length} {SHEEP.length}" width={SHEEP[0].length * 2} height={SHEEP.length * 2} shape-rendering="crispEdges">
+						{@html rects(SHEEP, 1)}
+					</svg>
+				</span>
 				<span class="brand-word">Shepherd</span>
 			</div>
 
@@ -164,28 +166,12 @@
 
 			<div class="form-group">
 				<label for="username">Username</label>
-				<input
-					id="username"
-					class="input"
-					type="text"
-					autocomplete="username"
-					bind:value={id}
-					placeholder="admin"
-					disabled={loading}
-				/>
+				<input id="username" class="input" type="text" autocomplete="username" bind:value={id} placeholder="admin" disabled={loading} />
 			</div>
 
 			<div class="form-group">
 				<label for="password">Password</label>
-				<input
-					id="password"
-					class="input"
-					type="password"
-					autocomplete="current-password"
-					bind:value={password}
-					placeholder="••••••••"
-					disabled={loading}
-				/>
+				<input id="password" class="input" type="password" autocomplete="current-password" bind:value={password} placeholder="••••••••" disabled={loading} />
 			</div>
 
 			<button type="submit" class="btn btn-primary btn-lg login-btn" disabled={loading}>
@@ -217,77 +203,60 @@
 		position: relative;
 		overflow: hidden;
 		isolation: isolate;
-		border-right: 1px solid var(--border-subtle);
+		box-shadow: 3px 0 0 0 #000;
 	}
 
 	.sky {
 		position: absolute;
-		inset: 0;
-		z-index: -2;
-		background:
-			radial-gradient(120% 70% at 75% 0%, rgba(143, 193, 255, 0.07), transparent 60%),
-			radial-gradient(90% 60% at 10% 10%, rgba(244, 184, 96, 0.06), transparent 60%),
-			linear-gradient(180deg, #0b0c10 0%, #0d0d10 55%, #0c0b0b 100%);
+		inset: 0 0 auto 0;
+		height: 66%;
+		background: linear-gradient(180deg, #000 0 36%, #161618 36% 70%, var(--bg-2) 70%);
 	}
 
-	.lamp {
+	.ground {
 		position: absolute;
-		inset: 0;
-		z-index: -1;
-		background: radial-gradient(420px 320px at var(--lx) var(--ly), rgba(244, 184, 96, 0.14), transparent 70%);
-		transition: background 80ms linear;
-		pointer-events: none;
+		inset: auto 0 0 0;
+		height: 34%;
+		background:
+			linear-gradient(180deg, var(--p-green) 0 3px, #00a85a 3px 6px, transparent 6px),
+			radial-gradient(circle at 2px 2px, #006e43 1.5px, transparent 2px) 0 0 / 16px 12px,
+			var(--p-dgreen);
 	}
 
 	.star {
 		position: absolute;
-		width: var(--s);
-		height: var(--s);
-		border-radius: 50%;
-		background: #f5efe4;
-		opacity: 0.25;
-		animation: twinkle var(--t) ease-in-out var(--d) infinite;
+		color: var(--p-yellow);
+		animation: px-blink calc(1.6s + var(--d)) steps(1) infinite;
 	}
 
-	@keyframes twinkle {
-		0%, 100% { opacity: 0.12; }
-		50% { opacity: 0.7; }
-	}
+	.star svg { display: block; }
 
-	.hills {
+	.moon {
 		position: absolute;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		width: 100%;
-		height: 46%;
-		z-index: 0;
+		right: 9%;
+		top: 8%;
+		color: var(--p-white);
 	}
 
+	.moon svg { display: block; image-rendering: pixelated; }
+
+	/* Small pixel sheep drawn with a repeating square — the flock at rest. */
 	.sheep {
 		position: absolute;
 		z-index: 1;
-		width: 7px;
-		height: 7px;
-		margin: -3.5px 0 0 -3.5px;
-		border-radius: 50%;
-		background: var(--wool);
-		opacity: 0.35;
-		animation: breathe var(--t) ease-in-out var(--d) infinite;
-		transition: background 900ms ease, box-shadow 900ms ease, opacity 900ms ease, transform 900ms var(--ease-spring);
+		width: 16px;
+		height: 14px;
+		margin: -7px 0 0 -8px;
+		background: var(--p-white);
+		box-shadow: inset -5px -4px 0 0 var(--p-lgray), inset 3px 2px 0 0 #000, 0 2px 0 0 #000;
+		opacity: 0.55;
+		animation: px-blink calc(3.2s + var(--d, 0s)) steps(1) infinite;
 	}
 
 	.sheep.awake {
-		background: var(--live);
+		background: var(--p-blue);
 		opacity: 1;
-		transform: scale(1.35);
-		box-shadow: 0 0 0 4px rgba(95, 224, 194, 0.12), 0 0 18px 2px rgba(95, 224, 194, 0.55);
 		animation: none;
-	}
-
-	@keyframes breathe {
-		0%, 100% { opacity: 0.22; }
-		50% { opacity: 0.5; }
 	}
 
 	.scene-copy {
@@ -308,29 +277,28 @@
 		animation: rise-in 700ms var(--ease-out) backwards;
 	}
 
+	/* 48px keeps both Press Start 2P and its Hangul fallback on the pixel grid. */
 	.scene-title {
 		font-family: var(--font-display);
-		font-size: clamp(56px, 7vw, 108px);
+		font-size: var(--fs-3xl);
 		font-weight: 400;
-		line-height: 0.9;
-		letter-spacing: -0.03em;
+		line-height: 1.5;
+		letter-spacing: 0;
 		color: var(--text-primary);
+		text-shadow: 4px 4px 0 #000;
 		animation: rise-in 900ms var(--ease-out) 80ms backwards;
 	}
 
 	.scene-title em {
-		font-style: italic;
-		color: transparent;
-		background: linear-gradient(100deg, #ffe0ad 0%, var(--accent) 45%, #e9925a 100%);
-		-webkit-background-clip: text;
-		background-clip: text;
-		padding-right: 0.05em;
+		font-style: normal;
+		color: var(--highlight);
+		text-shadow: 4px 4px 0 var(--p-plum);
 	}
 
 	.scene-sub {
 		max-width: 44ch;
 		font-size: var(--fs-md);
-		line-height: 1.55;
+		line-height: var(--lh-base);
 		color: var(--text-secondary);
 		animation: rise-in 900ms var(--ease-out) 180ms backwards;
 	}
@@ -352,8 +320,8 @@
 
 	.sep {
 		width: 24px;
-		height: 1px;
-		background: var(--border-strong);
+		height: 3px;
+		background: var(--hi);
 	}
 
 	/* ================= Panel ================= */
@@ -362,9 +330,7 @@
 		align-items: center;
 		justify-content: center;
 		padding: 48px clamp(24px, 5vw, 72px);
-		background:
-			radial-gradient(80% 50% at 50% 0%, rgba(244, 184, 96, 0.05), transparent 70%),
-			var(--bg-1);
+		background: var(--bg-1);
 	}
 
 	.login-card {
@@ -373,6 +339,9 @@
 		display: flex;
 		flex-direction: column;
 		gap: 18px;
+		padding: 26px;
+		background: var(--bg-2);
+		box-shadow: var(--px-ring), var(--px-bevel), var(--shadow-2);
 		animation: rise-in 800ms var(--ease-out) 120ms backwards;
 	}
 
@@ -383,11 +352,14 @@
 		margin-bottom: 18px;
 	}
 
+	.sheep-mark svg { display: block; image-rendering: pixelated; }
+
 	.brand-word {
 		font-family: var(--font-display);
-		font-size: 30px;
-		line-height: 1;
-		color: var(--text-primary);
+		font-size: var(--fs-lg);
+		line-height: 1.5;
+		color: var(--highlight);
+		text-shadow: 2px 2px 0 var(--p-plum);
 	}
 
 	.login-header {
@@ -400,7 +372,7 @@
 	.login-header h2 {
 		font-size: var(--fs-xl);
 		font-weight: var(--fw-semibold);
-		letter-spacing: -0.02em;
+		letter-spacing: 0;
 	}
 
 	.login-subtitle {
@@ -413,10 +385,9 @@
 		align-items: center;
 		gap: 8px;
 		padding: 10px 12px;
-		border-radius: var(--radius);
-		background: var(--danger-soft);
-		box-shadow: inset 0 0 0 1px var(--danger-line);
-		color: var(--danger);
+		background: var(--danger);
+		color: #000;
+		box-shadow: var(--px-ring-2);
 		font-size: var(--fs-sm);
 		animation: shake 420ms var(--ease-out);
 	}
@@ -444,7 +415,6 @@
 		width: 100%;
 		height: 44px;
 		padding: 0 14px;
-		border-radius: var(--radius-md);
 	}
 
 	.login-btn {
@@ -454,21 +424,18 @@
 		font-size: var(--fs-base);
 	}
 
-	.login-btn :global(.icon) {
-		transition: transform var(--dur-2) var(--ease-out);
-	}
-
-	.login-btn:hover :global(.icon) {
-		transform: translateX(3px);
-	}
-
 	.spinner {
 		width: 14px;
 		height: 14px;
-		border-radius: 50%;
-		border: 2px solid rgba(26, 18, 6, 0.25);
-		border-top-color: currentColor;
-		animation: spin 700ms linear infinite;
+		border: 3px solid transparent;
+		background: currentColor;
+		box-shadow: inset 0 0 0 3px var(--btn-bg);
+		animation: blink-half 700ms steps(2) infinite;
+	}
+
+	@keyframes blink-half {
+		0%, 49% { opacity: 1; }
+		50%, 100% { opacity: 0.35; }
 	}
 
 	.hint {
@@ -479,7 +446,7 @@
 	}
 
 	.hint code {
-		font-size: 10.5px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 	}
 
@@ -491,8 +458,7 @@
 		}
 
 		.scene {
-			border-right: none;
-			border-bottom: 1px solid var(--border-subtle);
+			box-shadow: 0 3px 0 0 #000;
 		}
 
 		.scene-copy {
@@ -501,7 +467,7 @@
 		}
 
 		.scene-title {
-			font-size: clamp(44px, 12vw, 64px);
+			font-size: var(--fs-2xl);
 		}
 
 		.scene-sub,
@@ -514,7 +480,7 @@
 			padding: 32px 24px 48px;
 		}
 
-		.brand {
+		.brand .sheep-mark {
 			display: none;
 		}
 	}
