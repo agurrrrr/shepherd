@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from './api.js';
+import { translate } from './i18n/index.js';
 
 /**
  * @param {string} base64String
@@ -59,21 +60,21 @@ export async function getCurrentSubscription() {
  */
 export async function enablePush() {
 	if (!isPushSupported()) {
-		throw new Error('이 브라우저는 Web Push를 지원하지 않습니다. HTTPS로 접속했는지 확인해 주세요.');
+		throw new Error(translate('push.unsupported'));
 	}
 	if (isIOS() && !isStandaloneDisplay()) {
-		throw new Error('iOS에서는 홈 화면에 추가한 뒤에만 푸시를 켤 수 있습니다.');
+		throw new Error(translate('push.iosHomeScreen'));
 	}
 
 	const status = await fetchPushStatus();
 	const key = status?.vapid_public_key;
 	if (!key) {
-		throw new Error('서버 VAPID 공개키를 받지 못했습니다. 데몬을 재시작해 주세요.');
+		throw new Error(translate('push.noVapidKey'));
 	}
 
 	const perm = await Notification.requestPermission();
 	if (perm !== 'granted') {
-		throw new Error('알림 권한이 거부되었습니다.');
+		throw new Error(translate('push.permissionDenied'));
 	}
 
 	const reg = await navigator.serviceWorker.ready;
@@ -92,7 +93,7 @@ export async function enablePush() {
 		user_agent: navigator.userAgent
 	});
 	if (!res?.success) {
-		throw new Error(res?.message || '구독 등록에 실패했습니다.');
+		throw new Error(res?.message || translate('push.subscribeFailed'));
 	}
 	return sub;
 }
@@ -146,7 +147,7 @@ export async function sendTestPush() {
 	const sub = await getCurrentSubscription();
 	const res = await apiPost('/api/push/test', sub ? { endpoint: sub.endpoint } : {});
 	if (!res?.success) {
-		throw new Error(res?.message || '테스트 전송에 실패했습니다.');
+		throw new Error(res?.message || translate('push.testFailed'));
 	}
 	return res.data;
 }

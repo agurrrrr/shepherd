@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { apiGet, apiPatch, apiPost } from '$lib/api.js';
+	import { setLocale } from '$lib/i18n/index.js';
 
 	import CommonSettings from '$lib/components/Settings/CommonSettings.svelte';
 	import ShepherdSettings from '$lib/components/Settings/ShepherdSettings.svelte';
@@ -190,6 +191,8 @@
 		});
 		if (res?.success) {
 			saveMsg = 'Saved';
+			// Switch the Web UI language right away, without a reload (#662).
+			setLocale(configData.language);
 		} else {
 			saveMsg = 'Error: ' + (res?.message || 'Failed to save');
 		}

@@ -3,6 +3,7 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import IssueDetailModal from '$lib/components/IssueDetailModal.svelte';
+	import { t, enumLabel } from '$lib/i18n/index.js';
 
 	let { projectName }: { projectName: string } = $props();
 
@@ -28,26 +29,12 @@
 	let selectedIssueId = $state(null);
 	let showingDetail = $state(false);
 
-	const statusLabels = {
-		todo: '작업전',
-		in_progress: '작업중',
-		testing: '테스트',
-		failed: '실패',
-		done: '성공'
-	};
-
 	const statusColors = {
 		todo: 'gray',
 		in_progress: 'blue',
 		testing: 'yellow',
 		failed: 'red',
 		done: 'green'
-	};
-
-	const typeLabels = {
-		design: '설계',
-		feature: '기능',
-		bug: '버그'
 	};
 
 	const typeIcons = {
@@ -175,17 +162,17 @@
 		/>
 		<select class="input" bind:value={filterStatus} onchange={applyFilters} aria-label="상태 필터">
 			<option value="">모든 상태</option>
-			<option value="todo">작업전</option>
-			<option value="in_progress">작업중</option>
-			<option value="testing">테스트</option>
-			<option value="failed">실패</option>
-			<option value="done">성공</option>
+			<option value="todo">{$t('issue.status.todo')}</option>
+			<option value="in_progress">{$t('issue.status.in_progress')}</option>
+			<option value="testing">{$t('issue.status.testing')}</option>
+			<option value="failed">{$t('issue.status.failed')}</option>
+			<option value="done">{$t('issue.status.done')}</option>
 		</select>
 		<select class="input" bind:value={filterType} onchange={applyFilters} aria-label="타입 필터">
 			<option value="">모든 타입</option>
-			<option value="design">설계</option>
-			<option value="feature">기능</option>
-			<option value="bug">버그</option>
+			<option value="design">{$t('issue.type.design')}</option>
+			<option value="feature">{$t('issue.type.feature')}</option>
+			<option value="bug">{$t('issue.type.bug')}</option>
 		</select>
 		<button class="btn btn-ghost" onclick={resetFilters}><Icon name="rotate-ccw" size={13} /> 초기화</button>
 	</div>
@@ -207,9 +194,9 @@
 					<div class="form-group">
 						<label>타입</label>
 						<select bind:value={createForm.type}>
-							<option value="feature">기능</option>
-							<option value="design">설계</option>
-							<option value="bug">버그</option>
+							<option value="feature">{$t('issue.type.feature')}</option>
+							<option value="design">{$t('issue.type.design')}</option>
+							<option value="bug">{$t('issue.type.bug')}</option>
 						</select>
 					</div>
 					<div class="form-group">
@@ -278,10 +265,10 @@
 					<span class="type-icon {issue.type}" aria-hidden="true"><Icon name={typeIcons[issue.type] || 'file-text'} size={14} /></span>
 					<span class="issue-id mono">#{issue.id}</span>
 					<span class="issue-title">{issue.title}</span>
-					<span class="status-badge {issue.status}">{statusLabels[issue.status] || issue.status}</span>
+					<span class="status-badge {issue.status}">{enumLabel($t, 'issue.status', issue.status)}</span>
 				</div>
 				<div class="issue-card-footer">
-					<span class="issue-type-label">{typeLabels[issue.type] || issue.type}</span>
+					<span class="issue-type-label">{enumLabel($t, 'issue.type', issue.type)}</span>
 					{#if issue.parent_id}
 						<span class="parent-tag">↳ 상위 #{issue.parent_id}</span>
 					{/if}

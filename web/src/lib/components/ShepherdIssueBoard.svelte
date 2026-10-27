@@ -6,6 +6,7 @@
 	import { onSSE } from '$lib/sse.js';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { t, enumLabel } from '$lib/i18n/index.js';
 
 	// Cross-project issue board (#621, split out of routes/shepherd/+page.svelte;
 	// board itself from #599). GET /api/issues (cross-project). One request per
@@ -22,14 +23,6 @@
 	let { refreshKey = 0, onOpenIssue = () => {} } = $props();
 
 	const BOARD_COLUMNS = ['todo', 'in_progress', 'testing', 'failed', 'done'];
-	const columnLabels = {
-		todo: '작업전',
-		in_progress: '작업중',
-		testing: '테스트',
-		failed: '실패',
-		done: '성공'
-	};
-	const typeLabels = { design: '설계', feature: '기능', bug: '버그' };
 	const typeIcons = { design: 'layers', feature: 'sparkles', bug: 'bug' };
 	const DONE_WINDOW_MS = 7 * 24 * 3600 * 1000;
 	const BOARD_LIMIT = 50;
@@ -230,9 +223,9 @@
 		     (wiki: svelte5-select-bind-change-vs-input). -->
 		<select class="input" bind:value={filterType} onchange={applyBoardFilters} aria-label="유형 필터">
 			<option value="">모든 유형</option>
-			<option value="design">설계</option>
-			<option value="feature">기능</option>
-			<option value="bug">버그</option>
+			<option value="design">{$t('issue.type.design')}</option>
+			<option value="feature">{$t('issue.type.feature')}</option>
+			<option value="bug">{$t('issue.type.bug')}</option>
 		</select>
 		<select class="input" bind:value={filterWatched} onchange={applyBoardFilters} aria-label="감시 필터">
 			<option value="">감시 전체</option>
@@ -264,7 +257,7 @@
 		{#each BOARD_COLUMNS as col (col)}
 			<button class="narrow-tab" class:active={narrowTab === col} role="tab"
 				aria-selected={narrowTab === col} onclick={() => narrowTab = col}>
-				{columnLabels[col]}
+				{$t(`issue.status.${col}`)}
 				<span class="mono num narrow-count">{boardCounts[col] ?? (board[col] || []).length}</span>
 			</button>
 		{/each}
@@ -274,7 +267,7 @@
 		{#each BOARD_COLUMNS as col (col)}
 			<div class="board-col" class:is-active={narrowTab === col}>
 				<div class="col-head">
-					<span class="col-title">{columnLabels[col]}</span>
+					<span class="col-title">{$t(`issue.status.${col}`)}</span>
 					<span class="col-count mono num">{boardCounts[col] ?? (board[col] || []).length}</span>
 				</div>
 				<div class="col-list">
@@ -290,7 +283,7 @@
 								<div class="card-top">
 									<span class="chip proj-badge" title={issue.project_name}>{issue.project_name}</span>
 									<span class="type-badge {issue.type}">
-										<Icon name={typeIcons[issue.type] || 'file-text'} size={11} /> {typeLabels[issue.type] || issue.type}
+										<Icon name={typeIcons[issue.type] || 'file-text'} size={11} /> {enumLabel($t, 'issue.type', issue.type)}
 									</span>
 									{#if issue.shepherd_watch}
 										<span class="watch-flag" title="목자 감시 중 (회차 {issue.shepherd_rounds ?? 0}{maxReviewRounds ? '/' + maxReviewRounds : ''})">

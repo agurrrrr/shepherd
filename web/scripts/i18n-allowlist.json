@@ -1,0 +1,27 @@
+[
+	{
+		"file": "src/lib/magiPanel.js",
+		"text": "토론 라운드 진입",
+		"reason": "Parse pattern for the magi round line in task output. The server writes it in Korean and old task output in the DB has it, so the pattern must not change (#661)."
+	},
+	{
+		"file": "src/lib/magiPanel.js",
+		"text": "응답 완료",
+		"reason": "Parse pattern for the magi proposer status line in task output (server text, stored in the DB) (#661)."
+	},
+	{
+		"file": "src/lib/magiPanel.js",
+		"text": "응답 실패",
+		"reason": "Parse pattern for the magi proposer status line in task output (server text, stored in the DB) (#661)."
+	},
+	{
+		"file": "src/lib/outputLines.js",
+		"text": "합의 도달",
+		"reason": "Parse pattern for the magi consensus line in task output (server text, stored in the DB) (#661)."
+	},
+	{
+		"file": "src/lib/components/Settings/CommonSettings.svelte",
+		"text": "한국어",
+		"reason": "Language name in the language picker. A language name is shown in its own language and is not translated (#661)."
+	}
+]

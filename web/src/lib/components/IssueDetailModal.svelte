@@ -2,6 +2,7 @@
 	import { apiGet, apiPost, apiPatch, apiDelete } from '$lib/api.js';
 	import Icon from '$lib/components/Icon.svelte';
 	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
+	import { t, enumLabel } from '$lib/i18n/index.js';
 
 	// Issue detail modal shared by the project Issues tab and the Shepherd
 	// board (#599). The project screen (IssueTab) used to own this markup; it
@@ -31,20 +32,6 @@
 
 	// Execute option: enqueue with shepherd_watch turned on for the cascade.
 	let executeWithWatch = $state(false);
-
-	const statusLabels = {
-		todo: '작업전',
-		in_progress: '작업중',
-		testing: '테스트',
-		failed: '실패',
-		done: '성공'
-	};
-
-	const typeLabels = {
-		design: '설계',
-		feature: '기능',
-		bug: '버그'
-	};
 
 	const typeIcons = {
 		design: 'layers',
@@ -223,7 +210,7 @@
 		{:else}
 			<div class="modal-header">
 				<div class="detail-header-left">
-					<span class="type-badge {issue.type}"><Icon name={typeIcons[issue.type] || 'file-text'} size={12} /> {typeLabels[issue.type] || issue.type}</span>
+					<span class="type-badge {issue.type}"><Icon name={typeIcons[issue.type] || 'file-text'} size={12} /> {enumLabel($t, 'issue.type', issue.type)}</span>
 					{#if editingField === 'title'}
 						<input type="text" class="edit-input" bind:value={editValue} onkeydown={(e) => e.key === 'Enter' && saveEdit()} />
 					{:else}
@@ -245,7 +232,7 @@
 			<div class="modal-body detail-body">
 				<div class="detail-status-bar">
 					<span class="status-label">상태:</span>
-					<span class="status-badge {issue.status}">{statusLabels[issue.status] || issue.status}</span>
+					<span class="status-badge {issue.status}">{enumLabel($t, 'issue.status', issue.status)}</span>
 					{#if issue.parent_id}
 						<span class="detail-meta">
 							상위:
@@ -333,7 +320,7 @@
 							<button class="child-link" onclick={() => openChild(child.id)}>
 								#{child.id} {child.title}
 							</button>
-							<span class="status-badge {child.status}">{statusLabels[child.status] || child.status}</span>
+							<span class="status-badge {child.status}">{enumLabel($t, 'issue.status', child.status)}</span>
 						</div>
 						{/each}
 					</div>

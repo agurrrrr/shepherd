@@ -6,6 +6,7 @@
 	import { refreshShepherdAttention } from '$lib/attention.js';
 	import { connectSSE, disconnectSSE, onSSE } from '$lib/sse.js';
 	import { syncPushSubscription } from '$lib/push.js';
+	import { setLocale } from '$lib/i18n/index.js';
 	import { goto, onNavigate } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
 	import BrandMark from '$lib/components/BrandMark.svelte';
@@ -31,6 +32,23 @@
 			isAuthenticated.set(true);
 			connectSSE();
 		}
+	});
+
+	// UI language follows the server `language` setting (#662). The login
+	// screen, and the first paint before /api/config answers, use the locale
+	// the i18n module stored on the last visit. Fetch once per sign-in: a token
+	// refresh replaces accessToken but must not refetch the config.
+	let localeSynced = false;
+	$effect(() => {
+		if (!$accessToken) {
+			localeSynced = false;
+			return;
+		}
+		if (localeSynced) return;
+		localeSynced = true;
+		apiGet('/api/config')
+			.then((res) => setLocale(res?.data?.language))
+			.catch(() => {});
 	});
 
 	// Auto-expand projects accordion when on a project detail page
