@@ -1,5 +1,6 @@
 <script>
 	import { apiPost, apiGet, apiUpload } from '$lib/api.js';
+	import { t, translate } from '$lib/i18n/index.js';
 	import Icon from './Icon.svelte';
 
 	// `thinking`: tri-state — true/false override the server default, null means
@@ -33,7 +34,7 @@
 	});
 
 	let placeholder = $derived.by(() => {
-		if (injectMode) return '추가 지시를 입력하세요...';
+		if (injectMode) return $t('console.placeholder.inject');
 		if (projectName) return compact ? 'Send a task…' : `Send a task to ${projectName}…`;
 		return 'Send a task…';
 	});
@@ -197,12 +198,12 @@
 		try {
 			const res = await apiPost(`/api/sheep/${encodeURIComponent(sheepName)}/inject`, { prompt: savedPrompt });
 			if (res?.success) {
-				lastResult = { success: true, data: {}, message: '💬 주입됨' };
+				lastResult = { success: true, data: {}, message: translate('command.injected') };
 			} else {
-				lastResult = { success: false, message: res?.message || '주입에 실패했습니다' };
+				lastResult = { success: false, message: res?.message || translate('console.injectFailed') };
 			}
 		} catch (err) {
-			lastResult = { success: false, message: err.message || '주입 요청 실패' };
+			lastResult = { success: false, message: err.message || translate('command.injectRequestFailed') };
 		} finally {
 			loading = false;
 		}
@@ -280,7 +281,7 @@
 		onpaste={handlePaste}
 		oninput={autosize}
 		{placeholder}
-		aria-label={injectMode ? '추가 지시' : 'Command'}
+		aria-label={injectMode ? $t('console.aria.injectMode') : 'Command'}
 		disabled={loading}
 		rows="1"
 	></textarea>
@@ -295,10 +296,10 @@
 				onclick={() => { injectMode = !injectMode; fieldEl?.focus(); }}
 				disabled={loading || stopping}
 				aria-pressed={injectMode}
-				title="추가 지시 주입"
+				title={$t('command.injectTitle')}
 			>
 				<Icon name="message-square" size={13} />
-				주입
+				{$t('console.inject')}
 			</button>
 			<button class="btn btn-sm btn-danger btn-stop" onclick={handleStop} disabled={stopping} title="Stop the running task">
 				<Icon name="square" size={11} stroke={2.6} />

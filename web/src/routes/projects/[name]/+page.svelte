@@ -5,6 +5,7 @@
 	import { onSSE } from '$lib/sse.js';
 	import { appendLiveOutput } from '$lib/liveOutput.js';
 	import { thinkingByProject, modelByProject } from '$lib/stores.js';
+	import { t } from '$lib/i18n/index.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import OutputViewer from '$lib/components/OutputViewer.svelte';
 	import MagiStreamPanel from '$lib/components/MagiStreamPanel.svelte';
@@ -998,8 +999,8 @@
 									type="button"
 									class="wiki-nav-toggle"
 									onclick={toggleWikiNav}
-									title={wikiNavCollapsed ? '페이지 목록 펼치기' : '페이지 목록 접기'}
-									aria-label={wikiNavCollapsed ? '페이지 목록 펼치기' : '페이지 목록 접기'}
+									title={wikiNavCollapsed ? $t('wiki.expandNav') : $t('wiki.collapseNav')}
+									aria-label={wikiNavCollapsed ? $t('wiki.expandNav') : $t('wiki.collapseNav')}
 									aria-expanded={!wikiNavCollapsed}
 								>
 									<Icon name={wikiNavCollapsed ? 'chevron-right' : 'chevron-left'} size={16} />

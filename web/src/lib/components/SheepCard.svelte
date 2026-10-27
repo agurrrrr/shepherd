@@ -4,6 +4,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { onSSE } from '$lib/sse.js';
 	import { apiPost } from '$lib/api.js';
+	import { t, translate } from '$lib/i18n/index.js';
 	import Icon from './Icon.svelte';
 
 	let { name = '', project = '', status: initialStatus = 'idle', provider = 'claude' } = $props();
@@ -46,13 +47,13 @@
 			const res = await apiPost(`/api/sheep/${encodeURIComponent(name)}/inject`, { prompt: text });
 			if (res?.success) {
 				// Echo the injected prompt into output for visibility
-				output = [...output.slice(-100), `💬 [주입된 메시지]: ${text}`];
+				output = [...output.slice(-100), translate('sheepCard.injectedEcho', { text })];
 				injectText = '';
 			} else {
-				injectError = res?.message || '주입에 실패했습니다';
+				injectError = res?.message || translate('console.injectFailed');
 			}
 		} catch (e) {
-			injectError = '네트워크 오류';
+			injectError = translate('sheepCard.networkError');
 		}
 
 		injecting = false;
@@ -109,8 +110,8 @@
 				<textarea
 					bind:value={injectText}
 					onkeydown={handleKeydown}
-					placeholder="추가 지시 (Enter로 전송)"
-					aria-label="추가 지시"
+					placeholder={$t('sheepCard.injectPlaceholder')}
+					aria-label={$t('console.aria.injectMode')}
 					class="inject-input"
 					rows={1}
 					disabled={injecting}
@@ -120,8 +121,8 @@
 					class:ready={!!injectText.trim()}
 					onclick={handleInject}
 					disabled={injecting || !injectText.trim()}
-					title="주입하기"
-					aria-label="주입하기"
+					title={$t('sheepCard.injectButton')}
+					aria-label={$t('sheepCard.injectButton')}
 				>
 					{#if injecting}
 						<span class="spinner" aria-hidden="true"></span>

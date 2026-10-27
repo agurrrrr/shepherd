@@ -619,5 +619,64 @@ export default {
 	'revert.noFiles': 'No files will change.',
 	'revert.warning': 'The reverted changes stay in the working tree as uncommitted changes. Review them and commit yourself.',
 	'revert.reverting': 'Reverting...',
-	'revert.confirm': 'Revert'
+	'revert.confirm': 'Revert',
+
+	// Command input (CommandInput.svelte; task inject)
+	'command.injected': '💬 Injected',
+	'command.injectRequestFailed': 'The inject request failed',
+	'command.injectTitle': 'Inject an additional instruction',
+
+	// Sheep card live output (SheepCard.svelte)
+	'sheepCard.injectedEcho': '💬 [Injected message]: {text}',
+	'sheepCard.networkError': 'Network error',
+	'sheepCard.injectPlaceholder': 'Additional instruction (Enter to send)',
+	'sheepCard.injectButton': 'Inject',
+
+	// Project settings tab: assigned-sheep rename (ProjectSettings.svelte)
+	'projectSettings.renamed': "Renamed '{from}' → '{to}'.",
+	'projectSettings.renameFailed': 'Failed to rename the sheep.',
+	'projectSettings.suggestFailed': 'Failed to generate LLM candidates.',
+	'projectSettings.sheepTitle': 'Assigned sheep',
+	'projectSettings.sheepNone': 'This project does not have an assigned sheep yet.',
+	'projectSettings.sheepCurrent': 'Current assigned sheep:',
+	'projectSettings.renameBlockedWhileWorking': ' — the name cannot be changed while it is working',
+	'projectSettings.newNamePlaceholder': 'New sheep name',
+	'projectSettings.saveName': 'Save name',
+	'projectSettings.suggesting': 'Generating LLM candidates… (up to 30s)',
+	'projectSettings.getSuggestions': 'Get LLM candidates',
+
+	// Schedule form cron presets (ScheduleForm.svelte)
+	'schedule.preset.hourly': 'Every hour',
+	'schedule.preset.daily9': 'Every day at 9:00 AM',
+	'schedule.preset.weekdays9': 'Weekdays at 9:00 AM',
+	'schedule.preset.monday': 'Every Monday',
+	'schedule.preset.monthly1': 'First day of the month',
+	'schedule.preset.every6h': 'Every 6 hours',
+
+	// Projects list screen (routes/projects/+page.svelte)
+	'projects.assignedSheep': 'Assigned sheep: {sheep}',
+	'projects.nameFallback': ' (LLM naming fallback: {reason})',
+	'projects.registerFailed': 'Failed to register the project.',
+	'projects.pathSuggested': 'Suggested from the workspace:',
+	'projects.adding': 'Naming the sheep… (up to 30s)',
+
+	// Live-sheep monitor overlay (MonitorGrid.svelte)
+	'monitor.closeTitle': 'Stop monitoring (Esc)',
+	'monitor.closeAria': 'Stop monitoring',
+	'monitor.empty': 'No sheep is working',
+	'monitor.waiting': 'Waiting…',
+	'monitor.more': '+{count} more (showing at most 9)',
+
+	// Dashboard hero (routes/+page.svelte)
+	'dashboard.monitorTitle': 'Monitor the running sheep',
+	'dashboard.monitor': 'Monitor',
+
+	// File browser uploads (FileBrowser.svelte)
+	'files.uploadedMany': 'Uploaded {count} files',
+	'files.uploadedOne': 'Uploaded {name}',
+	'files.dropHere': 'Drop the files to upload',
+
+	// Wiki sidebar toggle (routes/projects/[name]/+page.svelte)
+	'wiki.expandNav': 'Expand the page list',
+	'wiki.collapseNav': 'Collapse the page list'
 };

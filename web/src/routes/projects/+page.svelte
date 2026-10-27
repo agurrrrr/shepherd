@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { apiGet, apiPost, apiPatch, apiDelete } from '$lib/api.js';
 	import { sheep, projects as projectsStore } from '$lib/stores.js';
+	import { t, translate } from '$lib/i18n/index.js';
 	import { onSSE } from '$lib/sse.js';
 	import Icon from '$lib/components/Icon.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -89,9 +90,9 @@
 			// #638: tell the user which sheep was assigned and, when the LLM
 			// name was not used, why.
 			if (data.assigned_sheep) {
-				addMsg = `담당 양: ${data.assigned_sheep}`;
+				addMsg = translate('projects.assignedSheep', { sheep: data.assigned_sheep });
 				if (data.name_fallback_reason) {
-					addMsg += ` (LLM 작명 폴백: ${data.name_fallback_reason})`;
+					addMsg += translate('projects.nameFallback', { reason: data.name_fallback_reason });
 				}
 			}
 			newName = '';
@@ -101,7 +102,7 @@
 			showAdd = false;
 			await loadProjects();
 		} else {
-			addError = res?.message || '프로젝트 등록에 실패했습니다.';
+			addError = res?.message || translate('projects.registerFailed');
 		}
 		adding = false;
 	}
@@ -172,7 +173,7 @@
 						placeholder={suggestedPath || '/home/user/code/my-project'}
 					/>
 					{#if !pathTouched && suggestedPath}
-						<span class="path-hint">워크스페이스에서 제안: <span class="mono">{suggestedPath}</span></span>
+						<span class="path-hint">{$t('projects.pathSuggested')} <span class="mono">{suggestedPath}</span></span>
 					{/if}
 				</div>
 			</div>
@@ -182,7 +183,7 @@
 			</div>
 			<div class="add-actions">
 				<button type="submit" class="btn btn-primary" disabled={adding || !newName || !newPath}>
-					{adding ? '양 이름 짓는 중… (최대 30초)' : 'Create project'}
+					{adding ? $t('projects.adding') : 'Create project'}
 				</button>
 			</div>
 		</form>

@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { apiGet } from '$lib/api.js';
 	import { sheep, systemStatus, projects, username } from '$lib/stores.js';
+	import { t } from '$lib/i18n/index.js';
 	import { onSSE } from '$lib/sse.js';
 	import SheepCard from '$lib/components/SheepCard.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
@@ -279,9 +280,9 @@
 			<p class="hero-line">{heroLine}</p>
 		</div>
 		<div class="hero-actions">
-			<button class="btn btn-live monitor-btn" onclick={() => (monitoring = true)} title="실행 중인 양 모니터링">
+			<button class="btn btn-live monitor-btn" onclick={() => (monitoring = true)} title={$t('dashboard.monitorTitle')}>
 				<Icon name="monitor" size={15} />
-				모니터링
+				{$t('dashboard.monitor')}
 				{#if workingSheep.length > 0}
 					<span class="monitor-count num">{workingSheep.length}</span>
 				{/if}
@@ -460,8 +461,8 @@
 								<div class="recent-side">
 									<span class="recent-time">{timeAgo(task.created_at)}</span>
 									<span class="recent-metrics mono num">
-										{#if task.duration_sec > 0}<span title="실행 시간">{fmtDuration(task.duration_sec)}</span>{/if}
-										{#if task.total_tokens > 0}<span title="토큰 사용량">{fmtCompact(task.total_tokens)}</span>{/if}
+										{#if task.duration_sec > 0}<span title={$t('taskList.durationTitle')}>{fmtDuration(task.duration_sec)}</span>{/if}
+										{#if task.total_tokens > 0}<span title={$t('taskList.tokensTitle')}>{fmtCompact(task.total_tokens)}</span>{/if}
 									</span>
 								</div>
 							</a>

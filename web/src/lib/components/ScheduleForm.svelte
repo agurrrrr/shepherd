@@ -1,5 +1,6 @@
 <script>
 	import { apiGet } from '$lib/api.js';
+	import { t } from '$lib/i18n/index.js';
 
 	let { schedule = null, projects = [], fixedProject = '', onSave, onCancel } = $props();
 
@@ -17,13 +18,15 @@
 	let saving = $state(false);
 	let error = $state('');
 
+	// label holds the i18n key; the template renders it with $t so the preset
+	// buttons follow the current locale.
 	const cronPresets = [
-		{ label: '매 시간', expr: '0 * * * *' },
-		{ label: '매일 오전 9시', expr: '0 9 * * *' },
-		{ label: '평일 오전 9시', expr: '0 9 * * 1-5' },
-		{ label: '매주 월요일', expr: '0 9 * * 1' },
-		{ label: '매월 1일', expr: '0 9 1 * *' },
-		{ label: '6시간마다', expr: '0 */6 * * *' },
+		{ label: 'schedule.preset.hourly', expr: '0 * * * *' },
+		{ label: 'schedule.preset.daily9', expr: '0 9 * * *' },
+		{ label: 'schedule.preset.weekdays9', expr: '0 9 * * 1-5' },
+		{ label: 'schedule.preset.monday', expr: '0 9 * * 1' },
+		{ label: 'schedule.preset.monthly1', expr: '0 9 1 * *' },
+		{ label: 'schedule.preset.every6h', expr: '0 */6 * * *' },
 	];
 
 	function guessIntervalUnit(secs) {
@@ -127,7 +130,7 @@
 			<div class="presets">
 				{#each cronPresets as preset}
 					<button class="preset-btn" class:active={cronExpr === preset.expr} onclick={() => selectPreset(preset.expr)}>
-						{preset.label}
+						{$t(preset.label)}
 					</button>
 				{/each}
 			</div>
@@ -145,8 +148,8 @@
 		{#if previewTimes.length > 0}
 			<div class="preview-box">
 				<div class="preview-title">Next runs:</div>
-				{#each previewTimes as t}
-					<div class="preview-time">{t}</div>
+				{#each previewTimes as runTime}
+					<div class="preview-time">{runTime}</div>
 				{/each}
 			</div>
 		{/if}

@@ -2,6 +2,7 @@
 	import Icon from './Icon.svelte';
 	import { onMount } from 'svelte';
 	import { apiGet, apiUpload } from '$lib/api.js';
+	import { t, translate } from '$lib/i18n/index.js';
 	import { accessToken } from '$lib/stores.js';
 	import { get } from 'svelte/store';
 	import { Carta } from 'carta-md';
@@ -163,7 +164,10 @@
 			if (res?.success) {
 				uploadMsg = {
 					type: 'ok',
-					text: files.length > 1 ? `${files.length}개 파일 업로드 완료` : `${files[0].name} 업로드 완료`
+					text:
+						files.length > 1
+							? translate('files.uploadedMany', { count: files.length })
+							: translate('files.uploadedOne', { name: files[0].name })
 				};
 				await navigateTo(currentPath);
 			} else {
@@ -414,7 +418,7 @@
 
 			{#if dragging}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="fb-drop-overlay">업로드할 파일을 놓으세요</div>
+				<div class="fb-drop-overlay">{$t('files.dropHere')}</div>
 			{/if}
 		</div>
 	{/if}

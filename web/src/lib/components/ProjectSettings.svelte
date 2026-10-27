@@ -2,6 +2,7 @@
 	import Icon from './Icon.svelte';
 	import { onMount } from 'svelte';
 	import { apiGet, apiPut, apiPost, apiPatch } from '$lib/api.js';
+	import { t, translate } from '$lib/i18n/index.js';
 
 	// sheepName/sheepStatus come from the project page so the rename form can
 	// disable saving while the sheep is mid-task (#638 §6: worker refuses renames
@@ -30,14 +31,14 @@
 		const res = await apiPatch(`/api/sheep/${encodeURIComponent(sheepName)}/name`, { name: newName.trim() });
 		if (res?.success) {
 			const renamed = res.data?.new_name || newName.trim();
-			renameMsg = `'${sheepName}' → '${renamed}' 으로 바꿨습니다.`;
+			renameMsg = translate('projectSettings.renamed', { from: sheepName, to: renamed });
 			newName = '';
 			suggestions = [];
 			// Parent owns sheepName state and re-fetches the sheep's provider.
 			onSheepRenamed?.(renamed);
 		} else {
 			// 400: invalid name / manager sheep. 409: name taken or sheep working.
-			renameError = res?.message || '이름 변경에 실패했습니다.';
+			renameError = res?.message || translate('projectSettings.renameFailed');
 		}
 		renameSaving = false;
 		setTimeout(() => { renameMsg = ''; }, 5000);
@@ -54,7 +55,7 @@
 		if (res?.success && res.data?.names) {
 			suggestions = res.data.names;
 		} else {
-			suggestMsg = res?.message || 'LLM 후보를 만들지 못했습니다.';
+			suggestMsg = res?.message || translate('projectSettings.suggestFailed');
 		}
 		suggesting = false;
 	}
@@ -117,26 +118,26 @@
 	     chips come from POST /api/sheep-names/suggest. Working sheep cannot be
 	     renamed (the server answers 409), so Save stays disabled while working. -->
 	<div class="project-settings-section">
-		<h4><Icon name="sheep" size={15} /> 담당 양</h4>
+		<h4><Icon name="sheep" size={15} /> {$t('projectSettings.sheepTitle')}</h4>
 		{#if !sheepName}
-			<p class="hint">이 프로젝트에는 아직 담당 양이 없습니다.</p>
+			<p class="hint">{$t('projectSettings.sheepNone')}</p>
 		{:else}
-			<p class="hint">현재 담당 양: <strong>{sheepName}</strong>{#if sheepStatus === 'working'} — 작업 중이라 이름은 바꿀 수 없습니다{/if}</p>
+			<p class="hint">{$t('projectSettings.sheepCurrent')} <strong>{sheepName}</strong>{#if sheepStatus === 'working'}{$t('projectSettings.renameBlockedWhileWorking')}{/if}</p>
 
 			<div class="sheep-rename-row">
 				<input
 					class="input mono"
 					type="text"
 					bind:value={newName}
-					placeholder="새 양 이름"
+					placeholder={$t('projectSettings.newNamePlaceholder')}
 					disabled={sheepStatus === 'working' || renameSaving}
 					maxlength="32"
 				/>
 				<button class="btn btn-primary" onclick={saveRename} disabled={!canRename}>
-					{renameSaving ? '저장 중…' : '이름 저장'}
+					{renameSaving ? $t('common.saving') : $t('projectSettings.saveName')}
 				</button>
 				<button class="btn" onclick={loadSuggestions} disabled={suggesting || sheepStatus === 'working'}>
-					{suggesting ? 'LLM 후보 생성 중… (최대 30초)' : 'LLM 후보 받기'}
+					{suggesting ? $t('projectSettings.suggesting') : $t('projectSettings.getSuggestions')}
 				</button>
 			</div>
 

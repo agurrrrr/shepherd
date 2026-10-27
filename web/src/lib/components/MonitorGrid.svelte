@@ -1,6 +1,7 @@
 <script>
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { onSSE } from '$lib/sse.js';
+	import { t } from '$lib/i18n/index.js';
 	import Icon from './Icon.svelte';
 
 	// `working` is the list of currently-working sheep ({ name, project, provider, status }).
@@ -124,12 +125,12 @@
 </script>
 
 <div class="monitor-overlay" style="--font: {fontPx}px; --header: {headerPx}px;">
-	<button class="monitor-close" onclick={onClose} title="모니터링 종료 (Esc)" aria-label="모니터링 종료"><Icon name="x" size={14} stroke={2.2} /></button>
+	<button class="monitor-close" onclick={onClose} title={$t('monitor.closeTitle')} aria-label={$t('monitor.closeAria')}><Icon name="x" size={14} stroke={2.2} /></button>
 
 	{#if tiles.length === 0}
 		<div class="monitor-empty">
 			<span class="empty-dot"></span>
-			작업 중인 양이 없습니다
+			{$t('monitor.empty')}
 		</div>
 	{:else}
 		<div
@@ -153,14 +154,14 @@
 						{#each lastLines(s.name, 200) as line, i (i)}
 							<div class="tile-line {lineClass(line)}">{line || ' '}</div>
 						{:else}
-							<div class="tile-line l-status">대기 중…</div>
+							<div class="tile-line l-status">{$t('monitor.waiting')}</div>
 						{/each}
 					</div>
 				</div>
 			{/each}
 		</div>
 		{#if hiddenCount > 0}
-			<div class="monitor-more">+{hiddenCount} more (최대 9개 표시)</div>
+			<div class="monitor-more">{$t('monitor.more', { count: hiddenCount })}</div>
 		{/if}
 	{/if}
 </div>

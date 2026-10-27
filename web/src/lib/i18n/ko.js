@@ -617,5 +617,64 @@ export default {
 	'revert.noFiles': '바뀔 파일이 없습니다.',
 	'revert.warning': '되돌린 변경은 커밋되지 않은 변경으로 작업 트리에 남습니다. 직접 확인한 뒤 커밋하세요.',
 	'revert.reverting': '되돌리는 중...',
-	'revert.confirm': '되돌리기'
+	'revert.confirm': '되돌리기',
+
+	// Command input (CommandInput.svelte; task inject)
+	'command.injected': '💬 주입됨',
+	'command.injectRequestFailed': '주입 요청 실패',
+	'command.injectTitle': '추가 지시 주입',
+
+	// Sheep card live output (SheepCard.svelte)
+	'sheepCard.injectedEcho': '💬 [주입된 메시지]: {text}',
+	'sheepCard.networkError': '네트워크 오류',
+	'sheepCard.injectPlaceholder': '추가 지시 (Enter로 전송)',
+	'sheepCard.injectButton': '주입하기',
+
+	// Project settings tab: assigned-sheep rename (ProjectSettings.svelte)
+	'projectSettings.renamed': "'{from}' → '{to}' 으로 바꿨습니다.",
+	'projectSettings.renameFailed': '이름 변경에 실패했습니다.',
+	'projectSettings.suggestFailed': 'LLM 후보를 만들지 못했습니다.',
+	'projectSettings.sheepTitle': '담당 양',
+	'projectSettings.sheepNone': '이 프로젝트에는 아직 담당 양이 없습니다.',
+	'projectSettings.sheepCurrent': '현재 담당 양:',
+	'projectSettings.renameBlockedWhileWorking': ' — 작업 중이라 이름은 바꿀 수 없습니다',
+	'projectSettings.newNamePlaceholder': '새 양 이름',
+	'projectSettings.saveName': '이름 저장',
+	'projectSettings.suggesting': 'LLM 후보 생성 중… (최대 30초)',
+	'projectSettings.getSuggestions': 'LLM 후보 받기',
+
+	// Schedule form cron presets (ScheduleForm.svelte)
+	'schedule.preset.hourly': '매 시간',
+	'schedule.preset.daily9': '매일 오전 9시',
+	'schedule.preset.weekdays9': '평일 오전 9시',
+	'schedule.preset.monday': '매주 월요일',
+	'schedule.preset.monthly1': '매월 1일',
+	'schedule.preset.every6h': '6시간마다',
+
+	// Projects list screen (routes/projects/+page.svelte)
+	'projects.assignedSheep': '담당 양: {sheep}',
+	'projects.nameFallback': ' (LLM 작명 폴백: {reason})',
+	'projects.registerFailed': '프로젝트 등록에 실패했습니다.',
+	'projects.pathSuggested': '워크스페이스에서 제안:',
+	'projects.adding': '양 이름 짓는 중… (최대 30초)',
+
+	// Live-sheep monitor overlay (MonitorGrid.svelte)
+	'monitor.closeTitle': '모니터링 종료 (Esc)',
+	'monitor.closeAria': '모니터링 종료',
+	'monitor.empty': '작업 중인 양이 없습니다',
+	'monitor.waiting': '대기 중…',
+	'monitor.more': '+{count} more (최대 9개 표시)',
+
+	// Dashboard hero (routes/+page.svelte)
+	'dashboard.monitorTitle': '실행 중인 양 모니터링',
+	'dashboard.monitor': '모니터링',
+
+	// File browser uploads (FileBrowser.svelte)
+	'files.uploadedMany': '{count}개 파일 업로드 완료',
+	'files.uploadedOne': '{name} 업로드 완료',
+	'files.dropHere': '업로드할 파일을 놓으세요',
+
+	// Wiki sidebar toggle (routes/projects/[name]/+page.svelte)
+	'wiki.expandNav': '페이지 목록 펼치기',
+	'wiki.collapseNav': '페이지 목록 접기'
 };
