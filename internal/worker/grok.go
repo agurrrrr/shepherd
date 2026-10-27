@@ -16,6 +16,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/grokstream"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
@@ -201,7 +202,7 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 	}
 	if result.Result == "" {
 		// Completed with only tool calls and no final text — treat as success.
-		result.Result = "(작업 완료 - 텍스트 응답 없음)"
+		result.Result = i18n.T().Worker.NoTextResponse
 	}
 
 	return result, nil

@@ -279,6 +279,13 @@ type Messages struct {
 	Provider struct {
 		Embedded string // 임베디드 / embedded
 	}
+
+	// Worker result text stored on the task row and shown in the Web UI and push
+	// notifications (#661). Rendered at the language current when the task ends;
+	// rows written before this change keep their original text.
+	Worker struct {
+		NoTextResponse string // (작업 완료 - 텍스트 응답 없음)
+	}
 }
 
 var (
@@ -649,6 +656,12 @@ var ko = &Messages{
 	}{
 		Embedded: "임베디드",
 	},
+
+	Worker: struct {
+		NoTextResponse string
+	}{
+		NoTextResponse: "(작업 완료 - 텍스트 응답 없음)",
+	},
 }
 
 var en = &Messages{
@@ -1013,6 +1026,12 @@ var en = &Messages{
 		Embedded string
 	}{
 		Embedded: "embedded",
+	},
+
+	Worker: struct {
+		NoTextResponse string
+	}{
+		NoTextResponse: "(task complete - no text response)",
 	},
 }
 

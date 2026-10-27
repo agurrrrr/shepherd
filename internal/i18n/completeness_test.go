@@ -189,6 +189,11 @@ func TestKoreanMatchesPreConversionText(t *testing.T) {
 			fmt.Sprintf(m.Revert.OtherTaskRunningFmt, 12),
 			"같은 저장소에서 작업 #12이(가) 실행 중입니다. 그 작업이 끝난 뒤에 되돌려 주세요",
 		},
+		{
+			"Worker.NoTextResponse",
+			m.Worker.NoTextResponse,
+			"(작업 완료 - 텍스트 응답 없음)",
+		},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("%s rendered %q, want %q", tc.name, tc.got, tc.want)

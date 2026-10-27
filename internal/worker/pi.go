@@ -11,6 +11,7 @@ import (
 
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/envutil"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 )
 
 // pi (pi-coding-agent, https://pi.dev) is a Claude-class general coding harness.
@@ -194,7 +195,7 @@ func executeWithPi(ctx context.Context, sheepName, projectPath, sessionID, promp
 	}
 	if result.Result == "" {
 		// Completed with only tool calls and no final text — treat as success.
-		result.Result = "(작업 완료 - 텍스트 응답 없음)"
+		result.Result = i18n.T().Worker.NoTextResponse
 	}
 
 	return result, nil
