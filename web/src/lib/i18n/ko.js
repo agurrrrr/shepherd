@@ -571,7 +571,14 @@ export default {
 
 	// Task detail screen (routes/tasks/[id]/+page.svelte)
 	'taskDetail.revertChip': '되돌림 · {time}',
+	'taskDetail.revertShort': '되돌림',
 	'taskDetail.shepherdChip': '목자',
+	'taskDetail.shepherdChipTitle': '목자 작업',
+
+	// Task list screen (routes/tasks/+page.svelte)
+	'taskList.durationTitle': '실행 시간',
+	'taskList.tokensTitle': '토큰 사용량',
+	'taskList.detailLink': '변경 사항 상세 보기',
 	'taskDetail.changesTitle': '변경 사항',
 	'taskDetail.commitsBadge': '커밋 {count}개 포함',
 	'taskDetail.downloadPatch': '패치 내려받기',

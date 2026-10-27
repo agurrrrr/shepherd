@@ -573,7 +573,14 @@ export default {
 
 	// Task detail screen (routes/tasks/[id]/+page.svelte)
 	'taskDetail.revertChip': 'reverted · {time}',
+	'taskDetail.revertShort': 'reverted',
 	'taskDetail.shepherdChip': 'shepherd',
+	'taskDetail.shepherdChipTitle': 'Shepherd task',
+
+	// Task list screen (routes/tasks/+page.svelte)
+	'taskList.durationTitle': 'Runtime',
+	'taskList.tokensTitle': 'Token usage',
+	'taskList.detailLink': 'View change details',
 	'taskDetail.changesTitle': 'Changes',
 	'taskDetail.commitsBadge': '{count} commit(s) included',
 	'taskDetail.downloadPatch': 'Download patch',

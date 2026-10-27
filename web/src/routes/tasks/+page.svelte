@@ -8,6 +8,7 @@
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import { t, translate } from '$lib/i18n/index.js';
 
 	let tasks = [];
 	let total = 0;
@@ -197,41 +198,41 @@
 	{:else}
 		<!-- Compact Task List -->
 		<div class="task-table">
-			{#each tasks as t, i (t.id)}
-				{@const icn = statusIcon(t.status)}
+			{#each tasks as task, i (task.id)}
+				{@const icn = statusIcon(task.status)}
 				<div
 					class="task-row reveal"
-					class:running={t.status === 'running'}
+					class:running={task.status === 'running'}
 					style="--i: {i}"
 					role="button"
 					tabindex="0"
-					aria-label={`Task #${t.id}, ${t.status}`}
-					onclick={() => viewDetail(t.id)}
-					onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), viewDetail(t.id))}
+					aria-label={`Task #${task.id}, ${task.status}`}
+					onclick={() => viewDetail(task.id)}
+					onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), viewDetail(task.id))}
 				>
 					<span class="row-icon" data-tone={icn.tone}>
-						<Icon name={icn.name} size={12} stroke={2.4} label={t.status} />
+						<Icon name={icn.name} size={12} stroke={2.4} label={task.status} />
 					</span>
-					<span class="row-id mono num">#{t.id}</span>
+					<span class="row-id mono num">#{task.id}</span>
 					<div class="row-body">
-						<span class="row-prompt">{truncate(t.summary || t.prompt, 140)}</span>
+						<span class="row-prompt">{truncate(task.summary || task.prompt, 140)}</span>
 						<div class="row-tags">
-							{#if t.project}
-								<span class="chip">{t.project}</span>
-							{:else if t.shepherd_kind}
-								<span class="chip chip-accent" title="목자 작업">목자</span>
+							{#if task.project}
+								<span class="chip">{task.project}</span>
+							{:else if task.shepherd_kind}
+								<span class="chip chip-accent" title={$t('taskDetail.shepherdChipTitle')}>{$t('taskDetail.shepherdChip')}</span>
 							{/if}
-							{#if t.sheep}
-								<span class="row-sheep">{t.sheep}</span>
+							{#if task.sheep}
+								<span class="row-sheep">{task.sheep}</span>
 							{/if}
-							{#if t.reverted_at}
-								<span class="chip chip-queued" title={`되돌림 ${t.reverted_at}`}>되돌림</span>
+							{#if task.reverted_at}
+								<span class="chip chip-queued" title={$t('taskDetail.revertChip', { time: task.reverted_at })}>{$t('taskDetail.revertShort')}</span>
 							{/if}
 						</div>
 					</div>
-					<span class="metric mono num" title="실행 시간">{t.duration_sec > 0 ? fmtDuration(t.duration_sec) : ''}</span>
-					<span class="metric mono num" title="토큰 사용량">{t.total_tokens > 0 ? fmtTokensShort(t.total_tokens) : ''}</span>
-					<span class="row-time">{timeAgo(t.created_at)}</span>
+					<span class="metric mono num" title={$t('taskList.durationTitle')}>{task.duration_sec > 0 ? fmtDuration(task.duration_sec) : ''}</span>
+					<span class="metric mono num" title={$t('taskList.tokensTitle')}>{task.total_tokens > 0 ? fmtTokensShort(task.total_tokens) : ''}</span>
+					<span class="row-time">{timeAgo(task.created_at)}</span>
 				</div>
 			{/each}
 		</div>
@@ -261,7 +262,7 @@
 						<h2>Task #{selectedTask.id}</h2>
 						<StatusBadge status={selectedTask.status} />
 						{#if selectedTask.reverted_at}
-							<span class="chip chip-queued">되돌림</span>
+							<span class="chip chip-queued">{$t('taskDetail.revertShort')}</span>
 						{/if}
 					</div>
 					<button class="btn btn-sm btn-ghost btn-icon" onclick={closeDetail} aria-label="Close"><Icon name="x" size={15} /></button>
@@ -317,19 +318,19 @@
 						<div class="changes-summary">
 							{detailChanges.files.length} files · +{detailChanges.additions} −{detailChanges.deletions}
 							{#if detailChanges.commits_during_task?.length}
-								<span class="commit-badge">커밋 {detailChanges.commits_during_task.length}개 포함</span>
+								<span class="commit-badge">{$t('taskDetail.commitsBadge', { count: detailChanges.commits_during_task.length })}</span>
 							{/if}
 						</div>
 					{:else if detailChanges}
 						<div class="changes-hint">
 							{#if selectedTask.shepherd_kind}
-								목자 작업은 체크포인트를 남기지 않습니다
+								{$t('changes.reason.shepherdTask')}
 							{:else}
-								{detailChanges.reason || '변경 사항을 볼 수 없습니다.'}
+								{detailChanges.reason || $t('changes.reason.unknown')}
 							{/if}
 						</div>
 					{/if}
-					<a class="detail-link" href={`/tasks/${selectedTask.id}`}>변경 사항 상세 보기 <Icon name="arrow-right" size={12} /></a>
+					<a class="detail-link" href={`/tasks/${selectedTask.id}`}>{$t('taskList.detailLink')} <Icon name="arrow-right" size={12} /></a>
 				</div>
 
 				{#if selectedTask.output?.length}
