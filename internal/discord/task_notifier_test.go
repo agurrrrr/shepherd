@@ -3,10 +3,12 @@ package discord
 import (
 	"testing"
 
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/spf13/viper"
 )
 
 func TestShepherdReportLabel(t *testing.T) {
+	i18n.Init("ko") // pin the language (#665); tests must not depend on init order
 	cases := map[string]string{
 		"review":  "목자 보고 · 검토",
 		"patrol":  "목자 보고 · 순찰",
@@ -16,6 +18,19 @@ func TestShepherdReportLabel(t *testing.T) {
 	for kind, want := range cases {
 		if got := shepherdReportLabel(kind); got != want {
 			t.Errorf("kind %q label = %q, want %q", kind, got, want)
+		}
+	}
+
+	i18n.Init("en")
+	defer i18n.Init("ko")
+	for kind, label := range map[string]string{
+		"review":  "Shepherd report · review",
+		"patrol":  "Shepherd report · patrol",
+		"command": "Shepherd report · command",
+		"weird":   "Shepherd report",
+	} {
+		if got := shepherdReportLabel(kind); got != label {
+			t.Errorf("en kind %q label = %q, want %q", kind, got, label)
 		}
 	}
 }

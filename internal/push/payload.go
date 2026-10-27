@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/agurrrrr/shepherd/internal/i18n"
 )
 
 // Payload is the JSON body delivered to the service worker `push` event.
@@ -20,7 +22,7 @@ const bodyMaxRunes = 120
 // CompletePayload builds a notification for a finished task.
 func CompletePayload(taskID int, projectName, summary string) Payload {
 	return Payload{
-		Title:  title("작업 완료", projectName),
+		Title:  title(i18n.T().Push.TaskComplete, projectName),
 		Body:   bodyLine(taskID, summary),
 		URL:    fmt.Sprintf("/tasks/%d", taskID),
 		Tag:    fmt.Sprintf("task-%d", taskID),
@@ -31,7 +33,7 @@ func CompletePayload(taskID int, projectName, summary string) Payload {
 // FailPayload builds a notification for a failed task.
 func FailPayload(taskID int, projectName, errMsg string) Payload {
 	return Payload{
-		Title:  title("작업 실패", projectName),
+		Title:  title(i18n.T().Push.TaskFailed, projectName),
 		Body:   bodyLine(taskID, errMsg),
 		URL:    fmt.Sprintf("/tasks/%d", taskID),
 		Tag:    fmt.Sprintf("task-%d", taskID),
@@ -43,7 +45,7 @@ func FailPayload(taskID int, projectName, errMsg string) Payload {
 func TestPayload() Payload {
 	return Payload{
 		Title:  "Shepherd",
-		Body:   "테스트 알림입니다. 작업이 끝나면 이런 식으로 알려 드립니다.",
+		Body:   i18n.T().Push.TestBody,
 		URL:    "/settings",
 		Tag:    "shepherd-test",
 		Status: "test",
@@ -55,21 +57,27 @@ func TestPayload() Payload {
 // straight to the task page with from=shepherd&tab=history — the back link
 // there returns to the 목자 작업 tab.
 func ShepherdReportPayload(taskID int, kind, report string) Payload {
-	label := "목자 보고"
-	switch kind {
-	case "review":
-		label = "목자 보고 · 검토"
-	case "patrol":
-		label = "목자 보고 · 순찰"
-	case "command":
-		label = "목자 보고 · 지시"
-	}
 	return Payload{
-		Title:  label,
+		Title:  ShepherdReportLabel(kind),
 		Body:   bodyLine(taskID, report),
 		URL:    fmt.Sprintf("/tasks/%d?from=shepherd&tab=history", taskID),
 		Tag:    fmt.Sprintf("shepherd-report-%d", taskID),
 		Status: "completed",
+	}
+}
+
+// ShepherdReportLabel renders the "목자 보고" title (with the kind suffix) in
+// the current language. Discord's report notifier shares it (#665).
+func ShepherdReportLabel(kind string) string {
+	switch kind {
+	case "review":
+		return i18n.T().Push.ReportReview
+	case "patrol":
+		return i18n.T().Push.ReportPatrol
+	case "command":
+		return i18n.T().Push.ReportCommand
+	default:
+		return i18n.T().Push.ShepherdReport
 	}
 }
 

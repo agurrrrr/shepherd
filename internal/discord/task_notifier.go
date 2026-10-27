@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/push"
 )
 
 const (
@@ -137,18 +138,11 @@ func (n *TaskNotifier) SendShepherdReport(taskID int, kind, report string, costU
 	}
 }
 
-// shepherdReportLabel renders the Korean title for one shepherd report kind.
+// shepherdReportLabel renders the report title for one shepherd report kind
+// in the current language. It shares push's label so both channels stay in
+// step (#665).
 func shepherdReportLabel(kind string) string {
-	switch kind {
-	case "review":
-		return "목자 보고 · 검토"
-	case "patrol":
-		return "목자 보고 · 순찰"
-	case "command":
-		return "목자 보고 · 지시"
-	default:
-		return "목자 보고"
-	}
+	return push.ShepherdReportLabel(kind)
 }
 
 // SendHandoffDepthAlert warns when a task's context-overflow handoff chain has

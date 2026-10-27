@@ -4,7 +4,17 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/agurrrrr/shepherd/internal/i18n"
 )
+
+// TestMain pins Korean for the wording tests below (they compare exact ko
+// strings); individual tests that check en switch the language themselves and
+// restore ko afterwards (#665).
+func TestMain(m *testing.M) {
+	i18n.Init("ko")
+	m.Run()
+}
 
 func Test_CompletePayload_빈요약_작업번호만(t *testing.T) {
 	got := CompletePayload(12, "shepherd", "   ")
@@ -78,4 +88,46 @@ func Test_ShepherdReportPayload_종류별제목과콘솔링크(t *testing.T) {
 			t.Errorf("status = %q", got.Status)
 		}
 	}
+}
+
+// TestPayloads_NoHangulWhenEn pins #665: with language=en, no push payload
+// (complete/fail/test/shepherd report) may contain Korean characters. The
+// task-supplied body text rides through untranslated — the test feeds an
+// English summary so only our own labels are checked.
+func TestPayloads_NoHangulWhenEn(t *testing.T) {
+	i18n.Init("en")
+	defer i18n.Init("ko")
+
+	payloads := []Payload{
+		CompletePayload(1, "proj", "done"),
+		FailPayload(2, "proj", "boom"),
+		TestPayload(),
+		ShepherdReportPayload(3, "review", "report"),
+		ShepherdReportPayload(4, "patrol", "report"),
+		ShepherdReportPayload(5, "command", "report"),
+		ShepherdReportPayload(6, "other", "report"),
+	}
+	for _, p := range payloads {
+		for _, s := range []string{p.Title, p.Body} {
+			if hasHangul(s) {
+				t.Errorf("en payload must not contain Hangul: title=%q body=%q", p.Title, p.Body)
+			}
+		}
+	}
+
+	if TestPayload().Body == "" {
+		t.Error("en test body must not be empty")
+	}
+	if ShepherdReportLabel("review") == ShepherdReportLabel("unknown") {
+		t.Error("en review label must differ from the plain report label")
+	}
+}
+
+func hasHangul(s string) bool {
+	for _, r := range s {
+		if r >= 0xAC00 && r <= 0xD7A3 {
+			return true
+		}
+	}
+	return false
 }
