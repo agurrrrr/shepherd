@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - All internal error messages and comments converted to English
 - README rewritten in English
+- README and README_KO rewritten around the Web UI (shepherd, task changes, MAGI, wiki) with new Pico Night Gray screenshots; the CLI, REST, and full config references were removed
 - Internal constants (`ShepherdName`, `ManagerName`) changed from Korean to English
 - Documentation IPs and domains replaced with example placeholders
 - CLI messages internationalized via i18n package (English and Korean)

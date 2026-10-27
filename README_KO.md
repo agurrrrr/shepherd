@@ -1,832 +1,125 @@
 # Shepherd
 
-여러 프로젝트에 걸쳐 AI 코딩 에이전트 무리를 관리하는 AI 코딩 오케스트레이션 플랫폼 — 양 떼를 돌보는 목자(shepherd)처럼.
+AI 코딩 에이전트 무리를 내 서버에서 관리하는 관제실입니다. 프로젝트마다 전담 에이전트("양")가 하나씩 붙고, 관리자 에이전트("목자")가 일을 나눠 주고 진행을 지켜보며 결과를 검토합니다. 이 모든 일을 하나의 Web UI에서 다룹니다.
 
 > For the English version, see [README.md](README.md).
 
-## 개요
+![Shepherd 대시보드](assets/webui-dashboard.png)
 
-Shepherd는 여러 AI 코딩 에이전트("양")를 서로 다른 코드베이스에서 병렬로 실행하고, 작업을 적절한 워커에 라우팅하며, 실시간 출력을 스트리밍하고, 전체 작업 히스토리를 보관합니다. **Web UI + 데몬** 중심으로 설계되었으며, 클라우드 CLI·자가호스팅 로컬 모델·내장 다중 모델 합의 엔진(MAGI)까지 폭넓은 AI 백엔드를 지원합니다.
+## 주요 특징
 
-![Shepherd Dashboard](assets/webui-dashboard.png)
+- **프로젝트마다 양 한 마리.** 양들은 각자의 저장소에서 병렬로 일하고, 출력은 실시간으로 스트리밍됩니다.
+- **양 떼를 관리하는 목자.** 원하는 일을 목자에게 말하면, 목자가 이슈를 쓰고 프로젝트 양에게 위임합니다. 작업이 끝나면 목자가 깨어나서 결과를 검토합니다.
+- **모든 변경은 되돌릴 수 있습니다.** 작업이 시작하기 전과 끝난 뒤의 작업 트리를 스냅숏으로 남기므로, 작업이 정확히 무엇을 바꿨는지 보고 되돌릴 수 있습니다.
+- **다양한 AI 백엔드.** Claude Code, OpenCode, Pi, Grok CLI를 지원하고, 내장 에이전트로 로컬 모델이나 호스팅 모델을 쓸 수 있으며, 세 모델이 합의하는 MAGI 엔진도 있습니다.
+- **프로젝트 기억.** 프로젝트마다 이슈 트래커와 위키가 있고, 에이전트가 이를 읽고 갱신합니다.
+- **내 컴퓨터에서 실행.** Web UI가 내장된 Go 바이너리 하나로 동작합니다. PWA로 설치하면 푸시 알림도 받을 수 있습니다.
 
-세 가지 사용 방법:
+## Web UI
 
-- **Web UI** *(주력)* — 실시간 스트리밍, 작업 관리, 프로젝트 git, 파일 브라우저, 이슈, 위키, 스케줄, 스킬을 갖춘 대시보드
-- **MCP 서버** — Claude Desktop 등 MCP 클라이언트와 통합
-- **CLI** — 프로젝트 폴더에서 `shepherd`를 실행하면 임베디드 코딩 에이전트가 동작하며, 직접 관리 명령도 제공합니다
+### 대시보드
 
-### 핵심 개념
+대시보드에서 양 떼 전체를 한눈에 봅니다. 어떤 양이 일하고 어떤 양이 쉬는지, 실행 중인 모든 작업의 실시간 출력, 프로젝트별·모델별 토큰 사용량(5시간부터 1년까지), 최근 작업이 한 화면에 나옵니다. 실행 중인 양의 카드에서 추가 지시를 보낼 수 있습니다. 모니터링 화면은 실행 중인 작업을 모두 나란히 보여 줍니다.
 
-- **Shepherd (Manager, 목자)** — 프로젝트가 없는 특별한 양입니다. 이슈로 작업을 위임하고, 위임한 작업이 끝나면 깨어나 결과를 검토한 뒤 보고합니다 (아래 [목자(Shepherd) 오케스트레이션](#목자shepherd-오케스트레이션) 참고)
-- **Sheep (Worker, 양)** — 개별 AI 에이전트 인스턴스. 각각 하나의 프로젝트와 프로바이더에 배정됨
-- **Project (프로젝트)** — 양이 작업하는 코드베이스
-- **Provider (프로바이더)** — 양이 사용하는 AI 백엔드 (Claude, OpenCode, Pi, Grok, Embedded, MAGI)
-- **Sheep Personal Memory (양 개인 기억)** — `~/.shepherd/sheep/<이름>/` 아래, 프로젝트와 무관하게 양 이름 단위로 누적되는 노트 (moment / bond / voice)
+### 목자
+
+목자는 자기 프로젝트가 없는 관리자 에이전트입니다. 목자는 코드를 직접 고치지 않고, 이슈를 통해 일을 위임합니다.
+
+1. 콘솔에서 목자에게 지시합니다.
+2. 목자가 이슈를 만들거나 고른 뒤, 알맞은 프로젝트 양에게 **감시**를 켠 상태로 실행합니다.
+3. 감시 중인 작업이 끝나면 목자가 깨어나서 결과를 검토합니다. 그리고 이슈를 닫거나, 지침을 더해서 다시 실행하거나, 후속 이슈를 엽니다.
+4. 주기적인 **순찰**이 LLM 없이 코드만으로 모든 프로젝트를 점검합니다. 실패하거나 멈춘 작업처럼 새로 생긴 문제가 있을 때에만 목자를 깨웁니다.
+
+![목자 콘솔](assets/webui-shepherd-console.png)
+
+목자 화면에는 목자 작업 기록, 순찰 기록, **전 프로젝트 이슈 보드**, 그리고 사용자의 결정이 필요한 항목을 모은 **확인 필요** 목록도 있습니다. 권한 단계(보고만, 계획, 실행, 전권)와 하루 깨우기 횟수, 동시 위임 수, 비용 상한으로 목자의 행동 범위를 제한합니다. 이 설정은 모두 **설정 → 목자**에서 합니다.
+
+![전 프로젝트 이슈 보드](assets/webui-issue-board.png)
+
+### 프로젝트 작업 공간
+
+프로젝트마다 **Live Output**, **Task History**, **Files**, **Git**, **Schedules**, **Skills**, **Issues**, **Wiki**, **Settings** 탭이 있는 작업 공간이 있습니다. Live Output에서 작업을 보내고, 실행 중인 작업에 지시를 추가하거나 작업을 중단합니다. 화면 위쪽에서 양의 프로바이더와 모델을 바꿀 수 있습니다.
+
+![프로젝트 Live Output](assets/webui-project-output.png)
+
+- **Files**: 프로젝트 파일을 둘러보고 내려받습니다.
+- **Git**: 커밋 그래프, 브랜치, diff를 봅니다. 브라우저에서 stage, commit, push를 할 수 있습니다.
+- **Issues**: 설계, 기능, 버그 유형의 작은 이슈 트래커입니다. **실행**을 누르면 이슈가 대기열의 작업이 되고, 작업과 이슈의 연결이 유지됩니다.
+- **Schedules**: cron이나 일정 간격으로 작업을 자동으로 만듭니다.
+- **Settings**: 양이 쓸 MCP 서버 같은 프로젝트별 옵션을 정합니다.
+
+### 작업 변경 내역과 되돌리기
+
+작업 상세 화면은 프롬프트, 요약, 비용과 토큰, 전체 출력, 그리고 **작업이 바꾼 모든 파일**을 파일별 diff와 함께 보여 줍니다. 변경 내역을 패치 파일로 내려받거나 작업을 되돌릴 수 있습니다. 되돌리기는 3-way merge를 쓰므로 작업 뒤에 생긴 수정은 그대로 남습니다. 스냅숏은 숨은 git ref에 저장되므로, 사용자의 index, HEAD, 커밋 기록은 바뀌지 않습니다.
+
+![작업 변경 내역](assets/webui-task-changes.png)
+
+### MAGI: 세 모델, 하나의 답
+
+MAGI는 같은 질문을 세 심의자에게 동시에 묻습니다. 심의자마다 다른 페르소나를 씁니다(MELCHIOR-1: 기술적 정밀성, BALTHASAR-2: 안전, CASPER-3: 실용성). 별도의 판정자가 답변을 비교해서 하나의 종합 답변을 씁니다. 합의 수준이 낮으면 익명 토론 라운드를 한 번 더 진행합니다. 심의자마다 다른 백엔드를 쓸 수 있으며, 서로 다른 계열의 모델을 섞는 것을 권장합니다. MAGI는 조언만 합니다. 심의자는 파일을 읽고 브라우저를 쓸 수 있지만, 코드를 고칠 수는 없습니다.
+
+![MAGI Live Output](assets/webui-magi-stream.png)
+
+### 위키
+
+프로젝트마다 아키텍처 메모, 주의할 점, 운영 절차를 담는 마크다운 위키가 있습니다. 에이전트는 작업을 시작하기 전에 관련 문서를 읽고, 작업을 마친 뒤 문서를 추가하거나 고칠 수 있습니다. 그래서 작업 사이에 지식이 이어집니다.
+
+![프로젝트 위키](assets/webui-wiki.png)
+
+### 그 밖의 기능
+
+- **스킬**: 전역 또는 프로젝트별로 재사용하는 프롬프트 템플릿입니다. 에이전트는 필요할 때에만 전체 내용을 읽습니다.
+- **알림**: 작업 완료와 실패, 목자 보고를 PWA 웹 푸시와 Discord 웹훅으로 받습니다.
+- **양 이름**: 프로젝트를 추가할 때 LLM이 프로젝트에 어울리는 이름을 새 양에게 지어 줄 수 있습니다. 양 이름은 언제든지 바꿀 수 있습니다.
+- **계정**: 로그인 아이디와 비밀번호는 **설정 → 공통**에서 바꿉니다. 바꾸면 다른 기기의 로그인 세션이 모두 해제됩니다.
 
 ## 프로바이더
 
-Shepherd는 멀티 프로바이더 구조입니다. 각 양은 하나의 프로바이더로 동작하며, 무리 안에서 프로바이더를 섞을 수 있고 양마다 언제든 전환할 수 있습니다.
+양 한 마리는 프로바이더 하나를 씁니다. 한 무리 안에서 여러 프로바이더를 섞어 쓸 수 있고, 양의 프로바이더는 언제든지 바꿀 수 있습니다.
 
-| 프로바이더 | 백엔드 | 인증 / 설정 | 용도 |
-|----------|---------|--------------|----------|
-| `claude` | Claude Code CLI | CLI가 자체 로그인 처리 | 기본 — 코드 작성, 복잡한 에이전트 작업 |
-| `opencode` | OpenCode CLI | CLI 설정 | 리뷰, 웹 검색, 저렴/로컬 모델 |
-| `pi` | Pi 코딩 에이전트 CLI (`pi --print --mode json`) | CLI 설정 | Claude급 범용 코딩 하네스 |
-| `grok` | Grok / xAI CLI (`grok --output-format streaming-json`) | CLI 설정 | xAI 모델 위 Claude급 하네스 |
-| `embedded` | 프로세스 내 로컬 LLM 에이전트 루프 | 엔드포인트(URL + 키) 설정 | llama.cpp, vLLM, Ollama 등 서브프로세스 없이 구동 |
-| `magi` | 다중 모델 합의 엔진 | 위 프로바이더들을 조합 | 교차 모델 합의가 필요한 고위험 자문 질문 |
-| `auto` | 자동 선택 | — | 프롬프트를 보고 매니저가 프로바이더 선택 |
+| 프로바이더 | 백엔드 |
+|------------|--------|
+| `claude` | Claude Code CLI (기본값) |
+| `opencode` | OpenCode CLI |
+| `pi` | Pi coding agent CLI |
+| `grok` | Grok CLI |
+| `embedded` | OpenAI 호환 엔드포인트용 내장 에이전트 루프 (llama.cpp, vLLM, Ollama, LM Studio, GitHub Copilot) |
+| `magi` | 위 백엔드들을 조합한 세 모델 합의 |
 
-클라우드 CLI 프로바이더(`claude`, `opencode`, `pi`, `grok`)는 자체 인증을 관리합니다 — **API 키가 Shepherd에 저장되지 않습니다**. `embedded`는 직접 설정한 LLM HTTP 엔드포인트와 통신하고, MAGI는 위 백엔드들을 조합합니다.
+CLI 프로바이더는 각자의 로그인을 사용하므로, Shepherd는 이들의 API 키를 저장하지 않습니다. 임베디드 엔드포인트 추가와 MAGI 구성은 **설정**에서 합니다.
 
-Settings에서 프로바이더별 전역 on/off(`provider_enabled_*`)와 기본 모델(`model_*`)을 지정할 수 있습니다.
+## 시작하기
 
-### Embedded 프로바이더 (로컬 모델, in-process)
-
-Embedded 프로바이더는 **Shepherd 프로세스 안에서** 도구 사용 에이전트 루프를 돌립니다 — CLI 서브프로세스 없음. OpenAI 호환 chat API를 사용하므로 llama.cpp, vLLM, Ollama, LM Studio 등 로컬 서버를 그대로 붙일 수 있습니다.
-
-- Web UI (**Settings → Embedded**)에서 엔드포인트 설정: base URL, API 키, 모델, 컨텍스트 윈도우, 최대 이터레이션
-- 엔드포인트 플래그: `thinking`(추론 모드), `vision`(비전 가능 모델에 이미지 전달)
-- 네이티브 도구: `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash` + Shepherd MCP 도구 전부(브라우저, 위키, 히스토리, 외부 MCP)
-- 엔드포인트 설정은 `~/.shepherd/embedded.yaml`에 저장; API 응답에서 키는 마스킹
-- 컨텍스트 관리: 룬 단위 토큰 추정, 히스토리 트리밍, 필요 시 **컨텍스트 핸드오프**(요약 후 후속 작업 큐잉)
-
-### MAGI — 다중 모델 합의
-
-MAGI는 삼자 심의 시스템에서 영감을 받은 합의 엔진입니다. **세 명의 proposer**가 동일 질문을 병렬로 다루고, 각각 다른 페르소나를 쓰며, 별도 **aggregator**가 판정·종합합니다. 합의 점수가 낮으면 익명 **debate 라운드** 후 최종 판정을 내립니다.
-
-```
-Task → Orchestrator
-        ├─ Proposer ×3 (병렬, 페르소나 배정)
-        │    └─ 각자 신뢰도 자가 평가 (0–10)
-        ├─ Aggregator (판정/종합)
-        │    ├─ agreement ≥ threshold → 종합 반환
-        │    └─ agreement < threshold → Debate
-        ├─ Debate (익명, 1 라운드)
-        │    └─ 재판정 → 합의 또는 deadlock
-        └─ 결과 + 비용 (토큰 / 호출)
-```
-
-- **페르소나**: `MELCHIOR-1`(과학자 — 기술 정밀도), `BALTHASAR-2`(어머니 — 보수·안전), `CASPER-3`(여성 — 실용·사용자 관점), 또는 `custom`
-- **Proposer 백엔드**: `embedded`, `claude_cli`, `opencode_cli`, `grok_cli` — **모델 패밀리를 섞는 것**을 권장 (상관 오차가 합의 가치를 해침)
-- **Aggregator 백엔드**: `claude_cli`, `opencode_cli`, `grok_cli`, 또는 embedded `endpoint`
-- **도구 정책 (proposer)**:
-  - **허용 (읽기 전용)**: `read_file`, `grep`, `glob`, 히스토리/위키, 읽기 전용 외부 MCP
-  - **허용 (브라우저)**: 브라우저 자동화 전체(`browser_open`, `browser_click`, `browser_type` 등) — **proposer별 격리 세션**
-  - **차단**: 파일 쓰기, bash, 그 외 FS/클러스터 변경 도구
-- **모드**: `advisory`(Phase 1) — "이 설계가 타당한가?", "근본 원인은?" 같은 고위험 질문에 적합. 자율 실행용이 아님
-- Web UI (**Settings → MAGI**)에서 설정; `~/.shepherd/embedded.yaml`의 `magi` 섹션에 저장
-
-![MAGI Live Output — 3 proposer 병렬 + aggregator 판정](assets/webui-magi-stream.png)
-
-> MAGI는 자문 전용입니다. 계획을 실행하거나 코드를 수정하지 않습니다. 검증된 답을 받은 뒤 코딩 프로바이더에 넘기세요.
-
-## 요구 사항
-
-- **Go 1.25+** (빌드)
-- **Node.js 18+** (Web UI 빌드)
-- 최소 하나의 프로바이더 백엔드:
-  - **Claude Code CLI**(기본) 및/또는 **OpenCode**, **Pi**, **Grok** CLI가 `PATH`에 있음
-  - 및/또는 embedded용 **OpenAI 호환 LLM 엔드포인트**
-
-## 설치
-
-### 빠른 설치
+필요한 것: **Go 1.25 이상**, **Node.js 18 이상**, 그리고 프로바이더 하나 이상(예: `PATH`에 있는 Claude Code CLI 또는 OpenAI 호환 엔드포인트).
 
 ```bash
 git clone https://github.com/agurrrrr/shepherd.git
 cd shepherd
+make install            # Web UI와 바이너리를 빌드해서 ~/.local/bin에 복사
 
-# 최초 1회: Web UI 의존성 설치
-cd web && npm install && cd ..
-
-./install.sh
+shepherd auth setup     # Web UI 로그인 계정 만들기
+shepherd serve -d       # 데몬 시작
 ```
 
-`install.sh`는 Svelte 프론트엔드를 빌드하고(`npm run build` — `node_modules`가 이미 있어야 함), Go 바이너리에 임베드한 뒤 `~/.local/bin/`에 설치하고 데몬을 재시작합니다.
+`http://localhost:8585`를 열고 로그인한 뒤, **Projects → Add project**에서 첫 프로젝트를 추가합니다. Shepherd가 그 프로젝트의 양을 만들어 주므로, 바로 작업을 보낼 수 있습니다.
 
-### 수동 빌드
+설정은 `~/.shepherd/config.yaml`에, 작업 데이터베이스는 `~/.shepherd/shepherd.db`에 저장됩니다. 거의 모든 옵션을 **설정** 화면에서 바꿀 수 있습니다. 외부 네트워크에서 접속하려면 데몬 앞에 HTTPS 리버스 프록시를 두십시오.
 
-```bash
-cd web && npm install && npm run build && cd ..   # 임베드 Web UI 빌드
-go build -o shepherd ./cmd/shepherd
-cp shepherd ~/.local/bin/
-```
-
-## 빠른 시작
-
-```bash
-# 1. 현재 디렉터리를 프로젝트로 등록
-shepherd init
-
-# 2. Web UI 인증 설정 (username + password)
-shepherd auth setup
-
-# 3. 데몬 시작
-shepherd serve -d
-
-# 4. Web UI 열기
-#    http://localhost:8585
-```
-
-Web UI에서 양을 생성·프로젝트에 배정·프로바이더를 고르고 작업을 제출하면 실시간 출력을 볼 수 있습니다. CLI로 일회성 작업도 가능합니다:
-
-```bash
-shepherd "앱에 로그인 기능 추가해줘"
-```
-
----
-
-## Web UI
-
-Web UI는 Go 바이너리에 임베드된 Svelte SPA입니다. 데몬 기동 후 `http://localhost:8585`에서 제공됩니다.
-
-### 페이지
-
-| 페이지 | 경로 | 설명 |
-|------|------|-------------|
-| 대시보드 | `/` | 양 상태 카드, 실행 중 작업, 라이브 출력 |
-| Shepherd | `/shepherd` | 화면을 채우는 콘솔, 탭 다섯 개(`?tab=`): **Live Output**(실시간 출력, 지시 입력창은 바닥 고정), **목자 작업**(필터·페이지 넘김 가능한 작업 목록), **순찰 기록**, **이슈 보드**(전 프로젝트), **확인 필요**(개수 뱃지) |
-| 양 | `/sheep` | 생성·삭제·배정·프로바이더/모델 변경 |
-| 프로젝트 | `/projects` | 프로젝트 목록·관리 |
-| 프로젝트 상세 | `/projects/:name` | 탭: **Live Output**, **Task History**, **Files**, **Git**, **Schedules**, **Skills**, **Issues**, **Wiki**, **Settings** |
-| 작업 | `/tasks` | 필터·검색 가능한 작업 목록 |
-| 작업 상세 | `/tasks/:id` | 전체 출력, 수정 파일, 체크포인트 diff와 되돌리기, 비용, 에러, 재시도 |
-| 스케줄 | `/schedules` | Cron / interval 스케줄 관리 |
-| 스킬 | `/skills` | 스킬 생성, import/export, 프로젝트 동기화 |
-| 설정 | `/settings` | 언어, 프로바이더, 모델, Embedded, MAGI, Discord, PWA Web Push, 위키, OpenCode thinking 프록시 |
-| 로그인 | `/login` | 인증 |
-
-### 프로젝트 상세 탭
-
-| 탭 | 역할 |
-|-----|----------------|
-| Live Output | 실행 중 작업의 스트리밍 출력 (MAGI 다중 스트림 포함) |
-| Task History | 이 프로젝트의 과거 작업 |
-| Files | 프로젝트 파일 탐색기 (`enable_file_browser`로 on/off) |
-| Git | 로그·브랜치·diff; UI에서 stage / unstage / commit / push |
-| Schedules | 프로젝트 스코프 cron/interval |
-| Skills | 프로젝트 스킬 |
-| Issues | 경량 이슈 트래커; **Execute**로 이슈 → 작업 큐 |
-| Wiki | 프로젝트 지식 베이스 (페이지, 버전, 완료 작업 자동 ingest) |
-| Settings | 프로젝트 옵션 (예: MCP 서버 연결) |
-
-### 실시간 업데이트 (SSE)
-
-```
-GET /api/events?token=<access_token>
-```
-
-이벤트: `task_start`, `task_complete`, `task_fail`, `output`, `status_change`, `schedule_triggered`.
-
-### 외부 접근
-
-네트워크 밖에서 HTTPS로 쓰려면 Nginx/Caddy 리버스 프록시 또는 cert-manager 기반 Kubernetes Ingress를 데몬 앞에 두세요.
-
----
-
-## 파일 브라우저
-
-`enable_file_browser`가 true(기본)이면 프로젝트마다 읽기 중심 파일 탐색기를 제공합니다:
-
-- **Web UI**: 프로젝트 → **Files** 탭
-- **REST**:
-  - `GET /api/projects/:name/files?path=<dir>`
-  - `GET /api/projects/:name/files/content/*`
-  - `GET /api/projects/:name/files/download/*`
-
-에이전트가 만든 산출물을 대시보드 안에서 확인할 때 유용합니다. API 파일 목록이 필요 없으면 `enable_file_browser: false`로 끄세요.
-
----
-
-## 이슈
-
-프로젝트별 경량 이슈 트래커가 있습니다:
-
-1. 프로젝트 → **Issues**에서 이슈 생성 (또는 REST)
-2. 상세·수락 기준 작성
-3. **Execute** (`POST /api/projects/:name/issues/:id/execute`)로 해당 이슈에 연결된 코딩 작업을 큐에 넣음
-
-흐름: **이슈 → execute → 작업 큐 → 양이 실행 → 결과가 이슈에 연결**. CLI로 외부 트래커 import도 가능합니다 (`shepherd queue import-issues …`).
-
-이슈는 **전체 프로젝트**를 가로질러 조회할 수도 있습니다 (REST/MCP 호출에서 `project_name`을 생략하거나 `shepherd issue list --all` 사용). 가로질러 조회한 행은 프로젝트 이름 접두사가 붙고, 숨김 프로젝트는 선택하지 않으면 제외됩니다.
-
----
-
-## 목자(Shepherd) 오케스트레이션
-
-한 번에 하나의 작업만 실행하는 것을 넘어, Shepherd에는 **목자**가 있습니다. 목자는 프로젝트가 없는 특별한 양으로, 이슈로 작업을 위임하고 결과를 돌봅니다. **설정 → 목자** 탭에서 설정하고, **목자 콘솔**(`/shepherd`)에서 지시합니다.
-
-**콘솔 화면.** `/shepherd`는 프로젝트 작업 화면처럼 높이를 채우는 페이지입니다. 머리글(상태 알약, 설정으로 가는 프로바이더·모델 칩)과 한 줄 상태 줄(권한 단계, 위임 `n/m`, 하루 비용, 오늘 작업, 다음 순찰 — 경고는 색이 아니라 글자로 알려 줌) 아래에 탭 다섯 개가 `?tab=` 쿼리로 유지됩니다. **Live Output**(`output`, 실시간 출력과 바닥 고정 입력창. Enter로 전송, Shift+Enter로 줄바꿈, 실행 중에는 중지·주입 버튼), **목자 작업**(`history`, 필터·페이지 넘김 가능한 목록), **순찰 기록**(`patrols`), **이슈 보드**(`board`), **확인 필요**(`attention`, 사이드바와 같은 개수 뱃지)입니다. 페이지 자체는 스크롤하지 않고, 스크롤은 탭 내용 안에서만 생깁니다. 웹 푸시는 맞는 탭으로 연결됩니다. 확인 요청은 `?tab=attention`, 목자 보고는 `/tasks/<id>?from=shepherd&tab=history`.
-
-**워크스페이스.** 목자는 `workspace_path`(목자 탭의 첫 입력칸)에서 일합니다. 이 디렉터리가 목자 작업이 실행되는 자리로, 보통 모든 프로젝트를 담고 있는 최상위 경로입니다. 관리 *범위*는 워크스페이스와 별개로 정합니다. 숨기지 않은 모든 프로젝트에서 제외 목록을 뺀 것이 범위이므로, 워크스페이스 밖 프로젝트도 관리 대상에 남고 화면에만 "워크스페이스 밖" 표시가 붙습니다.
-
-**프로바이더와 모델.** 목자의 프로바이더는 매니저 양 행(`sheep.provider`)이며 목자 탭에서 고릅니다. 모델은 `shepherd_model`에서 가져와 작업별 override로 넣으므로, claude가 아닌 프로바이더나 embedded 엔드포인트도 쓸 수 있습니다.
-
-**이슈로 위임합니다.** 목자는 코드를 직접 고치지 않습니다. `issue_upsert`로 이슈를 쓰고, `issue_execute(watch=true)`로 적재합니다. `watch` 표시가 이 이슈가 목자 위임임을 나타내고, 나중에 목자를 깨우는 기준이 됩니다.
-
-**깨어나서 검토합니다.** 감시 이슈의 작업이 끝나면(완료·실패·질문 중단) 데몬이 목자 `review` 작업을 적재합니다. 목자는 결과를 읽고 한 가지를 고릅니다. 이슈를 `done`으로 닫거나, 같은 이슈에 보완 지시를 덧붙여 다시 적재하거나, 후속 이슈를 만듭니다. pending 검토 작업이 이미 있으면 새 사건을 그 작업에 합치고, 검토를 하나 더 쌓지 않습니다.
-
-**권한 단계.** `shepherd_autonomy`가 목자가 스스로 어디까지 할지 정합니다. `report`(읽고 보고만) / `plan`(이슈 생성·수정, 실행은 요청) / `execute`(감시 이슈를 상한 안에서 실행, 작업 중지는 요청 — 기본값) / `full`(작업 중지까지)입니다. 이슈 삭제는 어떤 단계에서도 직접 도구가 아니며, 오직 목자 화면의 사용자 승인으로만 실행됩니다. 프로바이더가 호출자를 식별하지 못하면 데몬은 단계 검사를 건너뜁니다.
-
-**상한.** 자동 깨우기는 무한 반복이 생기지 않게 상한을 둡니다. 이슈별 `shepherd_max_review_rounds`, 하루 `shepherd_max_wakeups_per_day`, 동시 위임 `shepherd_max_active_delegations`(감시 이슈의 pending+running 작업 수), 하루 비용 `shepherd_daily_cost_limit_usd`입니다. 상한을 넘으면 깨우기가 멈추고 이슈가 확인 필요 패널에 올라갑니다.
-
-**주기 순찰.** `shepherd_patrol_interval`마다 데몬이 관리 범위 전체를 순수 코드로(LLM 없이) 다시 점검하고, **직전 순찰 이후 새로 생긴 이상에서만** 목자를 깨웁니다. `shepherd_patrol_wake`를 끄면 순찰 기록은 남되 목자는 깨우지 않습니다.
-
-**보고 알림.** 목자 작업(검토·순찰·지시)은 일반적인 "작업 완료" 대신 **"목자 보고"** 제목으로 알리고, 본문에는 목자의 보고 문장이 들어갑니다. `shepherd_notify`는 이 알림을 끄고, `shepherd_notify_quiet_patrol`은 새 이상이 없던 순찰과 이슈를 하나도 바꾸지 않은 검토(판단 가능할 때만)처럼 전할 내용이 없는 보고를 생략합니다. `shepherd_mute_delegated_notifications`는 감시 이슈 작업의 일반 완료 알림을 없애, 같은 일이 두 번 보고되지 않게 합니다. 실패·사용자 중단 알림은 항상 보냅니다.
-
-```
-사용자 ──지시──▶ 목자 콘솔 ──issue_upsert / issue_execute(watch)──▶ 프로젝트 양 작업
-                                                                     │ 완료 · 실패 · 질문
-목자 검토 작업 ◀── 깨우기 (회차 +1, 상한 확인, pending 검토에 합치기) ◀──┘
-   ├─ 충족: 이슈 done으로 닫고 보고
-   ├─ 미흡: 같은 이슈를 보완 지시와 함께 재적재
-   └─ 범위 다름: 후속 이슈 생성 + 적재
-주기 순찰 ──새 이상이 있을 때만──▶ 목자 순찰 작업
-```
-
----
-
-## 위키
-
-프로젝트마다 에이전트가 읽고 갱신하는 마크다운 위키를 둘 수 있습니다:
-
-- **Web UI**: 프로젝트 → **Wiki** 탭
-- **CLI**: `shepherd wiki list|create|edit|history …`
-- **MCP**: `wiki_read_page`, `wiki_search`, `wiki_list_pages`
-- **REST**: 페이지 CRUD, 버전 히스토리, lint, 작업 ingest ([REST API](#rest-api) 참고)
-- **자동 ingest**: `wiki_auto_ingest`가 true면 완료 작업이 위키 갱신을 제안 (`wiki_max_context_pages`, `wiki_max_page_content_chars`로 주입 크기 제한)
-
-아키텍처 결정, 함정, 런북을 위키에 두면 이후 작업이 프로젝트 지식을 컨텍스트로 시작하게 됩니다.
-
----
-
-## 작업 체크포인트
-
-`task_checkpoint_enabled`(기본값 true)가 켜져 있으면 shepherd가 작업 전후에 프로젝트 작업 트리를 숨은 git ref(`refs/shepherd/tasks/<id>/{start,end}`)로 스냅샷합니다. 사용자의 인덱스와 HEAD는 건드리지 않습니다.
-
-- **작업 상세 → Changes** 탭에서 작업이 바꾼 파일과 파일별 diff, 바이너리 여부를 정확히 볼 수 있습니다.
-- **CLI diff**: `shepherd task diff <id> [--patch | --file <경로> | --live]`가 같은 diff를 출력합니다.
-- **되돌리기**: `shepherd task revert <id> [--dry-run] [--undo] [--yes]`가 작업 변경을 3-way 병합으로 역방향 적용하며, 작업 이후에 생긴 편집은 보존합니다. 되돌리기는 작업 트리만 바꾸고 커밋하지 않습니다.
-- **보존 정책**: `task_checkpoint_retention_days`(기본값 30, `0`이면 영구 보존)에 따라 삭제된 작업과 오래된 작업의 ref를 데몬 시작 직후 한 번, 그 뒤 매일 정리합니다. 도달할 수 없는 스냅샷 객체는 git gc가 회수합니다.
-- **백업**: 작업 내보내기/가져오기는 체크포인트 메타데이터만 옮기고 git ref는 옮기지 않습니다. 같은 PC에서 복원하면 객체가 남아 있는 동안은 diff를 볼 수 있습니다.
-
----
-
-## 브라우저 자동화
-
-내장 브라우저 도구(Rod)를 MCP와 CLI로 사용할 수 있습니다:
-
-```bash
-shepherd browser open <url> [-s sheep] [--headless]
-shepherd browser get-text <selector> [-s sheep]
-shepherd browser screenshot [path] [--selector <sel>]
-shepherd browser fetch <url> [--selector <sel>]
-shepherd browser list [-s sheep]
-shepherd browser close [-s sheep]
-```
-
-일반적인 MCP 흐름: `browser_session_start` → `browser_open` → `browser_get_text` / `browser_click` / `browser_type` → `browser_session_stop`. 세션은 양 단위로 스코프되며, MAGI proposer는 각각 격리 세션을 갖습니다.
-
----
-
-## 양 개인 기억 (Sheep Personal Memory)
-
-각 양은 `~/.shepherd/sheep/<양이름>/` 아래에 **프로젝트와 무관한 개인 기억**을 쌓을 수 있습니다:
-
-- `moment_*.md` — 사용자와의 인상적인 순간
-- `bond_*.md` — 관계적 패턴 (예: 짧은 답을 선호)
-- `voice_*.md` — 다음 세션 톤 연속성
-- `MEMORY.md` — 위 노트의 인덱스
-
-`include_sheep_memory`가 true이면 에이전트 프롬프트에 기억 섹션이 주입됩니다 (`sheep_memory_prompt`로 템플릿 커스터마이즈). 성격·연속성용이며, 프로젝트 사실은 위키에 두세요.
-
----
-
-## 인증
-
-설정 파일 기반 단일 사용자 인증 — JWT + bcrypt 비밀번호 해시.
-
-```bash
-shepherd auth setup             # 최초 설정 (username + password)
-shepherd auth change-password   # 비밀번호 변경
-```
-
-- JWT secret은 서버 최초 기동 시 자동 생성
-- Access 토큰 24h, refresh 토큰 7일
-- API 요청은 `Authorization: Bearer <token>` 필요
-- Health (`GET /api/health`)는 공개
-
----
-
-## 데몬 & 서버
-
-```bash
-shepherd serve                # 포그라운드 (개발)
-shepherd serve -d             # 백그라운드 데몬
-shepherd serve status         # 데몬 상태
-shepherd serve stop           # 데몬 중지
-```
-
-**파일:**
-- PID: `~/.shepherd/shepherd.pid`
-- DB: `~/.shepherd/shepherd.db`
-- 설정: `~/.shepherd/config.yaml`
-- Embedded / MAGI: `~/.shepherd/embedded.yaml`
-- 양 기억: `~/.shepherd/sheep/<name>/`
-
-### systemd 서비스 (선택)
-
-```ini
-# ~/.config/systemd/user/shepherd.service
-[Unit]
-Description=Shepherd AI Orchestration Daemon
-After=network.target
-
-[Service]
-ExecStart=%h/.local/bin/shepherd serve
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-```
-
-```bash
-systemctl --user enable --now shepherd
-```
-
----
-
-## CLI 레퍼런스
-
-주력 UI는 Web UI이지만, 동일 작업은 CLI로도 가능합니다.
-
-### 임베디드 코딩 에이전트 (프로젝트 폴더에서 실행)
-
-CLI는 데몬의 임베디드 에이전트에 붙는 얇은 클라이언트입니다. 프로젝트 등록,
-양 할당, 큐가 필요하지 않으며, 현재 디렉토리가 곧 작업 디렉토리입니다.
-
-```bash
-cd ~/code/myproject
-shepherd                  # 대화형 REPL, 각 입력은 현재 디렉토리에서 실행됩니다
-shepherd "로그인 버그 수정"      # 단일 실행, 출력 스트리밍
-```
-
-데몬이 실행 중이어야 합니다(`shepherd serve`). 프로바이더·MCP·스킬 배선은
-데몬에 남아 있으므로 CLI가 데몬 상태를 훼손하지 않습니다.
-
-### 양 관리
-
-```bash
-shepherd spawn                    # 양 생성 (자동 이름)
-shepherd spawn -n dolly           # 이름 지정
-shepherd spawn -p grok            # 프로바이더 지정 (claude, opencode, pi, grok, embedded, magi, auto)
-shepherd flock                    # 양 목록
-shepherd recall <name>            # 양 종료
-shepherd recall --all             # 전체 종료
-shepherd set-provider <name> auto # 프로바이더 변경
-shepherd rename <old> <new>       # 이름 변경
-```
-
-### 프로젝트 관리
-
-```bash
-shepherd init [name]                            # 현재 디렉터리 등록
-shepherd project add <name> <path> -d "desc"    # 프로젝트 추가
-shepherd project list                            # 목록
-shepherd project remove <name>                   # 제거
-shepherd project assign <project> <sheep>        # 양 배정
-```
-
-### 작업 실행 & 큐
-
-```bash
-shepherd "<task>"                 # 현재 디렉토리에서 임베디드 에이전트 실행
-shepherd task "<task>"            # 명시적 task 명령 (동일한 cwd 경로)
-shepherd task detail <id>         # 작업 상세
-shepherd task diff <id>           # 체크포인트 diff (--patch, --file, --live)
-shepherd task revert <id>         # 완료 작업 되돌리기 (--dry-run, --undo, --yes)
-shepherd task stop <id>           # 실행 중 작업 중지
-shepherd queue add <project> "<prompt>"          # 큐에 추가
-shepherd queue list                               # 대기 목록
-shepherd queue import-issues <project> <YouTrackProject> [query]  # YouTrack import
-```
-
-### 상태, 로그 & 위키
-
-```bash
-shepherd status                   # 시스템 개요
-shepherd log [sheep] -n 50        # 작업 로그
-shepherd history <project>        # 프로젝트 작업 히스토리
-shepherd wiki list -p <project>   # 위키 페이지 목록
-shepherd wiki create <slug> -p <project> -t "Title" -c "content"
-shepherd wiki edit <slug> -p <project> --append "..."
-```
-
-### 설정 & 기타
-
-```bash
-shepherd config get <key>         # 설정 조회
-shepherd config set <key> <val>   # 설정 변경
-shepherd config path              # 설정 파일 경로
-shepherd recover                  # 고착 양/작업 복구
-shepherd mcp                      # MCP 서버로 실행
-shepherd skill list               # 스킬 목록
-shepherd --version                # 버전
-```
-
----
-
-## 스케줄링
-
-Web UI (`/schedules` 또는 프로젝트 → Schedules) 또는 REST API로 관리합니다. 두 종류:
-
-- **Cron** — 표준 cron (예: `0 9 * * MON-FRI`)
-- **Interval** — N초마다
-
-```
-POST /api/projects/:name/schedules
-GET  /api/schedules/preview?cron=0 9 * * *     # 다음 실행 시각 미리보기
-POST /api/projects/:name/schedules/:id/run     # 즉시 실행
-```
-
-설정된 시각에 자동으로 작업을 생성합니다.
-
----
-
-## 스킬
-
-프로젝트 또는 전역에 붙이는 재사용 프롬프트 템플릿입니다. Web UI (`/skills`) 또는 REST로 관리합니다.
-
-- **Global** 스킬은 모든 프로젝트, **project** 스킬은 해당 프로젝트만
-- **Bundled** 기본 스킬은 최초 기동 시 시드
-- 마크다운 + YAML frontmatter로 **Import/Export**
-- **Lazy loading** — 프롬프트에는 이름/설명만 주입; 에이전트가 `skill_load` MCP로 본문 로드
-- **프로젝트 동기화** — `.claude/skills/`에 기록 가능
-
-### 스킬 Frontmatter
-
-```markdown
----
-name: code-review
-description: 코드 리뷰 체크리스트
-tags: [review, quality]
-scope: global
-effort: medium
-max_turns: 10
-disallowed_tools: [Write, Bash]
----
-
-(스킬 본문)
-```
-
-| 필드 | 설명 |
-|-------|-------------|
-| `effort` | 모델 추론 effort (`low`, `medium`, `high`) |
-| `max_turns` | 최대 에이전트 턴 (0 = 무제한) |
-| `disallowed_tools` | 사용 금지 도구 |
-
----
-
-## 설정
-
-메인 설정: `~/.shepherd/config.yaml` (embedded 엔드포인트와 MAGI는 `~/.shepherd/embedded.yaml`).
-
-```yaml
-language: ko                 # en, ko
-default_provider: claude     # claude, opencode, pi, grok, embedded, magi, auto
-max_sheep: 12                # 최대 동시 양 수
-max_concurrent_tasks: 0      # 전역 동시 실행 상한 (0 = 무제한)
-# 전역 상한 아래 프로바이더(+모델) 그룹별 제한
-# 예: 로컬 opencode 순차(GPU 보호), 클라우드 claude 무제한
-concurrency_limits: {}       # 예: { opencode: 1, claude: 0 }
-task_timeout: 4h             # 작업 타임아웃 ("0"/"off" = 무제한)
-grok_background_wait: ""     # grok 헤드리스 백그라운드 작업 대기 ("60m"; "" = 60분이되 task_timeout보다 짧게; "off"/"0" = --no-wait-for-background; "unlimited" = task_timeout 직전까지 대기, task_timeout도 무제한이면 24h)
-server_port: 8585
-server_host: 0.0.0.0
-auto_approve: true
-workspace_path: ""           # 목자의 작업 디렉터리 (설정 → 목자 탭)
-enable_file_browser: true    # Files 탭 + /files API
-
-# 프로바이더 on/off 및 기본 모델
-provider_enabled_claude: true
-provider_enabled_opencode: true
-provider_enabled_pi: true
-provider_enabled_grok: true
-provider_enabled_embedded: true
-provider_enabled_magi: true
-model_claude: ""             # 빈 값 = 각 CLI 기본 모델
-model_opencode: ""
-model_pi: ""
-model_grok: ""
-
-# 프롬프트 주입
-session_reuse: true
-include_task_history: true
-include_mcp_guide: true
-include_sheep_memory: true
-sheep_memory_prompt: ""      # 빈 값 = 내장 기본 템플릿
-
-# OpenCode thinking(추론) 모드 + 비표준 body 필드용 리버스 프록시
-opencode_thinking_default: false
-opencode_thinking_proxy_enabled: false
-opencode_thinking_proxy_port: 8686
-opencode_thinking_proxy_target: ""   # 예: http://127.0.0.1:8080
-opencode_thinking_model: ""          # 프록시를 경유하는 provider/model
-
-# 작업 체크포인트 (숨은 git ref + 정확한 diff + 되돌리기)
-task_checkpoint_enabled: true
-task_checkpoint_retention_days: 30   # 0이면 ref를 영구 보존
-
-# 위키
-wiki_enabled: true
-wiki_auto_ingest: true
-wiki_max_context_pages: 2
-wiki_max_page_content_chars: 2000
-
-# 디스코드 알림
-discord_notifications_enabled: false
-discord_webhook_url: ""
-discord_notify_on_complete: true
-discord_notify_on_fail: true
-
-# PWA Web Push (설치한 앱에서 작업 완료 알림)
-webpush_enabled: true
-webpush_notify_on_complete: true
-webpush_notify_on_fail: true
-# webpush_vapid_public / webpush_vapid_private 는 첫 사용 시 자동 생성
-
-# 목자(Shepherd) 오케스트레이션 — 위 "목자(Shepherd) 오케스트레이션" 절 참고
-# (워크스페이스는 위 workspace_path 키를 그대로 씁니다)
-shepherd_model: ""                # 빈 값 = 프로바이더 기본 모델. embedded는 엔드포인트 ID
-shepherd_instructions: ""         # 기본 운영 지침 뒤에 붙이는 사용자 지침
-shepherd_scope_exclude: []        # 목자가 관리하지 않을 프로젝트 이름
-shepherd_scope_include_hidden: false  # 숨김 프로젝트도 관리할지
-# 깨우기 상한 (0이나 음수 = 내장 기본값)
-shepherd_max_review_rounds: 3     # 이슈별 검토 회차
-shepherd_max_wakeups_per_day: 30  # 하루 자동 깨우기 상한 (자정 기준)
-# 확인 필요 임계값 (0 = 내장 기본값)
-shepherd_stuck_minutes: 120       # running 작업이 이 시간을 넘으면 오래 실행 중
-shepherd_pending_stale_minutes: 60 # 가장 오래된 pending 작업이 이 시간을 넘으면 적체
-# 주기 순찰 (코드로 범위를 점검하고 새 이상에서만 깨움)
-shepherd_patrol_interval: "30m"   # "0"이면 끔. 켠 값은 최소 5분으로 올림
-shepherd_patrol_wake: true        # false면 순찰 기록만 남기고 깨우지 않음
-# 권한 단계와 상한
-shepherd_autonomy: execute        # report | plan | execute | full
-shepherd_max_active_delegations: 3 # 감시 이슈의 동시 pending+running 상한 (0 = 기본 3)
-shepherd_daily_cost_limit_usd: 0  # 하루 합산 비용 상한 (0 = 제한 없음)
-# 보고 알림
-shepherd_notify: true                    # 목자 작업의 "목자 보고" 알림을 보낼지
-shepherd_notify_quiet_patrol: true       # 전할 내용 없는 보고(새 이상 없는 순찰·이슈를 안 바꾼 검토)는 생략
-shepherd_mute_delegated_notifications: false # 감시 이슈 작업의 일반 완료 알림을 없앨지
-
-# 인증 ('shepherd auth setup'으로 설정)
-auth_username: admin
-auth_password_hash: "$2a$10$..."
-auth_jwt_secret: "auto-generated"
-```
-
-### 동시성 게이트
-
-작업 디스패치는 **두 게이트를 모두** 통과해야 합니다:
-
-1. **전역** — `max_concurrent_tasks` (0 = 무제한)
-2. **그룹** — `concurrency_limits[<provider>]` 또는 `concurrency_limits[<provider/model>]` (값 ≤ 0 = 그룹 제한 없음)
-
-예: `{ opencode: 1, claude: 0 }` → 로컬 OpenCode는 한 번에 하나, Claude는 상한 없음.
-
----
-
-## 아키텍처
-
-```
-User → Web UI / MCP client / CLI
-     → Shepherd Daemon (Fiber REST API + SSE)
-     → Manager (의도 분석, 작업 라우팅)
-     → Worker가 양의 프로바이더 실행:
-         claude / opencode / pi / grok  → 외부 CLI (스트리밍)
-         embedded                       → in-process LLM 에이전트 루프
-         magi                           → 3 proposer + aggregator 합의
-     → Queue가 결과 기록 (출력, 비용, 파일)
-     → SSE로 실시간 업데이트 → 연결된 클라이언트
-```
-
-### 프로젝트 구조
-
-```
-shepherd/
-├── cmd/shepherd/          # CLI 엔트리포인트
-├── ent/schema/            # Ent ORM 엔티티 (Sheep, Project, Task, Skill, Schedule, Issue, Wiki, ...)
-├── internal/
-│   ├── browser/           # 브라우저 자동화 (Rod)
-│   ├── config/            # YAML 설정
-│   ├── daemon/            # PID, 시그널, 라이프사이클
-│   ├── db/                # SQLite
-│   ├── discord/           # Discord 웹훅 알림
-│   ├── push/              # PWA Web Push (VAPID + 구독 저장)
-│   ├── embedded/          # in-process 로컬 LLM 에이전트 루프
-│   ├── i18n/              # 국제화 (en, ko)
-│   ├── llmproxy/          # OpenCode thinking 리버스 프록시
-│   ├── magi/              # MAGI 합의 (proposer, aggregator, debate, orchestrator)
-│   ├── manager/           # 작업 분석 & 라우팅
-│   ├── mcp/               # JSON-RPC 2.0 MCP 서버 + 외부 MCP 클라이언트
-│   ├── project/           # 프로젝트 CRUD
-│   ├── queue/             # 작업 라이프사이클 + 동시성 게이트
-│   ├── scheduler/         # Cron & interval
-│   ├── server/            # Fiber HTTP, SSE, auth, 핸들러
-│   ├── skill/             # 파일 기반 스킬
-│   ├── spec/              # 스펙/템플릿 생성
-│   ├── wiki/              # 프로젝트 위키 + 자동 ingest
-│   └── worker/            # 양 실행 & 프로바이더 디스패치
-└── web/                   # Svelte SPA (JS only, TypeScript 없음)
-```
-
----
-
-## REST API
-
-auth·health를 제외한 모든 엔드포인트는 JWT 인증이 필요합니다.
-
-### Auth
-```
-POST /api/auth/login               # access + refresh 토큰
-POST /api/auth/refresh             # access 토큰 갱신
-```
-
-### 리소스
-```
-GET|POST         /api/sheep
-GET|DELETE       /api/sheep/:name
-PATCH            /api/sheep/:name/provider
-
-GET|POST         /api/projects
-GET|DELETE       /api/projects/:name
-POST             /api/projects/:name/assign
-
-GET|POST         /api/tasks
-GET              /api/tasks/:id                # cost_usd 포함
-POST             /api/tasks/:id/stop
-POST             /api/tasks/:id/retry
-POST             /api/tasks/:id/retry-from
-```
-
-### 파일
-```
-GET /api/projects/:name/files                  # 디렉터리 목록 (?path=)
-GET /api/projects/:name/files/content/*        # 파일 내용
-GET /api/projects/:name/files/download/*       # 다운로드
-```
-
-### Git
-```
-GET  /api/projects/:name/git/log
-GET  /api/projects/:name/git/branches
-GET  /api/projects/:name/git/commits/:hash
-GET  /api/projects/:name/git/commits/:hash/diff
-GET  /api/projects/:name/git/changes
-POST /api/projects/:name/git/stage             # body: { "paths": [...] }
-POST /api/projects/:name/git/unstage
-POST /api/projects/:name/git/commit            # body: { "message": "..." }
-POST /api/projects/:name/git/push
-```
-
-### 이슈
-```
-GET|POST         /api/projects/:name/issues
-GET|PATCH|DELETE /api/projects/:name/issues/:id
-POST             /api/projects/:name/issues/:id/execute   # 작업 큐에 넣기
-```
-
-### 위키
-```
-GET|POST         /api/wiki/pages
-GET|PUT|DELETE   /api/wiki/pages/:slug
-GET              /api/wiki/pages/:slug/versions
-POST             /api/wiki/lint
-POST             /api/wiki/ingest/:task_id
-```
-
-### Config: Embedded, MAGI & 모델
-```
-GET|POST         /api/config/embedded
-PUT|DELETE       /api/config/embedded/:id
-POST             /api/config/embedded/:id/set-active
-POST             /api/config/embedded/test
-GET|PUT          /api/config/magi
-GET              /api/config/model-options      # UI용 모델 선택지
-GET|PATCH        /api/config
-```
-
-### PWA Web Push
-```
-GET  /api/push/status         # VAPID 공개키 + 구독 수
-POST /api/push/subscribe      # 이 기기 등록 (PushSubscription JSON)
-POST /api/push/unsubscribe    # body: { "endpoint": "..." }
-POST /api/push/test           # 테스트 알림
-```
-
-### 스케줄 & 스킬
-```
-GET|POST         /api/projects/:name/schedules
-GET|PATCH|DELETE /api/projects/:name/schedules/:id
-POST             /api/projects/:name/schedules/:id/run
-
-GET|POST         /api/skills
-POST             /api/skills/import
-POST             /api/skills/sync-all
-GET|PATCH|DELETE /api/skills/:id
-GET              /api/skills/:id/export
-GET|POST         /api/projects/:name/skills
-```
-
-### 시스템
-```
-GET  /api/health
-GET  /api/system/status
-POST /api/system/restart
-GET  /api/events
-POST /api/shepherd/tasks           # 목자 콘솔(/shepherd)에 지시 보내기
-GET  /api/shepherd/tasks           # 목자 작업 목록 (?kind=&status=&q=&page=&limit=; total/total_pages/page 반환)
-GET  /api/shepherd/status          # 목자 프로바이더, 모델, 워크스페이스, 서킷 브레이커 상태
-POST /api/embedded/run             # cwd에서 임베디드 에이전트 실행, 요청 단위 SSE
-POST /api/upload
-```
-
----
-
-## MCP 서버
-
-Claude Desktop 등 MCP 클라이언트와 연동:
-
-```json
-{
-  "mcpServers": {
-    "shepherd": {
-      "command": "shepherd",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-**사용 가능한 MCP 도구:** `task_start`, `task_complete`, `task_error`, `get_history`, `get_status`, `get_task_detail`, `skill_load`, `wiki_read_page`, `wiki_search`, `wiki_list_pages`, 브라우저 자동화 30+개 (`browser_session_start`, `browser_open`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_get_text`, …).
-
----
-
-## 안정성
-
-### Rate-Limit 재시도
-Rate limit 감지 시(HTTP 429 등) 지수 백오프로 최대 3회 재시도 — 30s → 60s → 120s (상한 5분). 진행 상황은 UI에 실시간 표시.
-
-### Circuit Breaker
-양이 연속 5회 실패하면 해당 양 실행을 일시 중지합니다. 트립 상태는 `status`와 대시보드에 표시되며, 수동 재시도 또는 성공 시 카운터가 리셋됩니다.
-
-### 비용 추적
-작업별 실행 비용(`cost_usd`)을 기록하고 프로젝트·전역으로 집계해 큐 상태에 표시합니다.
-
-### 복구
-데몬 기동 시 고착 양/작업을 자동 복구합니다. `shepherd recover`로 수동 실행 가능. SIGINT/SIGTERM 시 상태를 저장한 뒤 종료합니다.
-
----
+Shepherd는 MCP 서버(`shepherd mcp`)로도 동작합니다. 이 서버는 에이전트에게 이슈, 위키, 작업 기록, 스킬, 브라우저 자동화 도구를 제공합니다.
 
 ## 개발
 
 ```bash
-go build ./...                              # 전체 패키지 빌드
-go test ./...                               # 전체 테스트
-go test ./internal/magi -run TestName       # 특정 테스트
-go generate ./ent                           # Ent ORM 재생성
-
-cd web && npm install && npm run dev        # Web UI 개발 서버
-cd web && npm run build                     # Web UI 프로덕션 빌드
+go build ./... && go test ./...
+cd web && npm install && npm run dev    # Web UI 개발 서버
 ```
 
-## 기여
-
-[CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요. 아키텍처는 [ARCHITECTURE.md](ARCHITECTURE.md)에 있습니다.
+[CONTRIBUTING.md](CONTRIBUTING.md)와 [ARCHITECTURE.md](ARCHITECTURE.md)를 참고하십시오.
 
 ## 라이선스
 
-MIT License — [LICENSE](LICENSE).
+MIT. [LICENSE](LICENSE)를 참고하십시오.
 
 ---
 
-## 스크린샷 (권장 assets)
-
-더미·비민감 데이터, dark UI 일관. 파일은 `assets/` 아래:
-
-| 상태 | 파일 | 화면 |
-|------|------|--------|
-| ✅ | `webui-dashboard.png` | 대시보드 — 활동, 최근 작업, 통계, 커맨드 입력 |
-| ✅ | `webui-magi-stream.png` | MAGI Live Output — 3-way 병렬 + 페르소나 + 판정 |
-| ⬜ | `webui-project-output.png` | 프로젝트 → Live Output (최신 탭 바 전부) |
-| ⬜ | `webui-settings-providers.png` | Settings — 프로바이더 enable |
-| ⬜ | `webui-settings-embedded.png` | Settings → Embedded 엔드포인트 |
-| ⬜ | `webui-settings-magi.png` | Settings → MAGI proposer + aggregator |
-| ⬜ | `webui-task-detail.png`, `webui-git.png`, `webui-wiki.png`, `webui-issues.png`, `webui-files.png`, `webui-skills.png`, `webui-schedules.png`, `webui-sheep.png` | 보조 페이지 |
-
----
-
-> ***"여호와는 나의 목자시니 내게 부족함이 없으리로다."*** — 시편 23:1
+> ***"여호와는 나의 목자시니 내게 부족함이 없으리로다."*** (시편 23:1)
