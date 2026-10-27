@@ -6,7 +6,7 @@
 	import { onSSE } from '$lib/sse.js';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { t, enumLabel } from '$lib/i18n/index.js';
+	import { t, translate, enumLabel } from '$lib/i18n/index.js';
 
 	// Cross-project issue board (#621, split out of routes/shepherd/+page.svelte;
 	// board itself from #599). GET /api/issues (cross-project). One request per
@@ -115,7 +115,7 @@
 			for (let i = 0; i < BOARD_COLUMNS.length; i++) {
 				const res = responses[i];
 				if (!res?.success) {
-					boardError = res?.message || '이슈 보드를 불러오지 못했습니다.';
+					boardError = res?.message || translate('board.loadError');
 					return;
 				}
 				next[BOARD_COLUMNS[i]] = res.data || [];
@@ -125,7 +125,7 @@
 			board = next;
 			boardLoaded = true;
 		} catch (e) {
-			if (seq === boardSeq) boardError = '이슈 보드를 불러오지 못했습니다.';
+			if (seq === boardSeq) boardError = translate('board.loadError');
 		}
 	}
 
@@ -141,8 +141,9 @@
 		const cutoff = Date.now() - DONE_WINDOW_MS;
 		const parse = (s) => {
 			if (!s) return 0;
-			const t = new Date(String(s).replace(' ', 'T')).getTime();
-			return Number.isNaN(t) ? 0 : t;
+			// `t` would shadow the i18n store import — keep a different name here.
+			const ms = new Date(String(s).replace(' ', 'T')).getTime();
+			return Number.isNaN(ms) ? 0 : ms;
 		};
 		const sorted = [...all].sort((a, b) => parse(b.completed_at || b.updated_at) - parse(a.completed_at || a.updated_at));
 		if (doneExpanded) return sorted;
@@ -203,11 +204,11 @@
 	});
 </script>
 
-<section class="block" aria-label="이슈 보드">
-	<SectionHeader index="04" eyebrow="Board" title="전 프로젝트 이슈 보드"
-		subtitle="관리 범위 안의 이슈를 상태로 봅니다. 카드를 누르면 상세에서 감시·실행을 조절합니다.">
+<section class="block" aria-label={$t('board.aria.section')}>
+	<SectionHeader index="04" eyebrow="Board" title={$t('board.title')}
+		subtitle={$t('board.subtitle')}>
 		<button class="btn btn-sm btn-ghost" onclick={loadBoard}>
-			<Icon name="refresh-cw" size={13} /> 새로고침
+			<Icon name="refresh-cw" size={13} /> {$t('common.refresh')}
 		</button>
 	</SectionHeader>
 
@@ -215,28 +216,28 @@
 		<input
 			type="text"
 			class="input input-search board-search"
-			placeholder="제목 검색..."
+			placeholder={$t('board.searchPlaceholder')}
 			bind:value={searchQ}
 			oninput={onSearchInput}
 		/>
 		<!-- bind:value on <select> fires on `change`, so the handler is onchange too
 		     (wiki: svelte5-select-bind-change-vs-input). -->
-		<select class="input" bind:value={filterType} onchange={applyBoardFilters} aria-label="유형 필터">
-			<option value="">모든 유형</option>
+		<select class="input" bind:value={filterType} onchange={applyBoardFilters} aria-label={$t('board.typeFilterAria')}>
+			<option value="">{$t('board.typeAll')}</option>
 			<option value="design">{$t('issue.type.design')}</option>
 			<option value="feature">{$t('issue.type.feature')}</option>
 			<option value="bug">{$t('issue.type.bug')}</option>
 		</select>
-		<select class="input" bind:value={filterWatched} onchange={applyBoardFilters} aria-label="감시 필터">
-			<option value="">감시 전체</option>
-			<option value="true">감시 중만</option>
-			<option value="false">감시 외만</option>
+		<select class="input" bind:value={filterWatched} onchange={applyBoardFilters} aria-label={$t('board.watchedFilterAria')}>
+			<option value="">{$t('board.watchedAll')}</option>
+			<option value="true">{$t('board.watchedOnly')}</option>
+			<option value="false">{$t('board.watchedOff')}</option>
 		</select>
-		<button class="btn btn-ghost" onclick={resetBoardFilters}><Icon name="rotate-ccw" size={13} /> 초기화</button>
+		<button class="btn btn-ghost" onclick={resetBoardFilters}><Icon name="rotate-ccw" size={13} /> {$t('common.reset')}</button>
 	</div>
 
 	{#if projectChoices.length > 0}
-		<div class="board-projects" role="group" aria-label="프로젝트 필터">
+		<div class="board-projects" role="group" aria-label={$t('board.projectFilterAria')}>
 			{#each projectChoices as name (name)}
 				<button
 					class="proj-chip chip"
@@ -253,7 +254,7 @@
 	{/if}
 
 	<!-- Narrow screens: status tabs + one list. Wide screens: 5 columns. -->
-	<div class="narrow-tabs" role="tablist" aria-label="보드 상태">
+	<div class="narrow-tabs" role="tablist" aria-label={$t('board.narrowTabsAria')}>
 		{#each BOARD_COLUMNS as col (col)}
 			<button class="narrow-tab" class:active={narrowTab === col} role="tab"
 				aria-selected={narrowTab === col} onclick={() => narrowTab = col}>
@@ -286,7 +287,7 @@
 										<Icon name={typeIcons[issue.type] || 'file-text'} size={11} /> {enumLabel($t, 'issue.type', issue.type)}
 									</span>
 									{#if issue.shepherd_watch}
-										<span class="watch-flag" title="목자 감시 중 (회차 {issue.shepherd_rounds ?? 0}{maxReviewRounds ? '/' + maxReviewRounds : ''})">
+										<span class="watch-flag" title={$t('board.watchFlagTitle', { rounds: `${issue.shepherd_rounds ?? 0}${maxReviewRounds ? '/' + maxReviewRounds : ''}` })}>
 											<Icon name="eye" size={12} />
 											{maxReviewRounds ? `${issue.shepherd_rounds ?? 0}/${maxReviewRounds}` : ''}
 										</span>
@@ -294,11 +295,11 @@
 								</div>
 								<div class="card-title">#{issue.id} {issue.title}</div>
 								{#if issue.shepherd_last_review}
-									<div class="card-review" title="목자 마지막 검토">{issue.shepherd_last_review}</div>
+									<div class="card-review" title={$t('board.lastReviewTitle')}>{issue.shepherd_last_review}</div>
 								{/if}
 								<div class="card-foot">
 									{#if issue.last_task_status}
-										<span class="task-state mono num" class:ok={issue.last_task_status === 'completed'} class:bad={issue.last_task_status === 'failed'}>작업 {issue.last_task_status}</span>
+										<span class="task-state mono num" class:ok={issue.last_task_status === 'completed'} class:bad={issue.last_task_status === 'failed'}>{$t('board.lastTask', { status: issue.last_task_status })}</span>
 									{/if}
 									<span class="mono num card-time">{issue.updated_at}</span>
 								</div>
@@ -306,11 +307,11 @@
 						{/each}
 						{#if col === 'done' && !doneExpanded && (board.done || []).length > doneItems().length}
 							<button class="btn btn-sm btn-ghost more" onclick={() => { doneExpanded = true; }}>
-								더 보기 ({(board.done || []).length - doneItems().length})
+								{$t('board.loadMore', { count: (board.done || []).length - doneItems().length })}
 							</button>
 						{/if}
 						{#if (board[col] || []).length === 0 && !(col === 'done' && doneItems().length > 0)}
-							<p class="col-empty">비어 있음</p>
+							<p class="col-empty">{$t('board.colEmpty')}</p>
 						{/if}
 					{/if}
 				</div>

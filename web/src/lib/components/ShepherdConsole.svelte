@@ -1,5 +1,6 @@
 <script>
 	import { apiPost } from '$lib/api.js';
+	import { t, translate } from '$lib/i18n/index.js';
 	import Icon from './Icon.svelte';
 
 	// Shepherd (목자) console input (#598). Deliberately a separate component
@@ -51,10 +52,10 @@
 	let canInject = $derived(injectSupported && injectAvailable && runningTaskId > 0);
 	let placeholder = $derived(
 		injectMode
-			? '추가 지시를 입력하세요...'
+			? $t('console.placeholder.inject')
 			: compact
-				? '목자에게 지시…'
-				: '목자에게 지시를 입력하세요…'
+				? $t('console.placeholder.short')
+				: $t('console.placeholder.full')
 	);
 
 	function autosize() {
@@ -92,13 +93,13 @@
 		try {
 			const res = await apiPost('/api/shepherd/tasks', { prompt: text });
 			if (res?.success) {
-				setStatus({ ok: true, text: `지시 등록 · 작업 #${res.data.task_id}` });
+				setStatus({ ok: true, text: translate('console.sent', { id: res.data.task_id }) });
 				onSent(res.data);
 			} else {
-				setStatus({ ok: false, text: res?.message || '지시 등록에 실패했습니다' });
+				setStatus({ ok: false, text: res?.message || translate('console.sendFailed') });
 			}
 		} catch (err) {
-			setStatus({ ok: false, text: err?.message || '지시 등록 요청이 실패했습니다' });
+			setStatus({ ok: false, text: err?.message || translate('console.sendRequestFailed') });
 		} finally {
 			sending = false;
 		}
@@ -112,13 +113,13 @@
 		try {
 			const res = await apiPost('/api/sheep/shepherd/inject', { prompt: text });
 			if (res?.success) {
-				setStatus({ ok: true, text: '💬 실행 중인 작업에 추가 지시를 주입했습니다' });
+				setStatus({ ok: true, text: translate('console.injected') });
 				onInjected();
 			} else {
-				setStatus({ ok: false, text: res?.message || '주입에 실패했습니다' });
+				setStatus({ ok: false, text: res?.message || translate('console.injectFailed') });
 			}
 		} catch (err) {
-			setStatus({ ok: false, text: err?.message || '주입 요청이 실패했습니다' });
+			setStatus({ ok: false, text: err?.message || translate('console.injectRequestFailed') });
 		} finally {
 			sending = false;
 		}
@@ -131,13 +132,13 @@
 		try {
 			const res = await apiPost(`/api/tasks/${runningTaskId}/stop`, {});
 			if (res?.success) {
-				setStatus({ ok: true, text: `작업 #${runningTaskId} 중지 요청을 보냈습니다` });
+				setStatus({ ok: true, text: translate('console.stopRequested', { id: runningTaskId }) });
 				onStopped();
 			} else {
-				setStatus({ ok: false, text: res?.message || '중지에 실패했습니다' });
+				setStatus({ ok: false, text: res?.message || translate('console.stopFailed') });
 			}
 		} catch (err) {
-			setStatus({ ok: false, text: err?.message || '중지 요청이 실패했습니다' });
+			setStatus({ ok: false, text: err?.message || translate('console.stopRequestFailed') });
 		} finally {
 			stopping = false;
 		}
@@ -149,7 +150,7 @@
 		<div class="console-toast" class:error={!statusMsg.ok} role={statusMsg.ok ? 'status' : 'alert'}>
 			<span>{statusMsg.text}</span>
 			{#if !statusMsg.ok}
-				<button class="toast-close" onclick={() => setStatus(null)} aria-label="알림 닫기">
+				<button class="toast-close" onclick={() => setStatus(null)} aria-label={$t('console.closeToast')}>
 					<Icon name="x" size={12} />
 				</button>
 			{/if}
@@ -167,16 +168,16 @@
 		onkeydown={handleKeydown}
 		oninput={autosize}
 		{placeholder}
-		aria-label={injectMode ? '추가 지시' : '목자 지시'}
+		aria-label={injectMode ? $t('console.aria.injectMode') : $t('console.aria.normalMode')}
 		disabled={disabled || sending}
 		rows="1"
 	></textarea>
 	<div class="console-actions">
 		{#if !prompt && !sending && !working && !disabled}
-			<span class="hint" aria-hidden="true"><kbd>↵</kbd> 전송 <kbd>⇧↵</kbd> 줄바꿈</span>
+			<span class="hint" aria-hidden="true"><kbd>↵</kbd> {$t('console.hint.send')} <kbd>⇧↵</kbd> {$t('console.hint.newline')}</span>
 		{/if}
 		{#if disabled}
-			<span class="locked-hint">{disabledReason || '워크스페이스를 먼저 지정하세요'}</span>
+			<span class="locked-hint">{disabledReason || $t('shepherd.console.needWorkspace')}</span>
 		{/if}
 		{#if working && runningTaskId}
 			{#if canInject}
@@ -186,15 +187,15 @@
 					onclick={() => { injectMode = !injectMode; fieldEl?.focus(); }}
 					disabled={sending || stopping}
 					aria-pressed={injectMode}
-					title="실행 중인 작업에 추가 지시 주입"
+					title={$t('console.injectTitle')}
 				>
 					<Icon name="message-square" size={13} />
-					주입
+					{$t('console.inject')}
 				</button>
 			{/if}
-			<button class="btn btn-sm btn-danger btn-stop" onclick={handleStop} disabled={stopping} title={`작업 #${runningTaskId} 중지`}>
+			<button class="btn btn-sm btn-danger btn-stop" onclick={handleStop} disabled={stopping} title={$t('console.stopTitle', { id: runningTaskId })}>
 				<Icon name="square" size={11} stroke={2.6} />
-				{stopping ? '중지 중…' : '중지'}
+				{stopping ? $t('console.stopping') : $t('console.stop')}
 			</button>
 		{/if}
 		<button
@@ -202,8 +203,8 @@
 			class:ready={!!prompt.trim()}
 			onclick={submit}
 			disabled={disabled || sending || !prompt.trim()}
-			aria-label={injectMode ? '추가 지시 전송' : '지시 전송'}
-			title={injectMode ? '추가 지시 전송' : '전송 (Enter)'}
+			aria-label={injectMode ? $t('console.aria.sendInject') : $t('console.aria.send')}
+			title={injectMode ? $t('console.aria.sendInject') : $t('console.title.sendEnter')}
 		>
 			{#if sending}
 				<span class="spinner" aria-hidden="true"></span>

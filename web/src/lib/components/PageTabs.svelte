@@ -1,6 +1,7 @@
 <script>
 	import { tick } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { t as tr } from '$lib/i18n/index.js';
 
 	// Underline tab bar for full-page section navigation (#621). This is the
 	// bar the project screen uses: text + icon tabs with a sliding ink line
@@ -53,20 +54,20 @@
 
 <nav class="tabs" role="tablist" aria-label={ariaLabel} bind:this={tabsEl} onkeydown={onKeydown}>
 	<span class="tab-ink" style="--x: {tabInk.x}px; --w: {tabInk.w}px" class:ready={tabInk.ready} aria-hidden="true"></span>
-	{#each tabs as t (t.id)}
-		<button id="tab-{t.id}" type="button" class="tab" class:active={value === t.id}
-			role="tab" aria-selected={value === t.id}
-			tabindex={value === t.id ? 0 : -1}
-			onclick={() => onChange(t.id)}>
-			{#if t.icon}<Icon name={t.icon} size={14} stroke={1.9} />{/if}
-			<span>{t.label}</span>
-			{#if t.live}
+	{#each tabs as tab (tab.id)}
+		<button id="tab-{tab.id}" type="button" class="tab" class:active={value === tab.id}
+			role="tab" aria-selected={value === tab.id}
+			tabindex={value === tab.id ? 0 : -1}
+			onclick={() => onChange(tab.id)}>
+			{#if tab.icon}<Icon name={tab.icon} size={14} stroke={1.9} />{/if}
+			<span>{tab.label}</span>
+			{#if tab.live}
 				<span class="live-dot tab-live" aria-label="live"></span>
 			{/if}
-			{#if t.badge > 0}
+			{#if tab.badge > 0}
 				<!-- #624: the bare number is unreadable out of context — screen
-				     readers get "확인 필요 3건" (label + count) instead. -->
-				<span class="tab-badge mono num" aria-label="{t.label} {t.badge}건">{t.badge}</span>
+				     readers get the tab label + count instead. -->
+				<span class="tab-badge mono num" aria-label={$tr('tabs.badgeAria', { label: tab.label, count: tab.badge })}>{tab.badge}</span>
 			{/if}
 		</button>
 	{/each}

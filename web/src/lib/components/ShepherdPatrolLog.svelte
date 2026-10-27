@@ -3,6 +3,7 @@
 	import { apiGet, apiPost } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
 	import { timeAgo } from '$lib/shepherdFormat.js';
+	import { t, translate } from '$lib/i18n/index.js';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
@@ -31,7 +32,14 @@
 	let patrolMsg = $state('');
 	let expandedId = $state(null);
 
-	const severityLabels = { 0: '낮음', 1: '낮음', 2: '보통', 3: '보통', 4: '높음', 5: '높음' };
+	// Severity number → dictionary key under `patrol.severity.*`. A value the
+	// server does not use (6+, negative) has no key; the row then shows `sev N`.
+	function severityKey(sev) {
+		if (sev === 0 || sev === 1) return 'low';
+		if (sev === 2 || sev === 3) return 'medium';
+		if (sev === 4 || sev === 5) return 'high';
+		return null;
+	}
 
 	function severityChipClass(sev) {
 		if (sev >= 5) return 'chip-danger';
@@ -57,18 +65,18 @@
 		try {
 			const res = await apiPost('/api/shepherd/patrols/run', {});
 			if (!res?.success) {
-				patrolMsg = '순찰 실행에 실패했습니다: ' + (res?.message || '');
+				patrolMsg = translate('patrol.runFailed', { error: res?.message || '' });
 			} else {
 				const rec = res.data?.patrol || {};
-				if (rec.task_id) patrolMsg = `새 이상 ${rec.new_count}개 — 목자 작업 #${rec.task_id} 적재`;
-				else if (rec.skipped_reason) patrolMsg = `기록됨 — 깨우기 건너뜀: ${rec.skipped_reason}`;
-				else if (rec.new_count > 0) patrolMsg = `새 이상 ${rec.new_count}개 기록 (목자 미호출)`;
-				else patrolMsg = '이상 없음 — 기록만 남겼습니다';
+				if (rec.task_id) patrolMsg = translate('patrol.ranWoke', { count: rec.new_count, id: rec.task_id });
+				else if (rec.skipped_reason) patrolMsg = translate('patrol.ranSkipped', { reason: rec.skipped_reason });
+				else if (rec.new_count > 0) patrolMsg = translate('patrol.ranRecorded', { count: rec.new_count });
+				else patrolMsg = translate('patrol.ranClean');
 				await loadPatrols();
 				onRan(); // the page re-reads /api/shepherd/status
 			}
 		} catch (e) {
-			patrolMsg = '순찰 실행에 실패했습니다: ' + (e?.message || e);
+			patrolMsg = translate('patrol.runFailed', { error: e?.message || e });
 		} finally {
 			patrolBusy = false;
 			setTimeout(() => (patrolMsg = ''), 6000);
@@ -113,16 +121,16 @@
 	});
 </script>
 
-<section class="patrol-tab" aria-label="순찰 기록">
+<section class="patrol-tab" aria-label={$t('patrol.aria.section')}>
 	<!-- One line: patrol cadence / next pass on the left, actions on the right. -->
 	<div class="patrol-bar">
 		{#if status?.patrol_enabled}
-			<span class="cadence-chip chip mono" title="다음 자동 순찰 시각">
-				순찰 주기 {status.patrol_interval || '—'} · 다음 순찰 {(status.next_patrol_at || '').slice(5, 16) || '—'}
+			<span class="cadence-chip chip mono" title={$t('patrol.cadenceTitle')}>
+				{$t('patrol.cadence', { interval: status.patrol_interval || '—', time: (status.next_patrol_at || '').slice(5, 16) || '—' })}
 			</span>
 		{:else if status}
 			<span class="cadence-chip chip cadence-off">
-				순찰이 꺼져 있습니다. <a class="cadence-link" href="/settings">설정 → 목자</a>에서 켤 수 있습니다.
+				{$t('patrol.offNotice')} <a class="cadence-link" href="/settings">{$t('patrol.offSettingsLink')}</a>{$t('patrol.offSettingsSuffix')}
 			</span>
 		{:else}
 			<span class="skeleton cadence-skeleton" aria-hidden="true"></span>
@@ -134,10 +142,10 @@
 
 		<span class="patrol-bar-spacer"></span>
 
-		<button class="btn btn-sm btn-ghost" onclick={runPatrolNow} disabled={patrolBusy} aria-label="지금 순찰">
-			<Icon name={patrolBusy ? 'refresh-cw' : 'search'} size={13} /> {patrolBusy ? '순찰 중…' : '지금 순찰'}
+		<button class="btn btn-sm btn-ghost" onclick={runPatrolNow} disabled={patrolBusy} aria-label={$t('patrol.runNowAria')}>
+			<Icon name={patrolBusy ? 'refresh-cw' : 'search'} size={13} /> {patrolBusy ? $t('patrol.running') : $t('patrol.runNow')}
 		</button>
-		<button class="btn btn-sm btn-ghost" onclick={loadPatrols} aria-label="새로고침">
+		<button class="btn btn-sm btn-ghost" onclick={loadPatrols} aria-label={$t('common.refresh')}>
 			<Icon name="refresh-cw" size={13} />
 		</button>
 	</div>
@@ -149,8 +157,8 @@
 		</div>
 	{:else if patrols.length === 0}
 		<div class="card">
-			<EmptyState icon="search" title="아직 순찰 기록이 없습니다"
-				description="순찰 주기가 켜지면 정해진 주기마다, 아니면 오른쪽 버튼으로 지금 점검할 수 있습니다." />
+			<EmptyState icon="search" title={$t('patrol.emptyTitle')}
+				description={$t('patrol.emptyDesc')} />
 		</div>
 	{:else}
 		<div class="patrol-table">
@@ -167,20 +175,20 @@
 						</span>
 						<span class="patrol-time mono num" title={p.created_at}>{timeAgo(p.created_at)}</span>
 						<span class="patrol-new chip {p.new_count > 0 ? 'chip-danger' : 'chip-info'} mono num"
-							title="{findings.length}개 항목 점검">새 이상 {p.new_count}</span>
+							title={$t('patrol.checkedItemsTitle', { count: findings.length })}>{$t('patrol.newFindings', { count: p.new_count })}</span>
 						<div class="patrol-body">
 							{#if p.task_id}
 								<a class="patrol-task-link" href="/tasks/{p.task_id}?from=shepherd&tab=patrols"
 									onclick={(e) => e.stopPropagation()}>
-									목자 순찰 작업 #{p.task_id}
+									{$t('patrol.wokenTask', { id: p.task_id })}
 									{#if p.task_summary}<span class="patrol-summary">{p.task_summary}</span>{/if}
 								</a>
 							{:else if p.skipped_reason}
-								<span class="patrol-skip" title={p.skipped_reason}>건너뜀 — {p.skipped_reason}</span>
+								<span class="patrol-skip" title={p.skipped_reason}>{$t('patrol.skipped', { reason: p.skipped_reason })}</span>
 							{:else if findings.length > 0}
-								<span class="patrol-items">{findings.length}개 점검 항목 — 행을 눌러 보세요</span>
+								<span class="patrol-items">{$t('patrol.hasFindings', { count: findings.length })}</span>
 							{:else}
-								<span class="patrol-none">확인할 항목 없음</span>
+								<span class="patrol-none">{$t('patrol.noFindings')}</span>
 							{/if}
 						</div>
 					</div>
@@ -189,9 +197,10 @@
 						{#if findings.length > 0}
 							<ul class="finding-list">
 								{#each findings as f, fi (f.fingerprint || fi)}
+									{@const sevKey = severityKey(f.severity ?? 0)}
 									<li class="finding sev-{Math.min(f.severity ?? 0, 7)}">
 										<span class="finding-sev chip {severityChipClass(f.severity ?? 0)} mono num"
-											title="심각도 {f.severity}">{severityLabels[f.severity] ?? ('sev ' + f.severity)}</span>
+											title={$t('patrol.severityTitle', { severity: f.severity })}>{sevKey ? $t(`patrol.severity.${sevKey}`) : ('sev ' + f.severity)}</span>
 										<div class="finding-body">
 											<strong class="finding-title">{f.title}</strong>
 											{#if f.message}<p class="finding-message">{f.message}</p>{/if}
@@ -200,13 +209,13 @@
 											<!-- The finding carries only a project name (PatrolFinding), so the
 											     link opens the board tab with that project filter — no issue id. -->
 											<a class="finding-project chip" href="/shepherd?tab=board&project={encodeURIComponent(f.project)}"
-												title="이슈 보드에서 {f.project} 보기">{f.project}<Icon name="arrow-up-right" size={11} /></a>
+												title={$t('patrol.boardLinkTitle', { project: f.project })}>{f.project}<Icon name="arrow-up-right" size={11} /></a>
 										{/if}
 									</li>
 								{/each}
 							</ul>
 						{:else}
-							<p class="finding-empty">이 순찰은 점검 항목을 기록하지 않았습니다.</p>
+							<p class="finding-empty">{$t('patrol.findingEmpty')}</p>
 						{/if}
 					{/if}
 				</div>
@@ -215,10 +224,10 @@
 
 		{#if patrols.length >= patrolLimit && patrolLimit < API_CAP}
 			<button class="btn btn-sm btn-ghost more" onclick={loadMore}>
-				더 보기 (지금 {patrols.length}개까지)
+				{$t('patrol.loadMore', { count: patrols.length })}
 			</button>
 		{:else if patrols.length >= API_CAP}
-			<p class="patrol-cap">최근 100개까지만 보여 줍니다. 순찰 기록은 30일이 지나면 지워집니다.</p>
+			<p class="patrol-cap">{$t('patrol.cap')}</p>
 		{/if}
 	{/if}
 </section>

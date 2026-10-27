@@ -5,6 +5,7 @@
 	import { apiGet, apiPost } from '$lib/api.js';
 	import { onSSE } from '$lib/sse.js';
 	import { timeAgo, firstLine, fmtCost } from '$lib/shepherdFormat.js';
+	import { t, translate, enumLabel, formatNumber } from '$lib/i18n/index.js';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -22,20 +23,21 @@
 	let { refreshKey = 0, onRefresh = () => {} } = $props();
 
 	const PAGE_SIZE = 20;
-	const kindLabels = { command: '지시', review: '검토', patrol: '순찰' };
+	// Chip ids stay as the URL filter values; the labels come from the dictionary
+	// (`tasklist.kind.*`) so a locale switch re-labels them without a reload.
 	const KIND_CHIPS = [
-		{ id: '', label: '전체' },
-		{ id: 'command', label: '지시' },
-		{ id: 'review', label: '검토' },
-		{ id: 'patrol', label: '순찰' }
+		{ id: '', key: 'all' },
+		{ id: 'command', key: 'command' },
+		{ id: 'review', key: 'review' },
+		{ id: 'patrol', key: 'patrol' }
 	];
 	const STATUS_OPTIONS = [
-		{ id: '', label: '전체 상태' },
-		{ id: 'pending', label: '대기' },
-		{ id: 'running', label: '실행 중' },
-		{ id: 'completed', label: '완료' },
-		{ id: 'failed', label: '실패' },
-		{ id: 'stopped', label: '중지' }
+		{ id: '', key: '' },
+		{ id: 'pending', key: 'pending' },
+		{ id: 'running', key: 'running' },
+		{ id: 'completed', key: 'completed' },
+		{ id: 'failed', key: 'failed' },
+		{ id: 'stopped', key: 'stopped' }
 	];
 
 	let tasks = $state([]);
@@ -91,7 +93,7 @@
 		const res = await apiGet(`/api/shepherd/tasks?${params}`);
 		if (seq !== loadSeq) return; // stale — a newer filter/page won
 		if (!res?.success || !res.data) {
-			loadError = '목자 작업 목록을 불러오지 못했습니다.';
+			loadError = translate('tasklist.loadError');
 			return;
 		}
 		loadError = '';
@@ -131,24 +133,24 @@
 		e.preventDefault();
 		e.stopPropagation();
 		if (cancellingId) return;
-		if (!confirm(`대기 중인 목자 작업 #${taskId}를 취소합니다.`)) return;
+		if (!confirm(translate('tasklist.cancelConfirm', { id: taskId }))) return;
 		cancellingId = taskId;
 		try {
 			const res = await apiPost(`/api/tasks/${taskId}/cancel`, {});
 			if (res?.success) {
 				await loadTasks();
 			} else {
-				alert(res?.message || '작업 취소에 실패했습니다.');
+				alert(res?.message || translate('tasklist.cancelFailed'));
 			}
 		} catch (err) {
-			alert(err?.message || '작업 취소에 실패했습니다.');
+			alert(err?.message || translate('tasklist.cancelFailed'));
 		} finally {
 			cancellingId = null;
 		}
 	}
 
-	function rowHref(t) {
-		return `/tasks/${t.id}?from=shepherd&tab=history`;
+	function rowHref(task) {
+		return `/tasks/${task.id}?from=shepherd&tab=history`;
 	}
 
 	function truncateModel(label) {
@@ -161,10 +163,10 @@
 	}
 
 	// Duration only when both ends exist (pending/running rows show nothing).
-	function durationSec(t) {
-		if (!t.started_at || !t.completed_at) return 0;
-		const a = new Date(String(t.started_at).replace(' ', 'T')).getTime();
-		const b = new Date(String(t.completed_at).replace(' ', 'T')).getTime();
+	function durationSec(task) {
+		if (!task.started_at || !task.completed_at) return 0;
+		const a = new Date(String(task.started_at).replace(' ', 'T')).getTime();
+		const b = new Date(String(task.completed_at).replace(' ', 'T')).getTime();
 		if (Number.isNaN(a) || Number.isNaN(b) || b < a) return 0;
 		return Math.round((b - a) / 1000);
 	}
@@ -177,9 +179,9 @@
 		return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 	}
 
-	function rowText(t) {
-		if (t.status === 'failed') return firstLine(t.error || t.summary || t.prompt);
-		return firstLine(t.summary || t.prompt || t.error);
+	function rowText(task) {
+		if (task.status === 'failed') return firstLine(task.error || task.summary || task.prompt);
+		return firstLine(task.summary || task.prompt || task.error);
 	}
 
 	let unsubs = [];
@@ -222,23 +224,23 @@
 	});
 </script>
 
-<section class="tasklist-tab" aria-label="목자 작업">
+<section class="tasklist-tab" aria-label={$t('tasklist.aria.section')}>
 	<div class="filter-bar">
 		<input
 			type="text"
 			class="input input-search filter-search"
-			placeholder="프롬프트·요약 검색..."
+			placeholder={$t('tasklist.searchPlaceholder')}
 			bind:value={searchQ}
 			oninput={onSearchInput}
-			aria-label="목자 작업 검색"
+			aria-label={$t('tasklist.searchAria')}
 		/>
 
-		<div class="kind-chips" role="group" aria-label="종류 필터">
+		<div class="kind-chips" role="group" aria-label={$t('tasklist.kindGroupAria')}>
 			{#each KIND_CHIPS as k (k.id)}
 				<button class="chip kind-chip" class:chip-accent={filterKind === k.id}
 					aria-pressed={filterKind === k.id}
 					onclick={() => { filterKind = k.id; applyFilters(); }}>
-					{k.label}
+					{$t(`tasklist.kind.${k.key}`)}
 				</button>
 			{/each}
 		</div>
@@ -246,22 +248,22 @@
 		<!-- bind:value on <select> fires on `change`, so the handler is onchange too
 		     (wiki: svelte5-select-bind-change-vs-input). -->
 		<select class="input status-select" bind:value={filterStatus}
-			onchange={() => applyFilters()} aria-label="상태 필터">
+			onchange={() => applyFilters()} aria-label={$t('tasklist.statusFilterAria')}>
 			{#each STATUS_OPTIONS as o (o.id)}
-				<option value={o.id}>{o.label}</option>
+				<option value={o.id}>{o.key === '' ? $t('tasklist.statusAll') : $t(`tasklist.status.${o.key}`)}</option>
 			{/each}
 		</select>
 
-		<span class="filter-count mono num" aria-live="polite">전체 {total.toLocaleString()}건</span>
+		<span class="filter-count mono num" aria-live="polite">{$t('tasklist.count', { count: formatNumber(total) })}</span>
 
 		<button class="btn btn-sm btn-ghost" onclick={async () => { await loadTasks(); onRefresh(); }}>
-			<Icon name="refresh-cw" size={13} /> 새로고침
+			<Icon name="refresh-cw" size={13} /> {$t('common.refresh')}
 		</button>
 	</div>
 
 	{#if newOnFirstPage}
 		<button class="new-notice" onclick={goToFirstPage}>
-			<Icon name="chevron-up" size={13} /> 새 목자 작업이 있습니다. 첫 페이지 보기
+			<Icon name="chevron-up" size={13} /> {$t('tasklist.newOnFirstPage')}
 		</button>
 	{/if}
 
@@ -278,36 +280,36 @@
 	{:else if tasks.length === 0}
 		<div class="card">
 			<EmptyState icon="inbox"
-				title={searchQ || filterKind || filterStatus ? '조건에 맞는 목자 작업이 없습니다' : '아직 목자 작업이 없습니다'}
+				title={searchQ || filterKind || filterStatus ? $t('tasklist.emptyFilteredTitle') : $t('tasklist.emptyTitle')}
 				description={searchQ || filterKind || filterStatus
-					? '필터를 지우고 다시 보세요.'
-					: 'Live Output 탭의 입력창으로 지시를 보내면 여기에 기록됩니다.'} />
+					? $t('tasklist.emptyFilteredDesc')
+					: $t('tasklist.emptyDesc')} />
 		</div>
 	{:else}
 		<div class="task-table">
-			{#each tasks as t, i (t.id)}
-				{@const dur = durationSec(t)}
-				<a class="task-row reveal" style="--i: {i}" href={rowHref(t)} aria-label={`목자 작업 #${t.id}`}>
-					<span class="row-kind chip chip-{t.shepherd_kind === 'command' ? 'accent' : t.shepherd_kind === 'review' ? 'queued' : 'info'}">
-						{kindLabels[t.shepherd_kind] || t.shepherd_kind}
+			{#each tasks as task, i (task.id)}
+				{@const dur = durationSec(task)}
+				<a class="task-row reveal" style="--i: {i}" href={rowHref(task)} aria-label={$t('tasklist.rowAria', { id: task.id })}>
+					<span class="row-kind chip chip-{task.shepherd_kind === 'command' ? 'accent' : task.shepherd_kind === 'review' ? 'queued' : 'info'}">
+						{enumLabel($t, 'tasklist.kind', task.shepherd_kind)}
 					</span>
-					<span class="row-id mono num">#{t.id}</span>
+					<span class="row-id mono num">#{task.id}</span>
 					<div class="row-body">
-						<span class="row-text">{rowText(t)}</span>
+						<span class="row-text">{rowText(task)}</span>
 						<span class="row-meta mono">
-							{#if t.model}<span class="meta-model" title={t.model}>{truncateModel(t.model)}</span>{/if}
-							{#if t.cost_usd > 0}<span class="meta-cost">{fmtCost(t.cost_usd)}</span>{/if}
-							{#if dur > 0}<span class="meta-dur" title="걸린 시간">{formatDuration(dur)}</span>{/if}
+							{#if task.model}<span class="meta-model" title={task.model}>{truncateModel(task.model)}</span>{/if}
+							{#if task.cost_usd > 0}<span class="meta-cost">{fmtCost(task.cost_usd)}</span>{/if}
+							{#if dur > 0}<span class="meta-dur" title={$t('tasklist.durationTitle')}>{formatDuration(dur)}</span>{/if}
 						</span>
 					</div>
-					<StatusBadge status={t.status} />
-					{#if t.status === 'pending'}
-						<button class="cancel-btn" onclick={(e) => cancelPendingTask(e, t.id)}
-							disabled={cancellingId === t.id} aria-label={`목자 작업 #${t.id} 취소`}>
-							{cancellingId === t.id ? '…' : 'Cancel'}
+					<StatusBadge status={task.status} />
+					{#if task.status === 'pending'}
+						<button class="cancel-btn" onclick={(e) => cancelPendingTask(e, task.id)}
+							disabled={cancellingId === task.id} aria-label={$t('tasklist.cancelAria', { id: task.id })}>
+							{cancellingId === task.id ? '…' : 'Cancel'}
 						</button>
 					{/if}
-					<span class="row-time mono num" title={t.created_at}>{timeAgo(t.created_at)}</span>
+					<span class="row-time mono num" title={task.created_at}>{timeAgo(task.created_at)}</span>
 				</a>
 			{/each}
 		</div>

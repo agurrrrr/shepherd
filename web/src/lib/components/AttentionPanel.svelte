@@ -2,6 +2,8 @@
 	import { apiPost } from '$lib/api.js';
 	import { refreshShepherdAttention } from '$lib/attention.js';
 	import { shepherdAttention } from '$lib/stores.js';
+	import { timeAgo } from '$lib/shepherdFormat.js';
+	import { t, enumLabel, translate } from '$lib/i18n/index.js';
 	import Icon from '$lib/components/Icon.svelte';
 
 	// Needs-attention panel (#599). GET /api/shepherd/attention returns items
@@ -44,13 +46,6 @@
 		cost_limit: 'zap'
 	};
 
-	const requestKindLabels = {
-		stop_task: '작업 중지',
-		execute_issue: '이슈 실행',
-		delete_issue: '이슈 삭제',
-		other: '기타'
-	};
-
 	async function load() {
 		loading = true;
 		error = '';
@@ -59,7 +54,7 @@
 		// the same result instead of firing its own request pair.
 		const { items: result, requests: reqResult } = await refreshShepherdAttention();
 		if (result === null) {
-			error = '확인 필요 항목을 불러오지 못했습니다.';
+			error = translate('attention.loadError');
 			items = [];
 		} else {
 			items = result;
@@ -72,13 +67,13 @@
 		requestBusy = { ...requestBusy, [req.id]: true };
 		error = '';
 		try {
-			const body = decision === 'reject' ? { note: '사용자가 거절했습니다.' } : {};
+			const body = decision === 'reject' ? { note: translate('attention.rejectNote') } : {};
 			const res = await apiPost(`/api/shepherd/requests/${req.id}/${decision}`, body);
 			if (!res?.success) {
-				error = res?.message || '요청 처리에 실패했습니다.';
+				error = res?.message || translate('attention.requestFailed');
 			}
 		} catch (e) {
-			error = '요청 처리에 실패했습니다: ' + (e?.message || e);
+			error = translate('attention.requestFailedWith', { error: e?.message || e });
 		} finally {
 			requestBusy = { ...requestBusy, [req.id]: false };
 			load();
@@ -86,9 +81,9 @@
 	}
 
 	function requestTargetLabel(req) {
-		if (req.kind === 'stop_task' && req.target_id) return `작업 #${req.target_id}`;
+		if (req.kind === 'stop_task' && req.target_id) return translate('attention.targetTask', { id: req.target_id });
 		if ((req.kind === 'execute_issue' || req.kind === 'delete_issue') && req.target_id) {
-			return `이슈 #${req.target_id}${req.project_name ? ' · ' + req.project_name : ''}`;
+			return `${translate('attention.targetIssue', { id: req.target_id })}${req.project_name ? ' · ' + req.project_name : ''}`;
 		}
 		return '';
 	}
@@ -117,10 +112,10 @@
 		try {
 			const res = await apiPost(url, {});
 			if (!res?.success) {
-				error = res?.message || '조치에 실패했습니다.';
+				error = res?.message || translate('attention.actionFailed');
 			}
 		} catch (e) {
-			error = '조치에 실패했습니다: ' + (e?.message || e);
+			error = translate('attention.actionFailedWith', { error: e?.message || e });
 		} finally {
 			setBusy(item.fingerprint, false);
 			load();
@@ -132,10 +127,10 @@
 		try {
 			const res = await apiPost('/api/shepherd/attention/ack', { fingerprint: item.fingerprint });
 			if (!res?.success) {
-				error = res?.message || '확인 처리에 실패했습니다.';
+				error = res?.message || translate('attention.ackFailed');
 			}
 		} catch (e) {
-			error = '확인 처리에 실패했습니다: ' + (e?.message || e);
+			error = translate('attention.ackFailedWith', { error: e?.message || e });
 		} finally {
 			setBusy(item.fingerprint, false);
 			load();
@@ -152,12 +147,8 @@
 	}
 
 	function actionLabel(kind) {
-		switch (kind) {
-			case 'retry_task': return '재시도';
-			case 'stop_task': return '중지';
-			case 'reset_sheep': return '서킷 초기화';
-			default: return '';
-		}
+		const label = enumLabel($t, 'attention.action', kind);
+		return label === String(kind) ? '' : label;
 	}
 
 	function linkHref(item) {
@@ -167,17 +158,6 @@
 			default: return null;
 		}
 	}
-
-	function timeAgo(dateStr) {
-		if (!dateStr) return '';
-		const date = new Date(String(dateStr).replace(' ', 'T'));
-		if (Number.isNaN(date.getTime())) return '';
-		const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-		if (diff < 60) return '방금';
-		if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
-		if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
-		return `${Math.floor(diff / 86400)}일 전`;
-	}
 </script>
 
 <div class="attention-panel card">
@@ -186,10 +166,10 @@
 		{#if $shepherdAttention > 0}
 			<!-- Same store the sidebar badge and the tab badge read (#623):
 			     items + pending requests, so all three numbers match. -->
-			<span class="count chip chip-danger mono num" aria-label="{$shepherdAttention}개 확인 필요">{$shepherdAttention}</span>
+			<span class="count chip chip-danger mono num" aria-label={$t('attention.badgeAria', { count: $shepherdAttention })}>{$shepherdAttention}</span>
 		{/if}
 		<span class="panel-head-spacer"></span>
-		<button class="btn btn-sm btn-ghost" onclick={load} aria-label="새로고침"><Icon name="refresh-cw" size={13} /></button>
+		<button class="btn btn-sm btn-ghost" onclick={load} aria-label={$t('common.refresh')}><Icon name="refresh-cw" size={13} /></button>
 	</div>
 
 	{#if error}
@@ -202,10 +182,10 @@
 	     Narrow screens keep the stacked order (requests first, then items). -->
 	<div class="panel-zones">
 		{#if requests.length > 0}
-			<section class="zone zone-requests" aria-label="목자 요청">
+			<section class="zone zone-requests" aria-label={$t('attention.aria.requests')}>
 				<div class="request-head">
 					<span class="eyebrow">Shepherd requests</span>
-					<span class="count chip chip-danger mono num" aria-label="{requests.length}개의 목자 요청">{requests.length}</span>
+					<span class="count chip chip-danger mono num" aria-label={$t('attention.requestsBadgeAria', { count: requests.length })}>{requests.length}</span>
 				</div>
 				<ul class="request-list">
 					{#each requests as req (req.id)}
@@ -215,7 +195,7 @@
 							</span>
 							<div class="request-body">
 								<div class="request-title-row">
-									<strong class="request-kind">{requestKindLabels[req.kind] || req.kind}</strong>
+									<strong class="request-kind">{enumLabel($t, 'attention.requestKind', req.kind)}</strong>
 									{#if req.requester_sheep}
 										<span class="request-chip chip">{req.requester_sheep}</span>
 									{/if}
@@ -237,12 +217,12 @@
 										class="btn btn-sm btn-primary"
 										onclick={() => decideRequest(req, 'approve')}
 										disabled={requestBusy[req.id]}
-									>승인</button>
+									>{$t('attention.approve')}</button>
 									<button
 										class="btn btn-sm btn-ghost reject"
 										onclick={() => decideRequest(req, 'reject')}
 										disabled={requestBusy[req.id]}
-									>거절</button>
+									>{$t('attention.reject')}</button>
 								</div>
 							</div>
 						</li>
@@ -251,7 +231,7 @@
 			</section>
 		{/if}
 
-		<section class="zone zone-items" aria-label="확인 필요 항목">
+		<section class="zone zone-items" aria-label={$t('attention.aria.items')}>
 			{#if loading && items.length === 0}
 				<div class="panel-loading" aria-busy="true">
 					{#each Array(3) as _}
@@ -261,7 +241,7 @@
 			{:else if items.length === 0}
 				<div class="panel-empty">
 					<Icon name="check-circle" size={20} />
-					<p>확인할 항목이 없습니다.</p>
+					<p>{$t('attention.empty')}</p>
 				</div>
 			{:else}
 				<ul class="item-list">
@@ -291,24 +271,24 @@
 										>{actionLabel(item.action_kind)}</button>
 									{/if}
 									{#if item.action_kind === 'open_issue' && item.target_id}
-										<button class="btn btn-sm" onclick={() => onOpenIssue(item)}>이슈 열기</button>
+										<button class="btn btn-sm" onclick={() => onOpenIssue(item)}>{$t('attention.openIssue')}</button>
 									{/if}
 									{#if linkHref(item)}
 										<a class="btn btn-sm" href={linkHref(item)}>
-											{item.action_kind === 'open_settings' ? '목자 설정' : '프로젝트'}
+											{item.action_kind === 'open_settings' ? $t('attention.openSettings') : $t('attention.openProject')}
 											<Icon name="arrow-up-right" size={12} />
 										</a>
 									{/if}
 									{#if item.target_id && (item.action_kind === 'retry_task' || item.action_kind === 'stop_task')}
-										<a class="btn btn-sm btn-ghost" href="/tasks/{item.target_id}?from=shepherd&tab=attention">작업 상세</a>
+										<a class="btn btn-sm btn-ghost" href="/tasks/{item.target_id}?from=shepherd&tab=attention">{$t('attention.taskDetail')}</a>
 									{/if}
 									<span class="item-actions-spacer"></span>
 									<button
 										class="btn btn-sm btn-ghost ack"
 										onclick={() => ack(item)}
 										disabled={busyMap[item.fingerprint]}
-										title="확인했습니다 — 같은 지문의 새 문제가 생기기 전까지는 보여주지 않습니다"
-									><Icon name="check" size={12} stroke={2.4} /> 확인함</button>
+										title={$t('attention.ackTitle')}
+									><Icon name="check" size={12} stroke={2.4} /> {$t('attention.ack')}</button>
 								</div>
 							</div>
 						</li>

@@ -19,6 +19,7 @@
 	import ShepherdPatrolLog from '$lib/components/ShepherdPatrolLog.svelte';
 	import ShepherdIssueBoard from '$lib/components/ShepherdIssueBoard.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { t, enumLabel } from '$lib/i18n/index.js';
 
 	// Shepherd (목자) console (#598, restructured #622). Full-height app page
 	// like the project workspace: header + one-line status chips + section tabs
@@ -32,14 +33,16 @@
 	// sections (#621 components) own their data and SSE subscriptions and are
 	// mounted with {#if} — an unmounted tab sends no requests.
 
+	// Tab labels come from the i18n dictionaries (#663). `labelKey` is absent
+	// for Live Output, whose label is English design copy already.
 	const SHEPHERD_TABS = [
 		{ id: 'output', label: 'Live Output', icon: 'terminal' },
-		{ id: 'history', label: '목자 작업', icon: 'clock' },
-		{ id: 'patrols', label: '순찰 기록', icon: 'search' },
-		{ id: 'board', label: '이슈 보드', icon: 'list-checks' },
-		{ id: 'attention', label: '확인 필요', icon: 'alert-triangle' }
+		{ id: 'history', labelKey: 'shepherd.tab.history', icon: 'clock' },
+		{ id: 'patrols', labelKey: 'shepherd.tab.patrols', icon: 'search' },
+		{ id: 'board', labelKey: 'shepherd.tab.board', icon: 'list-checks' },
+		{ id: 'attention', labelKey: 'shepherd.tab.attention', icon: 'alert-triangle' }
 	];
-	const VALID_TABS = SHEPHERD_TABS.map((t) => t.id);
+	const VALID_TABS = SHEPHERD_TABS.map((tab) => tab.id);
 
 	let activeTab = $state('output');
 
@@ -70,13 +73,8 @@
 	let openIssue = $state(null);      // { projectName, issueId }
 
 	// Autonomy tiers (#601). The daemon normalizes an unset/unknown value to
-	// "execute", so status.autonomy_tier is always one of these four.
-	const tierLabels = {
-		report: '보고만',
-		plan: '계획',
-		execute: '실행',
-		full: '전권'
-	};
+	// "execute", so status.autonomy_tier is always one of these four; their
+	// labels are the `shepherd.tier.*` i18n keys (#663).
 
 	async function loadStatus() {
 		try {
@@ -93,8 +91,8 @@
 	// as the project screen) while KEEPING the board filter keys (project,
 	// type, watched, q) — dropping them would reset the board on reload.
 	function tabFromUrl() {
-		const t = $page.url.searchParams.get('tab');
-		return VALID_TABS.includes(t) ? t : 'output';
+		const tabParam = $page.url.searchParams.get('tab');
+		return VALID_TABS.includes(tabParam) ? tabParam : 'output';
 	}
 
 	function switchTab(tab) {
@@ -114,10 +112,10 @@
 	// which deletes ?tab= — was reverted by the still-stale URL (#620).
 	let lastUrlTab = null;
 	$effect(() => {
-		const t = $page.url.searchParams.get('tab');
-		if (t === lastUrlTab) return;
-		lastUrlTab = t;
-		activeTab = VALID_TABS.includes(t) ? t : 'output';
+		const tabParam = $page.url.searchParams.get('tab');
+		if (tabParam === lastUrlTab) return;
+		lastUrlTab = tabParam;
+		activeTab = VALID_TABS.includes(tabParam) ? tabParam : 'output';
 	});
 
 	let workspaceOk = $derived(status?.workspace_valid === true);
@@ -128,14 +126,16 @@
 		(status?.active_delegations ?? 0) >= (status?.max_active_delegations ?? 0)
 	);
 	// Tab list for the shared PageTabs bar: live dot on Live Output while the
-	// manager is working, and the 확인 필요 count badge (#623) reads the same
-	// shepherdAttention store as the sidebar badge, so both numbers always
+	// manager is working, and the needs-attention count badge (#623) reads the
+	// same shepherdAttention store as the sidebar badge, so both numbers always
 	// match (attention.js assembles items + pending requests in one place).
+	// Labels resolve through i18n so they follow the locale (#663).
 	let pageTabs = $derived(
-		SHEPHERD_TABS.map((t) => ({
-			...t,
-			live: t.id === 'output' && working,
-			badge: t.id === 'attention' ? $shepherdAttention : 0
+		SHEPHERD_TABS.map((tab) => ({
+			...tab,
+			label: tab.label ?? $t(tab.labelKey),
+			live: tab.id === 'output' && working,
+			badge: tab.id === 'attention' ? $shepherdAttention : 0
 		}))
 	);
 
@@ -229,7 +229,7 @@
 				{#if status?.workspace_path}
 					<span class="header-path mono" title={status.workspace_path}>{status.workspace_path}</span>
 				{:else if status}
-					<span class="header-path mono ws-missing">워크스페이스 미지정</span>
+					<span class="header-path mono ws-missing">{$t('shepherd.workspace.missing')}</span>
 				{:else}
 					<span class="header-path mono">—</span>
 				{/if}
@@ -243,13 +243,13 @@
 					<StatusBadge status={working ? 'working' : 'idle'} taskId={runningTaskId || null} />
 				</div>
 				<div class="controls">
-					<!-- Provider/model are changed in Settings → 목자 only (wiki:
+					<!-- Provider/model are changed in Settings → Shepherd only (wiki:
 					     shepherd-orchestration). The chips link there — the settings
-					     screen opens on the 목자 tab, so no query is needed. -->
+					     screen opens on the Shepherd tab, so no query is needed. -->
 					<a class="head-chip chip chip-mono" href="/settings"
-						title="설정 → 목자에서 바꿉니다">{status.provider || '—'}</a>
+						title={$t('shepherd.chip.changeInSettings')}>{status.provider || '—'}</a>
 					<a class="head-chip chip chip-mono" href="/settings"
-						title="설정 → 목자에서 바꿉니다">{status.model || '기본 모델'}</a>
+						title={$t('shepherd.chip.changeInSettings')}>{status.model || $t('shepherd.model.default')}</a>
 				</div>
 			{/if}
 		</div>
@@ -265,61 +265,61 @@
 		</div>
 	{:else if !status}
 		<div class="status-row status-error">
-			<span>목자 상태를 불러오지 못했습니다.</span>
+			<span>{$t('shepherd.status.loadError')}</span>
 			<button class="btn btn-sm btn-ghost" onclick={loadStatus}>
-				<Icon name="refresh-cw" size={13} /> 다시 시도
+				<Icon name="refresh-cw" size={13} /> {$t('common.retry')}
 			</button>
 		</div>
 	{:else if !workspaceOk}
-		<!-- Workspace unset or invalid: block the console, point at Settings → 목자. -->
+		<!-- Workspace unset or invalid: block the console, point at Settings → Shepherd. -->
 		<div class="banner card" role="alert">
 			<span class="banner-icon"><Icon name="alert-triangle" size={18} /></span>
 			<div class="banner-text">
-				<strong>워크스페이스가 지정되지 않았거나 유효하지 않습니다</strong>
-				<p>{status.workspace_error || '목자가 일할 폴더를 먼저 정해야 지시를 보낼 수 있습니다.'}</p>
+				<strong>{$t('shepherd.workspace.invalidTitle')}</strong>
+				<p>{status.workspace_error || $t('shepherd.workspace.invalidFallback')}</p>
 			</div>
-			<a class="btn btn-sm btn-primary" href="/settings">설정에서 지정</a>
+			<a class="btn btn-sm btn-primary" href="/settings">{$t('shepherd.workspace.setInSettings')}</a>
 		</div>
 	{:else}
 		<div class="status-row">
-			<span class="status-chip" title="목자가 스스로 할 수 있는 범위, 설정에서 바꿉니다">
-				권한 {tierLabels[status.autonomy_tier] || status.autonomy_tier || '—'}
+			<span class="status-chip" title={$t('shepherd.chip.autonomyTitle')}>
+				{$t('shepherd.chip.autonomy', { tier: enumLabel($t, 'shepherd.tier', status.autonomy_tier) || '—' })}
 			</span>
-			<span class="status-chip mono" title="감시 이슈 작업의 동시 pending+running 수 / 상한"
+			<span class="status-chip mono" title={$t('shepherd.chip.delegationTitle')}
 				class:warn={delegationAtCap}>
-				위임 {status.active_delegations ?? 0}/{status.max_active_delegations ?? 0}{#if delegationAtCap}{' '}— 상한 도달{/if}
+				{$t('shepherd.chip.delegation', { active: status.active_delegations ?? 0, max: status.max_active_delegations ?? 0 })}{#if delegationAtCap} — {$t('shepherd.chip.delegationAtCap')}{/if}
 			</span>
-			<span class="status-chip mono" title="목자 작업과 감시 이슈 작업의 합산(자정 기준)"
+			<span class="status-chip mono" title={$t('shepherd.chip.costTitle')}
 				class:warn={status.cost_limit_exceeded}>
 				{#if status.cost_limit_exceeded}
-					{fmtCost(status.today_cost)} / {fmtCost(status.daily_cost_limit_usd)} — 초과
+					{$t('shepherd.chip.costOver', { used: fmtCost(status.today_cost), limit: fmtCost(status.daily_cost_limit_usd) })}
 				{:else if status.daily_cost_limit_usd > 0}
 					{fmtCost(status.today_cost)} / {fmtCost(status.daily_cost_limit_usd)}
 				{:else}
-					{fmtCost(status.today_cost)} · 제한 없음
+					{$t('shepherd.chip.costNoLimit', { used: fmtCost(status.today_cost) })}
 				{/if}
 			</span>
-			<span class="status-chip" title="목자 작업(지시·검토·순찰)에만 든 비용">
-				오늘 {status.today_task_count ?? 0}건 · {fmtCost(status.today_cost_usd)}
+			<span class="status-chip" title={$t('shepherd.chip.todayTitle')}>
+				{$t('shepherd.chip.today', { count: status.today_task_count ?? 0, cost: fmtCost(status.today_cost_usd) })}
 			</span>
 			<span class="status-chip" class:off={!status.patrol_enabled}
-				title={status.patrol_interval ? '순찰 주기 ' + status.patrol_interval : ''}>
+				title={status.patrol_interval ? $t('shepherd.chip.patrolTitle', { interval: status.patrol_interval }) : ''}>
 				{#if status.patrol_enabled}
-					다음 순찰 {(status.next_patrol_at || '').slice(5, 16) || '—'}
+					{$t('shepherd.chip.nextPatrol', { time: (status.next_patrol_at || '').slice(5, 16) || '—' })}
 				{:else}
-					순찰 꺼짐
+					{$t('shepherd.chip.patrolOff')}
 				{/if}
 			</span>
 			{#if status.circuit_tripped}
-				<span class="status-chip warn" title="연속 실패 {status.consecutive_failures}회 — 서킷 브레이커가 목자 작업을 멈췄습니다">
-					<Icon name="zap" size={12} /> 서킷 브레이커 켜짐
+				<span class="status-chip warn" title={$t('shepherd.chip.circuitTitle', { count: status.consecutive_failures })}>
+					<Icon name="zap" size={12} /> {$t('shepherd.chip.circuitOn')}
 				</span>
 			{/if}
 		</div>
 	{/if}
 
 	<!-- ============ Tabs ============ -->
-	<PageTabs tabs={pageTabs} value={activeTab} onChange={switchTab} ariaLabel="목자 화면 섹션" />
+	<PageTabs tabs={pageTabs} value={activeTab} onChange={switchTab} ariaLabel={$t('shepherd.aria.sections')} />
 
 	<!-- ============ Tab content: fills the remaining height ============ -->
 	<div class="content-area">
@@ -334,10 +334,10 @@
 				{:else}
 					<div class="output-empty">
 						<Icon name="terminal" size={28} />
-						<p>아래 입력창으로 목자에게 지시를 보내면 실시간 출력이 여기에 나옵니다.</p>
+						<p>{$t('shepherd.output.empty')}</p>
 						{#if recentTask}
 							<!-- from=shepherd&tab=output: the task page's back link returns to this tab (#623). -->
-							<a class="recent-link" href="/tasks/{recentTask.id}?from=shepherd&tab=output">최근 작업 #{recentTask.id} 결과 보기</a>
+							<a class="recent-link" href="/tasks/{recentTask.id}?from=shepherd&tab=output">{$t('shepherd.output.recentLink', { id: recentTask.id })}</a>
 						{/if}
 					</div>
 				{/if}
@@ -378,7 +378,7 @@
 		<div class="command-bar card">
 			<ShepherdConsole
 				disabled={!workspaceOk}
-				disabledReason={status ? (status.workspace_error || '워크스페이스를 먼저 지정하세요') : '목자 상태를 불러오는 중'}
+				disabledReason={status ? (status.workspace_error || $t('shepherd.console.needWorkspace')) : $t('shepherd.console.loadingStatus')}
 				working={working}
 				runningTaskId={runningTaskId}
 				injectSupported={status?.inject_supported ?? false}

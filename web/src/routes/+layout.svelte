@@ -6,7 +6,7 @@
 	import { refreshShepherdAttention } from '$lib/attention.js';
 	import { connectSSE, disconnectSSE, onSSE } from '$lib/sse.js';
 	import { syncPushSubscription } from '$lib/push.js';
-	import { setLocale } from '$lib/i18n/index.js';
+	import { setLocale, t } from '$lib/i18n/index.js';
 	import { goto, onNavigate } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
 	import BrandMark from '$lib/components/BrandMark.svelte';
@@ -209,15 +209,15 @@
 						<span class="status-dot {dot}" aria-hidden="true"></span>
 					{/if}
 					{#if badge > 0 && !badgeHref}
-						<span class="nav-badge mono num" title="{badge}개 확인 필요">{badge}</span>
+						<span class="nav-badge mono num" title={$t('nav.attentionTitle', { count: badge })}>{badge}</span>
 					{/if}
 				</span>
 			{/if}
 		</a>
 		{#if badge > 0 && badgeHref}
 			<a class="nav-badge nav-badge-link mono num" href={badgeHref}
-				title="{badge}개 확인 필요 — 확인 필요 탭에서 열기"
-				aria-label="확인 필요 {badge}건 — 확인 필요 탭에서 열기">{badge}</a>
+				title={$t('nav.attentionBadgeTitle', { count: badge })}
+				aria-label={$t('nav.attentionBadgeAria', { count: badge })}>{badge}</a>
 		{/if}
 	</div>
 {/snippet}
