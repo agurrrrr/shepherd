@@ -12,6 +12,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/embedded"
 	"github.com/agurrrrr/shepherd/internal/envutil"
 	"github.com/agurrrrr/shepherd/internal/grokstream"
+	"github.com/agurrrrr/shepherd/internal/llmcli"
 	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
@@ -144,7 +145,7 @@ func aggregatorOpenCodeCLI(ctx context.Context, spec AggregatorSpec, systemPromp
 	}
 
 	// Extract the final text from OpenCode JSON event stream.
-	output := extractOpenCodeFinalText(raw)
+	output := llmcli.ExtractOpenCodeFinalText(raw)
 	if output == "" {
 		output = raw // fallback to raw output
 	}

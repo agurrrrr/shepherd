@@ -1,23 +1,17 @@
 package magi
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/embedded"
-	"github.com/agurrrrr/shepherd/internal/envutil"
-	"github.com/agurrrrr/shepherd/internal/grokstream"
+	"github.com/agurrrrr/shepherd/internal/llmcli"
 	"github.com/agurrrrr/shepherd/internal/llmslots"
-	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
 // minPerTurnFraction limits how much of the convergence reserve can be spent on
@@ -1206,289 +1200,41 @@ func browserSessionDirective(sheepName string) string {
 	return fmt.Sprintf("\n\n[브라우저 세션 격리] 브라우저 도구(browser_*)를 사용할 경우 반드시 sheep_name=%q 를 지정하라. 다른 세션 이름을 쓰면 동시에 심의 중인 다른 모델과 브라우저 세션이 충돌한다.", sheepName)
 }
 
-// callClaudeCLI runs `claude --print` with an optional model flag. sheepName
-// pins any browser tool calls to a per-proposer session (see
-// browserSessionDirective); pass "" to skip browser isolation.
+// callClaudeCLI / callOpenCodeCLI / callGrokCLI are thin wrappers over the
+// shared internal/llmcli single-shot CLI helpers (#638 review: extract to a
+// common helper instead of copying). The wrappers keep magi's call sites and
+// signatures intact while adding the per-proposer browser session directive to
+// the prompt.
+
 func callClaudeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPrompt, workDir, sheepName string, onToken func(string)) (string, embedded.ChatUsage, error) {
-	args := []string{"--print"}
-	if spec.ModelID != "" {
-		args = append(args, "--model", spec.ModelID)
-	}
-
-	cmd := exec.CommandContext(ctx, "claude", args...)
-	cmd.Dir = workDir
-	cmd.Stdin = strings.NewReader(systemPrompt + browserSessionDirective(sheepName) + "\n\n" + userPrompt)
-	envutil.SetCleanEnv(cmd)
-	procutil.HideWindow(cmd)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", embedded.ChatUsage{}, fmt.Errorf("claude pipe: %w", err)
-	}
-	cmd.Stderr = nil
-
-	if err := cmd.Start(); err != nil {
-		return "", embedded.ChatUsage{}, fmt.Errorf("claude start: %w", err)
-	}
-
-	// ReadCappedLine instead of a 1MB Scanner: an oversized line is cut,
-	// not fatal, so the pipe keeps draining and Wait can return.
-	var buf bytes.Buffer
-	reader := bufio.NewReaderSize(stdout, 64*1024)
-	for {
-		line, _, err := procutil.ReadCappedLine(reader, procutil.DefaultMaxLineBytes)
-		if err != nil {
-			break
-		}
-		buf.WriteString(line + "\n")
-		if onToken != nil {
-			onToken(line + "\n")
-		}
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return "", embedded.ChatUsage{}, fmt.Errorf("claude wait: %w", err)
-	}
-
-	output := strings.TrimSpace(buf.String())
-	if output == "" {
-		return "", embedded.ChatUsage{}, fmt.Errorf("claude returned empty output")
-	}
-	return output, embedded.ChatUsage{}, nil
+	out, err := llmcli.ClaudeCLI(ctx, llmcli.CallOptions{
+		ModelID:      spec.ModelID,
+		WorkDir:      workDir,
+		SystemPrompt: systemPrompt + browserSessionDirective(sheepName),
+		UserPrompt:   userPrompt,
+		OnToken:      onToken,
+	})
+	return out, embedded.ChatUsage{}, err
 }
 
-// callOpenCodeCLI runs `opencode run --format json` with an optional model
-// flag. sheepName pins any browser tool calls to a per-proposer session (see
-// browserSessionDirective); pass "" to skip browser isolation.
 func callOpenCodeCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPrompt, workDir, sheepName string, onToken func(string)) (string, embedded.ChatUsage, error) {
-	args := []string{"run", "--format", "json"}
-	if spec.ModelID != "" {
-		args = append(args, "-m", spec.ModelID)
-	}
-
-	cmd := exec.CommandContext(ctx, "opencode", args...)
-	cmd.Dir = workDir
-	cmd.Stdin = strings.NewReader(systemPrompt + browserSessionDirective(sheepName) + "\n\n" + userPrompt)
-	envutil.SetCleanEnv(cmd)
-	procutil.HideWindow(cmd)
-	cmd.Env = append(cmd.Env, `OPENCODE_PERMISSION={"*":"allow"}`)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", embedded.ChatUsage{}, fmt.Errorf("opencode pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", embedded.ChatUsage{}, fmt.Errorf("opencode start: %w", err)
-	}
-
-	// Oversized events (large tool output) are skipped rather than ending
-	// the read loop; a cut JSON line is unusable anyway.
-	var buf bytes.Buffer
-	reader := bufio.NewReaderSize(stdout, 64*1024)
-	for {
-		line, truncated, err := procutil.ReadCappedLine(reader, procutil.DefaultMaxLineBytes)
-		if err != nil {
-			break
-		}
-		if truncated {
-			continue
-		}
-		buf.WriteString(line + "\n")
-
-		// Parse OpenCode JSON events to extract text content for streaming.
-		parsed := parseOpenCodeEvent(line)
-		if parsed != "" && onToken != nil {
-			onToken(parsed + "\n")
-		}
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return "", embedded.ChatUsage{}, fmt.Errorf("opencode wait: %w", err)
-	}
-
-	output := strings.TrimSpace(buf.String())
-	if output == "" {
-		return "", embedded.ChatUsage{}, fmt.Errorf("opencode returned empty output")
-	}
-
-	// Extract the final text from OpenCode JSON event stream.
-	finalText := extractOpenCodeFinalText(output)
-	if finalText == "" {
-		finalText = output // fallback to raw output
-	}
-	return finalText, embedded.ChatUsage{}, nil
+	out, err := llmcli.OpenCodeCLI(ctx, llmcli.CallOptions{
+		ModelID:      spec.ModelID,
+		WorkDir:      workDir,
+		SystemPrompt: systemPrompt + browserSessionDirective(sheepName),
+		UserPrompt:   userPrompt,
+		OnToken:      onToken,
+	})
+	return out, embedded.ChatUsage{}, err
 }
 
-// callGrokCLI runs `grok -p <prompt> --output-format streaming-json` with an
-// optional model flag. Grok 1.0.3 emits ACP session/update NDJSON (older
-// builds emit {"type":"text","data":".."} deltas). The final answer is the
-// concatenation of every text / agent_message_chunk. sheepName pins any
-// browser tool calls to a per-proposer session (see browserSessionDirective);
-// pass "" to skip.
 func callGrokCLI(ctx context.Context, spec ProposerSpec, systemPrompt, userPrompt, workDir, sheepName string, onToken func(string)) (string, embedded.ChatUsage, error) {
-	args := []string{"--output-format", "streaming-json", "--always-approve"}
-	if spec.ModelID != "" {
-		args = append(args, "-m", spec.ModelID)
-	}
-	// The single-turn prompt goes last, via the -p flag.
-	args = append(args, "-p", systemPrompt+browserSessionDirective(sheepName)+"\n\n"+userPrompt)
-
-	cmd := exec.CommandContext(ctx, config.GetGrokBinary(), args...)
-	cmd.Dir = workDir
-	cmd.Stdin = strings.NewReader("")
-	envutil.SetCleanEnv(cmd)
-	procutil.HideWindow(cmd)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", embedded.ChatUsage{}, fmt.Errorf("grok pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", embedded.ChatUsage{}, fmt.Errorf("grok start: %w", err)
-	}
-
-	var answer strings.Builder
-	reader := bufio.NewReaderSize(stdout, 64*1024)
-
-	// Grok 1.0.3 streaming-json is ACP session/update (or legacy type=text
-	// deltas). parse via grokstream so MAGI sees the same events as the
-	// worker, and ReadCappedLine never dies on 1MB+ tool_call_update lines.
-	// Buffer text deltas and flush on newline / 120B so MAGI live output
-	// stays line-granular (#7086).
-	var liveBuf strings.Builder
-	flushLive := func() {
-		if onToken != nil && liveBuf.Len() > 0 {
-			onToken(liveBuf.String())
-			liveBuf.Reset()
-		}
-	}
-
-	for {
-		line, _, err := procutil.ReadCappedLine(reader, grokstream.MaxLineBytes)
-		if err != nil {
-			break
-		}
-		ev := grokstream.ParseLine(line)
-		if ev == nil || ev.Type != "text" || ev.Data == "" {
-			continue
-		}
-		answer.WriteString(ev.Data)
-		if onToken != nil {
-			liveBuf.WriteString(ev.Data)
-			nlIdx := strings.IndexByte(liveBuf.String(), '\n')
-			for nlIdx >= 0 {
-				s := liveBuf.String()
-				onToken(s[:nlIdx+1])
-				s = s[nlIdx+1:]
-				liveBuf.Reset()
-				liveBuf.WriteString(s)
-				nlIdx = strings.IndexByte(liveBuf.String(), '\n')
-			}
-			// Safety flush: if no newline has arrived for a while, emit
-			// the accumulated chunk so the UI doesn't appear frozen during
-			// long paragraphs without line breaks.
-			if liveBuf.Len() >= 120 {
-				flushLive()
-			}
-		}
-	}
-
-	// Flush any remaining buffered text after the stream ends.
-	flushLive()
-
-	if err := cmd.Wait(); err != nil {
-		return "", embedded.ChatUsage{}, fmt.Errorf("grok wait: %w", err)
-	}
-
-	output := strings.TrimSpace(answer.String())
-	if output == "" {
-		return "", embedded.ChatUsage{}, fmt.Errorf("grok returned empty output")
-	}
-	return output, embedded.ChatUsage{}, nil
-}
-
-// parseOpenCodeEvent extracts displayable text from a single OpenCode JSON line.
-//
-// OpenCode v1.16+ emits events in the AI SDK streaming format:
-//
-//	{"type":"text","part":{"type":"text","text":"Hello!"}}
-//	{"type":"step_start","part":{"type":"step-start"}}
-//	{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}
-//
-// The text content lives in part.text (not a top-level "content" field).
-// Older versions used {"type":"message","content":"..."} — we keep that as
-// a fallback for compatibility.
-func parseOpenCodeEvent(line string) string {
-	line = strings.TrimSpace(line)
-	if line == "" || !strings.HasPrefix(line, "{") {
-		return ""
-	}
-	var event map[string]interface{}
-	if err := json.Unmarshal([]byte(line), &event); err != nil {
-		return ""
-	}
-	eventType, _ := event["type"].(string)
-
-	// v1.16+ format: text lives in part.text.
-	if eventType == "text" {
-		if part, ok := event["part"].(map[string]interface{}); ok {
-			if text, ok := part["text"].(string); ok {
-				return text
-			}
-		}
-	}
-
-	// Legacy format fallback: top-level content field.
-	switch eventType {
-	case "message", "text", "assistant":
-		if content, ok := event["content"].(string); ok {
-			return content
-		}
-	}
-	return ""
-}
-
-// extractOpenCodeFinalText extracts the final assistant message from a
-// sequence of OpenCode JSON events.
-//
-// It concatenates all text parts from "text"-type events (v1.16+ format).
-// For legacy format (top-level "content"), it takes the last non-empty value.
-func extractOpenCodeFinalText(raw string) string {
-	lines := strings.Split(raw, "\n")
-	var parts []string
-	var lastLegacyText string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || !strings.HasPrefix(line, "{") {
-			continue
-		}
-		var event map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			continue
-		}
-		eventType, _ := event["type"].(string)
-
-		// v1.16+ format: accumulate all text parts.
-		if eventType == "text" {
-			if part, ok := event["part"].(map[string]interface{}); ok {
-				if text, ok := part["text"].(string); ok && text != "" {
-					parts = append(parts, text)
-				}
-			}
-		}
-
-		// Legacy format fallback.
-		if eventType == "message" || eventType == "assistant" {
-			if content, ok := event["content"].(string); ok && content != "" {
-				lastLegacyText = content
-			}
-		}
-	}
-
-	if len(parts) > 0 {
-		return strings.Join(parts, "")
-	}
-	return lastLegacyText
+	out, err := llmcli.GrokCLI(ctx, llmcli.CallOptions{
+		ModelID:      spec.ModelID,
+		WorkDir:      workDir,
+		SystemPrompt: systemPrompt + browserSessionDirective(sheepName),
+		UserPrompt:   userPrompt,
+		OnToken:      onToken,
+	})
+	return out, embedded.ChatUsage{}, err
 }

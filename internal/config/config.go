@@ -153,6 +153,17 @@ func Init() error {
 	viper.SetDefault("provider_enabled_embedded", true)
 	viper.SetDefault("provider_enabled_magi", true)
 
+	// LLM sheep naming (#638). 켜면 프로젝트 등록 시 담당 양 이름을 LLM이 짓는다.
+	//   sheep_name_llm_enabled  : 스위치. 꺼지면 이름 풀(names.GetNext)만 쓴다.
+	//   sheep_name_llm_provider : claude/opencode/pi/grok/embedded 중 하나.
+	//                             magi는 단일 모델이 없고 auto는 실행 시 claude로
+	//                             바뀌므로 선택지가 아니다.
+	//   sheep_name_llm_model    : 비우면 model_<provider> 기본값. embedded는
+	//                             엔드포인트 ID이고, 비우면 embedded_active_id를 쓴다.
+	viper.SetDefault("sheep_name_llm_enabled", false)
+	viper.SetDefault("sheep_name_llm_provider", "")
+	viper.SetDefault("sheep_name_llm_model", "")
+
 	// 프롬프트 주입 설정
 	viper.SetDefault("session_reuse", true)
 	viper.SetDefault("include_task_history", true)

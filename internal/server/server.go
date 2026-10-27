@@ -165,6 +165,12 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/config/magi", s.handleGetMagiConfig)
 	api.Put("/config/magi", s.handleUpdateMagiConfig)
 
+	// LLM sheep naming (#638): dedicated endpoints because the PUT validates
+	// provider/model combinations (not fit for the generic PATCH /api allowlist).
+	api.Get("/config/sheep-naming", s.handleGetSheepNamingConfig)
+	api.Put("/config/sheep-naming", s.handleUpdateSheepNamingConfig)
+	api.Post("/sheep-names/suggest", s.handleSuggestSheepNames)
+
 	// Web Push (PWA task-complete notifications)
 	api.Get("/push/status", s.handlePushStatus)
 	api.Post("/push/subscribe", s.handlePushSubscribe)
