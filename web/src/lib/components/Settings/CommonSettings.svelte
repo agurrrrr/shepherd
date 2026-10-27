@@ -1,5 +1,6 @@
 <script>
 	import PushSettings from './PushSettings.svelte';
+	import SheepNamingSection from './SheepNamingSection.svelte';
 
 	/** @type {{ language: string, default_provider: string, max_sheep: number, max_concurrent_tasks: number, concurrency_limits: Record<string, number>, task_timeout: string, auto_approve: boolean, enable_file_browser: boolean, session_reuse: boolean, include_task_history: boolean, include_mcp_guide: boolean, include_sheep_memory: boolean, sheep_memory_prompt: string, wiki_enabled: boolean, wiki_auto_ingest: boolean, task_checkpoint_enabled: boolean, task_checkpoint_retention_days: number, wiki_max_context_pages: number, wiki_max_page_content_chars: number, discord_notifications_enabled: boolean, discord_webhook_url: string, discord_notify_on_complete: boolean, discord_notify_on_fail: boolean, webpush_enabled: boolean, webpush_notify_on_complete: boolean, webpush_notify_on_fail: boolean, server_host: string, server_port: number, model_claude: string }} */
 	export let configData;
@@ -112,6 +113,9 @@
 	></textarea>
 	<span class="hint"><code>{`{{.MemoryDir}}`}</code> 토큰은 작업 시점에 양의 실제 메모리 디렉토리 경로로 치환됩니다.</span>
 </div>
+
+<!-- LLM sheep naming (#638) — its own GET/PUT endpoints, not the shared config form -->
+<SheepNamingSection />
 
 <!-- Wiki -->
 <hr class="setting-divider" />

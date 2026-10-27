@@ -260,6 +260,15 @@
 			}
 		}));
 
+		// SSE: sheep renamed (#638) — the header chip and the Settings form key
+		// on sheepName, so patch it and re-fetch provider/status under the new name.
+		unsubs.push(onSSE('sheep_renamed', (data) => {
+			if (data?.new_name && (data.new_name === sheepName || data.old_name === sheepName)) {
+				sheepName = data.new_name;
+				resyncSheep();
+			}
+		}));
+
 		// SSE reconnect: events broadcast while disconnected are lost, so refetch
 		// the authoritative sheep status (otherwise a finished task can leave the
 		// UI stuck on "working" with the Stop button showing).
@@ -1134,7 +1143,15 @@
 			{#if activeTab === 'settings'}
 				<div class="schedules-fill">
 					<h3>Project Settings</h3>
-					<ProjectSettings projectName={projectName} />
+					<ProjectSettings
+						projectName={projectName}
+						{sheepName}
+						{sheepStatus}
+						onSheepRenamed={(renamed) => {
+							sheepName = renamed;
+							resyncSheep();
+						}}
+					/>
 				</div>
 			{/if}
 		</div>

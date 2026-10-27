@@ -21,7 +21,7 @@ export function connectSSE() {
 
 	eventSource = new EventSource(`/api/events?token=${token}`);
 
-	const eventTypes = ['output', 'task_start', 'task_complete', 'task_fail', 'task_stop', 'task_update', 'status_change', 'provider_change', 'schedule_created', 'schedule_updated', 'schedule_deleted', 'schedule_triggered', 'skill_created', 'skill_updated', 'skill_deleted'];
+	const eventTypes = ['output', 'task_start', 'task_complete', 'task_fail', 'task_stop', 'task_update', 'status_change', 'provider_change', 'sheep_renamed', 'schedule_created', 'schedule_updated', 'schedule_deleted', 'schedule_triggered', 'skill_created', 'skill_updated', 'skill_deleted'];
 	for (const type of eventTypes) {
 		eventSource.addEventListener(type, (e) => {
 			try {

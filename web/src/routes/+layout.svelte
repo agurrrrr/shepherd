@@ -140,6 +140,22 @@
 					s.name === data.sheep_name ? { ...s, provider: data.provider } : s
 				));
 			}),
+			onSSE('sheep_renamed', (data) => {
+				// #638: a rename changes the row's key, so patch both stores in
+				// place instead of refetching — sidebar dots key by project name,
+				// and the flock view keys by sheep name.
+				if (!data?.old_name || !data?.new_name) return;
+				sheep.update(list => list.map(s =>
+					s.name === data.old_name
+						? { ...s, name: data.new_name, project: data.project || s.project }
+						: s
+				));
+				projects.update(list => list.map(p =>
+					data.project && p.name === data.project
+						? { ...p, sheep: data.new_name }
+						: (p.sheep === data.old_name ? { ...p, sheep: data.new_name } : p)
+				));
+			}),
 			onSSE('task_start', () => { refreshStatus(); refreshShepherdStatus(); scheduleAttentionRefresh(); }),
 			onSSE('task_complete', () => { refreshStatus(); refreshShepherdStatus(); scheduleAttentionRefresh(); }),
 			onSSE('task_fail', () => { refreshStatus(); refreshShepherdStatus(); scheduleAttentionRefresh(); })

@@ -1,9 +1,68 @@
 <script>
 	import Icon from './Icon.svelte';
 	import { onMount } from 'svelte';
-	import { apiGet, apiPut } from '$lib/api.js';
+	import { apiGet, apiPut, apiPost, apiPatch } from '$lib/api.js';
 
-	let { projectName } = $props();
+	// sheepName/sheepStatus come from the project page so the rename form can
+	// disable saving while the sheep is mid-task (#638 §6: worker refuses renames
+	// of working sheep with 409). onSheepRenamed lets the parent refresh its own
+	// header/provider state after a successful rename.
+	let { projectName, sheepName = '', sheepStatus = 'idle', onSheepRenamed = null } = $props();
+
+	// --- 담당 양 (assigned sheep) section ---
+	let newName = $state('');
+	let renameSaving = $state(false);
+	let renameMsg = $state('');
+	let renameError = $state('');
+	let suggestions = $state([]);
+	let suggesting = $state(false);
+	let suggestMsg = $state('');
+
+	let canRename = $derived(
+		!!sheepName && sheepStatus !== 'working' && newName.trim() !== '' && newName.trim() !== sheepName && !renameSaving
+	);
+
+	async function saveRename() {
+		if (!canRename) return;
+		renameSaving = true;
+		renameMsg = '';
+		renameError = '';
+		const res = await apiPatch(`/api/sheep/${encodeURIComponent(sheepName)}/name`, { name: newName.trim() });
+		if (res?.success) {
+			const renamed = res.data?.new_name || newName.trim();
+			renameMsg = `'${sheepName}' → '${renamed}' 으로 바꿨습니다.`;
+			newName = '';
+			suggestions = [];
+			// Parent owns sheepName state and re-fetches the sheep's provider.
+			onSheepRenamed?.(renamed);
+		} else {
+			// 400: invalid name / manager sheep. 409: name taken or sheep working.
+			renameError = res?.message || '이름 변경에 실패했습니다.';
+		}
+		renameSaving = false;
+		setTimeout(() => { renameMsg = ''; }, 5000);
+	}
+
+	async function loadSuggestions() {
+		suggesting = true;
+		suggestMsg = '';
+		suggestions = [];
+		const res = await apiPost('/api/sheep-names/suggest', {
+			project_name: projectName,
+			description: ''
+		});
+		if (res?.success && res.data?.names) {
+			suggestions = res.data.names;
+		} else {
+			suggestMsg = res?.message || 'LLM 후보를 만들지 못했습니다.';
+		}
+		suggesting = false;
+	}
+
+	function useSuggestion(name) {
+		newName = name;
+		renameError = '';
+	}
 
 	let mcpServers = $state([]);
 	let loaded = $state(false);
@@ -54,6 +113,53 @@
 </script>
 
 <div class="project-settings">
+	<!-- 담당 양 (#638): rename through PATCH /api/sheep/<name>/name. LLM candidate
+	     chips come from POST /api/sheep-names/suggest. Working sheep cannot be
+	     renamed (the server answers 409), so Save stays disabled while working. -->
+	<div class="project-settings-section">
+		<h4><Icon name="sheep" size={15} /> 담당 양</h4>
+		{#if !sheepName}
+			<p class="hint">이 프로젝트에는 아직 담당 양이 없습니다.</p>
+		{:else}
+			<p class="hint">현재 담당 양: <strong>{sheepName}</strong>{#if sheepStatus === 'working'} — 작업 중이라 이름은 바꿀 수 없습니다{/if}</p>
+
+			<div class="sheep-rename-row">
+				<input
+					class="input mono"
+					type="text"
+					bind:value={newName}
+					placeholder="새 양 이름"
+					disabled={sheepStatus === 'working' || renameSaving}
+					maxlength="32"
+				/>
+				<button class="btn btn-primary" onclick={saveRename} disabled={!canRename}>
+					{renameSaving ? '저장 중…' : '이름 저장'}
+				</button>
+				<button class="btn" onclick={loadSuggestions} disabled={suggesting || sheepStatus === 'working'}>
+					{suggesting ? 'LLM 후보 생성 중… (최대 30초)' : 'LLM 후보 받기'}
+				</button>
+			</div>
+
+			{#if suggestions.length > 0}
+				<div class="sheep-chips">
+					{#each suggestions as n}
+						<button class="sheep-chip" onclick={() => useSuggestion(n)} disabled={sheepStatus === 'working'}>{n}</button>
+					{/each}
+				</div>
+			{/if}
+
+			{#if suggestMsg}
+				<p class="sheep-suggest-msg">{suggestMsg}</p>
+			{/if}
+			{#if renameError}
+				<p class="sheep-error">{renameError}</p>
+			{/if}
+			{#if renameMsg}
+				<p class="save-msg">{renameMsg}</p>
+			{/if}
+		{/if}
+	</div>
+
 	{#if !loaded}
 		<p class="text-muted">Loading...</p>
 	{:else if mcpServers.length === 0}
@@ -210,5 +316,48 @@
 	.save-msg {
 		font-size: var(--fs-sm);
 		color: var(--text-secondary);
+	}
+
+	/* #638 담당 양 rename form */
+	.sheep-rename-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin-top: 8px;
+	}
+	.sheep-rename-row .input {
+		flex: 1 1 200px;
+		max-width: 320px;
+		min-width: 0;
+	}
+	.sheep-chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 10px;
+	}
+	.sheep-chip {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		padding: 3px 9px;
+		border: 0;
+		background: var(--well);
+		box-shadow: var(--px-ring);
+		color: var(--text-primary);
+		cursor: pointer;
+	}
+	.sheep-chip:hover:not(:disabled) {
+		color: var(--accent);
+	}
+	.sheep-suggest-msg {
+		font-size: var(--fs-xs);
+		color: var(--text-tertiary);
+		margin-top: 8px;
+	}
+	.sheep-error {
+		font-size: var(--fs-sm);
+		color: var(--danger-text);
+		margin-top: 8px;
 	}
 </style>

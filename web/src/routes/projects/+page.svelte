@@ -14,6 +14,11 @@
 	let newPath = $state('');
 	let newDesc = $state('');
 	let adding = $state(false);
+	// #638: with LLM naming on, POST /api/projects can block up to ~30s while
+	// the provider picks a name — the button label says so. addMsg carries the
+	// assigned sheep and any fallback reason back to the user.
+	let addMsg = $state('');
+	let addError = $state('');
 	let query = $state('');
 	let unsubs = [];
 
@@ -72,18 +77,31 @@
 		const path = (newPath || suggestedPath).trim();
 		if (!newName || !path) return;
 		adding = true;
+		addMsg = '';
+		addError = '';
 		const res = await apiPost('/api/projects', {
 			name: newName,
 			path,
 			description: newDesc
 		});
 		if (res?.success) {
+			const data = res.data || {};
+			// #638: tell the user which sheep was assigned and, when the LLM
+			// name was not used, why.
+			if (data.assigned_sheep) {
+				addMsg = `담당 양: ${data.assigned_sheep}`;
+				if (data.name_fallback_reason) {
+					addMsg += ` (LLM 작명 폴백: ${data.name_fallback_reason})`;
+				}
+			}
 			newName = '';
 			newPath = '';
 			newDesc = '';
 			pathTouched = false;
 			showAdd = false;
 			await loadProjects();
+		} else {
+			addError = res?.message || '프로젝트 등록에 실패했습니다.';
 		}
 		adding = false;
 	}
@@ -164,10 +182,17 @@
 			</div>
 			<div class="add-actions">
 				<button type="submit" class="btn btn-primary" disabled={adding || !newName || !newPath}>
-					{adding ? 'Adding…' : 'Create project'}
+					{adding ? '양 이름 짓는 중… (최대 30초)' : 'Create project'}
 				</button>
 			</div>
 		</form>
+	{/if}
+
+	{#if addError}
+		<div class="card add-result add-result-error">{addError}</div>
+	{/if}
+	{#if addMsg}
+		<div class="card add-result">{addMsg}</div>
 	{/if}
 
 	{#if !loaded}
@@ -314,6 +339,18 @@
 	.add-actions {
 		display: flex;
 		justify-content: flex-end;
+	}
+
+	/* #638: post-registration notice — assigned sheep and LLM fallback reason */
+	.add-result {
+		margin-top: 12px;
+		padding: 10px 14px;
+		font-size: var(--fs-sm);
+		color: var(--text-primary);
+	}
+
+	.add-result-error {
+		color: var(--danger-text);
 	}
 
 	/* Grid */
