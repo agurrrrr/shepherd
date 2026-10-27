@@ -1469,9 +1469,9 @@ func runTaskRevert(id int, dryRun, yes, undo bool) {
 			reportRevertFailure(err)
 			os.Exit(1)
 		}
-		fmt.Printf("✅ Task #%d 되돌리기 취소 완료\n", id)
+		fmt.Printf(i18n.T().Revert.UndoDoneFmt+"\n", id)
 		printRevertFiles(convertCheckpointFiles(result))
-		fmt.Println("ℹ️ 변경은 커밋되지 않은 상태로 작업 트리에 남아 있습니다.")
+		fmt.Println(i18n.T().Revert.UndoUncommittedNote)
 		return
 	}
 
@@ -1481,7 +1481,7 @@ func runTaskRevert(id int, dryRun, yes, undo bool) {
 			reportRevertFailure(err)
 			os.Exit(1)
 		}
-		fmt.Printf("🔍 Task #%d 되돌리기 미리보기 (파일은 바뀌지 않았습니다)\n", id)
+		fmt.Printf(i18n.T().Revert.PreviewHeaderFmt+"\n", id)
 		printRevertFiles(convertCheckpointFiles(result))
 		return
 	}
@@ -1493,12 +1493,12 @@ func runTaskRevert(id int, dryRun, yes, undo bool) {
 			os.Exit(1)
 		}
 		if !preview.Changed {
-			fmt.Println("바뀔 파일이 없습니다.")
+			fmt.Println(i18n.T().Revert.NoFilesToChange)
 			return
 		}
 		printRevertPreview(preview)
 		if !confirmRevert() {
-			fmt.Println("취소했습니다.")
+			fmt.Println(i18n.T().Revert.Cancelled)
 			return
 		}
 	}
@@ -1508,9 +1508,9 @@ func runTaskRevert(id int, dryRun, yes, undo bool) {
 		reportRevertFailure(err)
 		os.Exit(1)
 	}
-	fmt.Printf("✅ Task #%d 되돌리기 완료\n", id)
+	fmt.Printf(i18n.T().Revert.DoneFmt+"\n", id)
 	printRevertFiles(convertCheckpointFiles(result))
-	fmt.Println("ℹ️ 변경은 커밋하지 않은 상태로 작업 트리에 남아 있습니다.")
+	fmt.Println(i18n.T().Revert.UncommittedNote)
 }
 
 func runTaskRevertRemote(id int, dryRun, yes, undo bool) {
@@ -1522,9 +1522,9 @@ func runTaskRevertRemote(id int, dryRun, yes, undo bool) {
 			reportRevertFailure(err)
 			os.Exit(1)
 		}
-		fmt.Printf("✅ Task #%d 되돌리기 취소 완료\n", id)
+		fmt.Printf(i18n.T().Revert.UndoDoneFmt+"\n", id)
 		printRevertFiles(convertAPIFiles(result.Files))
-		fmt.Println("ℹ️ 변경은 커밋되지 않은 상태로 작업 트리에 남아 있습니다.")
+		fmt.Println(i18n.T().Revert.UndoUncommittedNote)
 		return
 	}
 
@@ -1534,7 +1534,7 @@ func runTaskRevertRemote(id int, dryRun, yes, undo bool) {
 			reportRevertFailure(err)
 			os.Exit(1)
 		}
-		fmt.Printf("🔍 Task #%d 되돌리기 미리보기 (파일은 바뀌지 않았습니다)\n", id)
+		fmt.Printf(i18n.T().Revert.PreviewHeaderFmt+"\n", id)
 		printRevertFiles(convertAPIFiles(result.Files))
 		return
 	}
@@ -1548,11 +1548,11 @@ func runTaskRevertRemote(id int, dryRun, yes, undo bool) {
 		if len(preview.Files) > 0 {
 			printRevertPreviewRemote(preview)
 		} else {
-			fmt.Println("바뀔 파일이 없습니다.")
+			fmt.Println(i18n.T().Revert.NoFilesToChange)
 			return
 		}
 		if !confirmRevert() {
-			fmt.Println("취소했습니다.")
+			fmt.Println(i18n.T().Revert.Cancelled)
 			return
 		}
 	}
@@ -1562,9 +1562,9 @@ func runTaskRevertRemote(id int, dryRun, yes, undo bool) {
 		reportRevertFailure(err)
 		os.Exit(1)
 	}
-	fmt.Printf("✅ Task #%d 되돌리기 완료\n", id)
+	fmt.Printf(i18n.T().Revert.DoneFmt+"\n", id)
 	printRevertFiles(convertAPIFiles(result.Files))
-	fmt.Println("ℹ️ 변경은 커밋하지 않은 상태로 작업 트리에 남아 있습니다.")
+	fmt.Println(i18n.T().Revert.UncommittedNote)
 }
 
 func newCLIAPIClient() *apiclient.Client {
@@ -1578,20 +1578,20 @@ func newCLIAPIClient() *apiclient.Client {
 }
 
 func printRevertPreview(result *taskrevert.Result) {
-	fmt.Printf("다음 파일이 원래 상태로 돌아갑니다:\n")
+	fmt.Println(i18n.T().Revert.FilesReturnHeader)
 	printRevertFiles(convertCheckpointFiles(result))
-	fmt.Println("ℹ️ 변경은 커밋하지 않은 상태로 작업 트리에 남아 있습니다.")
+	fmt.Println(i18n.T().Revert.UncommittedNote)
 }
 
 func printRevertPreviewRemote(result *apiclient.RevertResult) {
-	fmt.Printf("다음 파일이 원래 상태로 돌아갑니다:\n")
+	fmt.Println(i18n.T().Revert.FilesReturnHeader)
 	printRevertFiles(convertAPIFiles(result.Files))
-	fmt.Println("ℹ️ 변경은 커밋하지 않은 상태로 작업 트리에 남아 있습니다.")
+	fmt.Println(i18n.T().Revert.UncommittedNote)
 }
 
 func printRevertFiles(files []revertFileInfo) {
 	if len(files) == 0 {
-		fmt.Println("변경되는 파일이 없습니다.")
+		fmt.Println(i18n.T().Revert.NoChangedFiles)
 		return
 	}
 	for _, f := range files {
@@ -1630,7 +1630,7 @@ func convertAPIFiles(files []apiclient.RevertFile) []revertFileInfo {
 }
 
 func confirmRevert() bool {
-	fmt.Print("되돌릴까요? [y/N]: ")
+	fmt.Print(i18n.T().Revert.ConfirmPrompt)
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && line == "" {
 		return false
@@ -1657,7 +1657,7 @@ func reportRevertFailure(err error) {
 }
 
 func printConflictFiles(paths []string) {
-	fmt.Fprintln(os.Stderr, "충돌한 파일:")
+	fmt.Fprintln(os.Stderr, i18n.T().Revert.ConflictFilesHeader)
 	for _, path := range paths {
 		fmt.Fprintf(os.Stderr, "  %s\n", path)
 	}
@@ -3788,7 +3788,7 @@ var wikiHistoryCmd = &cobra.Command{
 		}
 
 		if len(versions) == 0 {
-			fmt.Printf("페이지 %q 에 대한 버전 히스토리가 없습니다.\n", slug)
+			fmt.Printf(i18n.T().Wiki.NoHistoryFmt+"\n", slug)
 			return
 		}
 
@@ -3808,7 +3808,7 @@ var wikiHistoryCmd = &cobra.Command{
 			}
 
 			v := sorted[wikiHistoryShow-1]
-			fmt.Printf("# %s (버전 %d)\n\n", slug, wikiHistoryShow)
+			fmt.Printf(i18n.T().Wiki.VersionHeaderFmt+"\n\n", slug, wikiHistoryShow)
 			fmt.Printf("Date:   %s\n", v.CreatedAt.Format("2006-01-02 15:04"))
 			fmt.Printf("Summary: %s\n", v.Summary)
 			if v.Author != "" {

@@ -14,6 +14,7 @@ import (
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/checkpoint"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/agurrrrr/shepherd/internal/taskchanges"
 )
@@ -44,17 +45,17 @@ func Revert(ctx context.Context, t *ent.Task, dryRun bool) (*Result, error) {
 		return nil, &Error{Status: 404, Message: "task not found"}
 	}
 	if t.Status != entTask.StatusCompleted && t.Status != entTask.StatusFailed && t.Status != entTask.StatusStopped {
-		return nil, &Error{Status: 400, Message: "작업이 완료·실패·중단 상태일 때만 되돌릴 수 있습니다 (task is not finished)"}
+		return nil, &Error{Status: 400, Message: i18n.T().Revert.NotFinished}
 	}
 	if !t.RevertedAt.IsZero() {
-		return nil, &Error{Status: 409, Message: "이미 되돌린 작업입니다. 되돌리기 취소를 먼저 실행하세요 (already reverted; undo first)"}
+		return nil, &Error{Status: 409, Message: i18n.T().Revert.AlreadyReverted}
 	}
 	if t.CheckpointDir == "" || t.CheckpointStart == "" || t.CheckpointEnd == "" {
-		return nil, &Error{Status: 400, Message: "체크포인트가 없어 되돌릴 수 없습니다 (no checkpoint)"}
+		return nil, &Error{Status: 400, Message: i18n.T().Revert.NoCheckpoint}
 	}
 	if !checkpoint.CommitExists(ctx, t.CheckpointDir, t.CheckpointStart) ||
 		!checkpoint.CommitExists(ctx, t.CheckpointDir, t.CheckpointEnd) {
-		return nil, &Error{Status: 400, Message: "체크포인트 스냅샷을 찾을 수 없습니다 (snapshot pruned)"}
+		return nil, &Error{Status: 400, Message: i18n.T().Revert.SnapshotPruned}
 	}
 	if err := ensureNoRunningTask(ctx, t); err != nil {
 		return nil, err
@@ -99,7 +100,7 @@ func Revert(ctx context.Context, t *ent.Task, dryRun bool) (*Result, error) {
 		SetRevertedAt(now).
 		SetRevertPre(result.Pre).
 		Save(ctx); err != nil {
-		return nil, &Error{Status: 500, Message: fmt.Sprintf("되돌리기 결과를 저장하지 못했습니다: %v", err)}
+		return nil, &Error{Status: 500, Message: fmt.Sprintf(i18n.T().Revert.SaveResultFailedFmt, err)}
 	}
 	result.RevertedAt = now
 	return result, nil
@@ -113,18 +114,18 @@ func Undo(ctx context.Context, t *ent.Task) (*Result, error) {
 		return nil, &Error{Status: 404, Message: "task not found"}
 	}
 	if t.RevertedAt.IsZero() {
-		return nil, &Error{Status: 400, Message: "되돌린 작업이 아닙니다 (task was not reverted)"}
+		return nil, &Error{Status: 400, Message: i18n.T().Revert.NotReverted}
 	}
 	if t.RevertPre == "" || t.CheckpointDir == "" {
-		return nil, &Error{Status: 400, Message: "되돌리기 스냅샷 정보가 없습니다 (missing revert snapshot)"}
+		return nil, &Error{Status: 400, Message: i18n.T().Revert.MissingRevertSnapshot}
 	}
 	if !checkpoint.CommitExists(ctx, t.CheckpointDir, t.RevertPre) {
-		return nil, &Error{Status: 400, Message: "되돌리기 직전 스냅샷을 찾을 수 없습니다 (revert snapshot pruned)"}
+		return nil, &Error{Status: 400, Message: i18n.T().Revert.RevertSnapshotPruned}
 	}
 
 	base, ok := checkpoint.ResolveRef(ctx, t.CheckpointDir, checkpoint.TaskRef(t.ID, "reverted"))
 	if !ok {
-		return nil, &Error{Status: 409, Message: "되돌리기 스냅샷을 찾을 수 없습니다. 스냅샷이 정리되었을 수 있습니다 (reverted snapshot missing)"}
+		return nil, &Error{Status: 409, Message: i18n.T().Revert.RevertedSnapshotMissing}
 	}
 
 	if err := ensureNoRunningTask(ctx, t); err != nil {
@@ -140,7 +141,7 @@ func Undo(ctx context.Context, t *ent.Task) (*Result, error) {
 		ClearRevertedAt().
 		ClearRevertPre().
 		Save(ctx); err != nil {
-		return nil, &Error{Status: 500, Message: fmt.Sprintf("되돌리기 취소 결과를 저장하지 못했습니다: %v", err)}
+		return nil, &Error{Status: 500, Message: fmt.Sprintf(i18n.T().Revert.UndoSaveFailedFmt, err)}
 	}
 	_ = checkpoint.DeleteRefs(ctx, t.CheckpointDir,
 		checkpoint.TaskRef(t.ID, "pre-revert"),
@@ -166,12 +167,12 @@ func Undo(ctx context.Context, t *ent.Task) (*Result, error) {
 func ensureNoRunningTask(ctx context.Context, t *ent.Task) error {
 	top, _, err := checkpoint.Probe(ctx, t.CheckpointDir)
 	if err != nil {
-		return &Error{Status: 400, Message: "git 저장소가 아니라서 되돌릴 수 없습니다 (not a git repository)"}
+		return &Error{Status: 400, Message: i18n.T().Revert.NotGitRepo}
 	}
 
 	running, err := queue.ListTasksByStatus(entTask.StatusRunning)
 	if err != nil {
-		return &Error{Status: 500, Message: fmt.Sprintf("실행 중인 작업을 확인하지 못했습니다: %v", err)}
+		return &Error{Status: 500, Message: fmt.Sprintf(i18n.T().Revert.RunningCheckFailedFmt, err)}
 	}
 	for _, other := range running {
 		if other.ID == t.ID {
@@ -188,7 +189,7 @@ func ensureNoRunningTask(ctx context.Context, t *ent.Task) error {
 		if probeErr == nil && otherTop == top {
 			return &Error{
 				Status:  409,
-				Message: fmt.Sprintf("같은 저장소에서 작업 #%d이(가) 실행 중입니다. 그 작업이 끝난 뒤에 되돌려 주세요 (another task is running in this repository)", other.ID),
+				Message: fmt.Sprintf(i18n.T().Revert.OtherTaskRunningFmt, other.ID),
 			}
 		}
 	}
@@ -200,11 +201,11 @@ func mapTransplantError(dir string, err error) error {
 	if errors.As(err, &conflict) {
 		return &Error{
 			Status:    409,
-			Message:   "되돌리는 중 충돌이 발생했습니다. 작업 트리는 바뀌지 않았습니다 (transplant conflict)",
+			Message:   i18n.T().Revert.Conflict,
 			Conflicts: conflict.Paths,
 		}
 	}
-	return &Error{Status: 400, Message: fmt.Sprintf("되돌리지 못했습니다: %v", err)}
+	return &Error{Status: 400, Message: fmt.Sprintf(i18n.T().Revert.GenericFailFmt, err)}
 }
 
 func convertFiles(changes []checkpoint.FileChange) []taskchanges.File {
