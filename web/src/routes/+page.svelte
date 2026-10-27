@@ -128,6 +128,21 @@
 		return Math.floor(diff / 86400) + 'd ago';
 	}
 
+	// Hidden projects leave the sidebar (+layout.svelte) and they leave the flock
+	// pasture too — a sheep assigned to one is still reachable via /projects and
+	// /sheep, it just does not graze on the dashboard. Sheep with no project stay.
+	// Only the pasture and its legend follow this filter: the Awake tile, the hero
+	// line, the Live section and the monitor keep counting every sheep, so work
+	// running in a hidden project is never silently dropped from view.
+	let hiddenProjects = $derived(
+		new Set(($projects || []).filter((p) => p.hidden).map((p) => p.name))
+	);
+	let flockSheep = $derived(
+		($sheep || []).filter((s) => !s.project || !hiddenProjects.has(s.project))
+	);
+	let hiddenSheep = $derived(
+		($sheep || []).filter((s) => s.project && hiddenProjects.has(s.project))
+	);
 	let workingSheep = $derived($sheep.filter(s => s.status === 'working' && s.project));
 
 	function setActivityProject(name) {
@@ -168,6 +183,24 @@
 		pending: dashboard?.tasks?.pending ?? 0,
 		completed: dashboard?.tasks?.completed ?? 0,
 		failed: dashboard?.tasks?.failed ?? 0
+	});
+
+	// The pasture legend counts only what the pasture draws, so the numbers add up
+	// to the sheep on screen. Fall back to the backend counts while the sheep
+	// store is still empty.
+	let flockTotals = $derived.by(() => {
+		if (($sheep || []).length === 0) {
+			return {
+				total: dashboard?.sheep?.total ?? 0,
+				working: dashboard?.sheep?.working ?? 0,
+				error: dashboard?.sheep?.error ?? 0
+			};
+		}
+		return {
+			total: flockSheep.length,
+			working: flockSheep.filter((s) => s.status === 'working').length,
+			error: flockSheep.filter((s) => s.status === 'error').length
+		};
 	});
 
 	let finished = $derived(totals.completed + totals.failed);
@@ -272,14 +305,17 @@
 				<div class="flock-head">
 					<SectionHeader index={ord.flock} eyebrow="Pasture" title="The flock" />
 					<ul class="legend" aria-label="Legend">
-						<li><span class="key live"></span>Working <b class="num">{totals.working}</b></li>
-						<li><span class="key rest"></span>Resting <b class="num">{Math.max(0, totals.sheep - totals.working - totals.error)}</b></li>
-						{#if totals.error > 0}
-							<li><span class="key danger"></span>Error <b class="num">{totals.error}</b></li>
+						<li><span class="key live"></span>Working <b class="num">{flockTotals.working}</b></li>
+						<li><span class="key rest"></span>Resting <b class="num">{Math.max(0, flockTotals.total - flockTotals.working - flockTotals.error)}</b></li>
+						{#if flockTotals.error > 0}
+							<li><span class="key danger"></span>Error <b class="num">{flockTotals.error}</b></li>
+						{/if}
+						{#if hiddenSheep.length > 0}
+							<li><span class="key hidden"></span>Hidden <b class="num">{hiddenSheep.length}</b></li>
 						{/if}
 					</ul>
 				</div>
-				<FlockField sheep={$sheep} />
+				<FlockField sheep={flockSheep} />
 			</div>
 
 			<div class="tiles">
@@ -591,6 +627,13 @@
 	.key.live { background: var(--live); }
 	.key.rest { background: var(--text-primary); }
 	.key.danger { background: var(--danger); }
+	/* Hidden-project sheep are counted in the legend but never drawn — a dim key
+	   says "these exist, they are just not grazing here". */
+	.key.hidden { background: var(--text-tertiary); opacity: 0.45; }
+
+	.legend li .key.hidden + b {
+		color: var(--text-secondary);
+	}
 
 	.tiles {
 		display: grid;
