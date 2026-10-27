@@ -25,13 +25,14 @@ import (
 	"time"
 
 	"github.com/agurrrrr/shepherd/ent"
-	entshepherdack "github.com/agurrrrr/shepherd/ent/shepherdack"
 	entIssue "github.com/agurrrrr/shepherd/ent/issue"
 	"github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/sheep"
+	entshepherdack "github.com/agurrrrr/shepherd/ent/shepherdack"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/names"
 	"github.com/agurrrrr/shepherd/internal/queue"
 )
@@ -263,8 +264,8 @@ func attentionFailedTasks(ctx context.Context, projectIDs []int, now time.Time) 
 			Kind:        AttentionFailedTask,
 			Severity:    6,
 			Fingerprint: fmt.Sprintf("%s:%d", AttentionFailedTask, t.ID),
-			Title:       fmt.Sprintf("작업 #%d 실패", t.ID),
-			Message:     firstLine(t.Error, "실패 원인이 기록되지 않았습니다"),
+			Title:       fmt.Sprintf(i18n.T().Attention.FailedTaskTitleFmt, t.ID),
+			Message:     firstLine(t.Error, i18n.T().Attention.NoFailureRecorded),
 			ActionKind:  "retry_task",
 			TargetID:    t.ID,
 			CreatedAt:   t.CompletedAt,
@@ -326,7 +327,7 @@ func attentionLongRunningTasks(ctx context.Context, projectIDs []int, now time.T
 			Kind:        AttentionLongRunning,
 			Severity:    5,
 			Fingerprint: fmt.Sprintf("%s:%d:%d", AttentionLongRunning, t.ID, bucket),
-			Title:       fmt.Sprintf("작업 #%d가 %s 넘게 실행 중", t.ID, formatMinutes(int(runningFor.Minutes()))),
+			Title:       fmt.Sprintf(i18n.T().Attention.LongRunningTitleFmt, t.ID, formatMinutes(int(runningFor.Minutes()))),
 			Message:     longRunningMessage(t.Prompt, sheepName),
 			ActionKind:  "stop_task",
 			TargetID:    t.ID,
@@ -345,9 +346,9 @@ func attentionLongRunningTasks(ctx context.Context, projectIDs []int, now time.T
 }
 
 func longRunningMessage(prompt, sheepName string) string {
-	line := firstLine(prompt, "프롬프트 없음")
+	line := firstLine(prompt, i18n.T().Attention.NoPrompt)
 	if sheepName != "" {
-		return fmt.Sprintf("%s 양에서 실행 중 — %s", sheepName, line)
+		return fmt.Sprintf(i18n.T().Attention.RunningOnSheepFmt, sheepName, line)
 	}
 	return line
 }
@@ -378,14 +379,14 @@ func attentionCircuitOpen(ctx context.Context) ([]AttentionItem, error) {
 		}
 		label := s.Name
 		if names.IsManager(s.Name) {
-			label = "목자"
+			label = i18n.T().Attention.ManagerLabel
 		}
 		items = append(items, AttentionItem{
 			Kind:        AttentionCircuitOpen,
 			Severity:    7,
 			Fingerprint: fmt.Sprintf("%s:%s:%d", AttentionCircuitOpen, s.Name, s.ConsecutiveFailures),
-			Title:       fmt.Sprintf("%s 양의 서킷 브레이커가 켜졌습니다", label),
-			Message:     fmt.Sprintf("연속 실패 %d회 — 대기 작업이 멈췄습니다. 재시도 전에 서킷을 초기화하세요.", s.ConsecutiveFailures),
+			Title:       fmt.Sprintf(i18n.T().Attention.CircuitOpenTitleFmt, label),
+			Message:     fmt.Sprintf(i18n.T().Attention.CircuitOpenMessageFmt, s.ConsecutiveFailures),
 			ActionKind:  "reset_sheep",
 			TargetName:  s.Name,
 			Project:     projectName,
@@ -521,8 +522,8 @@ func attentionPendingBacklogs(ctx context.Context, scope []*ent.Project, now tim
 			Kind:        AttentionPendingBacklog,
 			Severity:    4,
 			Fingerprint: fmt.Sprintf("%s:%d:%d", AttentionPendingBacklog, projectID, oldestTaskID),
-			Title:       fmt.Sprintf("%s 프로젝트에 pending 작업이 %d개", name, count),
-			Message:     fmt.Sprintf("가장 오래된 작업 #%d가 %s 넘게 대기를 기다립니다.", oldestTaskID, formatMinutes(stale)),
+			Title:       fmt.Sprintf(i18n.T().Attention.BacklogTitleFmt, name, count),
+			Message:     fmt.Sprintf(i18n.T().Attention.BacklogMessageFmt, oldestTaskID, formatMinutes(stale)),
 			ActionKind:  "open_project",
 			TargetName:  name,
 			Project:     name,
@@ -536,11 +537,11 @@ func attentionPendingBacklogs(ctx context.Context, scope []*ent.Project, now tim
 				// Serial-wait evidence: name the live running task the queue
 				// is lined up behind, whatever else this item reports.
 				item.Detail["draining_behind_task"] = int(runningID.Int64)
-				msg := fmt.Sprintf(" 담당 양 %s이(가) 지금 #%d를 실행 중이므로, 이 pending은 직렬 큐에서 순서를 기다리는 것일 수 있습니다.",
+				msg := fmt.Sprintf(i18n.T().Attention.BacklogDrainingFmt,
 					sheepName.String, runningID.Int64)
 				if st, ok2 := parseStoredTime(runningStartedRaw.String); ok2 {
 					item.Detail["draining_started_at"] = st.Format(time.RFC3339)
-					msg += fmt.Sprintf(" 실행 시작 시각은 %s입니다.", st.Format("2006-01-02 15:04"))
+					msg += fmt.Sprintf(i18n.T().Attention.BacklogDrainingStartFmt, st.Format("2006-01-02 15:04"))
 				}
 				item.Message += msg
 				if deadzoneCount == 0 {
@@ -550,13 +551,13 @@ func attentionPendingBacklogs(ctx context.Context, scope []*ent.Project, now tim
 					item.Severity = 2
 				}
 			} else {
-				item.Message += fmt.Sprintf(" 담당 양 %s은(는) 지금 대기 상태(idle)이므로 실제 정체일 가능성이 있습니다.", sheepName.String)
+				item.Message += fmt.Sprintf(i18n.T().Attention.BacklogSheepIdleFmt, sheepName.String)
 			}
 		}
 		if deadzoneCount > 0 {
 			item.Detail["manager_pending_no_kind"] = deadzoneCount
 			item.Message += fmt.Sprintf(
-				" 같은 프로젝트에 목자(shepherd) 양에게 배정되었고 shepherd_kind이 빈 pending이 %d개 있습니다. #629 수정이 배포되기 전의 데몬에서는 이런 작업이 실행되지 않고 고착됩니다.",
+				i18n.T().Attention.BacklogDeadzoneFmt,
 				deadzoneCount)
 		}
 		items = append(items, item)
@@ -597,8 +598,8 @@ func attentionReviewLimits(ctx context.Context, projectIDs []int) ([]AttentionIt
 			Kind:        AttentionReviewLimit,
 			Severity:    3,
 			Fingerprint: fmt.Sprintf("%s:%d:%d", AttentionReviewLimit, iss.ID, iss.ShepherdRounds),
-			Title:       fmt.Sprintf("이슈 #%d가 검토 회차 상한에 닿았습니다", iss.ID),
-			Message:     fmt.Sprintf("회차 %d/%d — 회차를 초기화한 뒤 다시 적재하거나 이슈를 마감하세요.", iss.ShepherdRounds, maxRounds),
+			Title:       fmt.Sprintf(i18n.T().Attention.ReviewLimitTitleFmt, iss.ID),
+			Message:     fmt.Sprintf(i18n.T().Attention.ReviewLimitMessageFmt, iss.ShepherdRounds, maxRounds),
 			ActionKind:  "open_issue",
 			TargetID:    iss.ID,
 			TargetName:  iss.Title,
@@ -642,8 +643,8 @@ func attentionUserStopped(ctx context.Context, projectIDs []int) ([]AttentionIte
 			Kind:        AttentionUserStopped,
 			Severity:    2,
 			Fingerprint: fmt.Sprintf("%s:%d", AttentionUserStopped, t.ID),
-			Title:       fmt.Sprintf("이슈 #%d의 작업 #%d를 사용자가 중지했습니다", iss.ID, t.ID),
-			Message:     "사용자가 직접 중지한 작업입니다. 감시 이슈로 남아 있지만 목자는 깨어나지 않습니다.",
+			Title:       fmt.Sprintf(i18n.T().Attention.UserStoppedTitleFmt, iss.ID, t.ID),
+			Message:     i18n.T().Attention.UserStoppedMessage,
 			ActionKind:  "open_issue",
 			TargetID:    iss.ID,
 			TargetName:  iss.Title,
@@ -707,11 +708,11 @@ func attentionShepherdBlocked(ctx context.Context) ([]AttentionItem, error) {
 	fingerprint := ""
 	switch {
 	case !config.IsProviderEnabled(string(mgr.Provider)):
-		reason = fmt.Sprintf("목자의 프로바이더 '%s'가 설정에서 꺼져 있습니다.", string(mgr.Provider))
+		reason = fmt.Sprintf(i18n.T().Attention.ProviderDisabledFmt, string(mgr.Provider))
 		fingerprint = AttentionShepherdBlocked + ":provider:" + string(mgr.Provider)
 	default:
 		if _, wsErr := config.ValidateWorkspacePath(config.GetString("workspace_path")); wsErr != nil {
-			reason = "워크스페이스가 지정되지 않았거나 유효하지 않습니다."
+			reason = i18n.T().Attention.WorkspaceInvalid
 			fingerprint = AttentionShepherdBlocked + ":workspace"
 		}
 	}
@@ -723,8 +724,8 @@ func attentionShepherdBlocked(ctx context.Context) ([]AttentionItem, error) {
 		Kind:        AttentionShepherdBlocked,
 		Severity:    7,
 		Fingerprint: fingerprint,
-		Title:       fmt.Sprintf("목자 작업 #%d가 pending에 머물러 있습니다", t.ID),
-		Message:     reason + " 설정의 목자 탭을 확인하세요.",
+		Title:       fmt.Sprintf(i18n.T().Attention.ShepherdBlockedTitleFmt, t.ID),
+		Message:     reason + i18n.T().Attention.ShepherdBlockedMessage,
 		ActionKind:  "open_settings",
 		CreatedAt:   t.CreatedAt,
 		Detail:      map[string]interface{}{"task_id": t.ID, "shepherd_kind": t.ShepherdKind},
@@ -753,8 +754,8 @@ func attentionCostLimit(now time.Time) ([]AttentionItem, error) {
 		Kind:        AttentionCostLimit,
 		Severity:    6,
 		Fingerprint: fmt.Sprintf("%s:%s", AttentionCostLimit, now.Format("2006-01-02")),
-		Title:       fmt.Sprintf("하루 비용 상한에 닿았습니다 ($%.2f/$%.2f)", spent, limit),
-		Message:     "목자 작업과 감시 이슈 작업의 오늘 합산 비용이 상한을 넘었습니다. 자동 깨우기와 목자의 이슈 적재가 거부됩니다. 자정이 지나면 자동으로 풀립니다.",
+		Title:       fmt.Sprintf(i18n.T().Attention.CostCapTitleFmt, spent, limit),
+		Message:     i18n.T().Attention.CostCapMessage,
 		ActionKind:  "open_settings",
 		CreatedAt:   now,
 		Detail:      map[string]interface{}{"spent_usd": spent, "limit_usd": limit},
@@ -879,13 +880,13 @@ func firstLine(text, fallback string) string {
 
 func formatMinutes(m int) string {
 	if m < 60 {
-		return fmt.Sprintf("%d분", m)
+		return fmt.Sprintf(i18n.T().Attention.MinutesFmt, m)
 	}
 	h := m / 60
 	if h >= 24 && h%24 == 0 {
-		return fmt.Sprintf("%d일", h/24)
+		return fmt.Sprintf(i18n.T().Attention.DaysFmt, h/24)
 	}
-	return fmt.Sprintf("%d시간", h)
+	return fmt.Sprintf(i18n.T().Attention.HoursFmt, h)
 }
 
 // issueActivityTime picks the most recent meaningful timestamp of an issue

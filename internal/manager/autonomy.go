@@ -36,6 +36,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/discord"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/push"
 )
 
@@ -303,8 +304,8 @@ func ResetCostLimitNotifyDay() {
 // 알립니다"). Both are config-gated internally, so a daemon without a webhook
 // or subscriptions simply no-ops.
 func notifyCostLimitDefault(spent, limit float64) error {
-	title := "Shepherd · 하루 비용 상한 도달"
-	body := fmt.Sprintf("오늘 목자+감시 작업 비용 $%.2f이 상한 $%.2f에 닿았습니다. 자동 깨우기와 위임이 멈춥니다.", spent, limit)
+	title := i18n.T().Push.CostCapTitle
+	body := fmt.Sprintf(i18n.T().Push.CostCapBodyFmt, spent, limit)
 
 	if config.GetBool("webpush_enabled") {
 		if _, err := push.SendToAll(push.Payload{

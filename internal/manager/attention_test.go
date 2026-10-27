@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,11 +17,35 @@ import (
 	"github.com/agurrrrr/shepherd/ent"
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/names"
 	"github.com/agurrrrr/shepherd/internal/queue"
 	"github.com/spf13/viper"
 )
+
+// TestMain pins the language for the whole manager package: attention items
+// and request results render through i18n (#665), so assertions must not
+// depend on test execution order. Config writes are also redirected to a
+// throwaway file/dir, so no test here can touch the operator's real
+// ~/.shepherd/config.yaml.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "shepherd-manager-config-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "testmain: mkdir temp config:", err)
+		os.Exit(1)
+	}
+	config.UseTempConfigFile(filepath.Join(dir, "config.yaml"))
+	config.UseTempConfigDir(dir)
+
+	i18n.Init("ko")
+
+	code := m.Run()
+
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 // attentionTestDB injects an in-memory DB for BOTH the ent client and the raw
 // handle: the pending_backlog query runs raw SQL, so both must point at the
@@ -721,4 +747,106 @@ func TestAckAttentionEmpty(t *testing.T) {
 	if err := AckAttention("   "); err == nil {
 		t.Fatal("empty fingerprint must error")
 	}
+}
+
+// TestAttentionRendersInEnglish pins #665 §1: with language=en, every title
+// and message the panel shows comes from the en dictionary — no Korean leaks
+// through, and the minute/hour/day helper switches too. Data-driven text (task
+// prompts, project names) is fed in ASCII so only our own labels are checked.
+func TestAttentionRendersInEnglish(t *testing.T) {
+	client := attentionTestDB(t)
+	attentionConfig(t, 120, 60, 3)
+	i18n.Init("en")
+	defer i18n.Init("ko")
+
+	ctx := context.Background()
+	now := time.Now()
+
+	proj := client.Project.Create().SetName("bori").SetPath("/ws/bori").SaveX(ctx)
+	watched := client.Issue.Create().SetTitle("watched").SetStatus("in_progress").
+		SetShepherdWatch(true).SetShepherdRounds(3).SetProject(proj).SaveX(ctx)
+
+	client.Task.Create().SetPrompt("boom prompt").SetStatus(entTask.StatusFailed).
+		SetError("provider died").SetProject(proj).
+		SetCompletedAt(now.Add(-1 * time.Hour)).SaveX(ctx)
+	client.Task.Create().SetPrompt("still going").SetStatus(entTask.StatusRunning).
+		SetProject(proj).SetCreatedAt(now.Add(-3 * time.Hour)).SaveX(ctx)
+	client.Task.Create().SetPrompt("queued long ago").SetStatus(entTask.StatusPending).
+		SetProject(proj).SetCreatedAt(now.Add(-90 * time.Minute)).SaveX(ctx)
+	client.Task.Create().SetPrompt("user killed").SetStatus(entTask.StatusStopped).
+		SetError("stopped by user").SetIssue(watched).SetProject(proj).
+		SetCompletedAt(now.Add(-1 * time.Hour)).SaveX(ctx)
+
+	shep := client.Sheep.Create().SetName("worker").SetProvider(sheep.ProviderClaude).
+		SetStatus(sheep.StatusIdle).SetConsecutiveFailures(4).SaveX(ctx)
+	_ = shep
+
+	items, err := CollectAttention(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := itemsByKind(items)
+	for _, kind := range []string{
+		AttentionFailedTask, AttentionLongRunning, AttentionPendingBacklog,
+		AttentionReviewLimit, AttentionUserStopped,
+	} {
+		if len(kinds[kind]) == 0 {
+			t.Fatalf("kind %s produced no item — the en assertions below prove nothing", kind)
+		}
+	}
+
+	for _, it := range items {
+		for _, s := range []string{it.Title, it.Message} {
+			if hasHangul(s) {
+				t.Errorf("kind %s leaked Korean in en: %q", it.Kind, s)
+			}
+		}
+	}
+
+	// The duration helper follows the language too (90 minutes → 1h).
+	if got := formatMinutes(90); got != "1h" {
+		t.Errorf("formatMinutes(90) = %q, want 1h", got)
+	}
+	if got := formatMinutes(45); got != "45m" {
+		t.Errorf("formatMinutes(45) = %q, want 45m", got)
+	}
+	if got := formatMinutes(48 * 60); got != "2d" {
+		t.Errorf("formatMinutes(2 days) = %q, want 2d", got)
+	}
+
+	// The same rows render in ko with the pre-#665 wording.
+	i18n.Init("ko")
+	items, err = CollectAttention(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds = itemsByKind(items)
+	failed := kinds[AttentionFailedTask][0]
+	if failed.Title != fmt.Sprintf(i18n.T().Attention.FailedTaskTitleFmt, failed.TargetID) {
+		t.Errorf("ko failed title = %q", failed.Title)
+	}
+	// The task error text is data and rides through; the user_stopped message
+	// is ours, so it must be Korean again.
+	stopped := kinds[AttentionUserStopped][0]
+	if stopped.Message != i18n.T().Attention.UserStoppedMessage || !hasHangul(stopped.Message) {
+		t.Errorf("ko user_stopped message = %q", stopped.Message)
+	}
+	if got := formatMinutes(90); got != "1시간" {
+		t.Errorf("ko formatMinutes(90) = %q", got)
+	}
+}
+
+func hasHangul(s string) bool {
+	for _, r := range s {
+		if r >= 0xAC00 && r <= 0xD7A3 {
+			return true
+		}
+		if r >= 0x1100 && r <= 0x11FF {
+			return true
+		}
+		if r >= 0x3130 && r <= 0x318F {
+			return true
+		}
+	}
+	return false
 }
