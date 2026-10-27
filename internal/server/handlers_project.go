@@ -89,6 +89,14 @@ func (s *Server) handleCreateProject(c *fiber.Ctx) error {
 		resp["assigned_sheep"] = result.AssignedSheep.Name
 		resp["sheep_created"] = result.SheepCreated
 	}
+	// #638: how the sheep got its name (llm/reused/pool, empty when the LLM
+	// naming switch is off) and why an LLM name was not used.
+	if result.NameSource != "" {
+		resp["name_source"] = result.NameSource
+	}
+	if result.NameFallbackReason != "" {
+		resp["name_fallback_reason"] = result.NameFallbackReason
+	}
 
 	return success(c, resp)
 }

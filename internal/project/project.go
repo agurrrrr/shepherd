@@ -9,9 +9,23 @@ import (
 	entProject "github.com/agurrrrr/shepherd/ent/project"
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/namegen"
 	"github.com/agurrrrr/shepherd/internal/names"
 	"github.com/agurrrrr/shepherd/internal/wiki"
+	"github.com/agurrrrr/shepherd/internal/worker"
 )
+
+// Name sources reported on AddResult (#638). Empty means the LLM naming switch
+// was off — callers must see the exact pre-#638 behavior in that case.
+const (
+	NameSourceLLM    = "llm"    // new sheep created with an LLM-chosen name
+	NameSourceReused = "reused" // idle sheep reused; renamed to an LLM name when possible
+	NameSourcePool   = "pool"   // fell back to the pool after the LLM path failed
+)
+
+// suggestNames is the LLM naming seam. A package variable so tests can fake
+// candidate names without spawning CLI processes or hitting endpoints (#638 §9).
+var suggestNames = namegen.Suggest
 
 // AddResult holds the result of adding a project.
 type AddResult struct {
@@ -19,6 +33,12 @@ type AddResult struct {
 	AssignedSheep *ent.Sheep
 	SheepCreated  bool
 	AssignError   error
+	// NameSource is how the assigned sheep got its current name ("" when the
+	// LLM naming switch was off, otherwise llm / reused / pool).
+	NameSource string
+	// NameFallbackReason explains why an LLM name was not used (provider error,
+	// all candidates taken, rename refused). Empty when the LLM name won.
+	NameFallbackReason string
 }
 
 // Add creates a new project and automatically assigns an available sheep.
@@ -68,12 +88,14 @@ func AddWithResult(name, path, description string) *AddResult {
 	result.Project = p
 
 	// Auto-assign sheep
-	assignedSheep, created, err := autoAssignSheep(ctx, client, p)
+	assignedSheep, created, nameSource, fallbackReason, err := autoAssignSheep(ctx, client, p)
 	if err != nil {
 		result.AssignError = err
 	} else {
 		result.AssignedSheep = assignedSheep
 		result.SheepCreated = created
+		result.NameSource = nameSource
+		result.NameFallbackReason = fallbackReason
 	}
 
 	_ = wiki.InitializeWiki(name)
@@ -82,8 +104,10 @@ func AddWithResult(name, path, description string) *AddResult {
 }
 
 // autoAssignSheep finds an available sheep or creates a new one and assigns it to the project.
-// Returns (sheep, created, error) where created is true if a new sheep was created.
-func autoAssignSheep(ctx context.Context, client *ent.Client, p *ent.Project) (*ent.Sheep, bool, error) {
+// Returns (sheep, created, nameSource, nameFallbackReason, error). nameSource is
+// non-empty only when the LLM naming switch (#638) was on; with the switch off
+// the flow is byte-for-byte the pre-#638 behavior.
+func autoAssignSheep(ctx context.Context, client *ent.Client, p *ent.Project) (*ent.Sheep, bool, string, string, error) {
 	// 1. Find unassigned sheep (excluding reserved names like shepherd/목자)
 	reservedPredicate := []predicate.Sheep{sheep.Not(sheep.HasProject())}
 	for _, reserved := range names.ReservedNames {
@@ -97,20 +121,66 @@ func autoAssignSheep(ctx context.Context, client *ent.Client, p *ent.Project) (*
 		// Found unassigned sheep - assign it
 		_, err = p.Update().SetSheep(idleSheep).Save(ctx)
 		if err != nil {
-			return nil, false, fmt.Errorf("failed to assign sheep: %w", err)
+			return nil, false, "", "", fmt.Errorf("failed to assign sheep: %w", err)
 		}
-		return idleSheep, false, nil
+		if !namegen.Enabled() {
+			return idleSheep, false, "", "", nil
+		}
+		// LLM naming on: give the reused sheep a project-related name. The
+		// assignment above already succeeded, so a failed rename only costs
+		// the pretty name — never the registration.
+		sh, created, source, reason := renameReusedSheep(ctx, client, p, idleSheep)
+		return sh, created, source, reason, nil
 	}
 
 	// 2. No unassigned sheep available - create new one
 	usedNames, err := getUsedSheepNames(ctx, client)
 	if err != nil {
-		return nil, false, err
+		return nil, false, "", "", err
 	}
 
-	newName := names.GetNext(usedNames)
+	source := ""
+	reason := ""
+	newName := ""
+
+	if namegen.Enabled() {
+		source = NameSourceLLM
+		candidates, serr := suggestNames(ctx, namegen.Request{
+			ProjectName: p.Name,
+			Description: p.Description,
+			UsedNames:   usedNames,
+		})
+		if serr != nil {
+			source = NameSourcePool
+			reason = serr.Error()
+		} else {
+			// First candidate that is still free wins; a taken one (raced with
+			// another registration) moves to the next candidate.
+			for _, cand := range candidates {
+				if containsName(usedNames, cand) {
+					reason = fmt.Sprintf("LLM name '%s' is already taken", cand)
+					continue
+				}
+				newName = cand
+				break
+			}
+			if newName == "" {
+				source = NameSourcePool
+				if reason == "" {
+					reason = "no usable LLM candidate names"
+				}
+			} else {
+				// An LLM name won (maybe not the first one) — no fallback.
+				reason = ""
+			}
+		}
+	}
+
 	if newName == "" {
-		return nil, false, fmt.Errorf("no available sheep names")
+		newName = names.GetNext(usedNames)
+	}
+	if newName == "" {
+		return nil, false, "", "", fmt.Errorf("no available sheep names")
 	}
 
 	newSheep, err := client.Sheep.Create().
@@ -118,16 +188,69 @@ func autoAssignSheep(ctx context.Context, client *ent.Client, p *ent.Project) (*
 		SetStatus(sheep.StatusIdle).
 		Save(ctx)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to create sheep: %w", err)
+		return nil, false, "", "", fmt.Errorf("failed to create sheep: %w", err)
 	}
 
 	// Assign new sheep to project
 	_, err = p.Update().SetSheep(newSheep).Save(ctx)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to assign sheep: %w", err)
+		return nil, false, "", "", fmt.Errorf("failed to assign sheep: %w", err)
 	}
 
-	return newSheep, true, nil
+	return newSheep, true, source, reason, nil
+}
+
+// renameReusedSheep renames an already-assigned idle sheep to the first unused
+// LLM candidate via worker.Rename (memory dir and browser profile move with
+// it). Any failure keeps the old name; only NameFallbackReason changes.
+func renameReusedSheep(ctx context.Context, client *ent.Client, p *ent.Project, s *ent.Sheep) (*ent.Sheep, bool, string, string) {
+	usedNames, err := getUsedSheepNames(ctx, client)
+	if err != nil {
+		return s, false, NameSourceReused, fmt.Sprintf("failed to read used names: %v", err)
+	}
+
+	candidates, serr := suggestNames(ctx, namegen.Request{
+		ProjectName: p.Name,
+		Description: p.Description,
+		UsedNames:   usedNames,
+	})
+	if serr != nil {
+		return s, false, NameSourceReused, serr.Error()
+	}
+
+	reason := ""
+	for _, cand := range candidates {
+		if cand == s.Name || containsName(usedNames, cand) {
+			continue
+		}
+		if rerr := worker.Rename(s.Name, cand); rerr != nil {
+			reason = rerr.Error()
+			continue
+		}
+		renamed, gerr := client.Sheep.Get(ctx, s.ID)
+		if gerr != nil {
+			// Rename succeeded in DB; report the new name from the candidate.
+			s.Name = cand
+		} else {
+			s = renamed
+		}
+		return s, false, NameSourceReused, ""
+	}
+
+	if reason == "" {
+		reason = "no usable LLM candidate names"
+	}
+	return s, false, NameSourceReused, reason
+}
+
+// containsName reports whether name appears in list.
+func containsName(list []string, name string) bool {
+	for _, n := range list {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
 
 // getUsedSheepNames returns all used sheep names.

@@ -443,13 +443,33 @@ var projectAddCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		name := args[0]
 		path := args[1]
-		p, err := project.Add(name, path, projectAddDesc)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to add project: %v\n", err)
+		res := project.AddWithResult(name, path, projectAddDesc)
+		if res.Project == nil {
+			errMsg := "failed to create project"
+			if res.AssignError != nil {
+				errMsg = res.AssignError.Error()
+			}
+			fmt.Fprintf(os.Stderr, "Failed to add project: %v\n", errMsg)
 			os.Exit(1)
 		}
-		fmt.Printf("📁 %s added (%s)\n", p.Name, p.Path)
+		fmt.Printf("📁 %s added (%s)\n", res.Project.Name, res.Project.Path)
+		printSheepNameResult(res)
 	},
+}
+
+// printSheepNameResult prints the assigned sheep with its name source (#638).
+// With the LLM naming switch off, NameSource is empty and only the name shows.
+func printSheepNameResult(res *project.AddResult) {
+	if res.AssignedSheep == nil {
+		return
+	}
+	fmt.Printf("🐏 %s\n", res.AssignedSheep.Name)
+	if res.NameSource != "" {
+		fmt.Printf(i18n.T().CLISheepNameSourceFmt, res.NameSource)
+	}
+	if res.NameFallbackReason != "" {
+		fmt.Printf(i18n.T().CLISheepNameFallbackFmt, res.NameFallbackReason)
+	}
 }
 
 var projectListCmd = &cobra.Command{
@@ -2839,14 +2859,14 @@ func runServeForeground() {
 	// status card flips to the over-cap state right away too.
 	manager.RegisterRequestNotifyHook(func(rec *manager.ShepherdRequestRecord, event string) {
 		srv.Hub().Broadcast(server.SSEEvent{Type: event, Data: map[string]interface{}{
-			"id":          rec.ID,
-			"kind":        rec.Kind,
-			"status":      rec.Status,
-			"project":     rec.ProjectName,
-			"target_id":   rec.TargetID,
-			"reason":      rec.Reason,
-			"sheep_name":  rec.RequesterSheep,
-			"task_id":     rec.RequestedByTask,
+			"id":         rec.ID,
+			"kind":       rec.Kind,
+			"status":     rec.Status,
+			"project":    rec.ProjectName,
+			"target_id":  rec.TargetID,
+			"reason":     rec.Reason,
+			"sheep_name": rec.RequesterSheep,
+			"task_id":    rec.RequestedByTask,
 		}})
 	})
 	defer manager.RegisterRequestNotifyHook(nil)
@@ -3175,51 +3195,61 @@ var initCmd = &cobra.Command{
 			projectName = args[0]
 		}
 
-		_, err = project.Add(projectName, cwd, "")
-		if err != nil {
-			if !strings.Contains(err.Error(), "already exists") {
-				fmt.Fprintf(os.Stderr, i18n.T().CLIProjectAddFailFmt, err)
+		res := project.AddWithResult(projectName, cwd, "")
+		if res.Project != nil {
+			fmt.Printf(i18n.T().CLIProjectRegisteredFmt, projectName, cwd)
+			printSheepNameResult(res)
+		} else {
+			errMsg := ""
+			if res.AssignError != nil {
+				errMsg = res.AssignError.Error()
+			}
+			if !strings.Contains(errMsg, "already exists") {
+				fmt.Fprintf(os.Stderr, i18n.T().CLIProjectAddFailFmt, res.AssignError)
 				os.Exit(1)
 			}
 			fmt.Printf(i18n.T().CLIProjectAlreadyFmt, projectName)
-		} else {
-			fmt.Printf(i18n.T().CLIProjectRegisteredFmt, projectName, cwd)
 		}
 
-		sheepList, err := worker.List()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, i18n.T().CLISheepListFailFmt, err)
-			os.Exit(1)
-		}
-
-		var sheepName string
-		if len(sheepList) == 0 {
-			s, err := worker.Create("")
+		// When AddWithResult already assigned a sheep (the normal path, LLM
+		// naming included), the manual lookup below would overwrite that
+		// choice — so it only runs when no sheep ended up assigned.
+		if res.AssignedSheep == nil {
+			sheepList, err := worker.List()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, i18n.T().CLISheepCreateFailFmt, err)
+				fmt.Fprintf(os.Stderr, i18n.T().CLISheepListFailFmt, err)
 				os.Exit(1)
 			}
-			sheepName = s.Name
-			fmt.Printf(i18n.T().CLISheepCreatedFmt, sheepName)
-		} else {
-			for _, s := range sheepList {
-				if s.Edges.Project == nil {
-					sheepName = s.Name
-					break
+
+			var sheepName string
+			if len(sheepList) == 0 {
+				s, err := worker.Create("")
+				if err != nil {
+					fmt.Fprintf(os.Stderr, i18n.T().CLISheepCreateFailFmt, err)
+					os.Exit(1)
+				}
+				sheepName = s.Name
+				fmt.Printf(i18n.T().CLISheepCreatedFmt, sheepName)
+			} else {
+				for _, s := range sheepList {
+					if s.Edges.Project == nil {
+						sheepName = s.Name
+						break
+					}
+				}
+				if sheepName == "" {
+					sheepName = sheepList[0].Name
 				}
 			}
-			if sheepName == "" {
-				sheepName = sheepList[0].Name
-			}
-		}
 
-		if err := project.AssignSheep(projectName, sheepName); err != nil {
-			if !strings.Contains(err.Error(), "already") {
-				fmt.Fprintf(os.Stderr, i18n.T().CLISheepAssignFailFmt, err)
-				os.Exit(1)
+			if err := project.AssignSheep(projectName, sheepName); err != nil {
+				if !strings.Contains(err.Error(), "already") {
+					fmt.Fprintf(os.Stderr, i18n.T().CLISheepAssignFailFmt, err)
+					os.Exit(1)
+				}
+			} else {
+				fmt.Printf(i18n.T().CLISheepAssignedFmt, projectName, sheepName)
 			}
-		} else {
-			fmt.Printf(i18n.T().CLISheepAssignedFmt, projectName, sheepName)
 		}
 
 		fmt.Println()
