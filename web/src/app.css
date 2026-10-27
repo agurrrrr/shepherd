@@ -1,21 +1,52 @@
-/* === Shepherd Design System — "Nocturne" ===
+/* === Shepherd Design System — "Pico Night Gray" ===
  *
- * A shepherd keeps watch at night: a warm graphite field, a single lantern
- * (amber accent) for the things you act on, and a phosphor-mint pulse for
- * sheep that are alive and working. Everything else stays quiet.
+ * An 8-bit night pasture: charcoal-grey surfaces, a PICO-8 palette for
+ * everything that speaks, black pixel outlines with bevelled edges, and
+ * CRT scanlines over the whole screen. Pink is for things you act on,
+ * yellow marks "you are here", blue is a sheep that is awake.
  *
- * Type: Instrument Serif (display) · Geist (UI) · Geist Mono (data) ·
- * Pretendard (Hangul fallback for all three).
+ * Type: Press Start 2P (display, labels, numerals; ASCII only) ·
+ * Galmuri11 (UI and Hangul fallback) · GalmuriMono11 (data).
+ * Pixel fonts are only crisp at whole multiples of their design size:
+ * Galmuri11 at 12/24/36/48px, Press Start 2P at multiples of 8px. Text that
+ * may hold Hangul on the display face uses 24px or 48px so both stay sharp.
  *
  * Layers in this file:
- *   1. Tokens          — colour, type, space, radius, elevation, motion
- *   2. Base            — reset, body, headings, links, selection, focus
+ *   1. Tokens          — colour, type, space, radius, pixel edges, motion
+ *   2. Base            — reset, body, starfield, scanlines, selection, focus
  *   3. Form controls   — inputs, selects, checkboxes, radios (global)
  *   4. Components      — .btn, .card, .badge, .chip, .kbd, .page-head
  *   5. Utilities       — .mono, .num, .eyebrow, .display, .skeleton, .reveal
- *   6. Third-party     — github-markdown token mapping, scrollbars
+ *   6. Third-party     — github-markdown and highlight.js tokens, scrollbars
  *   7. Motion          — keyframes, view transitions, reduced motion
  */
+
+/* --- Pixel fonts (bundled, no CDN) ---
+ * galmuri/dist/galmuri.css declares the whole Galmuri family; only the
+ * three faces the UI uses are declared here. */
+@font-face {
+	font-family: 'Galmuri11';
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url('galmuri/dist/Galmuri11.woff2') format('woff2');
+}
+
+@font-face {
+	font-family: 'Galmuri11';
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url('galmuri/dist/Galmuri11-Bold.woff2') format('woff2');
+}
+
+@font-face {
+	font-family: 'GalmuriMono11';
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url('galmuri/dist/GalmuriMono11.woff2') format('woff2');
+}
 
 /* ============================================================
  * 1. Tokens
@@ -24,106 +55,160 @@
 :root {
 	color-scheme: dark;
 
-	/* --- Surfaces (5 levels, warm graphite) --- */
-	--bg-base: #09090a;          /* App background, deepest */
-	--bg-1: #0d0d0f;             /* Page background */
-	--bg-2: #141416;             /* Card surface */
-	--bg-3: #1c1c1f;             /* Elevated / button bg */
-	--bg-4: #26262a;             /* Hover / active */
-	--bg-input: #0b0b0c;         /* Recessed fields */
-	--bg-glass: rgba(18, 18, 20, 0.72);
-	--bg-overlay: rgba(6, 6, 7, 0.72);
+	/* --- PICO-8 palette --- */
+	--p-black: #000000;
+	--p-navy: #1d2b53;
+	--p-plum: #7e2553;
+	--p-dgreen: #008751;
+	--p-brown: #ab5236;
+	--p-dgray: #5f574f;
+	--p-lgray: #c2c3c7;
+	--p-white: #fff1e8;
+	--p-red: #ff004d;
+	--p-orange: #ffa300;
+	--p-yellow: #ffec27;
+	--p-green: #00e436;
+	--p-blue: #29adff;
+	--p-lav: #83769c;
+	--p-pink: #ff77a8;
+	--p-peach: #ffccaa;
+
+	/* --- Surfaces (neutral charcoal) --- */
+	--bg-base: #0f0f11;          /* Chrome: app background, sidebar, top bar */
+	--bg-1: #18181b;             /* Page background */
+	--bg-2: #2a2a2f;             /* Card, active nav item */
+	--bg-3: #36363c;             /* Raised surface, hover */
+	--bg-4: #46464c;             /* Active surface */
+	--bg-input: #000000;         /* Fields, output panes */
+	--bg-glass: #0f0f11;         /* Opaque: the pixel theme has no glass */
+	--bg-overlay: rgba(0, 0, 0, 0.72);
+	--card-2: #212125;           /* Secondary card */
+	--well: #141416;             /* Meter cells, chips, inject field */
 
 	/* Backward-compat aliases (existing components use these) */
 	--bg-primary: var(--bg-1);
 	--bg-secondary: var(--bg-2);
 	--bg-tertiary: var(--bg-3);
-	--bg-hover: rgba(237, 230, 218, 0.045);
+	--bg-hover: #36363c;
 	--surface: var(--bg-3);
 	--input-bg: var(--bg-input);
 
-	/* --- Text (WCAG AA on bg-1/bg-2) --- */
-	--text-primary: #eeeae3;     /* Body — "wool white" */
-	--text-secondary: #a8a49c;   /* 7.4:1 on bg-2 */
-	--text-tertiary: #827e77;    /* Meta / captions, 4.6:1 on bg-1 */
+	/* --- Pixel edges --- */
+	--line: #000000;             /* Pixel outline */
+	--hi: #46464c;               /* Bevel light edge (top-left) */
+	--lo: #1b1b1e;               /* Bevel dark edge (bottom-right), list rules */
+	--btn-bg: #505057;           /* Default button (PICO dark-grey reads muddy on grey cards) */
+
+	/* Four separate shadows leave each corner one step empty: a pixel corner. */
+	--px-ring: 0 -3px 0 0 var(--line), 0 3px 0 0 var(--line), -3px 0 0 0 var(--line), 3px 0 0 0 var(--line);
+	--px-ring-2: 0 0 0 2px var(--line);
+	--px-bevel: inset 3px 3px 0 0 var(--hi), inset -3px -3px 0 0 var(--lo);
+	--px-bevel-btn: inset 3px 3px 0 0 rgba(255, 255, 255, 0.18), inset -3px -3px 0 0 rgba(0, 0, 0, 0.35);
+	--px-bevel-in: inset 3px 3px 0 0 var(--lo), inset -3px -3px 0 0 var(--hi);
+	--px-field: 0 0 0 3px var(--hi);
+
+	/* --- Text (on --bg-2 card #2a2a2f) --- */
+	--text-primary: #fff1e8;     /* 12.9:1 */
+	--text-secondary: #c2c3c7;   /* 8.1:1 */
+	--text-tertiary: #9e9ea6;    /* 5.4:1 */
 	--text-muted: var(--text-secondary);
 	--text-color: var(--text-primary);
 
-	/* --- Borders (warm-tinted alpha so they sit on any surface) --- */
-	--border: rgba(237, 230, 218, 0.09);
-	--border-strong: rgba(237, 230, 218, 0.16);
-	--border-subtle: rgba(237, 230, 218, 0.05);
+	/* --- Borders --- */
+	--border: #000000;
+	--border-strong: #46464c;
+	--border-subtle: #1b1b1e;
 	--border-color: var(--border);
 	--border-light: var(--border-subtle);
 
-	/* --- Brand: lantern (primary accent — things you act on) --- */
-	--accent: #f4b860;
-	--accent-hover: #ffcb80;
-	--accent-ink: #1a1206;       /* Text on accent fills, 10.5:1 */
-	--accent-soft: rgba(244, 184, 96, 0.13);
-	--accent-line: rgba(244, 184, 96, 0.32);
-	--accent-glow: rgba(244, 184, 96, 0.34);
+	/* --- Accent: pink (things you act on) --- */
+	--accent: #ff77a8;
+	--accent-hover: #ffa0c4;
+	--accent-ink: #000000;       /* Text on accent fills */
+	--accent-soft: rgba(255, 119, 168, 0.16);
+	--accent-line: #ff77a8;
+	--accent-glow: transparent;
 	--accent-color: var(--accent);
 
-	/* --- Brand: pulse (secondary accent — running / alive) --- */
-	--live: #5fe0c2;
-	--live-hover: #8aebd4;
-	--live-ink: #04140f;
-	--live-soft: rgba(95, 224, 194, 0.13);
-	--live-line: rgba(95, 224, 194, 0.3);
-	--live-glow: rgba(95, 224, 194, 0.32);
+	/* --- Highlight: yellow ("you are here", title emphasis, focus) --- */
+	--highlight: #ffec27;
+	--highlight-hover: #fff27a;
+	--highlight-ink: #000000;
+	--highlight-soft: rgba(255, 236, 39, 0.16);
+	--highlight-line: #ffec27;
 
-	/* --- Brand: wool (warm neutral — idle / passive) --- */
-	--wool: #cbbca3;
-	--wool-soft: rgba(203, 188, 163, 0.10);
+	/* --- Live: blue (running / awake) --- */
+	--live: #29adff;
+	--live-hover: #6cc8ff;
+	--live-ink: #000000;
+	--live-soft: rgba(41, 173, 255, 0.16);
+	--live-line: #29adff;
+	--live-glow: transparent;
 
-	/* --- Status --- */
-	--success: #9fd685;
-	--success-soft: rgba(159, 214, 133, 0.13);
-	--success-line: rgba(159, 214, 133, 0.28);
-	--warning: #ff9a5c;
-	--warning-soft: rgba(255, 154, 92, 0.13);
-	--warning-line: rgba(255, 154, 92, 0.3);
-	--danger: #ff6b61;
-	--danger-hover: #ff8a82;
-	--danger-soft: rgba(255, 107, 97, 0.13);
-	--danger-line: rgba(255, 107, 97, 0.32);
-	--queued: #aea3ff;           /* Pending — waiting its turn */
-	--queued-soft: rgba(174, 163, 255, 0.13);
-	--queued-line: rgba(174, 163, 255, 0.3);
-	--info: #8fc1ff;             /* Neutral information (links in data, cron) */
-	--info-soft: rgba(143, 193, 255, 0.12);
+	/* --- Wool (idle / passive) --- */
+	--wool: #c2c3c7;
+	--wool-soft: rgba(194, 195, 199, 0.16);
+
+	/* --- Status ---
+	 * Red and lavender fall below 4.5:1 as text on cards; use the -text
+	 * variants for words and keep the base colour for fills and lines. */
+	--success: #00e436;
+	--success-hover: #5cf07f;
+	--success-soft: rgba(0, 228, 54, 0.16);
+	--success-line: #00e436;
+	--warning: #ffa300;
+	--warning-hover: #ffbf4d;
+	--warning-soft: rgba(255, 163, 0, 0.16);
+	--warning-line: #ffa300;
+	--danger: #ff004d;
+	--danger-text: #ff6680;      /* 5.1:1 on cards */
+	--danger-hover: #ff4d80;
+	--danger-soft: rgba(255, 0, 77, 0.16);
+	--danger-line: #ff004d;
+	--queued: #83769c;           /* Pending — waiting its turn */
+	--queued-text: #a99fc4;      /* 5.7:1 on cards */
+	--queued-hover: #a99fc4;
+	--queued-soft: rgba(131, 118, 156, 0.16);
+	--queued-line: #83769c;
+	--info: #ffccaa;             /* Neutral information */
+	--info-soft: rgba(255, 204, 170, 0.16);
+	--info-line: #ffccaa;
 
 	/* --- Typography --- */
-	--font-sans: 'Geist Variable', 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
-	--font-mono: 'Geist Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, 'Pretendard Variable', monospace;
-	--font-display: 'Instrument Serif', 'Pretendard Variable', Georgia, serif;
+	--font-sans: 'Galmuri11', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+	--font-mono: 'GalmuriMono11', 'Galmuri11', monospace;
+	--font-display: 'Press Start 2P', 'Galmuri11', monospace;
+	--font-label: 'Press Start 2P', 'Galmuri11', monospace;
+	--font-num: 'Press Start 2P', 'Galmuri11', monospace;
 	--font: var(--font-sans);
 
-	--fs-3xs: 10px;
-	--fs-2xs: 11px;
+	--fs-label: 8px;             /* Press Start 2P only, ASCII only */
+	--fs-3xs: 12px;
+	--fs-2xs: 12px;
 	--fs-xs: 12px;
-	--fs-sm: 13px;
-	--fs-base: 14px;
-	--fs-md: 16px;
-	--fs-lg: 20px;
-	--fs-xl: 26px;
-	--fs-2xl: 34px;
-	--fs-3xl: 46px;
-	--fs-4xl: clamp(44px, 6.2vw, 84px);
+	--fs-sm: 12px;
+	--fs-base: 12px;
+	--fs-md: 12px;
+	--fs-lg: 24px;
+	--fs-xl: 24px;
+	--fs-2xl: 24px;
+	--fs-3xl: 48px;
+	--fs-4xl: 48px;
 
-	--lh-tight: 1.2;
-	--lh-snug: 1.4;
-	--lh-base: 1.55;
+	/* Press Start 2P glyphs are square; tighter leading makes lines touch. */
+	--lh-tight: 1.5;
+	--lh-snug: 1.5;
+	--lh-base: 1.65;
 
 	--fw-regular: 400;
 	--fw-normal: 400;
-	--fw-medium: 500;
-	--fw-semibold: 600;
+	--fw-medium: 400;
+	--fw-semibold: 700;
 	--fw-bold: 700;
 
-	--tracking-tight: -0.02em;
-	--tracking-caps: 0.12em;
+	/* Whole pixels only: fractional tracking blurs pixel glyphs. */
+	--tracking-tight: 0;
+	--tracking-caps: 1px;
 
 	/* --- Spacing scale --- */
 	--space-1: 4px;
@@ -137,29 +222,30 @@
 	--space-9: 56px;
 	--space-10: 72px;
 
-	/* --- Radius --- */
-	--radius-xs: 3px;
-	--radius-sm: 5px;
-	--radius: 8px;               /* default — backward compat */
-	--radius-md: 10px;
-	--radius-lg: 14px;
-	--radius-xl: 20px;
-	--radius-full: 999px;
+	/* --- Radius (pixel art has no round corners) --- */
+	--radius-xs: 0;
+	--radius-sm: 0;
+	--radius: 0;
+	--radius-md: 0;
+	--radius-lg: 0;
+	--radius-xl: 0;
+	--radius-full: 0;
 
-	/* --- Elevation --- */
-	--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
-	--shadow: 0 1px 3px rgba(0, 0, 0, 0.45);          /* alias */
-	--shadow-2: 0 8px 24px -6px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.35);
-	--shadow-3: 0 24px 64px -12px rgba(0, 0, 0, 0.7), 0 4px 12px rgba(0, 0, 0, 0.4);
-	--sheen: inset 0 1px 0 rgba(255, 250, 240, 0.045);
+	/* --- Elevation: hard drop shadows --- */
+	--shadow-1: 4px 4px 0 0 #000;
+	--shadow: var(--shadow-1);   /* alias */
+	--shadow-2: 6px 6px 0 0 #000;
+	--shadow-3: 8px 8px 0 0 #000;
+	/* No sheen. Kept as an empty shadow so "var(--sheen), …" lists stay valid. */
+	--sheen: 0 0 0 0 transparent;
 
 	/* --- Focus ring (a11y) --- */
-	--focus-ring: 0 0 0 2px var(--bg-1), 0 0 0 4px rgba(244, 184, 96, 0.7);
+	--focus-ring: 0 0 0 3px var(--highlight);
 
-	/* --- Motion --- */
-	--ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-	--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-	--ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+	/* --- Motion: stepped, never springy --- */
+	--ease-out: steps(3);
+	--ease-in-out: steps(3);
+	--ease-spring: steps(3);
 	--dur-1: 120ms;
 	--dur-2: 220ms;
 	--dur-3: 420ms;
@@ -171,10 +257,32 @@
 	--page-pad-top: 40px;
 	--page-pad-bottom: 56px;
 
-	/* --- Icons used as CSS backgrounds --- */
-	--chevron-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a49c' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-	--check-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%231a1206' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3.5 8.5 6.5 11.5 12.5 4.5'/%3E%3C/svg%3E");
-	--search-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='%23827e77' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cline x1='20' y1='20' x2='16.2' y2='16.2'/%3E%3C/svg%3E");
+	/* --- Pixel sprite colours (see $lib/pixel) --- */
+	--px-o: #000;
+	--px-w: var(--p-white);
+	--px-s: var(--p-lgray);
+	--px-f: var(--p-peach);
+	--px-e: #000;
+	--px-p: var(--p-pink);
+	--px-k: var(--p-pink);
+	--px-l: #000;
+	--px-y: var(--p-yellow);
+	--px-m: var(--p-white);
+	--px-B: #000;
+	--px-b: var(--p-brown);
+	--px-g: var(--p-green);
+	--px-r: var(--p-pink);
+
+	/* --- Icons used as CSS backgrounds (pixel glyphs, crisp edges) --- */
+	--chevron-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 5 3' width='10' height='6' shape-rendering='crispEdges'%3E%3Cpath fill='%23ffec27' d='M0 0h5v1H0zM1 1h3v1H1zM2 2h1v1H2z'/%3E%3C/svg%3E");
+	--check-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 6' width='14' height='12' shape-rendering='crispEdges'%3E%3Cpath fill='%23000' d='M6 0h1v1H6zM5 1h2v1H5zM0 2h1v1H0zM4 2h2v1H4zM0 3h2v1H0zM3 3h2v1H3zM1 4h3v1H1zM2 5h1v1H2z'/%3E%3C/svg%3E");
+	--search-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='16' height='16' shape-rendering='crispEdges'%3E%3Cpath fill='%239e9ea6' d='M1 0h3v1H1zM0 1h1v3H0zM4 1h1v3H4zM1 4h3v1H1zM4 4h1v1H4zM5 5h1v1H5zM6 6h1v1H6zM7 7h1v1H7z'/%3E%3C/svg%3E");
+}
+
+@media (max-width: 480px) {
+	:root {
+		--fs-4xl: 24px;
+	}
 }
 
 /* ============================================================
@@ -194,55 +302,58 @@ html, body {
 
 html {
 	background: var(--bg-base);
-	scrollbar-color: rgba(237, 230, 218, 0.14) transparent;
+	scrollbar-color: var(--hi) #000;
 }
 
 body {
 	min-height: 100vh;
+	/* Night sky: two sparse layers of star dots over the page charcoal. */
 	background-color: var(--bg-1);
-	/* Lantern light from the top-left, a faint cool rim on the right. */
 	background-image:
-		radial-gradient(1100px 620px at 8% -12%, rgba(244, 184, 96, 0.075), transparent 62%),
-		radial-gradient(820px 520px at 104% -8%, rgba(95, 224, 194, 0.04), transparent 60%);
-	background-attachment: fixed;
+		radial-gradient(circle at 1px 1px, rgba(255, 241, 232, 0.18) 1px, transparent 1.5px),
+		radial-gradient(circle at 1px 1px, rgba(194, 195, 199, 0.10) 1px, transparent 1.5px);
+	background-size: 90px 70px, 130px 110px;
+	background-position: 10px 20px, 50px 60px;
 	color: var(--text-primary);
 	font-family: var(--font-sans);
 	font-size: var(--fs-base);
 	line-height: var(--lh-base);
-	font-feature-settings: 'ss01', 'cv11';
 	-webkit-text-size-adjust: 100%;
 	text-size-adjust: 100%;
-	-webkit-font-smoothing: antialiased;
-	-moz-osx-font-smoothing: grayscale;
-	text-rendering: optimizeLegibility;
+	/* Pixel glyphs: no smoothing, and never synthesise bold or italic
+	   (neither face ships an italic, Press Start 2P has no bold). */
+	-webkit-font-smoothing: none;
+	-moz-osx-font-smoothing: unset;
+	font-synthesis: none;
+	text-rendering: optimizeSpeed;
 	-webkit-tap-highlight-color: transparent;
 }
 
-/* Film grain — keeps large dark fields from looking flat. */
+/* CRT scanlines over everything, modals included (they sit at z-index
+   200–1000). Never catches the pointer. */
 body::after {
 	content: '';
 	position: fixed;
 	inset: 0;
-	z-index: 10000;
+	z-index: 9999;
 	pointer-events: none;
-	opacity: 0.045;
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.4 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	background: repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
 }
 
 ::selection {
-	background: rgba(244, 184, 96, 0.32);
-	color: #fffaf2;
+	background: var(--accent);
+	color: #000;
 }
 
 h1, h2, h3, h4, h5, h6 {
 	font-weight: var(--fw-semibold);
 	line-height: var(--lh-tight);
-	letter-spacing: -0.012em;
+	letter-spacing: 0;
 	color: var(--text-primary);
 	text-wrap: balance;
 }
 
-h1 { font-size: var(--fs-2xl); letter-spacing: var(--tracking-tight); }
+h1 { font-size: var(--fs-2xl); }
 h2 { font-size: var(--fs-xl); }
 h3 { font-size: var(--fs-lg); }
 h4 { font-size: var(--fs-md); }
@@ -251,16 +362,19 @@ h6 { font-size: var(--fs-sm); }
 
 p { text-wrap: pretty; }
 
+em, i, cite, dfn, var {
+	font-style: normal;
+}
+
 a {
 	color: var(--accent);
 	text-decoration: none;
-	transition: color var(--dur-1) ease;
 }
 
 a:hover {
 	color: var(--accent-hover);
 	text-decoration: underline;
-	text-decoration-thickness: 1px;
+	text-decoration-thickness: 2px;
 	text-underline-offset: 3px;
 }
 
@@ -273,10 +387,18 @@ button {
 
 img, svg { display: inline-block; }
 
+/* Pixel sprites drawn by $lib/pixel */
+svg.px {
+	display: block;
+	flex: none;
+	shape-rendering: crispEdges;
+	image-rendering: pixelated;
+}
+
 hr {
 	border: none;
-	height: 1px;
-	background: var(--border-subtle);
+	height: 3px;
+	background: var(--lo);
 }
 
 code, kbd, samp, pre {
@@ -284,22 +406,16 @@ code, kbd, samp, pre {
 }
 
 /* --- Focus visible (a11y) ---
- * The ring is an outline, not a box-shadow: components use box-shadow for
- * sheen, active and elevation states, and a scoped rule would silently win
- * over a shadow-based ring. Fields keep their own border + glow focus. */
+ * A yellow outline, never a box-shadow: pixel outlines, bevels and drop
+ * shadows all live in box-shadow, and a scoped rule would silently win over
+ * a shadow-based ring. Text fields show it on any focus (see layer 3). */
 :focus {
 	outline: none;
 }
 
 :focus-visible {
-	outline: 2px solid rgba(244, 184, 96, 0.75);
-	outline-offset: 2px;
-}
-
-input:not([type="checkbox"]):not([type="radio"]):focus-visible,
-textarea:focus-visible,
-select:focus-visible {
-	outline: none;
+	outline: 3px solid var(--highlight);
+	outline-offset: 4px;
 }
 
 /* ============================================================
@@ -798,7 +914,7 @@ a.card:hover,
 .badge-working::before,
 .badge-running::before {
 	box-shadow: 0 0 0 0 var(--live-glow);
-	animation: pulse-ring 1.8s var(--ease-out) infinite;
+	animation: px-blink 1s steps(1) infinite;
 }
 
 .badge-pending::before {
@@ -1037,7 +1153,7 @@ kbd {
 	border-radius: 50%;
 	background: var(--live);
 	flex-shrink: 0;
-	animation: pulse-ring 1.8s var(--ease-out) infinite;
+	animation: px-blink 1s steps(1) infinite;
 }
 
 /* Skeleton — placeholder shimmer while data loads */
@@ -1132,9 +1248,9 @@ kbd {
 
 /* Entrance keyframes only define the start: the end state falls back to
    the element's own styles, so a dimmed (opacity: .5) card stays dimmed
-   after it has risen in. */
+   after it has risen in. Timing uses steps(), so things hop into place. */
 @keyframes rise-in {
-	from { opacity: 0; transform: translateY(8px); }
+	from { opacity: 0; transform: translateY(6px); }
 }
 
 @keyframes fade-in {
@@ -1142,17 +1258,19 @@ kbd {
 }
 
 @keyframes modal-in {
-	from { opacity: 0; transform: translateY(14px) scale(0.985); }
+	from { opacity: 0; transform: translateY(9px); }
 }
 
-@keyframes pulse-ring {
-	0% { box-shadow: 0 0 0 0 var(--live-glow); }
-	70% { box-shadow: 0 0 0 6px rgba(95, 224, 194, 0); }
-	100% { box-shadow: 0 0 0 0 rgba(95, 224, 194, 0); }
+/* The one blink: active nav marker, working status dots, live dots.
+   Use with steps(1). */
+@keyframes px-blink {
+	0%, 49% { opacity: 1; }
+	50%, 100% { opacity: 0.2; }
 }
 
-@keyframes skeleton-sweep {
-	to { transform: translateX(100%); }
+@keyframes skeleton-blink {
+	0%, 49% { background-color: var(--card-2); }
+	50%, 100% { background-color: var(--hi); }
 }
 
 @keyframes spin {
@@ -1167,19 +1285,19 @@ kbd {
 }
 
 ::view-transition-old(page) {
-	animation: 140ms var(--ease-in-out) both vt-out;
+	animation: 120ms steps(2) both vt-out;
 }
 
 ::view-transition-new(page) {
-	animation: 340ms var(--ease-out) both vt-in;
+	animation: 240ms steps(3) both vt-in;
 }
 
 @keyframes vt-out {
-	to { opacity: 0; transform: translateY(-4px); }
+	to { opacity: 0; }
 }
 
 @keyframes vt-in {
-	from { opacity: 0; transform: translateY(10px); }
+	from { opacity: 0; transform: translateY(6px); }
 }
 
 @media (max-width: 768px) {
@@ -1190,12 +1308,6 @@ kbd {
 
 	.page-head {
 		margin-bottom: var(--space-5);
-	}
-
-	.page-head-title,
-	.page-header h1,
-	.page-title {
-		font-size: 38px;
 	}
 }
 
@@ -1210,12 +1322,6 @@ kbd {
 	.page-head {
 		margin-bottom: var(--space-4);
 	}
-
-	.page-head-title,
-	.page-header h1,
-	.page-title {
-		font-size: 32px;
-	}
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1224,6 +1330,14 @@ kbd {
 		animation-iteration-count: 1 !important;
 		animation-delay: 0ms !important;
 		transition-duration: 0.01ms !important;
+	}
+
+	/* Blinks and entrances stop outright rather than finishing a cycle. */
+	.reveal,
+	.live-dot,
+	.skeleton,
+	.skeleton::after {
+		animation: none !important;
 	}
 
 	::view-transition-old(page),

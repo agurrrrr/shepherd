@@ -244,7 +244,7 @@
 		border-radius: 50%;
 		background: var(--live);
 		flex-shrink: 0;
-		animation: pulse-ring 1.8s var(--ease-out) infinite;
+		animation: px-blink 1s steps(1) infinite;
 	}
 
 	.tile-project {

@@ -530,7 +530,7 @@
 	.status-badge.todo { background: rgba(237, 230, 218, 0.06); color: var(--text-secondary); border-color: var(--border-subtle); }
 	.status-badge.todo::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
 	.status-badge.in_progress { background: var(--live-soft); color: var(--live); border-color: var(--live-line); }
-	.status-badge.in_progress::before { animation: pulse-ring 1.8s var(--ease-out) infinite; }
+	.status-badge.in_progress::before { animation: px-blink 1s steps(1) infinite; }
 	.status-badge.testing { background: var(--queued-soft); color: var(--queued); border-color: var(--queued-line); }
 	.status-badge.failed { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-line); }
 	.status-badge.done { background: var(--success-soft); color: var(--success); border-color: var(--success-line); }

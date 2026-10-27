@@ -9,11 +9,7 @@
 	import { goto, onNavigate } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
 	import BrandMark from '$lib/components/BrandMark.svelte';
-	import '@fontsource-variable/geist';
-	import '@fontsource-variable/geist-mono';
-	import '@fontsource/instrument-serif/400.css';
-	import '@fontsource/instrument-serif/400-italic.css';
-	import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
+	import '@fontsource/press-start-2p/400.css';
 	import '../app.css';
 
 	let { children } = $props();
@@ -617,7 +613,7 @@
 
 	.status-dot.working {
 		background: var(--live);
-		animation: pulse-ring 1.8s var(--ease-out) infinite;
+		animation: px-blink 1s steps(1) infinite;
 	}
 
 	.status-dot.error {
@@ -633,7 +629,7 @@
 		border-radius: 50%;
 		background: var(--live);
 		vertical-align: middle;
-		animation: pulse-ring 1.8s var(--ease-out) infinite;
+		animation: px-blink 1s steps(1) infinite;
 	}
 
 	/* ================= Flock meter ================= */

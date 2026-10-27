@@ -1,7 +1,7 @@
 // PWA shell + Web Push for task-complete notifications.
 // Shepherd still needs a live daemon; we only cache the app shell for install.
 
-const CACHE_NAME = 'shepherd-v2';
+const CACHE_NAME = 'shepherd-v3';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -16,11 +16,35 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Bundled pixel fonts (Galmuri11 alone is ~0.5MB, no unicode-range split).
+// Vite fingerprints them under /_app/immutable/, so cache-first is safe and
+// keeps the UI in its own typeface offline and on reload.
+function isFontRequest(request) {
+  if (request.method !== 'GET') return false;
+  if (request.destination === 'font') return true;
+  return /\.(woff2?|ttf)$/.test(new URL(request.url).pathname);
+}
+
 self.addEventListener('fetch', (event) => {
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(() =>
         caches.match(event.request).then((r) => r || caches.match('/'))
+      )
+    );
+    return;
+  }
+  if (isFontRequest(event.request)) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then((cache) =>
+        cache.match(event.request).then(
+          (hit) =>
+            hit ||
+            fetch(event.request).then((res) => {
+              if (res.ok) cache.put(event.request, res.clone());
+              return res;
+            })
+        )
       )
     );
   }
