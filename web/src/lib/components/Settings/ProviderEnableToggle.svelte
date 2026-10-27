@@ -23,7 +23,7 @@
 		gap: 4px;
 		padding: 12px 14px;
 		border: 1px solid var(--border);
-		border-radius: 8px;
+		border-radius: 0;
 		background: color-mix(in srgb, var(--success) 8%, transparent);
 		margin-bottom: 8px;
 	}
@@ -37,23 +37,23 @@
 		cursor: pointer;
 	}
 	.prov-label {
-		font-size: 15px;
+		font-size: var(--fs-md);
 		font-weight: 600;
 	}
 	.state {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		font-weight: 600;
 		padding: 1px 8px;
-		border-radius: 8px;
+		border-radius: 0;
 		background: color-mix(in srgb, var(--success) 20%, transparent);
 		color: var(--success);
 	}
 	.provider-enable.off .state {
 		background: color-mix(in srgb, var(--danger) 20%, transparent);
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 	.hint {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		margin: 0;
 		line-height: 1.55;

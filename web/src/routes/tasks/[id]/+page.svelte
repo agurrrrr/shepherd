@@ -649,7 +649,7 @@
 		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--text-tertiary);
-		transition: color var(--dur-1) ease, gap var(--dur-2) var(--ease-out);
+		transition: color var(--dur-1) steps(2), gap var(--dur-2) var(--ease-out);
 	}
 
 	.crumb:hover {
@@ -681,12 +681,13 @@
 		flex-wrap: wrap;
 	}
 
+	/* 48px keeps the task id on Press Start 2P's 8px crisp grid (issue #636 §2-1). */
 	.detail-header h1 {
 		font-family: var(--font-display);
-		font-size: clamp(40px, 4.4vw, 56px);
+		font-size: var(--fs-3xl);
 		font-weight: 400;
 		line-height: 0.95;
-		letter-spacing: -0.02em;
+		letter-spacing: 0;
 	}
 
 	.hash {
@@ -695,7 +696,7 @@
 	}
 
 	.cancel-error {
-		color: var(--danger);
+		color: var(--danger-text);
 		font-size: var(--fs-sm);
 		margin: 0 0 16px;
 	}
@@ -706,7 +707,7 @@
 		grid-template-columns: repeat(var(--meta-cols, 4), minmax(0, 1fr));
 		margin: 0 0 20px;
 		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border-radius: 0;
 		background: var(--bg-2);
 		overflow: hidden;
 		animation: rise-in var(--dur-3) var(--ease-out) 60ms backwards;
@@ -744,8 +745,8 @@
 
 	.meta-label {
 		font-family: var(--font-mono);
-		font-size: 10px;
-		letter-spacing: 0.1em;
+		font-size: var(--fs-2xs);
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--text-tertiary);
 	}
@@ -803,18 +804,16 @@
 	}
 
 	.error-section {
-		border-color: var(--danger-line);
-		background:
-			linear-gradient(180deg, rgba(255, 107, 97, 0.06), transparent 80px),
-			var(--bg-2);
+		background: linear-gradient(var(--danger-soft), var(--danger-soft)), var(--bg-2);
+		box-shadow: var(--px-ring), inset 3px 3px 0 0 var(--danger), inset -3px -3px 0 0 var(--lo);
 	}
 
 	.error-section .section-label {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.error-section pre {
-		color: var(--danger);
+		color: var(--danger-text);
 		white-space: pre-wrap;
 		word-break: break-word;
 		margin: 0;
@@ -853,9 +852,9 @@
 	}
 
 	.commit-badge {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		padding: 2px 8px;
-		border-radius: var(--radius-full);
+		border-radius: 0;
 		background: var(--accent-soft);
 		color: var(--accent);
 	}
@@ -879,32 +878,32 @@
 	}
 
 	.live-btn {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 	}
 
 	.changes-notice {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		margin: 0 0 10px;
 	}
 
 	.changes-warning {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--warning);
 		background: var(--warning-soft);
 		padding: 6px 10px;
-		border-radius: var(--radius);
+		border-radius: 0;
 		margin: 0 0 10px;
 	}
 
 	.changes-error {
-		font-size: 12px;
-		color: var(--danger);
+		font-size: var(--fs-xs);
+		color: var(--danger-text);
 		margin: 6px 0;
 	}
 
 	.changes-reason {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-secondary);
 		margin: 0 0 10px;
 	}
@@ -926,12 +925,12 @@
 		font-size: var(--fs-xs);
 		text-align: left;
 		cursor: pointer;
-		transition: background var(--dur-1) ease;
+		transition: background var(--dur-1) steps(2);
 	}
 
 	.change-row:hover,
 	.change-row.active {
-		background: rgba(237, 230, 218, 0.04);
+		background: var(--bg-3);
 	}
 
 	.status-badge {
@@ -939,12 +938,12 @@
 		min-width: 64px;
 		text-align: center;
 		font-family: var(--font-mono);
-		font-size: 9.5px;
-		letter-spacing: 0.06em;
+		font-size: var(--fs-2xs);
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		padding: 1px 6px;
-		border-radius: var(--radius-full);
-		background: rgba(237, 230, 218, 0.05);
+		border-radius: 0;
+		background: var(--well);
 		color: var(--text-secondary);
 	}
 
@@ -955,7 +954,7 @@
 
 	.status-badge.status-deleted {
 		background: var(--danger-soft);
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.status-badge.status-modified {
@@ -981,11 +980,11 @@
 		display: flex;
 		gap: 6px;
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 	}
 
 	.stat-add { color: var(--success); }
-	.stat-del { color: var(--danger); }
+	.stat-del { color: var(--danger-text); }
 	.stat-binary { color: var(--text-tertiary); }
 
 	.change-diff {
@@ -998,7 +997,7 @@
 
 	.mismatch {
 		margin-top: 12px;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 	}
 
@@ -1011,7 +1010,7 @@
 	}
 
 	.reported-files h4 {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		font-weight: 600;
 		color: var(--text-secondary);
 		margin: 0 0 6px;
@@ -1042,12 +1041,12 @@
 	.modal-header h3 {
 		margin: 0;
 		font-family: var(--font-display);
-		font-size: 28px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
 	}
 
 	.revert-notice {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-secondary);
 		margin: 0 0 10px;
 	}
@@ -1055,12 +1054,12 @@
 	.revert-file-list {
 		list-style: none;
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
+		border-radius: 0;
 		max-height: 240px;
 		overflow-y: auto;
 		margin: 0 0 12px;
 		padding: 4px 0;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 	}
 
 	.revert-file-list li {
@@ -1072,21 +1071,21 @@
 	}
 
 	.conflict-path {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.revert-warning {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--warning);
 		background: var(--warning-soft);
 		padding: 8px 10px;
-		border-radius: var(--radius);
+		border-radius: 0;
 		margin: 0 0 12px;
 	}
 
 	.revert-error {
-		font-size: 13px;
-		color: var(--danger);
+		font-size: var(--fs-sm);
+		color: var(--danger-text);
 		margin: 0 0 12px;
 	}
 

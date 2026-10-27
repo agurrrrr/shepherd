@@ -551,9 +551,9 @@
 
 	.block-title {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-weight: 500;
-		letter-spacing: 0.12em;
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--accent);
 		margin: 0 0 12px;
@@ -568,7 +568,7 @@
 	}
 
 	.setting-row > label:not(.toggle) {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 500;
 		flex: 0 0 180px;
 		color: var(--text-primary);
@@ -608,7 +608,7 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		line-height: 1.55;
 		min-width: 0;
@@ -619,7 +619,7 @@
 	}
 
 	.hint.danger {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.hint.ok {
@@ -639,7 +639,7 @@
 		gap: 10px;
 		padding: 8px 12px;
 		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius);
+		border-radius: 0;
 		cursor: pointer;
 	}
 
@@ -661,13 +661,13 @@
 	}
 
 	.tier-label {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 500;
 		color: var(--text-primary);
 	}
 
 	.tier-desc {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		line-height: 1.5;
 	}
@@ -710,12 +710,12 @@
 	}
 
 	.scope-name {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-primary);
 	}
 
 	.scope-path {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		flex: 1 1 auto;
 		min-width: 0;
@@ -725,9 +725,9 @@
 	}
 
 	.chip {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		padding: 2px 8px;
-		border-radius: 999px;
+		border-radius: 0;
 		border: 1px solid var(--border);
 		white-space: nowrap;
 	}
@@ -745,12 +745,12 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--success);
 	}
 
 	.save-msg.error {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	@media (max-width: 768px) {

@@ -142,32 +142,34 @@
 		flex-direction: column;
 		gap: 12px;
 		padding: 18px 18px 14px;
-		transition: border-color var(--dur-3) ease, background var(--dur-3) ease;
 	}
 
-	.sheep-card.working {
-		border-color: var(--live-line);
-		background:
-			radial-gradient(90% 70% at 0% 0%, rgba(95, 224, 194, 0.1), transparent 60%),
-			var(--bg-2);
-		box-shadow: var(--sheen), 0 18px 50px -30px rgba(95, 224, 194, 0.35);
-	}
-
-	/* Live progress shimmer (top edge of card, working state only) */
+	/* Live progress (top edge of the card, working state only): a black
+	   6px track with a run of blue cells hopping across it. */
 	.progress-bar {
 		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		height: 1px;
-		background: linear-gradient(90deg, transparent 0%, var(--live) 40%, #d9fff4 50%, var(--live) 60%, transparent 100%);
-		background-size: 220% 100%;
-		animation: shimmer 2.6s linear infinite;
+		top: 3px;
+		left: 3px;
+		right: 3px;
+		height: 6px;
+		background: #000;
+		overflow: hidden;
 	}
 
-	@keyframes shimmer {
-		0% { background-position: 110% 0; }
-		100% { background-position: -110% 0; }
+	.progress-bar::after {
+		content: '';
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		width: 40%;
+		background: repeating-linear-gradient(90deg, var(--live) 0 6px, transparent 6px 8px);
+		animation: px-scan 1.6s steps(12) infinite;
+	}
+
+	@keyframes px-scan {
+		from { transform: translateX(-100%); }
+		to { transform: translateX(250%); }
 	}
 
 	.card-header {
@@ -187,16 +189,15 @@
 	.project-name {
 		font-size: var(--fs-md);
 		font-weight: var(--fw-semibold);
-		letter-spacing: -0.012em;
-		color: var(--text-primary);
+		letter-spacing: 0;
+		color: var(--highlight);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
 	a.project-name:hover {
-		color: var(--live-hover);
-		text-decoration: none;
+		color: var(--highlight-hover);
 	}
 
 	.sheep-meta {
@@ -216,7 +217,7 @@
 		font-size: var(--fs-2xs);
 		color: var(--text-tertiary);
 		text-transform: uppercase;
-		letter-spacing: 0.08em;
+		letter-spacing: 0;
 	}
 
 	.last-log {
@@ -225,9 +226,8 @@
 		gap: 8px;
 		min-width: 0;
 		padding: 8px 10px;
-		border-radius: var(--radius);
-		background: rgba(0, 0, 0, 0.28);
-		box-shadow: inset 0 0 0 1px var(--border-subtle);
+		border-radius: 0;
+		background: #000;
 		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 	}
@@ -251,13 +251,13 @@
 	/* Inject section */
 	.inject-section {
 		margin-top: auto;
-		padding-top: 12px;
-		border-top: 1px solid var(--border-subtle);
+		padding-top: 15px;
+		border-top: 3px solid var(--lo);
 	}
 
 	.inject-error {
 		font-size: var(--fs-xs);
-		color: var(--danger);
+		color: var(--danger-text);
 		margin-bottom: 6px;
 	}
 
@@ -265,20 +265,22 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		margin: 3px;
 		padding: 3px 3px 3px 10px;
-		border-radius: 10px;
-		background: var(--bg-input);
-		box-shadow: inset 0 0 0 1px var(--border-subtle);
-		transition: box-shadow var(--dur-2) ease;
+		border-radius: 0;
+		background: var(--well);
+		box-shadow: 0 0 0 3px #000;
 	}
 
+	/* The field inside drops its own outline; the row carries the focus. */
 	.inject-row:focus-within {
-		box-shadow: inset 0 0 0 1px var(--live-line), 0 0 0 3px var(--live-soft);
+		outline: 3px solid var(--highlight);
+		outline-offset: 4px;
 	}
 
 	.inject-icon {
 		display: inline-flex;
-		color: var(--text-tertiary);
+		color: var(--queued-text);
 	}
 
 	.inject-input {
@@ -311,18 +313,21 @@
 		place-items: center;
 		width: 30px;
 		height: 30px;
-		border: 1px solid var(--border);
-		border-radius: 8px;
-		background: var(--bg-3);
+		border: 0;
+		border-radius: 0;
+		background: var(--p-dgray);
 		color: var(--text-tertiary);
 		cursor: pointer;
-		transition: background var(--dur-1) ease, color var(--dur-1) ease, border-color var(--dur-1) ease;
 	}
 
 	.inject-btn.ready {
-		background: var(--live);
-		border-color: var(--live);
-		color: var(--live-ink);
+		background: var(--accent);
+		box-shadow: var(--px-bevel-btn);
+		color: #000;
+	}
+
+	.inject-btn.ready:hover {
+		background: var(--accent-hover);
 	}
 
 	.inject-btn:disabled {
@@ -332,15 +337,16 @@
 	.spinner {
 		width: 12px;
 		height: 12px;
-		border-radius: 50%;
-		border: 2px solid rgba(4, 20, 15, 0.25);
+		border-radius: 0;
+		border: 2px solid transparent;
 		border-top-color: currentColor;
-		animation: spin 700ms linear infinite;
+		border-left-color: currentColor;
+		animation: spin 800ms steps(4) infinite;
 	}
 
 	@media (max-width: 768px) {
 		.inject-input {
-			font-size: 16px;
+			font-size: var(--fs-md);
 		}
 	}
 </style>

@@ -98,7 +98,7 @@
 		margin-bottom: 8px;
 	}
 	.preview-desc {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-secondary);
 		line-height: 1.5;
 		margin-bottom: 12px;
@@ -112,7 +112,7 @@
 	}
 	.preview-tab {
 		padding: 6px 12px;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		font-weight: 500;
 		background: transparent;
 		color: var(--text-secondary);
@@ -129,10 +129,10 @@
 	.preview-body {
 		background: var(--bg-secondary);
 		border: 1px solid var(--border);
-		border-radius: 6px;
+		border-radius: 0;
 		padding: 12px;
 		font-family: monospace;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		line-height: 1.5;
 		max-height: 480px;
 		overflow: auto;
@@ -141,14 +141,14 @@
 		margin-bottom: 8px;
 	}
 	.preview-error {
-		color: var(--danger);
-		font-size: 13px;
+		color: var(--danger-text);
+		font-size: var(--fs-sm);
 	}
 	.section-title {
 		font-family: var(--font-display);
-		font-size: 26px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
-		letter-spacing: -0.01em;
+		letter-spacing: 0;
 		margin-bottom: 12px;
 	}
 	.btn-outline {

@@ -46,7 +46,7 @@
 <style>
 	.markdown-body {
 		padding: 4px 0;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		line-height: 1.6;
 		color: var(--text-primary);
 		background: transparent;
@@ -60,18 +60,18 @@
 	.markdown-body :global(pre) {
 		background: var(--bg-secondary);
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
+		border-radius: 0;
 		padding: 8px 12px;
 		margin: 6px 0;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		overflow-x: auto;
 	}
 
 	.markdown-body :global(code) {
 		background: var(--bg-tertiary);
 		padding: 1px 4px;
-		border-radius: 3px;
-		font-size: 12px;
+		border-radius: 0;
+		font-size: var(--fs-xs);
 	}
 
 	.markdown-body :global(pre code) {
@@ -92,11 +92,11 @@
 	.markdown-body :global(h3),
 	.markdown-body :global(h4) {
 		margin: 8px 0 4px;
-		font-size: 14px;
+		font-size: var(--fs-base);
 	}
 
-	.markdown-body :global(h1) { font-size: 16px; }
-	.markdown-body :global(h2) { font-size: 15px; }
+	.markdown-body :global(h1) { font-size: var(--fs-md); }
+	.markdown-body :global(h2) { font-size: var(--fs-md); }
 	.markdown-body :global(strong) { color: var(--text-primary); }
 	.markdown-body :global(a) { color: var(--accent); }
 
@@ -110,7 +110,7 @@
 	.markdown-body :global(table) {
 		border-collapse: collapse;
 		margin: 6px 0;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		display: block;
 		overflow-x: auto;
 	}
@@ -129,7 +129,7 @@
 		padding: 4px 0;
 		line-height: 1.6;
 		color: var(--text-primary);
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		white-space: pre-wrap;
 		word-break: break-word;
 	}

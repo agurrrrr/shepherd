@@ -99,7 +99,7 @@
 	{#if !loaded}
 		<div class="sheep-grid" aria-busy="true">
 			{#each Array(12) as _}
-				<div class="card sheep-card"><div class="skeleton" style="height: 28px; width: 28px; border-radius: 50%"></div><div class="skeleton" style="height: 10px; width: 60%; margin-top: 12px"></div></div>
+				<div class="card sheep-card"><div class="skeleton" style="height: 28px; width: 28px"></div><div class="skeleton" style="height: 10px; width: 60%; margin-top: 12px"></div></div>
 			{/each}
 		</div>
 	{:else if sheepList.length === 0}
@@ -190,16 +190,7 @@
 		padding: 14px;
 	}
 
-	.sheep-card.working {
-		border-color: var(--live-line);
-		background:
-			radial-gradient(100% 80% at 0% 0%, rgba(95, 224, 194, 0.09), transparent 60%),
-			var(--bg-2);
-	}
-
-	.sheep-card.error {
-		border-color: var(--danger-line);
-	}
+	/* .working / .error bevels come from app.css (.card.working, .card.error) */
 
 	.sheep-header {
 		display: flex;
@@ -213,18 +204,18 @@
 		width: 32px;
 		height: 32px;
 		flex-shrink: 0;
-		border-radius: 50%;
-		background: var(--wool-soft);
-		box-shadow: inset 0 0 0 1px rgba(203, 188, 163, 0.18);
-		color: var(--wool);
+		margin: 2px;
+		border-radius: 0;
+		background: var(--p-dgray);
+		box-shadow: var(--px-ring-2);
+		color: var(--text-primary);
 		font-weight: var(--fw-semibold);
 		font-size: var(--fs-sm);
 	}
 
 	.working .ava {
-		background: var(--live-soft);
-		box-shadow: inset 0 0 0 1px var(--live-line), 0 0 16px -4px var(--live-glow);
-		color: var(--live);
+		background: var(--live);
+		color: #000;
 	}
 
 	.who {
@@ -256,7 +247,7 @@
 
 	.sheep-project.none {
 		font-family: var(--font-sans);
-		font-style: italic;
+		font-style: normal;
 	}
 
 	.sheep-meta {
@@ -275,7 +266,7 @@
 	}
 
 	.del:hover {
-		color: var(--danger);
+		color: var(--danger-text);
 		background: var(--danger-soft);
 	}
 

@@ -251,7 +251,7 @@
 		flex-direction: column;
 		gap: 10px;
 		padding: 16px 16px 10px;
-		transition: border-color var(--dur-1) ease, opacity var(--dur-2) ease;
+		transition: border-color var(--dur-1) steps(2), opacity var(--dur-2) steps(2);
 	}
 
 	.skill-item:hover {
@@ -313,7 +313,7 @@
 
 	.tag {
 		font-family: var(--font-mono);
-		font-size: 10.5px;
+		font-size: var(--fs-2xs);
 		color: var(--text-tertiary);
 	}
 
@@ -324,7 +324,7 @@
 		padding-top: 8px;
 		border-top: 1px solid var(--border-subtle);
 		opacity: 0.55;
-		transition: opacity var(--dur-1) ease;
+		transition: opacity var(--dur-1) steps(2);
 	}
 
 	.skill-item:hover .skill-actions,
@@ -333,7 +333,7 @@
 	}
 
 	.del:hover {
-		color: var(--danger);
+		color: var(--danger-text);
 		background: var(--danger-soft);
 	}
 
@@ -350,7 +350,7 @@
 
 	.modal-header h2 {
 		font-family: var(--font-display);
-		font-size: 30px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
 	}
 

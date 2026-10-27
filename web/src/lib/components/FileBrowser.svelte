@@ -7,8 +7,9 @@
 	import { Carta } from 'carta-md';
 	import DOMPurify from 'isomorphic-dompurify';
 	import '$lib/style/github-markdown.css';
+	// highlight.js core classes are themed in app.css layer 6 (PICO palette on a
+	// black well) — no third-party theme stylesheet is imported.
 	import hljs from 'highlight.js/lib/common';
-	import 'highlight.js/styles/github-dark.css';
 	import html2canvas from 'html2canvas';
 	import { jsPDF } from 'jspdf';
 
@@ -230,7 +231,7 @@
 			const canvas = await html2canvas(mdBodyEl, {
 				scale: 2,
 				useCORS: true,
-				backgroundColor: '#1e1e1e'
+				backgroundColor: '#18181b'
 			});
 
 			// Restore original styles
@@ -446,10 +447,10 @@
 		align-items: center;
 		justify-content: center;
 		border: 2px dashed var(--accent);
-		border-radius: 8px;
+		border-radius: 0;
 		background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
 		color: var(--accent);
-		font-size: 14px;
+		font-size: var(--fs-base);
 		font-weight: 600;
 		pointer-events: none;
 		z-index: 5;
@@ -460,12 +461,12 @@
 	}
 	.fb-upload-msg {
 		padding: 6px 12px;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--accent);
 		border-bottom: 1px solid var(--border);
 		flex-shrink: 0;
 	}
-	.fb-upload-msg.fb-err { color: var(--danger, #e5534b); }
+	.fb-upload-msg.fb-err { color: var(--danger); }
 
 	/* Breadcrumb */
 	.fb-breadcrumb {
@@ -475,7 +476,7 @@
 		min-height: 46px;
 		padding: 8px 12px 8px 16px;
 		font-family: var(--font-mono);
-		font-size: 12.5px;
+		font-size: var(--fs-xs);
 		border-bottom: 1px solid var(--border);
 		flex-shrink: 0;
 		flex-wrap: wrap;
@@ -484,7 +485,7 @@
 	.fb-crumb-link {
 		color: var(--text-secondary);
 		cursor: pointer;
-		transition: color var(--dur-1) ease;
+		transition: color var(--dur-1) steps(2);
 	}
 	.fb-crumb-link:hover { color: var(--accent); }
 	.fb-crumb-link:hover { text-decoration: underline; }
@@ -506,8 +507,8 @@
 		padding: 7px 16px;
 		cursor: pointer;
 		border-bottom: 1px solid var(--border-subtle);
-		font-size: 13px;
-		transition: background var(--dur-1) ease;
+		font-size: var(--fs-sm);
+		transition: background var(--dur-1) steps(2);
 	}
 	.fb-entry:hover { background: var(--bg-hover); }
 	.fb-entry:hover .fb-name { color: var(--text-primary); }
@@ -516,17 +517,17 @@
 		place-items: center;
 		width: 26px;
 		height: 26px;
-		border-radius: 7px;
+		border-radius: 0;
 		color: var(--text-tertiary);
 	}
 	.fb-k-dir { color: var(--accent); background: var(--accent-soft); }
 	.fb-k-code { color: var(--live); }
 	.fb-k-doc { color: var(--wool); }
-	.fb-k-config { color: var(--queued); }
+	.fb-k-config { color: var(--queued-text); }
 	.fb-k-image { color: var(--info); }
-	.fb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); transition: color var(--dur-1) ease; }
+	.fb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); transition: color var(--dur-1) steps(2); }
 	.fb-dir { font-weight: var(--fw-medium); color: var(--text-primary); }
-	.fb-size, .fb-time { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; text-align: right; }
+	.fb-size, .fb-time { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-tertiary); font-variant-numeric: tabular-nums; text-align: right; }
 	.fb-size { min-width: 64px; }
 	.fb-time { min-width: 140px; }
 
@@ -551,15 +552,15 @@
 		gap: 6px;
 		color: var(--text-secondary);
 		cursor: pointer;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: var(--fw-medium);
 		white-space: nowrap;
-		transition: color var(--dur-1) ease;
+		transition: color var(--dur-1) steps(2);
 	}
 	.fb-back:hover { color: var(--accent); }
 	.fb-viewer-title {
 		flex: 1;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -569,18 +570,18 @@
 		cursor: pointer;
 		color: var(--text-secondary);
 		padding: 4px;
-		border-radius: 4px;
+		border-radius: 0;
 		transition: color 0.15s;
 	}
 	.fb-dl-btn:hover { color: var(--accent); }
 	.fb-pdf-btn {
 		padding: 2px 10px;
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-weight: 600;
 		background: var(--accent);
 		color: var(--accent-ink);
 		border: none;
-		border-radius: 4px;
+		border-radius: 0;
 		cursor: pointer;
 		white-space: nowrap;
 		transition: opacity 0.15s;
@@ -593,19 +594,21 @@
 		padding: 16px;
 	}
 
-	/* Code block */
+	/* Code block: black well */
 	.fb-code {
 		margin: 0;
-		padding: 0;
-		background: transparent;
-		font-size: 13px;
+		padding: 12px;
+		background: #000;
+		font-size: var(--fs-sm);
 		line-height: 1.5;
 		tab-size: 4;
 		white-space: pre-wrap;
 		word-break: break-all;
 	}
 	.fb-code code {
-		font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
+		background: transparent;
+		padding: 0;
 	}
 
 	/* Image preview */
@@ -618,7 +621,7 @@
 	.fb-image-preview img {
 		max-width: 100%;
 		max-height: 80vh;
-		border-radius: 4px;
+		border-radius: 0;
 		object-fit: contain;
 	}
 
@@ -631,7 +634,7 @@
 		gap: 8px;
 		height: 200px;
 		color: var(--text-secondary);
-		font-size: 14px;
+		font-size: var(--fs-base);
 	}
 	.fb-placeholder .btn {
 		margin-top: 8px;
@@ -639,17 +642,17 @@
 
 
 	.text-muted { color: var(--text-secondary); }
-	.mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+	.mono { font-family: var(--font-mono); }
 
 	/* Markdown body */
 	.fb-viewer-content :global(.markdown-body) {
 		background: transparent;
 		color: var(--text-primary);
-		font-size: 14px;
+		font-size: var(--fs-base);
 		line-height: 1.6;
 	}
 
-	/* highlight.js theme overrides for our dark bg */
+	/* hljs colours come from app.css layer 6; the black well is the pre itself. */
 	.fb-viewer-content :global(.hljs) {
 		background: transparent;
 		padding: 0;

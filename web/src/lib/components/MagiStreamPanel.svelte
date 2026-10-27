@@ -14,10 +14,10 @@
 
 	// Persona metadata per slot — defaults, overridden by 🧩 announcement lines
 	const defaultPersonaInfo = [
-		// Slot colours come from the Nocturne palette (--info / --warning / --success)
-		{ emoji: '🔬', name: 'MELCHIOR-1', color: '#8fc1ff' },
-		{ emoji: '📜', name: 'BALTHASAR-2', color: '#ff9a5c' },
-		{ emoji: '⚡', name: 'CASPER-3', color: '#9fd685' },
+		// Slot colours come from the app.css palette (--live / --warning / --success)
+		{ emoji: '🔬', name: 'MELCHIOR-1', color: 'var(--live)' },
+		{ emoji: '📜', name: 'BALTHASAR-2', color: 'var(--warning)' },
+		{ emoji: '⚡', name: 'CASPER-3', color: 'var(--success)' },
 	];
 
 	// Dynamic persona info — updated when the orchestrator emits 🧩 lines
@@ -240,7 +240,7 @@
 		background: var(--bg-primary);
 		border: 1px solid var(--border);
 		border-top: 3px solid var(--persona-color);
-		border-radius: var(--radius);
+		border-radius: 0;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
@@ -255,18 +255,18 @@
 		padding: 6px 10px;
 		background: var(--bg-tertiary);
 		border-bottom: 1px solid var(--border);
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		font-weight: 600;
 		flex-shrink: 0;
 	}
 
-	.proposer-emoji { font-size: 14px; }
+	.proposer-emoji { font-size: var(--fs-base); }
 	.proposer-name { color: var(--persona-color); flex: 1; }
 
 	.proposer-status {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		padding: 1px 5px;
-		border-radius: 3px;
+		border-radius: 0;
 	}
 
 	.proposer-status.done {
@@ -277,7 +277,7 @@
 	.proposer-status.streaming {
 		color: var(--warning);
 		background: var(--warning-soft);
-		animation: pulse 1.5s ease-in-out infinite;
+		animation: px-blink 1.5s steps(1) infinite;
 	}
 
 	@keyframes pulse {
@@ -289,8 +289,8 @@
 		flex: 1;
 		overflow-y: auto;
 		padding: 8px 10px;
-		font-family: var(--font-sans, system-ui, sans-serif);
-		font-size: 12px;
+		font-family: var(--font-sans);
+		font-size: var(--fs-xs);
 		line-height: 1.5;
 		color: var(--text-secondary);
 		word-break: break-word;
@@ -299,8 +299,8 @@
 
 	.proposer-idle {
 		color: var(--text-secondary);
-		font-style: italic;
-		font-size: 11px;
+		font-style: normal;
+		font-size: var(--fs-2xs);
 	}
 
 	/* Streaming fallback — monospace pre-wrap so newlines & spaces are preserved */
@@ -313,7 +313,7 @@
 
 	/* Completed / rendered markdown */
 	.proposer-md {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		line-height: 1.55;
 		color: var(--text-primary);
 		background: transparent;
@@ -323,17 +323,17 @@
 	.proposer-md :global(pre) {
 		background: var(--bg-secondary);
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
+		border-radius: 0;
 		padding: 6px 8px;
 		margin: 4px 0;
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		overflow-x: auto;
 	}
 	.proposer-md :global(code) {
 		background: var(--bg-tertiary);
 		padding: 1px 4px;
-		border-radius: 3px;
-		font-size: 11px;
+		border-radius: 0;
+		font-size: var(--fs-2xs);
 	}
 	.proposer-md :global(pre code) { background: none; padding: 0; }
 	.proposer-md :global(ul),
@@ -342,7 +342,7 @@
 	.proposer-md :global(h1),
 	.proposer-md :global(h2),
 	.proposer-md :global(h3),
-	.proposer-md :global(h4) { margin: 6px 0 4px; font-size: 13px; }
+	.proposer-md :global(h4) { margin: 6px 0 4px; font-size: var(--fs-sm); }
 	.proposer-md :global(strong) { color: var(--text-primary); }
 	.proposer-md :global(blockquote) {
 		border-left: 3px solid var(--border);
@@ -353,7 +353,7 @@
 	.proposer-md :global(table) {
 		border-collapse: collapse;
 		margin: 6px 0;
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		display: block;
 		overflow-x: auto;
 		width: 100%;
@@ -370,16 +370,16 @@
 	.proposer-summary {
 		margin-top: 6px;
 		padding: 4px 6px;
-		border-radius: var(--radius);
+		border-radius: 0;
 		background: var(--bg-tertiary);
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-weight: 600;
 		color: var(--text-primary);
 		white-space: pre-wrap;
 	}
 
 	.proposer-summary.fail {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	/* ── Unified panel ── */
@@ -388,7 +388,7 @@
 	.unified-panel {
 		background: var(--bg-primary);
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
+		border-radius: 0;
 		display: flex;
 		flex-direction: column;
 		flex: 1 1 50%;
@@ -402,13 +402,13 @@
 		padding: 6px 12px;
 		background: var(--bg-tertiary);
 		border-bottom: 1px solid var(--border);
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 600;
 		color: var(--text-primary);
 		flex-shrink: 0;
 	}
 
-	.unified-icon { font-size: 15px; }
+	.unified-icon { font-size: var(--fs-md); }
 
 	.unified-content {
 		flex: 1;
@@ -434,18 +434,18 @@
 	.block-text :global(pre) {
 		background: var(--bg-secondary);
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
+		border-radius: 0;
 		padding: 8px 12px;
 		margin: 6px 0;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		overflow-x: auto;
 	}
 
 	.block-text :global(code) {
 		background: var(--bg-tertiary);
 		padding: 1px 4px;
-		border-radius: 3px;
-		font-size: 12px;
+		border-radius: 0;
+		font-size: var(--fs-xs);
 	}
 
 	.block-text :global(pre code) {
@@ -466,7 +466,7 @@
 	.block-text :global(h3),
 	.block-text :global(h4) {
 		margin: 8px 0 4px;
-		font-size: 14px;
+		font-size: var(--fs-base);
 	}
 
 	.block-text :global(strong) { color: var(--text-primary); }
@@ -482,7 +482,7 @@
 	.block-text :global(table) {
 		border-collapse: collapse;
 		margin: 6px 0;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		display: block;
 		overflow-x: auto;
 	}
@@ -501,7 +501,7 @@
 		padding: 4px 0;
 		line-height: 1.6;
 		color: var(--text-primary);
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		white-space: pre-wrap;
 		word-break: break-word;
 	}
@@ -513,7 +513,7 @@
 
 	.empty-output {
 		color: var(--text-secondary);
-		font-size: 12px;
+		font-size: var(--fs-xs);
 	}
 
 	/* Responsive: stack panels vertically only on clearly portrait narrow screens.

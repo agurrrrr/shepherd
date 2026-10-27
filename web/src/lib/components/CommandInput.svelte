@@ -338,14 +338,21 @@
 		gap: 6px;
 		min-height: 48px;
 		padding: 6px 6px 6px 8px;
-		border-radius: 12px;
+		border-radius: 0;
+		/* Field rule from app.css layer 3: black well, 3px grey ring (inset
+		   here, so it never collides with the card bevel around it). */
 		background: var(--bg-input);
-		box-shadow: inset 0 0 0 1px var(--border-subtle), inset 0 1px 3px rgba(0, 0, 0, 0.4);
-		transition: box-shadow var(--dur-2) ease;
+		box-shadow: inset 0 0 0 3px var(--hi);
+	}
+
+	/* The textarea drops its own outline; the whole field carries focus. */
+	.command-input:focus-within {
+		outline: 3px solid var(--highlight);
+		outline-offset: 4px;
 	}
 
 	.command-input.inject {
-		box-shadow: inset 0 0 0 1px var(--live-line), inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 3px var(--live-soft);
+		box-shadow: inset 0 0 0 3px var(--live);
 	}
 
 	.prompt-glyph,
@@ -360,16 +367,15 @@
 
 	.btn-attach {
 		border: none;
-		border-radius: 9px;
+		border-radius: 0;
 		background: none;
 		color: var(--text-tertiary);
 		cursor: pointer;
-		transition: color var(--dur-1) ease, background var(--dur-1) ease;
 	}
 
 	.btn-attach:hover {
-		color: var(--accent);
-		background: var(--bg-hover);
+		color: var(--highlight);
+		background: var(--bg-2);
 	}
 
 	.btn-attach:disabled {
@@ -389,9 +395,9 @@
 		box-shadow: none;
 		color: var(--text-primary);
 		font-family: var(--font-sans);
-		font-size: 15px;
+		font-size: var(--fs-md);
 		line-height: 20px;
-		letter-spacing: -0.005em;
+		letter-spacing: 0;
 		resize: none;
 		overflow-y: auto;
 		outline: none;
@@ -443,8 +449,7 @@
 
 	.btn-inject.active {
 		background: var(--live);
-		border-color: var(--live);
-		color: var(--live-ink);
+		color: #000;
 	}
 
 	.send {
@@ -452,30 +457,35 @@
 		place-items: center;
 		width: 36px;
 		height: 36px;
-		border: 1px solid var(--border);
-		border-radius: 10px;
-		background: var(--bg-3);
+		border: 0;
+		border-radius: 0;
+		background: var(--p-dgray);
 		color: var(--text-tertiary);
 		cursor: pointer;
-		transition: background var(--dur-2) ease, color var(--dur-1) ease, border-color var(--dur-1) ease, box-shadow var(--dur-2) ease, transform var(--dur-1) ease;
 	}
 
+	/* Primary when there is something to send: pink, black glyph, bevel */
 	.send.ready {
-		border-color: rgba(255, 214, 150, 0.6);
-		background: linear-gradient(180deg, #ffc977, var(--accent));
-		color: var(--accent-ink);
-		box-shadow: inset 0 1px 0 rgba(255, 244, 220, 0.55), 0 6px 18px -8px var(--accent-glow);
+		background: var(--accent);
+		color: #000;
+		box-shadow: var(--px-bevel-btn);
 	}
 
 	.inject .send.ready {
-		border-color: var(--live);
 		background: var(--live);
-		color: var(--live-ink);
-		box-shadow: 0 6px 18px -8px var(--live-glow);
+		color: #000;
 	}
 
 	.send.ready:hover {
-		transform: translateY(-1px);
+		background: var(--accent-hover);
+	}
+
+	.inject .send.ready:hover {
+		background: var(--live-hover);
+	}
+
+	.send.ready:active:not(:disabled) {
+		transform: translateY(3px);
 	}
 
 	.send:disabled {
@@ -489,10 +499,11 @@
 	.spinner {
 		width: 14px;
 		height: 14px;
-		border-radius: 50%;
-		border: 2px solid rgba(26, 18, 6, 0.25);
+		border-radius: 0;
+		border: 2px solid transparent;
 		border-top-color: currentColor;
-		animation: spin 700ms linear infinite;
+		border-left-color: currentColor;
+		animation: spin 800ms steps(4) infinite;
 	}
 
 	.command-status {
@@ -506,7 +517,7 @@
 	}
 
 	.command-status.error {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	/* Attachments */
@@ -522,9 +533,10 @@
 		align-items: center;
 		gap: 6px;
 		padding: 4px 6px 4px 4px;
-		border: 1px solid var(--border);
-		border-radius: 9px;
+		border: 0;
+		border-radius: 0;
 		background: var(--bg-3);
+		box-shadow: inset 0 0 0 2px #000;
 		font-size: var(--fs-2xs);
 		animation: rise-in var(--dur-2) var(--ease-out) backwards;
 	}
@@ -533,7 +545,7 @@
 		width: 26px;
 		height: 26px;
 		object-fit: cover;
-		border-radius: 6px;
+		border-radius: 0;
 	}
 
 	.attachment-file-icon {
@@ -541,7 +553,7 @@
 		place-items: center;
 		width: 26px;
 		height: 26px;
-		border-radius: 6px;
+		border-radius: 0;
 		background: var(--bg-4);
 		color: var(--text-secondary);
 	}
@@ -564,20 +576,20 @@
 		width: 18px;
 		height: 18px;
 		border: none;
-		border-radius: 50%;
+		border-radius: 0;
 		background: none;
 		color: var(--text-tertiary);
 		cursor: pointer;
 	}
 
 	.attachment-remove:hover {
-		color: var(--danger);
+		color: var(--danger-text);
 		background: var(--danger-soft);
 	}
 
 	@media (max-width: 768px) {
 		.command-field {
-			font-size: 16px;
+			font-size: var(--fs-md);
 		}
 
 		.hint {

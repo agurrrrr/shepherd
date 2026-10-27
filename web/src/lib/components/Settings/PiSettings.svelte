@@ -59,7 +59,7 @@
 	}
 
 	.setting-row > label:not(.toggle) {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 500;
 		flex: 0 0 180px;
 		color: var(--text-primary);
@@ -94,7 +94,7 @@
 	}
 
 	.conc-label {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-secondary);
 	}
 
@@ -129,7 +129,7 @@
 	}
 
 	.hint {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		line-height: 1.55;
 	}

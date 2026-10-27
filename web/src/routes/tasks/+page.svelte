@@ -138,7 +138,7 @@
 			case 'failed': return { name: 'x', tone: 'danger' };
 			case 'running': return { name: 'zap', tone: 'live' };
 			case 'pending': return { name: 'hourglass', tone: 'queued' };
-			case 'stopped': return { name: 'square', tone: 'idle' };
+			case 'stopped': return { name: 'square', tone: 'warning' };
 			default: return { name: 'circle', tone: 'idle' };
 		}
 	}
@@ -180,7 +180,7 @@
 		<div class="task-table" aria-busy="true">
 			{#each Array(8) as _, i}
 				<div class="task-row skeleton-row">
-					<span class="skeleton" style="width: 22px; height: 22px; border-radius: 50%"></span>
+					<span class="skeleton" style="width: 22px; height: 22px"></span>
 					<span class="skeleton" style="height: 12px; width: 48px"></span>
 					<span class="skeleton" style="height: 12px; width: {40 + ((i * 37) % 45)}%"></span>
 				</div>
@@ -367,10 +367,10 @@
 		display: flex;
 		flex-direction: column;
 		padding: 4px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border: 0;
+		border-radius: 0;
 		background: var(--bg-2);
-		box-shadow: var(--sheen);
+		box-shadow: var(--px-ring), var(--px-bevel);
 	}
 
 	.task-row {
@@ -380,26 +380,26 @@
 		align-items: center;
 		gap: 12px;
 		padding: 10px 12px;
-		border-radius: var(--radius);
+		border-radius: 0;
 		cursor: pointer;
-		transition: background var(--dur-1) ease;
+		transition: background var(--dur-1) steps(2);
 	}
 
 	.task-row + .task-row {
-		box-shadow: 0 -1px 0 var(--border-subtle);
+		box-shadow: 0 -2px 0 0 var(--lo);
 	}
 
 	.task-row:hover,
 	.task-row:focus-visible {
-		background: rgba(237, 230, 218, 0.035);
+		background: var(--bg-3);
 	}
 
 	.task-row:focus-visible {
-		box-shadow: inset 0 0 0 1px var(--accent-line);
+		outline-offset: -3px;
 	}
 
 	.task-row.running {
-		background: linear-gradient(90deg, rgba(95, 224, 194, 0.07), transparent 40%);
+		background: var(--live-soft);
 	}
 
 	.task-row.running::before {
@@ -408,10 +408,9 @@
 		left: -4px;
 		top: 10px;
 		bottom: 10px;
-		width: 2px;
-		border-radius: 2px;
+		width: 3px;
+		border-radius: 0;
 		background: var(--live);
-		box-shadow: 0 0 10px var(--live-glow);
 	}
 
 	.skeleton-row {
@@ -424,16 +423,18 @@
 		place-items: center;
 		width: 22px;
 		height: 22px;
-		border-radius: 50%;
-		color: var(--text-tertiary);
-		background: rgba(237, 230, 218, 0.05);
-		box-shadow: inset 0 0 0 1px var(--border-subtle);
+		border-radius: 0;
+		color: #000;
+		background: var(--p-dgray);
+		box-shadow: var(--px-ring-2);
 	}
 
-	.row-icon[data-tone="success"] { color: var(--success); background: var(--success-soft); }
-	.row-icon[data-tone="live"] { color: var(--live); background: var(--live-soft); box-shadow: inset 0 0 0 1px var(--live-line), 0 0 12px -2px var(--live-glow); }
-	.row-icon[data-tone="danger"] { color: var(--danger); background: var(--danger-soft); }
-	.row-icon[data-tone="queued"] { color: var(--queued); background: var(--queued-soft); }
+	/* Status fill with a black glyph */
+	.row-icon[data-tone="success"] { background: var(--success); }
+	.row-icon[data-tone="live"] { background: var(--live); }
+	.row-icon[data-tone="danger"] { background: var(--danger); }
+	.row-icon[data-tone="queued"] { background: var(--queued); }
+	.row-icon[data-tone="warning"] { background: var(--warning); }
 
 	.row-id {
 		font-size: var(--fs-2xs);
@@ -451,7 +452,7 @@
 		flex: 1;
 		min-width: 0;
 		font-size: var(--fs-sm);
-		color: rgba(238, 234, 227, 0.9);
+		color: var(--text-primary);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -524,9 +525,9 @@
 
 	.modal-title-row h2 {
 		font-family: var(--font-display);
-		font-size: 30px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
-		letter-spacing: -0.01em;
+		letter-spacing: 0;
 	}
 
 	.detail-section {
@@ -552,16 +553,15 @@
 
 	pre.detail-value {
 		padding: 12px 14px;
-		border-radius: var(--radius);
-		background: rgba(0, 0, 0, 0.28);
-		box-shadow: inset 0 0 0 1px var(--border-subtle);
+		border-radius: 0;
+		background: #000;
 		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 		max-height: 260px;
 		overflow: auto;
 	}
 
-	.error-text { color: var(--danger); }
+	.error-text { color: var(--danger-text); }
 
 	.detail-meta {
 		display: grid;
@@ -583,8 +583,8 @@
 
 	.meta-label {
 		font-family: var(--font-mono);
-		font-size: 10px;
-		letter-spacing: 0.08em;
+		font-size: var(--fs-2xs);
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--text-tertiary);
 	}
@@ -602,7 +602,7 @@
 	.commit-badge {
 		font-size: var(--fs-2xs);
 		padding: 1px 7px;
-		border-radius: var(--radius-full);
+		border-radius: 0;
 		background: var(--accent-soft);
 		color: var(--accent);
 	}
@@ -625,9 +625,8 @@
 	.output-container {
 		max-height: 300px;
 		overflow-y: auto;
-		background: rgba(0, 0, 0, 0.28);
-		box-shadow: inset 0 0 0 1px var(--border-subtle);
-		border-radius: var(--radius);
+		background: #000;
+		border-radius: 0;
 		padding: 10px 12px;
 	}
 

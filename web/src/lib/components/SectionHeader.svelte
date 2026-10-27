@@ -1,6 +1,6 @@
 <script>
-	// Section heading inside a page. `index` prints an editorial ordinal
-	// ("01") before the eyebrow; `tone` tints the eyebrow (live, accent).
+	// Section heading inside a page. `index` prints an ordinal ("01") before
+	// the eyebrow; `tone` tints the eyebrow (live).
 	let { title = '', eyebrow = '', subtitle = '', tone = 'default', index = '', children } = $props();
 </script>
 
@@ -47,39 +47,41 @@
 		gap: 10px;
 	}
 
+	/* "01 —— PASTURE": yellow ordinal, pink 8px eyebrow (blue when live) */
 	.index {
-		font-family: var(--font-mono);
-		font-size: var(--fs-2xs);
-		color: var(--accent);
-		letter-spacing: 0.04em;
+		font-family: var(--font-label);
+		font-size: var(--fs-label);
+		line-height: 2;
+		color: var(--highlight);
+		letter-spacing: 0;
 	}
 
 	.index::after {
 		content: '';
 		display: inline-block;
-		width: 18px;
-		height: 1px;
+		width: 12px;
+		height: 3px;
 		margin-left: 10px;
 		vertical-align: middle;
-		background: var(--accent-line);
+		background: var(--hi);
 	}
 
-	.section-header[data-tone="live"] .eyebrow,
-	.section-header[data-tone="live"] .index {
+	.eyebrow-row .eyebrow {
+		color: var(--accent);
+	}
+
+	.section-header[data-tone="live"] .eyebrow {
 		color: var(--live);
-	}
-
-	.section-header[data-tone="live"] .index::after {
-		background: var(--live-line);
 	}
 
 	.title {
 		font-family: var(--font-display);
-		font-size: 30px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
-		line-height: 1;
-		letter-spacing: -0.015em;
+		line-height: 1.5;
+		letter-spacing: 0;
 		color: var(--text-primary);
+		text-shadow: 3px 3px 0 #000;
 		margin: 0;
 	}
 
@@ -88,7 +90,7 @@
 		font-family: var(--font-mono);
 		color: var(--text-tertiary);
 		margin: 0;
-		letter-spacing: -0.01em;
+		letter-spacing: 0;
 	}
 
 	.actions {
@@ -105,7 +107,16 @@
 		}
 
 		.title {
-			font-size: 26px;
+			font-size: var(--fs-lg);
+		}
+
+		/* Narrow actions (e.g. usage filter + segmented tabs) must fit the
+		   viewport and wrap onto their own line instead of pushing the page
+		   sideways (issue #636 §5-6). */
+		.actions {
+			flex-shrink: 1;
+			min-width: 0;
+			max-width: 100%;
 		}
 	}
 </style>

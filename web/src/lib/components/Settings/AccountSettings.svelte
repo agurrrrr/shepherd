@@ -130,13 +130,13 @@
 	}
 	.section-title {
 		font-family: var(--font-display);
-		font-size: 26px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
-		letter-spacing: -0.01em;
+		letter-spacing: 0;
 		margin-bottom: 12px;
 	}
 	.sync-desc {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-secondary);
 		line-height: 1.5;
 		margin-bottom: 12px;
@@ -155,11 +155,11 @@
 		margin-top: 4px;
 	}
 	.sync-msg {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--success);
 	}
 	.sync-msg.error {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.setting-row {
@@ -171,7 +171,7 @@
 	}
 	.setting-row > label,
 	.setting-row > .row-label {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 500;
 		flex: 0 0 180px;
 		color: var(--text-primary);
@@ -194,7 +194,7 @@
 		.setting-row > label,
 		.setting-row > .row-label {
 			flex: 0 0 180px;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-primary);
 	}
 		.setting-row .input {

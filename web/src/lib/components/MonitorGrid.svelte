@@ -185,12 +185,12 @@
 		width: 26px;
 		height: 26px;
 		border: 1px solid var(--border);
-		border-radius: 7px;
+		border-radius: 0;
 		background: var(--bg-3);
 		color: var(--text-secondary);
 		cursor: pointer;
 		opacity: 0.6;
-		transition: opacity var(--dur-1) ease, color var(--dur-1) ease, border-color var(--dur-1) ease;
+		transition: opacity var(--dur-1) steps(2), color var(--dur-1) steps(2), border-color var(--dur-1) steps(2);
 	}
 
 	.monitor-close:hover,
@@ -228,9 +228,7 @@
 		gap: 8px;
 		min-height: 34px;
 		padding: 4px 10px;
-		background:
-			linear-gradient(90deg, var(--live-soft), transparent 55%),
-			var(--bg-2);
+		background: linear-gradient(var(--live-soft), var(--live-soft)), var(--bg-2);
 		border-bottom: 1px solid var(--border-subtle);
 		font-size: var(--header);
 		line-height: 1.4;
@@ -241,7 +239,7 @@
 	.tile-dot {
 		width: 7px;
 		height: 7px;
-		border-radius: 50%;
+		border-radius: 0;
 		background: var(--live);
 		flex-shrink: 0;
 		animation: px-blink 1s steps(1) infinite;
@@ -259,7 +257,7 @@
 	.tile-sheep {
 		font-family: var(--font-mono);
 		color: var(--text-secondary);
-		font-size: 0.85em;
+		font-size: var(--fs-xs);
 		white-space: nowrap;
 		flex-shrink: 0;
 	}
@@ -268,9 +266,9 @@
 		margin-left: auto;
 		font-family: var(--font-mono);
 		color: var(--text-tertiary);
-		font-size: 0.8em;
+		font-size: var(--fs-xs);
 		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		letter-spacing: var(--tracking-caps);
 		flex-shrink: 0;
 	}
 
@@ -290,7 +288,7 @@
 	}
 	.tile-body::-webkit-scrollbar-thumb {
 		background: var(--border);
-		border-radius: 3px;
+		border-radius: 0;
 	}
 
 	.tile-line {
@@ -314,12 +312,12 @@
 		width: 100%;
 		height: 100%;
 		color: var(--text-secondary);
-		font-size: 15px;
+		font-size: var(--fs-md);
 	}
 	.empty-dot {
 		width: 9px;
 		height: 9px;
-		border-radius: 50%;
+		border-radius: 0;
 		background: var(--text-tertiary);
 	}
 
@@ -330,10 +328,10 @@
 		z-index: 1002;
 		padding: 2px 9px;
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 		background: var(--bg-3);
 		border: 1px solid var(--border);
-		border-radius: var(--radius-full);
+		border-radius: 0;
 	}
 </style>

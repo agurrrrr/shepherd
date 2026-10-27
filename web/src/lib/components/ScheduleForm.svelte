@@ -189,12 +189,12 @@
 	}
 
 	.form-error {
-		color: var(--danger);
-		background: rgba(248, 81, 73, 0.1);
+		color: var(--danger-text);
+		background: var(--danger-soft);
 		border: 1px solid var(--danger);
-		border-radius: var(--radius);
+		border-radius: 0;
 		padding: 8px 12px;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 	}
 
 	.form-group {
@@ -204,7 +204,7 @@
 	}
 
 	.form-label {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 500;
 		color: var(--text-secondary);
 	}
@@ -225,9 +225,9 @@
 		border: 1px solid var(--border);
 		background: var(--bg-primary);
 		color: var(--text-secondary);
-		border-radius: var(--radius);
+		border-radius: 0;
 		cursor: pointer;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 	}
 
 	.type-btn.active {
@@ -247,9 +247,9 @@
 		border: 1px solid var(--border);
 		background: var(--bg-primary);
 		color: var(--text-secondary);
-		border-radius: 12px;
+		border-radius: 0;
 		cursor: pointer;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		transition: all 0.15s;
 	}
 
@@ -274,7 +274,7 @@
 	}
 
 	.cron-help {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 		font-family: var(--font-mono);
 	}
@@ -282,9 +282,9 @@
 	.preview-box {
 		background: var(--bg-primary);
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
+		border-radius: 0;
 		padding: 8px 12px;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 	}
 
 	.preview-title {

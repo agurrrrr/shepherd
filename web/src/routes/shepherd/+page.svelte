@@ -438,12 +438,14 @@
 		min-width: 0;
 	}
 
+	/* 48px: Press Start 2P is crisp only at multiples of 8px (issue #636 §2-1),
+	   so the old clamp(34px,3.4vw,46px) is replaced by a fixed step size. */
 	.project-title {
 		font-family: var(--font-display);
-		font-size: clamp(34px, 3.4vw, 46px);
+		font-size: var(--fs-3xl);
 		font-weight: 400;
 		line-height: 0.95;
-		letter-spacing: -0.02em;
+		letter-spacing: 0;
 		margin: 0;
 		min-width: 0;
 		overflow: hidden;
@@ -485,13 +487,13 @@
 		align-items: center;
 		gap: 8px;
 		padding: 3px 4px 3px 3px;
-		border-radius: var(--radius-full);
-		background: rgba(237, 230, 218, 0.03);
-		box-shadow: inset 0 0 0 1px var(--border);
+		border-radius: 0;
+		background: var(--well);
+		box-shadow: inset 0 0 0 2px #000;
 	}
 
 	.sheep-pill.working {
-		box-shadow: inset 0 0 0 1px var(--live-line), 0 0 24px -8px var(--live-glow);
+		box-shadow: inset 0 0 0 2px var(--live);
 	}
 
 	.sheep-ava {
@@ -499,7 +501,7 @@
 		place-items: center;
 		width: 22px;
 		height: 22px;
-		border-radius: 50%;
+		border-radius: 0;
 		background: var(--wool-soft);
 		color: var(--wool);
 		font-size: var(--fs-2xs);
@@ -527,7 +529,7 @@
 		cursor: pointer;
 		text-decoration: none;
 		line-height: 1.9;
-		transition: border-color var(--dur-1) ease, color var(--dur-1) ease;
+		transition: border-color var(--dur-1) steps(2), color var(--dur-1) steps(2);
 	}
 
 	.head-chip:hover {
@@ -557,7 +559,7 @@
 	.status-row.status-error {
 		gap: 12px;
 		font-size: var(--fs-sm);
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.status-chip {
@@ -568,8 +570,8 @@
 		white-space: nowrap;
 		padding: 3px 10px;
 		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-full);
-		background: rgba(237, 230, 218, 0.04);
+		border-radius: 0;
+		background: var(--well);
 		color: var(--text-secondary);
 		font-size: var(--fs-xs);
 		font-weight: var(--fw-medium);
@@ -597,8 +599,8 @@
 		padding: 12px 16px;
 		margin-bottom: 14px;
 		flex-shrink: 0;
-		border-color: var(--warning-line) !important;
-		background: linear-gradient(90deg, var(--warning-soft), transparent 70%), var(--bg-2);
+		background: linear-gradient(var(--warning-soft), var(--warning-soft)), var(--bg-2);
+		box-shadow: var(--px-ring), inset 3px 3px 0 0 var(--warning), inset -3px -3px 0 0 var(--lo);
 	}
 
 	.banner-icon { color: var(--warning); flex-shrink: 0; }
@@ -659,7 +661,7 @@
 		border: 1px solid var(--accent-line);
 		background: var(--accent-soft);
 		padding: 5px 12px;
-		border-radius: var(--radius-full);
+		border-radius: 0;
 	}
 
 	.recent-link:hover { text-decoration: underline; }
@@ -683,19 +685,11 @@
 		flex-shrink: 0;
 		margin-top: 12px;
 		padding: 8px;
-		border-radius: var(--radius-lg);
-		border-color: var(--border);
-		background:
-			linear-gradient(180deg, rgba(255, 250, 240, 0.03), rgba(255, 250, 240, 0.01)),
-			var(--bg-2);
-		box-shadow: var(--sheen), var(--shadow-2);
-		transition: border-color var(--dur-2) ease, box-shadow var(--dur-3) ease;
+		border-radius: 0;
+		background: var(--bg-2);
+		box-shadow: var(--px-ring), var(--px-bevel), var(--shadow-2);
 	}
 
-	.command-bar:focus-within {
-		border-color: var(--accent-line);
-		box-shadow: var(--sheen), var(--shadow-2), 0 0 0 4px rgba(244, 184, 96, 0.06);
-	}
 
 	/* ---------- Responsive (mirrors the project screen's breakpoints) ------ */
 	@media (max-width: 960px) {
@@ -730,7 +724,7 @@
 		}
 
 		.project-title {
-			font-size: 32px;
+			font-size: var(--fs-lg);
 		}
 
 		.command-bar {
@@ -777,7 +771,7 @@
 		}
 
 		.project-title {
-			font-size: 24px;
+			font-size: var(--fs-lg);
 			line-height: 1.15;
 		}
 

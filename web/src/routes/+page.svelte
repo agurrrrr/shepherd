@@ -141,7 +141,7 @@
 			case 'failed': return { name: 'x', tone: 'danger' };
 			case 'running': return { name: 'zap', tone: 'live' };
 			case 'pending': return { name: 'hourglass', tone: 'queued' };
-			case 'stopped': return { name: 'square', tone: 'idle' };
+			case 'stopped': return { name: 'square', tone: 'warning' };
 			default: return { name: 'circle', tone: 'idle' };
 		}
 	}
@@ -475,30 +475,30 @@
 
 	.moon {
 		display: inline-flex;
-		color: var(--accent);
+		color: var(--highlight);
 	}
 
+	/* 48px (24px under 480px): crisp for Press Start 2P and the Galmuri11
+	   fallback that draws a Hangul user name. */
 	.hero-title {
 		font-family: var(--font-display);
 		font-size: var(--fs-4xl);
 		font-weight: 400;
-		line-height: 0.92;
-		letter-spacing: -0.028em;
+		line-height: 1.25;
+		letter-spacing: 0;
 		color: var(--text-primary);
+		text-shadow: 4px 4px 0 #000;
+		overflow-wrap: anywhere;
 		animation: rise-in 700ms var(--ease-out) 60ms backwards;
 	}
 
 	.hero-title em {
-		font-style: italic;
-		color: transparent;
-		background: linear-gradient(100deg, #ffe0ad 0%, var(--accent) 45%, #e9925a 100%);
-		-webkit-background-clip: text;
-		background-clip: text;
-		padding-right: 0.06em;
+		font-style: normal;
+		color: var(--highlight);
+		text-shadow: 4px 4px 0 var(--p-plum);
 	}
 
 	.hero-dot {
-		margin-left: -0.08em;
 		color: var(--accent);
 	}
 
@@ -528,10 +528,9 @@
 		padding: 0 5px;
 		font-size: var(--fs-2xs);
 		font-family: var(--font-mono);
-		font-weight: var(--fw-bold);
-		color: var(--live-ink);
-		background: var(--live);
-		border-radius: var(--radius-full);
+		color: var(--live);
+		background: #000;
+		border-radius: 0;
 	}
 
 	/* ================= Overview ================= */
@@ -545,8 +544,8 @@
 	.flock-card {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
-		padding: 22px 22px 14px;
+		gap: var(--space-3);
+		padding: 22px 22px 18px;
 		animation: rise-in 700ms var(--ease-out) 240ms backwards;
 	}
 
@@ -585,11 +584,12 @@
 	.key {
 		width: 8px;
 		height: 8px;
-		border-radius: 50%;
+		border-radius: 0;
+		box-shadow: var(--px-ring-2);
 	}
 
-	.key.live { background: var(--live); box-shadow: 0 0 8px var(--live-glow); }
-	.key.rest { background: var(--wool); opacity: 0.45; }
+	.key.live { background: var(--live); }
+	.key.rest { background: var(--text-primary); }
 	.key.danger { background: var(--danger); }
 
 	.tiles {
@@ -617,27 +617,32 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 8px;
-		font-size: var(--fs-xs);
-		font-weight: var(--fw-medium);
-		color: var(--text-secondary);
+		font-family: var(--font-label);
+		font-size: var(--fs-label);
+		line-height: 2;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
 	}
 
 	.tile-value {
 		margin-top: auto;
 		padding-top: 10px;
-		font-size: 44px;
-		font-weight: 500;
-		line-height: 1;
-		letter-spacing: -0.045em;
+		font-family: var(--font-num);
+		font-size: var(--fs-2xl);
+		font-weight: 400;
+		line-height: 1.25;
+		letter-spacing: 0;
 		color: var(--text-primary);
+		text-shadow: 3px 3px 0 #000;
 	}
 
 	.tile-value small {
 		margin-left: 2px;
-		font-size: 0.5em;
+		font-size: var(--fs-xs);
 		font-weight: 400;
 		letter-spacing: 0;
 		color: var(--text-tertiary);
+		text-shadow: none;
 	}
 
 	.tile-sub {
@@ -645,44 +650,39 @@
 		color: var(--text-tertiary);
 	}
 
-	.tile-sub .ok { color: var(--text-secondary); }
-	.tile-sub .bad { color: var(--danger); }
+	.tile-sub .ok { color: var(--success); }
+	.tile-sub .bad { color: var(--danger-text); }
 
-	.tile-live.on {
-		border-color: var(--live-line);
-		background:
-			radial-gradient(120% 90% at 100% 0%, rgba(95, 224, 194, 0.12), transparent 60%),
-			var(--bg-2);
-	}
-
+	.tile-live.on .tile-label,
 	.tile-live.on .tile-value {
 		color: var(--live);
-		text-shadow: 0 0 32px rgba(95, 224, 194, 0.35);
 	}
 
+	/* Black track, chunky green cells inset by 2px */
 	.meter {
 		position: relative;
 		display: block;
-		height: 4px;
+		height: 12px;
 		margin: 8px 0 4px;
-		border-radius: 4px;
-		background: rgba(237, 230, 218, 0.07);
+		border-radius: 0;
+		background: #000;
 		overflow: hidden;
 	}
 
 	.meter span {
 		position: absolute;
-		inset: 0;
-		border-radius: 4px;
-		background: linear-gradient(90deg, rgba(159, 214, 133, 0.6), var(--success));
-		transform-origin: left center;
-		transform: scaleX(var(--r));
-		transition: transform 900ms var(--ease-out);
-		animation: meter-grow 1200ms var(--ease-out) 400ms backwards;
+		top: 2px;
+		bottom: 2px;
+		left: 2px;
+		width: calc((100% - 4px) * var(--r));
+		border-radius: 0;
+		background: repeating-linear-gradient(90deg, var(--success) 0 6px, transparent 6px 8px);
+		transition: width 900ms steps(8);
+		animation: meter-grow 1200ms steps(8) 400ms backwards;
 	}
 
 	@keyframes meter-grow {
-		from { transform: scaleX(0); }
+		from { width: 0; }
 	}
 
 	/* ================= Sections ================= */
@@ -710,7 +710,7 @@
 		max-width: 200px;
 		padding: 5px 30px 5px 10px;
 		font-size: var(--fs-sm);
-		border-radius: 10px;
+		border-radius: 0;
 	}
 
 	.usage-grid {
@@ -732,12 +732,21 @@
 		flex-wrap: wrap;
 		margin-bottom: 12px;
 		padding-bottom: 12px;
-		border-bottom: 1px solid var(--border-subtle);
+		box-shadow: 0 3px 0 0 var(--lo);
 	}
 
 	.usage-total {
 		font-size: var(--fs-2xs);
 		color: var(--text-tertiary);
+	}
+
+	.usage-card .panel-title {
+		font-family: var(--font-label);
+		font-size: var(--fs-label);
+		font-weight: var(--fw-regular);
+		line-height: 2;
+		text-transform: uppercase;
+		color: var(--highlight);
 	}
 
 	/* ================= Recent ================= */
@@ -747,7 +756,7 @@
 	}
 
 	.recent-list li + li {
-		border-top: 1px solid var(--border-subtle);
+		box-shadow: 0 -2px 0 0 var(--lo);
 	}
 
 	.recent-item {
@@ -756,14 +765,13 @@
 		gap: 14px;
 		align-items: start;
 		padding: 12px 14px;
-		border-radius: var(--radius);
+		border-radius: 0;
 		color: inherit;
 		text-decoration: none;
-		transition: background var(--dur-1) ease;
 	}
 
 	.recent-item:hover {
-		background: rgba(237, 230, 218, 0.035);
+		background: var(--bg-3);
 		color: inherit;
 		text-decoration: none;
 	}
@@ -777,17 +785,19 @@
 		place-items: center;
 		width: 22px;
 		height: 22px;
-		margin-top: 1px;
-		border-radius: 50%;
-		color: var(--text-tertiary);
-		background: rgba(237, 230, 218, 0.05);
-		box-shadow: inset 0 0 0 1px var(--border-subtle);
+		margin: 3px 2px 2px;
+		border-radius: 0;
+		color: #000;
+		background: var(--p-dgray);
+		box-shadow: var(--px-ring-2);
 	}
 
-	.recent-icon[data-tone="success"] { color: var(--success); background: var(--success-soft); box-shadow: inset 0 0 0 1px rgba(159, 214, 133, 0.18); }
-	.recent-icon[data-tone="live"] { color: var(--live); background: var(--live-soft); box-shadow: inset 0 0 0 1px var(--live-line), 0 0 12px -2px var(--live-glow); }
-	.recent-icon[data-tone="danger"] { color: var(--danger); background: var(--danger-soft); box-shadow: inset 0 0 0 1px rgba(255, 107, 97, 0.2); }
-	.recent-icon[data-tone="queued"] { color: var(--queued); background: var(--queued-soft); }
+	/* Status fill with a black glyph (also on red: white would be 3.55:1) */
+	.recent-icon[data-tone="success"] { background: var(--success); }
+	.recent-icon[data-tone="live"] { background: var(--live); }
+	.recent-icon[data-tone="danger"] { background: var(--danger); }
+	.recent-icon[data-tone="queued"] { background: var(--queued); }
+	.recent-icon[data-tone="warning"] { background: var(--warning); }
 
 	.recent-body {
 		min-width: 0;
@@ -799,11 +809,10 @@
 	.recent-prompt {
 		font-size: var(--fs-sm);
 		line-height: var(--lh-snug);
-		color: rgba(238, 234, 227, 0.88);
+		color: var(--text-primary);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		transition: color var(--dur-1) ease;
 	}
 
 	.recent-meta {
@@ -822,7 +831,7 @@
 	.recent-error {
 		min-width: 0;
 		font-size: var(--fs-2xs);
-		color: var(--danger);
+		color: var(--danger-text);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -872,7 +881,7 @@
 		}
 
 		.hero-title {
-			font-size: 46px;
+			font-size: var(--fs-4xl);
 		}
 
 		.hero-break {
@@ -898,7 +907,13 @@
 		}
 
 		.tile-value {
-			font-size: 34px;
+			font-size: var(--fs-lg);
+		}
+
+		/* Press Start 2P draws 24px per glyph; four-digit counts in a
+		   half-width phone tile need the 16px step. */
+		.tile-value {
+			font-size: 16px;
 		}
 
 		.flock-card {

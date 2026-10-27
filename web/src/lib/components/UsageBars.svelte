@@ -54,7 +54,7 @@
 		<button type="button" class="more" onclick={() => (expanded = !expanded)} aria-expanded={expanded}>
 			{expanded ? 'Show fewer' : `Show all ${items.length}`}
 			<span class="more-chev" class:up={expanded} aria-hidden="true">
-				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+				<svg width="10" height="6" viewBox="0 0 5 3" shape-rendering="crispEdges"><path fill="currentColor" d="M0 0h5v1H0zM1 1h3v1H1zM2 2h1v1H2z"/></svg>
 			</span>
 		</button>
 	{/if}
@@ -74,19 +74,20 @@
 		gap: 14px;
 		padding: 7px 10px;
 		margin: 0 -10px;
-		border-radius: var(--radius-sm);
-		transition: background var(--dur-1) ease;
-		outline: none;
+		border-radius: 0;
 	}
 
 	.row.hot,
 	.row:focus-visible {
-		background: rgba(237, 230, 218, 0.035);
+		background: var(--bg-3);
 	}
 
-	.row:focus-visible {
-		box-shadow: inset 0 0 0 1px var(--accent-line);
-	}
+	/* Bar colours cycle through the palette: pink, blue, green, orange, lavender */
+	.row { --bar: var(--accent); }
+	.row:nth-child(5n + 2) { --bar: var(--live); }
+	.row:nth-child(5n + 3) { --bar: var(--success); }
+	.row:nth-child(5n + 4) { --bar: var(--warning); }
+	.row:nth-child(5n + 5) { --bar: var(--queued); }
 
 	.name {
 		min-width: 0;
@@ -98,7 +99,7 @@
 	}
 
 	.name.muted {
-		font-style: italic;
+		font-style: normal;
 		color: var(--text-secondary);
 	}
 
@@ -106,41 +107,39 @@
 		color: var(--text-tertiary);
 	}
 
+	/* Black 14px track; the fill is a run of 6px cells inset by 2px. It
+	   grows by width, not scaleX, so the cells keep their size. */
 	.track {
 		position: relative;
-		height: 10px;
-		/* Hairline baseline on the left; the bar grows from it. */
-		border-left: 1px solid var(--border-strong);
+		height: 14px;
+		background: #000;
 	}
 
 	.fill {
 		position: absolute;
-		left: 0;
-		top: 0;
-		bottom: 0;
-		width: 100%;
-		border-radius: 0 4px 4px 0;
-		background: linear-gradient(90deg, rgba(244, 184, 96, 0.55), var(--accent));
-		transform-origin: left center;
-		transform: scaleX(var(--r));
-		transition: transform 600ms var(--ease-out), filter var(--dur-1) ease;
-		animation: grow 900ms var(--ease-out) backwards;
+		left: 2px;
+		top: 2px;
+		bottom: 2px;
+		width: calc((100% - 4px) * var(--r));
+		border-radius: 0;
+		background: repeating-linear-gradient(90deg, var(--bar) 0 6px, transparent 6px 8px);
+		animation: grow 900ms steps(8) backwards;
 		animation-delay: calc(min(var(--i, 0), 14) * 28ms + 80ms);
 	}
 
 	.row.hot .fill {
-		filter: brightness(1.12) drop-shadow(0 0 8px var(--accent-glow));
+		background: repeating-linear-gradient(90deg, var(--text-primary) 0 6px, transparent 6px 8px);
 	}
 
 	@keyframes grow {
-		from { transform: scaleX(0); }
+		from { width: 0; }
 	}
 
 	.val {
 		text-align: right;
 		font-family: var(--font-mono);
 		font-size: var(--fs-sm);
-		font-weight: var(--fw-medium);
+		font-weight: var(--fw-regular);
 		color: var(--text-primary);
 	}
 
@@ -159,13 +158,12 @@
 		left: calc(var(--at) * 100%);
 		min-width: 180px;
 		padding: 9px 12px 10px;
-		border-radius: var(--radius);
-		background: rgba(20, 20, 22, 0.97);
-		border: 1px solid var(--border-strong);
-		box-shadow: var(--shadow-2);
+		border-radius: 0;
+		background: var(--bg-2);
+		box-shadow: var(--px-ring), var(--px-bevel), var(--shadow-2);
 		transform: translateX(-50%);
 		pointer-events: none;
-		animation: tip-in var(--dur-2) var(--ease-out) both;
+		animation: tip-in var(--dur-1) steps(2) both;
 	}
 
 	.tip-title {
@@ -210,20 +208,18 @@
 		padding: 4px 0;
 		border: none;
 		background: none;
-		color: var(--text-secondary);
+		color: var(--highlight);
 		font-size: var(--fs-xs);
-		font-weight: var(--fw-medium);
+		font-weight: var(--fw-regular);
 		cursor: pointer;
-		transition: color var(--dur-1) ease;
 	}
 
 	.more:hover {
-		color: var(--accent);
+		color: var(--highlight-hover);
 	}
 
 	.more-chev {
 		display: inline-flex;
-		transition: transform var(--dur-2) var(--ease-out);
 	}
 
 	.more-chev.up {

@@ -685,7 +685,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	}
 
 	.setting-row > label:not(.toggle) {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 500;
 		flex: 0 0 180px;
 		color: var(--text-primary);
@@ -723,7 +723,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	}
 
 	.hint {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		line-height: 1.55;
 	}
@@ -748,7 +748,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	}
 	.embedded-header h3 {
 		margin: 0;
-		font-size: 14px;
+		font-size: var(--fs-base);
 		font-weight: 600;
 	}
 	.embedded-header-actions {
@@ -757,15 +757,15 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	}
 	.embedded-card {
 		border: 1px solid var(--border);
-		border-radius: 8px;
+		border-radius: 0;
 		padding: 12px 16px;
 		margin-bottom: 8px;
-		background: var(--bg-card);
+		background: var(--bg-2);
 		transition: border-color 0.2s;
 	}
 	.embedded-card.active {
 		border-color: var(--accent);
-		box-shadow: 0 0 0 1px var(--accent);
+		box-shadow: inset 0 0 0 2px var(--accent);
 	}
 	.embedded-card-header {
 		display: flex;
@@ -775,7 +775,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		flex-wrap: wrap;
 	}
 	.embedded-card-header strong {
-		font-size: 14px;
+		font-size: var(--fs-base);
 	}
 	.embedded-actions {
 		display: flex;
@@ -789,21 +789,21 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		gap: 4px 16px;
 	}
 	.embedded-detail {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 	}
 	.embedded-detail code {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		background: var(--bg-input);
 		padding: 1px 4px;
-		border-radius: 3px;
+		border-radius: 0;
 	}
 	.embedded-label {
 		color: var(--text-muted);
 		margin-right: 4px;
 	}
 	.embedded-test-result {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		min-width: 80px;
 	}
 	.embedded-editor-actions {
@@ -823,12 +823,12 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		flex-wrap: wrap;
 	}
 	.copilot-code {
-		font-size: 22px;
+		font-size: var(--fs-lg);
 		font-weight: 700;
 		letter-spacing: 3px;
 		padding: 8px 14px;
 		border: 1px dashed var(--accent);
-		border-radius: 8px;
+		border-radius: 0;
 		background: var(--bg-input);
 	}
 	.copilot-link {
@@ -853,7 +853,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		max-height: 260px;
 		overflow-y: auto;
 		border: 1px solid var(--border);
-		border-radius: 8px;
+		border-radius: 0;
 		margin: 8px 0 12px;
 	}
 	.copilot-model {
@@ -882,11 +882,11 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	}
 	.copilot-model-name {
 		font-weight: 600;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 	}
 	.copilot-model-meta {
 		grid-column: 1;
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-muted);
 	}
 	.copilot-model-badges {
@@ -895,19 +895,19 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 		white-space: nowrap;
 	}
 	.hint.error {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.badge {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-weight: 600;
 		padding: 2px 8px;
-		border-radius: 10px;
+		border-radius: 0;
 	}
 	.badge-success {
 		background: color-mix(in srgb, var(--success) 15%, transparent);
@@ -936,7 +936,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	.modal-overlay {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
+		background: var(--bg-overlay);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -945,7 +945,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	.modal-card {
 		background: var(--bg-2);
 		border: 1px solid var(--border);
-		border-radius: 12px;
+		border-radius: 0;
 		padding: 24px;
 		width: 90%;
 		max-width: 500px;
@@ -955,7 +955,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	}
 	.modal-card h3 {
 		margin: 0 0 16px;
-		font-size: 16px;
+		font-size: var(--fs-md);
 	}
 	.modal-card .setting-row > label:not(.toggle) {
 		flex: 0 0 120px;

@@ -337,7 +337,7 @@
 	.eyebrow {
 		font-family: var(--font-mono);
 		font-size: var(--fs-2xs);
-		letter-spacing: 0.1em;
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--text-tertiary);
 	}
@@ -351,7 +351,7 @@
 		align-items: center;
 		gap: 6px;
 		margin-bottom: 8px;
-		color: var(--danger);
+		color: var(--danger-text);
 		font-size: var(--fs-xs);
 	}
 
@@ -403,7 +403,7 @@
 		padding: 10px 12px;
 		border: 1px solid var(--border-subtle);
 		border-left: 3px solid var(--text-tertiary);
-		border-radius: var(--radius);
+		border-radius: 0;
 		background: var(--bg-3);
 	}
 
@@ -421,7 +421,7 @@
 		color: var(--text-secondary);
 	}
 
-	.sev-7 .item-icon, .sev-6 .item-icon { color: var(--danger); }
+	.sev-7 .item-icon, .sev-6 .item-icon { color: var(--danger-text); }
 	.sev-5 .item-icon { color: var(--warning); }
 
 	.item-body { flex: 1; min-width: 0; }
@@ -489,7 +489,7 @@
 		padding: 10px 12px;
 		border: 1px solid var(--border-subtle);
 		border-left: 3px solid var(--accent);
-		border-radius: var(--radius);
+		border-radius: 0;
 		background: var(--bg-3);
 	}
 
@@ -545,5 +545,5 @@
 	}
 
 	.reject { color: var(--text-tertiary); }
-	.reject:hover { color: var(--danger); }
+	.reject:hover { color: var(--danger-text); }
 </style>

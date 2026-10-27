@@ -38,23 +38,23 @@
 	}
 	.section-title {
 		font-family: var(--font-display);
-		font-size: 26px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
-		letter-spacing: -0.01em;
+		letter-spacing: 0;
 		margin-bottom: 12px;
 	}
 	.sync-desc {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-secondary);
 		line-height: 1.5;
 		margin-bottom: 12px;
 		max-width: 70ch;
 	}
 	.sync-desc code {
-		background: var(--bg-tertiary, #2a2a2a);
+		background: var(--bg-tertiary);
 		padding: 1px 5px;
-		border-radius: 3px;
-		font-size: 12px;
+		border-radius: 0;
+		font-size: var(--fs-xs);
 	}
 	.sync-actions {
 		display: flex;
@@ -62,10 +62,10 @@
 		gap: 12px;
 	}
 	.sync-msg {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--success);
 	}
 	.sync-msg.error {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 </style>

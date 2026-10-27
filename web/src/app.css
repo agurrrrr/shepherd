@@ -230,7 +230,6 @@
 	--radius-md: 0;
 	--radius-lg: 0;
 	--radius-xl: 0;
-	--radius-full: 0;
 
 	/* --- Elevation: hard drop shadows --- */
 	--shadow-1: 4px 4px 0 0 #000;
@@ -452,6 +451,12 @@ select {
 	border: 3px solid var(--hi);
 	border-radius: 0;
 	box-shadow: none;
+	/* A native select's min-content width is its longest option, so a field can
+	   push past its row on phones. Component styles reset max-width to none for
+	   stacked rows, so this cap needs !important to hold everywhere.
+	   (issue #636 §5-6) */
+	min-width: 0;
+	max-width: 100% !important;
 }
 
 input:not([type]):hover,
@@ -802,6 +807,13 @@ input[type="search"] {
 	box-shadow: var(--px-ring), var(--px-bevel);
 	padding: 16px;
 }
+
+/* State cards: the light bevel edge takes the status colour */
+.card.state-live,
+.card.working { box-shadow: var(--px-ring), inset 3px 3px 0 0 var(--live), inset -3px -3px 0 0 var(--lo); }
+.card.state-danger,
+.card.error { box-shadow: var(--px-ring), inset 3px 3px 0 0 var(--danger), inset -3px -3px 0 0 var(--lo); }
+.card.state-warning { box-shadow: var(--px-ring), inset 3px 3px 0 0 var(--warning), inset -3px -3px 0 0 var(--lo); }
 
 a.card,
 .card-link {

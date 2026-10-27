@@ -181,7 +181,7 @@
 	}
 
 	.setting-row > label:not(.toggle) {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 500;
 		flex: 0 0 180px;
 		color: var(--text-primary);
@@ -198,7 +198,7 @@
 	}
 
 	.hint {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		line-height: 1.55;
 	}
@@ -208,7 +208,7 @@
 	}
 
 	.hint.error {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.hint.ok {
@@ -216,7 +216,7 @@
 	}
 
 	.setting-section-title {
-		font-size: 14px;
+		font-size: var(--fs-base);
 		font-weight: 600;
 		color: var(--text-primary);
 		padding-top: 12px;
@@ -255,8 +255,8 @@
 		display: inline-flex;
 		align-items: center;
 		padding: 2px 8px;
-		border-radius: 999px;
-		font-size: 12px;
+		border-radius: 0;
+		font-size: var(--fs-xs);
 		background: var(--bg-3);
 		color: var(--text-secondary);
 	}
@@ -273,7 +273,7 @@
 
 	.pill.danger {
 		background: var(--danger-soft);
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	@media (max-width: 768px) {

@@ -1198,13 +1198,11 @@
 		text-transform: uppercase;
 		color: var(--text-tertiary);
 		text-decoration: none;
-		transition: color var(--dur-1) ease, gap var(--dur-2) var(--ease-out);
 	}
 
 	.crumb:hover {
-		color: var(--accent);
+		color: var(--highlight);
 		text-decoration: none;
-		gap: 9px;
 	}
 
 	.ph-title-row {
@@ -1214,12 +1212,14 @@
 		min-width: 0;
 	}
 
+	/* 24px: crisp for Press Start 2P and a Galmuri11 (Hangul) project name */
 	.project-title {
 		font-family: var(--font-display);
-		font-size: clamp(34px, 3.4vw, 46px);
+		font-size: var(--fs-2xl);
 		font-weight: 400;
-		line-height: 0.95;
-		letter-spacing: -0.02em;
+		line-height: 1.5;
+		letter-spacing: 0;
+		text-shadow: 4px 4px 0 #000;
 		margin: 0;
 		min-width: 0;
 		overflow: hidden;
@@ -1233,16 +1233,15 @@
 		place-items: center;
 		width: 30px;
 		height: 30px;
-		border-radius: 50%;
-		color: var(--text-tertiary);
-		box-shadow: inset 0 0 0 1px var(--border);
-		transition: color var(--dur-1) ease, box-shadow var(--dur-1) ease, background var(--dur-1) ease;
+		border-radius: 0;
+		color: var(--text-secondary);
+		box-shadow: inset 0 0 0 2px #000;
 	}
 
 	.icon-link:hover {
 		color: var(--text-primary);
 		background: var(--bg-hover);
-		box-shadow: inset 0 0 0 1px var(--border-strong);
+		box-shadow: inset 0 0 0 2px var(--hi);
 	}
 
 	.ph-meta {
@@ -1278,7 +1277,7 @@
 		width: 3px;
 		height: 3px;
 		margin: 0 10px 2px 0;
-		border-radius: 50%;
+		border-radius: 0;
 		background: var(--text-tertiary);
 		vertical-align: middle;
 	}
@@ -1296,13 +1295,13 @@
 		align-items: center;
 		gap: 8px;
 		padding: 3px 4px 3px 3px;
-		border-radius: var(--radius-full);
-		background: rgba(237, 230, 218, 0.03);
-		box-shadow: inset 0 0 0 1px var(--border);
+		border-radius: 0;
+		background: var(--well);
+		box-shadow: inset 0 0 0 2px #000;
 	}
 
 	.sheep-pill.working {
-		box-shadow: inset 0 0 0 1px var(--live-line), 0 0 24px -8px var(--live-glow);
+		box-shadow: inset 0 0 0 2px var(--live);
 	}
 
 	.sheep-ava {
@@ -1310,16 +1309,16 @@
 		place-items: center;
 		width: 22px;
 		height: 22px;
-		border-radius: 50%;
-		background: var(--wool-soft);
-		color: var(--wool);
+		border-radius: 0;
+		background: var(--p-dgray);
+		color: var(--text-primary);
 		font-size: var(--fs-2xs);
 		font-weight: var(--fw-semibold);
 	}
 
 	.sheep-pill.working .sheep-ava {
-		background: var(--live-soft);
-		color: var(--live);
+		background: var(--live);
+		color: #000;
 	}
 
 	.sheep-label {
@@ -1346,8 +1345,8 @@
 		top: 50%;
 		transform: translateY(-50%);
 		font-family: var(--font-mono);
-		font-size: 9.5px;
-		letter-spacing: 0.08em;
+		font-size: var(--fs-2xs);
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--text-tertiary);
 		pointer-events: none;
@@ -1358,8 +1357,8 @@
 		padding: 0 28px 0 72px;
 		font-size: var(--fs-xs);
 		font-weight: var(--fw-medium);
-		border-radius: 9px;
-		background-color: rgba(237, 230, 218, 0.03);
+		border-radius: 0;
+		background-color: var(--bg-input);
 		background-position: right 9px center;
 		max-width: 260px;
 	}
@@ -1377,24 +1376,23 @@
 		font-size: var(--fs-xs);
 		font-weight: var(--fw-medium);
 		color: var(--text-secondary);
-		border-radius: 9px;
-		box-shadow: inset 0 0 0 1px var(--border);
-		background: rgba(237, 230, 218, 0.03);
+		border-radius: 0;
+		box-shadow: inset 0 0 0 2px #000;
+		background: var(--well);
 		cursor: pointer;
 		user-select: none;
-		transition: box-shadow var(--dur-1) ease, color var(--dur-1) ease;
+		transition: box-shadow var(--dur-1) steps(2), color var(--dur-1) steps(2);
 	}
 
 	.thinking-toggle:hover {
 		color: var(--text-primary);
-		box-shadow: inset 0 0 0 1px var(--border-strong);
+		box-shadow: inset 0 0 0 2px var(--hi);
 	}
 
 	.no-sheep {
-		padding-right: 0.15em; /* italic overhang */
 		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
-		font-style: italic;
+		font-style: normal;
 	}
 
 	/* Content area: fills remaining space */
@@ -1446,7 +1444,7 @@
 		flex-direction: column;
 		padding: 4px;
 		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border-radius: 0;
 		background: var(--bg-2);
 	}
 
@@ -1454,20 +1452,20 @@
 		display: block;
 		padding: 11px 14px;
 		border: none;
-		border-radius: var(--radius);
+		border-radius: 0;
 		background: transparent;
 		box-shadow: none;
 		color: inherit;
 		text-decoration: none;
-		transition: background var(--dur-1) ease;
+		transition: background var(--dur-1) steps(2);
 	}
 
 	.task-history-item + .task-history-item {
-		box-shadow: 0 -1px 0 var(--border-subtle);
+		box-shadow: 0 -2px 0 0 var(--lo);
 	}
 
 	.task-history-item:hover {
-		background: rgba(237, 230, 218, 0.035);
+		background: var(--bg-3);
 		color: inherit;
 		text-decoration: none;
 	}
@@ -1538,9 +1536,9 @@
 		max-width: 160px;
 		padding: 0 7px;
 		line-height: 18px;
-		border-radius: var(--radius-full);
-		background: rgba(237, 230, 218, 0.04);
-		box-shadow: inset 0 0 0 1px var(--border-subtle);
+		border-radius: 0;
+		background: var(--well);
+		box-shadow: inset 0 0 0 2px #000;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -1568,7 +1566,7 @@
 		.retry-group {
 			opacity: 0;
 			transform: translateX(4px);
-			transition: opacity var(--dur-2) ease, transform var(--dur-2) var(--ease-out);
+			transition: opacity var(--dur-2) steps(2), transform var(--dur-2) var(--ease-out);
 		}
 
 		.task-history-item:hover .retry-group,
@@ -1588,12 +1586,12 @@
 		font-size: var(--fs-2xs);
 		font-weight: var(--fw-medium);
 		border: 1px solid var(--border);
-		border-radius: 6px;
+		border-radius: 0;
 		background: var(--bg-3);
 		color: var(--text-primary);
 		cursor: pointer;
 		flex-shrink: 0;
-		transition: background var(--dur-1) ease, border-color var(--dur-1) ease, color var(--dur-1) ease;
+		transition: background var(--dur-1) steps(2), border-color var(--dur-1) steps(2), color var(--dur-1) steps(2);
 	}
 	.retry-btn:hover, .retry-from-btn:hover {
 		background: var(--bg-4);
@@ -1613,7 +1611,7 @@
 	}
 	.cancel-btn,
 	.delete-btn {
-		color: var(--danger);
+		color: var(--danger-text);
 		border-color: var(--danger-line);
 		background: transparent;
 	}
@@ -1631,19 +1629,11 @@
 		flex-shrink: 0;
 		margin-top: 12px;
 		padding: 8px;
-		border-radius: var(--radius-lg);
-		border-color: var(--border);
-		background:
-			linear-gradient(180deg, rgba(255, 250, 240, 0.03), rgba(255, 250, 240, 0.01)),
-			var(--bg-2);
-		box-shadow: var(--sheen), var(--shadow-2);
-		transition: border-color var(--dur-2) ease, box-shadow var(--dur-3) ease;
+		border-radius: 0;
+		background: var(--bg-2);
+		box-shadow: var(--px-ring), var(--px-bevel), var(--shadow-2);
 	}
 
-	.command-bar:focus-within {
-		border-color: var(--accent-line);
-		box-shadow: var(--sheen), var(--shadow-2), 0 0 0 4px rgba(244, 184, 96, 0.06);
-	}
 
 	.command-disabled-text {
 		text-align: center;
@@ -1716,7 +1706,7 @@
 		}
 
 		.project-title {
-			font-size: 32px;
+			font-size: var(--fs-lg);
 		}
 
 		.header-desc {
@@ -1803,7 +1793,7 @@
 			width: 28px;
 			height: 28px;
 			margin-left: -6px;
-			border-radius: var(--radius);
+			border-radius: 0;
 		}
 
 		.crumb:hover {
@@ -1820,7 +1810,7 @@
 		}
 
 		.project-title {
-			font-size: 24px;
+			font-size: var(--fs-lg);
 			line-height: 1.15;
 		}
 
@@ -1874,7 +1864,7 @@
 	.schedules-fill > h3 {
 		margin: 4px 0 16px;
 		font-family: var(--font-display);
-		font-size: 28px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
 	}
 
@@ -1892,7 +1882,7 @@
 
 	.schedule-card {
 		padding: 14px 16px;
-		transition: border-color var(--dur-1) ease, opacity var(--dur-2) ease;
+		transition: border-color var(--dur-1) steps(2), opacity var(--dur-2) steps(2);
 	}
 
 	.schedule-card:hover {
@@ -1918,27 +1908,27 @@
 
 	.sc-badge {
 		font-family: var(--font-mono);
-		font-size: 9.5px;
+		font-size: var(--fs-2xs);
 		padding: 0 7px;
 		line-height: 17px;
-		border-radius: var(--radius-full);
-		background: rgba(237, 230, 218, 0.05);
-		box-shadow: inset 0 0 0 1px var(--border-subtle);
+		border-radius: 0;
+		background: var(--well);
+		box-shadow: inset 0 0 0 2px #000;
 		color: var(--text-secondary);
 		text-transform: uppercase;
-		letter-spacing: 0.08em;
+		letter-spacing: var(--tracking-caps);
 	}
 
 	.cron-badge {
 		background: var(--info-soft);
-		box-shadow: inset 0 0 0 1px rgba(143, 193, 255, 0.2);
+		box-shadow: inset 0 0 0 2px #000;
 		color: var(--info);
 	}
 
 	.sc-bundled {
 		background: var(--queued-soft);
-		box-shadow: inset 0 0 0 1px var(--queued-line);
-		color: var(--queued);
+		box-shadow: inset 0 0 0 2px #000;
+		color: var(--queued-text);
 	}
 
 	.sc-expr {
@@ -1953,7 +1943,7 @@
 	}
 
 	.btn-danger-xs {
-		color: var(--danger);
+		color: var(--danger-text);
 		border-color: var(--danger-line);
 		background: transparent;
 	}
@@ -1984,8 +1974,8 @@
 		font-family: var(--font-sans);
 		padding: 0 7px;
 		line-height: 17px;
-		border-radius: var(--radius-full);
-		background: rgba(237, 230, 218, 0.05);
+		border-radius: 0;
+		background: var(--well);
 		color: var(--text-secondary);
 	}
 
@@ -1998,7 +1988,7 @@
 
 	.modal-hdr h2 {
 		font-family: var(--font-display);
-		font-size: 28px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
 	}
 
@@ -2034,7 +2024,7 @@
 		display: flex;
 		flex-direction: column;
 		overflow-y: auto;
-		transition: width 0.15s ease;
+		transition: width 0.15s steps(2);
 	}
 
 	.wiki-layout.nav-collapsed .wiki-sidebar {
@@ -2058,11 +2048,11 @@
 	}
 
 	.wiki-sidebar-title {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-weight: 700;
 		text-transform: uppercase;
 		color: var(--text-secondary);
-		letter-spacing: 0.05em;
+		letter-spacing: var(--tracking-caps);
 	}
 
 	.wiki-nav-toggle {
@@ -2074,7 +2064,7 @@
 		padding: 0;
 		background: none;
 		border: none;
-		border-radius: 4px;
+		border-radius: 0;
 		color: var(--text-secondary);
 		cursor: pointer;
 		flex-shrink: 0;
@@ -2087,7 +2077,7 @@
 
 	.wiki-sidebar-empty {
 		padding: 10px 12px;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 	}
 
 	.wiki-page-item {
@@ -2101,7 +2091,7 @@
 		cursor: pointer;
 		text-align: left;
 		color: var(--text-primary);
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		transition: background 0.15s;
 		border-left: 2px solid transparent;
 	}
@@ -2141,10 +2131,10 @@
 
 	.wiki-page-title {
 		font-family: var(--font-display);
-		font-size: 34px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
 		line-height: 1.05;
-		letter-spacing: -0.015em;
+		letter-spacing: 0;
 		margin: 0;
 	}
 
@@ -2156,9 +2146,9 @@
 	}
 
 	.wiki-page-cat-badge {
-		font-size: 10px;
+		font-size: var(--fs-2xs);
 		padding: 1px 6px;
-		border-radius: 8px;
+		border-radius: 0;
 		background: var(--bg-tertiary);
 		color: var(--text-secondary);
 		text-transform: uppercase;
@@ -2166,44 +2156,46 @@
 	}
 
 	.wiki-tag {
-		font-size: 10px;
+		font-size: var(--fs-2xs);
 		padding: 1px 7px;
-		border-radius: var(--radius-full);
+		border-radius: 0;
 		background: var(--accent-soft);
 		color: var(--accent);
 	}
 
 	.wiki-content-body {
-		font-size: 14px;
+		font-size: var(--fs-base);
 		line-height: 1.7;
 		min-width: 0;
 	}
 
 	/* MarkdownBody defaults are compact (task summaries). Wiki pages are documents. */
 	.wiki-content-body :global(.markdown-body) {
-		font-size: 14px;
+		font-size: var(--fs-base);
 		line-height: 1.7;
 	}
 
+	/* Heading sizes stay on Galmuri11's 12px grid (issue #636 §2-1): the old em
+	   multipliers computed to 15.6px / 13.44px and blurred the pixel stems. */
 	.wiki-content-body :global(.markdown-body h1) {
-		font-size: 1.55em;
+		font-size: var(--fs-lg);
 		margin: 1.1em 0 0.45em;
 		padding-bottom: 0.25em;
-		border-bottom: 1px solid var(--border);
+		border-bottom: 3px solid var(--border);
 	}
 
 	.wiki-content-body :global(.markdown-body h2) {
-		font-size: 1.3em;
+		font-size: var(--fs-lg);
 		margin: 1em 0 0.4em;
 	}
 
 	.wiki-content-body :global(.markdown-body h3) {
-		font-size: 1.12em;
+		font-size: var(--fs-md);
 		margin: 0.9em 0 0.3em;
 	}
 
 	.wiki-content-body :global(.markdown-body h4) {
-		font-size: 1.02em;
+		font-size: var(--fs-md);
 		margin: 0.8em 0 0.25em;
 	}
 
@@ -2232,7 +2224,7 @@
 
 	.wiki-title-input {
 		flex: 1;
-		font-size: 16px;
+		font-size: var(--fs-md);
 		font-weight: 600;
 	}
 
@@ -2243,17 +2235,17 @@
 
 	.btn-sm {
 		padding: 4px 10px;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 	}
 
 	.wiki-content-textarea {
 		flex: 1;
 		min-height: 300px;
 		padding: 12px;
-		font-family: var(--font-mono, 'Fira Code', 'JetBrains Mono', monospace);
-		font-size: 13px;
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
 		line-height: 1.6;
-		border-radius: var(--radius);
+		border-radius: 0;
 		border: 1px solid var(--border);
 		background: var(--bg-secondary);
 		color: var(--text-primary);

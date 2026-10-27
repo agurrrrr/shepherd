@@ -193,16 +193,15 @@
 		padding: 16px 18px 18px 38px;
 		overflow-y: auto;
 		overflow-x: hidden;
-		border-radius: var(--radius-md);
-		border: 1px solid var(--border-subtle);
+		border-radius: 0;
+		border: 0;
 		/* Layer 1: the transcript rail, painted on the scrolled content
-		   (attachment: local) so it runs the full height of the log. */
+		   (attachment: local) so it runs the full height of the log.
+		   Layer 2: the black output well. */
 		background:
-			linear-gradient(rgba(237, 230, 218, 0.075), rgba(237, 230, 218, 0.075)) var(--rail-x) 0 / 1px 100% no-repeat local,
-			linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.3)),
-			var(--bg-1);
-		box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.4);
-		font-size: 13px;
+			linear-gradient(var(--bg-2), var(--bg-2)) var(--rail-x) 0 / 2px 100% no-repeat local,
+			#000;
+		font-size: var(--fs-sm);
 		scroll-behavior: smooth;
 	}
 
@@ -235,19 +234,19 @@
 		font-size: var(--fs-2xs);
 		color: var(--text-tertiary);
 		padding: 2px 0;
-		letter-spacing: -0.01em;
+		letter-spacing: 0;
 	}
 
 	.output-viewer:not(.embedded) > .block-status::before,
 	.output-viewer:not(.embedded) > .block-sheep::before {
 		content: '';
 		position: absolute;
-		left: calc(var(--rail-x) - 38px - 2.5px);
+		left: calc(var(--rail-x) - 38px - 2px);
 		top: 50%;
 		width: 6px;
 		height: 6px;
 		margin-top: -3px;
-		border-radius: 50%;
+		border-radius: 0;
 		background: var(--text-tertiary);
 		z-index: 1;
 	}
@@ -259,32 +258,31 @@
 		gap: 8px;
 		min-width: 0;
 		min-height: 28px;
-		margin-top: 6px;
+		margin: 9px 3px 3px;
 		padding: 5px 10px;
-		border-radius: var(--radius);
-		background: rgba(237, 230, 218, 0.03);
-		box-shadow: inset 0 0 0 1px var(--border-subtle);
+		border-radius: 0;
+		background: var(--card-2);
+		box-shadow: var(--px-ring);
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		flex-shrink: 0;
-		transition: background var(--dur-1) ease;
 	}
 
 	.block-tool:hover {
-		background: rgba(237, 230, 218, 0.05);
+		background: var(--bg-3);
 	}
 
 	.output-viewer:not(.embedded) > .block-tool::before {
 		content: '';
 		position: absolute;
-		left: calc(var(--rail-x) - 38px - 4px);
+		left: calc(var(--rail-x) - 38px - 3px - 3px);
 		top: 50%;
-		width: 9px;
-		height: 9px;
-		margin-top: -4.5px;
-		border-radius: 50%;
-		background: var(--bg-1);
-		box-shadow: inset 0 0 0 2px var(--accent);
+		width: 8px;
+		height: 8px;
+		margin-top: -4px;
+		border-radius: 0;
+		background: #000;
+		box-shadow: inset 0 0 0 2px var(--live);
 		z-index: 1;
 	}
 
@@ -295,8 +293,8 @@
 	}
 
 	.tool-name {
-		font-weight: var(--fw-semibold);
-		color: var(--accent);
+		font-weight: var(--fw-regular);
+		color: var(--live);
 		flex-shrink: 0;
 	}
 
@@ -313,9 +311,9 @@
 	.block-question {
 		margin-top: 6px;
 		padding: 12px 14px;
-		border-radius: var(--radius);
+		border-radius: 0;
 		background: var(--warning-soft);
-		box-shadow: inset 0 0 0 1px var(--warning-line);
+		box-shadow: inset 0 0 0 2px var(--warning);
 		min-width: 0;
 		flex-shrink: 0;
 	}
@@ -325,9 +323,9 @@
 		position: absolute;
 		left: calc(var(--rail-x) - 38px - 4px);
 		top: 16px;
-		width: 9px;
-		height: 9px;
-		border-radius: 50%;
+		width: 8px;
+		height: 8px;
+		border-radius: 0;
 		background: var(--warning);
 		z-index: 1;
 	}
@@ -347,11 +345,11 @@
 
 	.question-tag {
 		font-size: var(--fs-2xs);
-		font-weight: var(--fw-semibold);
-		color: var(--warning);
-		background: var(--warning-soft);
+		font-weight: var(--fw-regular);
+		color: #000;
+		background: var(--warning);
 		padding: 1px 7px;
-		border-radius: var(--radius-full);
+		border-radius: 0;
 		flex-shrink: 0;
 	}
 
@@ -359,7 +357,7 @@
 		font-size: var(--fs-sm);
 		font-weight: var(--fw-semibold);
 		color: var(--text-primary);
-		line-height: 1.4;
+		line-height: var(--lh-snug);
 	}
 
 	.question-options {
@@ -380,9 +378,9 @@
 
 	.question-option::before {
 		content: '';
-		width: 5px;
-		height: 5px;
-		border-radius: 50%;
+		width: 6px;
+		height: 6px;
+		border-radius: 0;
 		background: var(--warning);
 		flex-shrink: 0;
 		transform: translateY(-2px);
@@ -404,11 +402,11 @@
 		padding: 10px 14px;
 		max-height: 340px;
 		overflow: auto;
-		border-radius: var(--radius);
-		background: rgba(0, 0, 0, 0.32);
-		box-shadow: inset 0 0 0 1px var(--border-subtle);
+		border-radius: 0;
+		background: var(--well);
+		box-shadow: inset 0 0 0 2px var(--lo);
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		line-height: 1.6;
 		white-space: pre-wrap;
 		word-break: break-word;
@@ -432,14 +430,14 @@
 		overflow-wrap: inherit;
 	}
 
-	/* Reasoning / thinking — collapsible, dimmed, warm wool tint so private
-	   reasoning reads apart from tool calls at a glance. */
+	/* Reasoning / thinking — collapsible and dimmed (tertiary grey) so
+	   private reasoning reads apart from tool calls at a glance. */
 	.block-thinking {
 		margin-top: 6px;
 		padding: 0;
-		border-radius: var(--radius);
-		background: rgba(203, 188, 163, 0.05);
-		box-shadow: inset 0 0 0 1px rgba(203, 188, 163, 0.12);
+		border-radius: 0;
+		background: transparent;
+		box-shadow: inset 0 0 0 2px var(--lo);
 		min-width: 0;
 		flex-shrink: 0;
 	}
@@ -449,11 +447,11 @@
 		position: absolute;
 		left: calc(var(--rail-x) - 38px - 4px);
 		top: 13px;
-		width: 9px;
-		height: 9px;
-		border-radius: 50%;
-		background: var(--bg-1);
-		box-shadow: inset 0 0 0 2px var(--wool);
+		width: 8px;
+		height: 8px;
+		border-radius: 0;
+		background: #000;
+		box-shadow: inset 0 0 0 2px var(--text-tertiary);
 		z-index: 1;
 	}
 
@@ -465,15 +463,15 @@
 		cursor: pointer;
 		user-select: none;
 		list-style: none;
-		color: var(--wool);
+		color: var(--text-tertiary);
 		font-size: var(--fs-xs);
-		font-weight: var(--fw-medium);
-		border-radius: var(--radius);
-		transition: background var(--dur-1) ease;
+		font-weight: var(--fw-regular);
+		border-radius: 0;
 	}
 
 	.thinking-summary:hover {
-		background: rgba(203, 188, 163, 0.05);
+		background: var(--well);
+		color: var(--text-secondary);
 	}
 
 	.thinking-summary::-webkit-details-marker {
@@ -485,10 +483,8 @@
 		width: 0;
 		height: 0;
 		border-left: 4px solid currentColor;
-		border-top: 3.5px solid transparent;
-		border-bottom: 3.5px solid transparent;
-		opacity: 0.7;
-		transition: transform var(--dur-2) var(--ease-out);
+		border-top: 4px solid transparent;
+		border-bottom: 4px solid transparent;
 	}
 
 	.block-thinking[open] > .thinking-summary::before {
@@ -501,11 +497,11 @@
 	}
 
 	.thinking-label {
-		font-family: var(--font-display);
-		font-style: italic;
-		font-size: 15px;
+		font-family: var(--font-label);
+		font-size: var(--fs-label);
 		font-weight: 400;
 		letter-spacing: 0;
+		text-transform: uppercase;
 	}
 
 	.thinking-hint {
@@ -518,11 +514,11 @@
 
 	.thinking-body {
 		padding: 2px 14px 12px;
-		font-size: 12.5px;
+		font-size: var(--fs-xs);
 		line-height: 1.6;
 		/* color + transparent bg: do not let github-markdown light scheme
-		   paint a white strip under --text-secondary (OS light mode). */
-		color: var(--text-secondary);
+		   paint a white strip under the text (OS light mode). */
+		color: var(--text-tertiary);
 		background: transparent;
 		overflow-x: hidden;
 		word-break: break-word;
@@ -530,20 +526,20 @@
 	}
 
 	.thinking-body :global(p) { margin: 3px 0; }
-	.thinking-body :global(strong) { color: var(--text-primary); font-weight: 600; }
+	.thinking-body :global(strong) { color: var(--text-secondary); font-weight: 700; }
 	.thinking-body :global(code) {
-		background: rgba(237, 230, 218, 0.07);
+		background: var(--well);
 		padding: 1px 4px;
-		border-radius: 4px;
-		font-size: 11.5px;
+		border-radius: 0;
+		font-size: var(--fs-2xs);
 	}
 	.thinking-body :global(pre) {
-		background: rgba(0, 0, 0, 0.3);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius);
+		background: var(--well);
+		border: 2px solid var(--lo);
+		border-radius: 0;
 		padding: 8px 12px;
 		margin: 6px 0;
-		font-size: 11.5px;
+		font-size: var(--fs-2xs);
 		overflow-x: auto;
 	}
 	.thinking-body :global(pre code) {
@@ -558,9 +554,9 @@
 
 	.thinking-body-raw {
 		padding: 2px 14px 12px;
-		font-size: 12.5px;
+		font-size: var(--fs-xs);
 		line-height: 1.6;
-		color: var(--text-secondary);
+		color: var(--text-tertiary);
 		white-space: pre-wrap;
 		word-break: break-word;
 	}
@@ -568,7 +564,7 @@
 	/* AI narration: markdown rendered */
 	.block-text {
 		padding: 6px 0 4px;
-		font-size: 13.5px;
+		font-size: var(--fs-sm);
 		line-height: 1.65;
 		color: var(--text-primary);
 		background: transparent;
@@ -581,11 +577,11 @@
 	.output-viewer:not(.embedded) > .block-text-raw::before {
 		content: '';
 		position: absolute;
-		left: calc(var(--rail-x) - 38px - 2.5px);
+		left: calc(var(--rail-x) - 38px - 2px);
 		top: 14px;
 		width: 6px;
 		height: 6px;
-		border-radius: 50%;
+		border-radius: 0;
 		background: var(--text-tertiary);
 		z-index: 1;
 	}
@@ -593,20 +589,20 @@
 	.block-text :global(p) { margin: 4px 0; }
 
 	.block-text :global(pre) {
-		background: rgba(0, 0, 0, 0.3);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius);
+		background: var(--well);
+		border: 2px solid var(--lo);
+		border-radius: 0;
 		padding: 10px 14px;
 		margin: 8px 0;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		overflow-x: auto;
 	}
 
 	.block-text :global(code) {
-		background: rgba(237, 230, 218, 0.07);
+		background: var(--well);
 		padding: 1px 5px;
-		border-radius: 4px;
-		font-size: 12px;
+		border-radius: 0;
+		font-size: var(--fs-xs);
 	}
 
 	.block-text :global(pre code) {
@@ -627,19 +623,19 @@
 	.block-text :global(h3),
 	.block-text :global(h4) {
 		margin: 12px 0 4px;
-		font-size: 14px;
-		font-weight: 600;
+		font-size: var(--fs-base);
+		font-weight: 700;
 		border: none;
 		padding: 0;
 	}
 
-	.block-text :global(h1) { font-size: 16px; }
-	.block-text :global(h2) { font-size: 15px; }
+	.block-text :global(h1) { font-size: var(--fs-md); }
+	.block-text :global(h2) { font-size: var(--fs-md); }
 	.block-text :global(strong) { color: var(--text-primary); }
-	.block-text :global(a) { color: var(--accent); }
+	.block-text :global(a) { color: var(--live); }
 
 	.block-text :global(blockquote) {
-		border-left: 2px solid var(--accent-line);
+		border-left: 3px solid var(--hi);
 		padding-left: 12px;
 		color: var(--text-secondary);
 		margin: 6px 0;
@@ -648,20 +644,20 @@
 	.block-text :global(table) {
 		border-collapse: collapse;
 		margin: 8px 0;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		display: block;
 		overflow-x: auto;
 	}
 
 	.block-text :global(th),
 	.block-text :global(td) {
-		border: 1px solid var(--border);
+		border: 2px solid var(--hi);
 		padding: 5px 10px;
 	}
 
 	.block-text :global(th) {
-		background: rgba(237, 230, 218, 0.05);
-		font-weight: 600;
+		background: var(--card-2);
+		font-weight: 700;
 	}
 
 	/* AI text: raw fallback */
@@ -669,7 +665,7 @@
 		padding: 6px 0 4px;
 		line-height: 1.65;
 		color: var(--text-primary);
-		font-size: 13.5px;
+		font-size: var(--fs-sm);
 		white-space: pre-wrap;
 		word-break: break-word;
 		flex-shrink: 0;
@@ -687,8 +683,8 @@
 		margin: auto;
 		padding: 40px 0;
 		font-family: var(--font-display);
-		font-style: italic;
-		font-size: 20px;
+		font-style: normal;
+		font-size: var(--fs-lg);
 		color: var(--text-tertiary);
 	}
 

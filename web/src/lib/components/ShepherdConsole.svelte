@@ -222,14 +222,19 @@
 		gap: 6px;
 		min-height: 48px;
 		padding: 6px 6px 6px 8px;
-		border-radius: 12px;
+		border-radius: 0;
+		/* Field rule from app.css layer 3, ring inset (see CommandInput) */
 		background: var(--bg-input);
-		box-shadow: inset 0 0 0 1px var(--border-subtle), inset 0 1px 3px rgba(0, 0, 0, 0.4);
-		transition: box-shadow var(--dur-2) ease;
+		box-shadow: inset 0 0 0 3px var(--hi);
+	}
+
+	.shepherd-console:focus-within {
+		outline: 3px solid var(--highlight);
+		outline-offset: 4px;
 	}
 
 	.shepherd-console.inject {
-		box-shadow: inset 0 0 0 1px var(--live-line), inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 3px var(--live-soft);
+		box-shadow: inset 0 0 0 3px var(--live);
 	}
 
 	.shepherd-console.locked {
@@ -286,18 +291,9 @@
 		color: var(--warning);
 	}
 
-	.hint kbd {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		padding: 1px 4px;
-		background: var(--bg-3);
-	}
-
 	.btn-inject.active {
-		background: var(--live-soft);
-		box-shadow: inset 0 0 0 1px var(--live-line);
+		background: var(--live);
+		color: #000;
 	}
 
 	.send {
@@ -305,42 +301,45 @@
 		place-items: center;
 		width: 36px;
 		height: 36px;
-		border-radius: 9px;
-		border: 1px solid var(--border);
-		background: var(--bg-3);
+		border-radius: 0;
+		border: 0;
+		background: var(--p-dgray);
 		color: var(--text-tertiary);
 		cursor: pointer;
-		transition: background var(--dur-1) ease, color var(--dur-1) ease, border-color var(--dur-1) ease;
 	}
 
+	/* Primary when there is something to send: pink, black glyph, bevel */
 	.send.ready {
 		background: var(--accent);
-		border-color: var(--accent);
-		color: #1a1206;
+		color: #000;
+		box-shadow: var(--px-bevel-btn);
 	}
 
 	.send:hover:not(:disabled) {
-		border-color: var(--accent-line);
-		color: var(--accent);
+		color: var(--highlight);
 	}
 
 	.send.ready:hover:not(:disabled) {
-		color: #1a1206;
-		filter: brightness(1.08);
+		background: var(--accent-hover);
+		color: #000;
+	}
+
+	.send.ready:active:not(:disabled) {
+		transform: translateY(3px);
 	}
 
 	.send:disabled {
-		opacity: 0.45;
 		cursor: not-allowed;
 	}
 
 	.spinner {
 		width: 14px;
 		height: 14px;
-		border-radius: 50%;
-		border: 2px solid rgba(237, 230, 218, 0.25);
+		border-radius: 0;
+		border: 2px solid transparent;
 		border-top-color: var(--accent);
-		animation: spin 0.8s linear infinite;
+		border-left-color: var(--accent);
+		animation: spin 800ms steps(4) infinite;
 	}
 
 	@keyframes spin {
@@ -363,9 +362,9 @@
 		align-items: center;
 		gap: 8px;
 		padding: 6px 10px;
-		border-radius: var(--radius);
+		border-radius: 0;
 		background: var(--bg-3);
-		border: 1px solid var(--success-line, var(--border));
+		border: 1px solid var(--success-line);
 		color: var(--success);
 		font-size: var(--fs-xs);
 		box-shadow: var(--shadow-2);
@@ -373,8 +372,8 @@
 	}
 
 	.console-toast.error {
-		color: var(--danger);
-		border-color: var(--danger-line, var(--border));
+		color: var(--danger-text);
+		border-color: var(--danger-line);
 	}
 
 	.console-toast span { flex: 1; min-width: 0; }
@@ -386,7 +385,7 @@
 		height: 20px;
 		flex-shrink: 0;
 		border: none;
-		border-radius: var(--radius-sm);
+		border-radius: 0;
 		background: none;
 		color: inherit;
 		cursor: pointer;

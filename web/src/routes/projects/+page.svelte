@@ -278,7 +278,7 @@
 
 	.add-title {
 		font-family: var(--font-display);
-		font-size: 28px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
 	}
 
@@ -333,20 +333,19 @@
 		overflow: hidden;
 	}
 
+	/* Hover lifts the card one step onto a hard shadow. .working / .error
+	   bevels come from app.css (.card.working, .card.error). */
 	.project-card:hover {
-		transform: translateY(-2px);
-		box-shadow: var(--sheen), var(--shadow-2);
+		transform: translate(-2px, -2px);
+		box-shadow: var(--px-ring), var(--px-bevel), 6px 6px 0 0 #000;
 	}
 
-	.project-card.working {
-		border-color: var(--live-line);
-		background:
-			radial-gradient(100% 80% at 0% 0%, rgba(95, 224, 194, 0.09), transparent 60%),
-			var(--bg-2);
+	.project-card.working:hover {
+		box-shadow: var(--px-ring), inset 3px 3px 0 0 var(--live), inset -3px -3px 0 0 var(--lo), 6px 6px 0 0 #000;
 	}
 
-	.project-card.error {
-		border-color: var(--danger-line);
+	.project-card.error:hover {
+		box-shadow: var(--px-ring), inset 3px 3px 0 0 var(--danger), inset -3px -3px 0 0 var(--lo), 6px 6px 0 0 #000;
 	}
 
 	.card-top {
@@ -359,8 +358,8 @@
 	.project-name {
 		min-width: 0;
 		font-weight: var(--fw-semibold);
-		font-size: 15px;
-		letter-spacing: -0.012em;
+		font-size: var(--fs-md);
+		letter-spacing: 0;
 		color: var(--text-primary);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -380,12 +379,12 @@
 		width: 26px;
 		height: 26px;
 		border: none;
-		border-radius: 7px;
+		border-radius: 0;
 		background: none;
 		color: var(--text-tertiary);
 		cursor: pointer;
 		opacity: 0;
-		transition: opacity var(--dur-1) ease, color var(--dur-1) ease, background var(--dur-1) ease;
+		transition: opacity var(--dur-1) steps(2), color var(--dur-1) steps(2), background var(--dur-1) steps(2);
 	}
 
 	.project-card:hover .act,
@@ -400,7 +399,7 @@
 	}
 
 	.act-danger:hover {
-		color: var(--danger);
+		color: var(--danger-text);
 		background: var(--danger-soft);
 	}
 
@@ -424,10 +423,10 @@
 		width: 18px;
 		height: 18px;
 		flex-shrink: 0;
-		border-radius: 50%;
+		border-radius: 0;
 		background: var(--wool-soft);
 		color: var(--wool);
-		font-size: 10px;
+		font-size: var(--fs-2xs);
 		font-weight: var(--fw-semibold);
 	}
 
@@ -443,12 +442,12 @@
 
 	.sheep-name.unassigned {
 		color: var(--text-tertiary);
-		font-style: italic;
+		font-style: normal;
 	}
 
 	.provider {
-		font-size: 10px;
-		letter-spacing: 0.06em;
+		font-size: var(--fs-2xs);
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--text-tertiary);
 	}
@@ -463,7 +462,7 @@
 	}
 
 	.state.live { color: var(--live); }
-	.state.bad { color: var(--danger); }
+	.state.bad { color: var(--danger-text); }
 
 	.project-desc {
 		font-size: var(--fs-xs);
@@ -479,7 +478,7 @@
 	.project-path {
 		margin-top: auto;
 		padding-right: 22px;
-		font-size: 10.5px;
+		font-size: var(--fs-2xs);
 		color: var(--text-tertiary);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -493,7 +492,7 @@
 		color: var(--text-tertiary);
 		opacity: 0;
 		transform: translate(-4px, 4px);
-		transition: opacity var(--dur-2) ease, transform var(--dur-2) var(--ease-out), color var(--dur-1) ease;
+		transition: opacity var(--dur-2) steps(2), transform var(--dur-2) var(--ease-out), color var(--dur-1) steps(2);
 	}
 
 	.project-card:hover .go {

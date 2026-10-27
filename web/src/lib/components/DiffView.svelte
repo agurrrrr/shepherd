@@ -36,8 +36,9 @@
 <style>
 	.diff-container {
 		margin: 4px 0 8px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
+		border: 3px solid #000;
+		border-radius: 0;
+		background: #000;
 		overflow: hidden;
 		max-height: 400px;
 		overflow-y: auto;
@@ -45,20 +46,20 @@
 
 	.diff-loading, .diff-binary, .diff-empty {
 		padding: 8px 12px;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 	}
 
 	.diff-truncated {
 		margin: 0;
 		padding: 6px 12px;
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--warning);
 		background: var(--warning-soft);
-		border-top: 1px solid var(--border);
+		border-top: 2px solid var(--lo);
 	}
 
 	.diff-hunk {
-		border-bottom: 1px solid var(--border);
+		border-bottom: 2px solid var(--lo);
 	}
 
 	.diff-hunk:last-child {
@@ -66,31 +67,35 @@
 	}
 
 	.diff-hunk-header {
-		font-size: 11px;
-		color: var(--text-secondary);
-		background: var(--bg-tertiary);
+		font-size: var(--fs-2xs);
+		color: var(--queued-text);
+		background: var(--card-2);
 		padding: 4px 12px;
-		border-bottom: 1px solid var(--border);
+		border-bottom: 2px solid var(--lo);
 	}
 
 	.diff-line {
 		display: flex;
-		font-family: var(--font-mono), 'SF Mono', Monaco, 'Cascadia Code', monospace;
-		font-size: 12px;
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
 		line-height: 20px;
 		white-space: pre;
 	}
 
 	.diff-line:hover {
-		filter: brightness(1.1);
+		background: var(--bg-2);
 	}
 
 	.diff-line.diff-add {
-		background: var(--success-soft);
+		background: rgba(0, 228, 54, 0.16);
 	}
 
 	.diff-line.diff-delete {
-		background: var(--danger-soft);
+		background: rgba(255, 0, 77, 0.18);
+	}
+
+	.diff-delete .diff-code {
+		color: var(--danger-text);
 	}
 
 	.diff-line.diff-context {
@@ -102,8 +107,7 @@
 		min-width: 40px;
 		text-align: right;
 		padding-right: 8px;
-		color: var(--text-secondary);
-		opacity: 0.5;
+		color: var(--text-tertiary);
 		user-select: none;
 		flex-shrink: 0;
 	}
@@ -121,7 +125,7 @@
 	}
 
 	.diff-delete .diff-prefix {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.diff-code {

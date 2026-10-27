@@ -200,7 +200,7 @@
 	}
 
 	.setting-row > label:not(.toggle) {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 500;
 		flex: 0 0 180px;
 		color: var(--text-primary);
@@ -244,7 +244,7 @@
 	}
 
 	.hint {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		line-height: 1.55;
 	}
@@ -258,15 +258,15 @@
 		padding-top: 22px;
 		border-top: 1px solid var(--border-subtle);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-weight: 500;
-		letter-spacing: 0.12em;
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--accent);
 	}
 
 	.setting-section-title {
-		font-size: 14px;
+		font-size: var(--fs-base);
 		font-weight: 600;
 		color: var(--text-primary);
 		padding-top: 12px;

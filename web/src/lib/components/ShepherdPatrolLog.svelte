@@ -241,8 +241,7 @@
 
 	.cadence-chip {
 		font-size: var(--fs-2xs);
-		background: rgba(237, 230, 218, 0.04);
-		border-color: var(--border-subtle);
+		background: var(--well);
 		color: var(--text-secondary);
 	}
 
@@ -251,15 +250,13 @@
 
 	.cadence-off {
 		color: var(--warning);
-		background: var(--warning-soft, rgba(244, 184, 96, 0.12));
-		border-color: var(--warning-line, rgba(244, 184, 96, 0.25));
 	}
 
 	.cadence-skeleton {
 		display: inline-block;
 		width: 220px;
 		height: 22px;
-		border-radius: var(--radius-full);
+		border-radius: 0;
 	}
 
 	.patrol-msg {
@@ -275,13 +272,13 @@
 		display: flex;
 		flex-direction: column;
 		padding: 4px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border: 0;
+		border-radius: 0;
 		background: var(--bg-2);
-		box-shadow: var(--sheen);
+		box-shadow: var(--px-ring), var(--px-bevel);
 	}
 
-	.patrol-entry + .patrol-entry { box-shadow: 0 -1px 0 var(--border-subtle); }
+	.patrol-entry + .patrol-entry { box-shadow: 0 -2px 0 0 var(--lo); }
 
 	.patrol-row {
 		display: grid;
@@ -289,12 +286,12 @@
 		align-items: center;
 		gap: 12px;
 		padding: 10px 12px;
-		border-radius: var(--radius);
+		border-radius: 0;
 		cursor: pointer;
 	}
 
 	.patrol-row:hover,
-	.patrol-row:focus-visible { background: rgba(237, 230, 218, 0.035); }
+	.patrol-row:focus-visible { background: var(--bg-3); }
 
 	.patrol-caret { color: var(--text-tertiary); display: inline-flex; }
 
@@ -353,12 +350,13 @@
 		align-items: start;
 		gap: 10px;
 		padding: 8px 10px;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius);
+		border: 0;
+		border-radius: 0;
 		background: var(--bg-3);
+		box-shadow: inset 0 0 0 2px #000;
 	}
 
-	.finding.sev-5, .finding.sev-6, .finding.sev-7 { border-color: var(--danger-line, rgba(224, 108, 117, 0.3)); }
+	.finding.sev-5, .finding.sev-6, .finding.sev-7 { box-shadow: inset 0 0 0 2px var(--danger); }
 
 	.finding-sev { font-size: var(--fs-2xs); white-space: nowrap; }
 
@@ -385,7 +383,7 @@
 		text-decoration: none;
 		color: var(--text-secondary);
 		border: 1px solid var(--border-subtle);
-		background: rgba(237, 230, 218, 0.04);
+		background: var(--well);
 	}
 
 	.finding-project:hover { border-color: var(--border-strong); color: var(--text-primary); text-decoration: none; }

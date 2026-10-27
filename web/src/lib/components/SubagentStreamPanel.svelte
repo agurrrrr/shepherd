@@ -45,10 +45,10 @@
 
 	function statusColor(status) {
 		switch (status) {
-			// Nocturne palette: --success / --danger / --live (running = alive)
-			case 'done': return '#9fd685';
-			case 'error': return '#ff6b61';
-			default: return '#5fe0c2';
+			// app.css palette: --success / --danger / --live (running = alive)
+			case 'done': return 'var(--success)';
+			case 'error': return 'var(--danger)';
+			default: return 'var(--live)';
 		}
 	}
 
@@ -116,14 +116,14 @@
 
 	.empty-output {
 		color: var(--text-secondary);
-		font-size: 12px;
+		font-size: var(--fs-xs);
 	}
 
 	/* ── General panel ── */
 	.general-panel {
 		background: var(--bg-primary);
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
+		border-radius: 0;
 		display: flex;
 		flex-direction: column;
 		flex: 1 1 50%;
@@ -137,13 +137,13 @@
 		padding: 6px 12px;
 		background: var(--bg-tertiary);
 		border-bottom: 1px solid var(--border);
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 600;
 		color: var(--text-primary);
 		flex-shrink: 0;
 	}
 
-	.general-icon { font-size: 15px; }
+	.general-icon { font-size: var(--fs-md); }
 
 	.general-content {
 		flex: 1;
@@ -168,7 +168,7 @@
 		background: var(--bg-primary);
 		border: 1px solid var(--border);
 		border-top: 3px solid var(--slot-color);
-		border-radius: var(--radius);
+		border-radius: 0;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
@@ -182,12 +182,12 @@
 		padding: 6px 10px;
 		background: var(--bg-tertiary);
 		border-bottom: 1px solid var(--border);
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		font-weight: 600;
 		flex-shrink: 0;
 	}
 
-	.slot-emoji { font-size: 14px; }
+	.slot-emoji { font-size: var(--fs-base); }
 	.slot-name {
 		color: var(--slot-color);
 		flex: 1;
@@ -197,15 +197,15 @@
 	}
 
 	.slot-status {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		padding: 1px 5px;
-		border-radius: 3px;
+		border-radius: 0;
 	}
 
 	.status-running {
 		color: var(--live);
 		background: var(--live-soft);
-		animation: subagent-pulse 1.5s ease-in-out infinite;
+		animation: px-blink 1.5s steps(1) infinite;
 	}
 
 	.status-done {
@@ -214,7 +214,7 @@
 	}
 
 	.status-error {
-		color: var(--danger);
+		color: var(--danger-text);
 		background: var(--danger-soft);
 	}
 
@@ -227,7 +227,7 @@
 		flex: 1;
 		overflow-y: auto;
 		padding: 8px 10px;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		line-height: 1.5;
 		color: var(--text-secondary);
 		word-break: break-word;
@@ -236,8 +236,8 @@
 
 	.slot-idle {
 		color: var(--text-secondary);
-		font-style: italic;
-		font-size: 11px;
+		font-style: normal;
+		font-size: var(--fs-2xs);
 	}
 
 	/* Responsive: stack panels vertically on narrow portrait screens */

@@ -348,7 +348,7 @@
 	.kind-chip {
 		cursor: pointer;
 		border: 1px solid var(--border-subtle);
-		background: rgba(237, 230, 218, 0.04);
+		background: var(--well);
 		color: var(--text-secondary);
 		font-family: inherit;
 	}
@@ -376,7 +376,7 @@
 		align-self: flex-start;
 		margin-bottom: 10px;
 		padding: 5px 12px;
-		border-radius: var(--radius-full);
+		border-radius: 0;
 		border: 1px solid var(--accent-line);
 		background: var(--accent-soft);
 		color: var(--accent);
@@ -390,7 +390,7 @@
 		align-items: center;
 		gap: 6px;
 		margin-bottom: 10px;
-		color: var(--danger);
+		color: var(--danger-text);
 		font-size: var(--fs-xs);
 	}
 
@@ -399,10 +399,10 @@
 		display: flex;
 		flex-direction: column;
 		padding: 4px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border: 0;
+		border-radius: 0;
 		background: var(--bg-2);
-		box-shadow: var(--sheen);
+		box-shadow: var(--px-ring), var(--px-bevel);
 	}
 
 	.task-row {
@@ -411,17 +411,17 @@
 		align-items: center;
 		gap: 12px;
 		padding: 10px 12px;
-		border-radius: var(--radius);
+		border-radius: 0;
 		color: var(--text-secondary);
 		text-decoration: none;
-		transition: background var(--dur-1) ease;
+		transition: background var(--dur-1) steps(2);
 	}
 
-	.task-row + .task-row { box-shadow: 0 -1px 0 var(--border-subtle); }
+	.task-row + .task-row { box-shadow: 0 -2px 0 0 var(--lo); }
 
 	.task-row:hover,
 	.task-row:focus-visible {
-		background: rgba(237, 230, 218, 0.035);
+		background: var(--bg-3);
 		text-decoration: none;
 		color: var(--text-secondary);
 	}
@@ -457,13 +457,13 @@
 		border: 1px solid var(--border-subtle);
 		background: none;
 		color: var(--text-secondary);
-		border-radius: var(--radius-sm);
+		border-radius: 0;
 		padding: 3px 9px;
 		font-size: var(--fs-2xs);
 		cursor: pointer;
 	}
 
-	.cancel-btn:hover:not(:disabled) { border-color: var(--danger-line, var(--danger)); color: var(--danger); }
+	.cancel-btn:hover:not(:disabled) { border-color: var(--danger-line); color: var(--danger-text); }
 	.cancel-btn:disabled { opacity: 0.6; cursor: default; }
 
 	.row-time { font-size: var(--fs-xs); color: var(--text-tertiary); text-align: right; }

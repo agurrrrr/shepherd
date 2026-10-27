@@ -79,7 +79,7 @@
 		gap: 2px;
 		flex-shrink: 0;
 		margin-bottom: 14px;
-		border-bottom: 1px solid var(--border);
+		box-shadow: inset 0 -3px 0 0 var(--lo);
 		overflow-x: auto;
 		scrollbar-width: none;
 		-webkit-overflow-scrolling: touch;
@@ -93,17 +93,17 @@
 		position: absolute;
 		left: 0;
 		bottom: 0;
-		height: 2px;
+		height: 3px;
 		width: var(--w);
 		transform: translateX(var(--x));
-		border-radius: 2px 2px 0 0;
-		background: var(--accent);
-		box-shadow: 0 0 12px var(--accent-glow);
+		border-radius: 0;
+		background: var(--highlight);
 		pointer-events: none;
 	}
 
+	/* The bar hops to the active tab in four steps */
 	.tab-ink.ready {
-		transition: transform 380ms var(--ease-out), width 380ms var(--ease-out);
+		transition: transform var(--dur-2) steps(4), width var(--dur-2) steps(4);
 	}
 
 	.tab {
@@ -113,44 +113,44 @@
 		padding: 9px 12px 11px;
 		border: none;
 		background: none;
-		color: var(--text-tertiary);
+		color: var(--text-secondary);
 		font-size: var(--fs-sm);
-		font-weight: var(--fw-medium);
+		font-weight: var(--fw-regular);
 		white-space: nowrap;
 		flex-shrink: 0;
 		cursor: pointer;
-		border-radius: var(--radius) var(--radius) 0 0;
-		transition: color var(--dur-1) ease, background var(--dur-1) ease;
+		border-radius: 0;
 	}
 
 	.tab:hover {
 		color: var(--text-primary);
-		background: rgba(237, 230, 218, 0.03);
+		background: var(--bg-2);
 	}
 
-	.tab.active {
-		color: var(--text-primary);
-	}
-
+	.tab.active,
 	.tab.active :global(.icon) {
-		color: var(--accent);
+		color: var(--highlight);
+	}
+
+	/* Inside the scroller: an outset ring would be clipped */
+	.tab:focus-visible {
+		outline-offset: -3px;
 	}
 
 	.tab-live {
-		width: 5px;
-		height: 5px;
+		width: 6px;
+		height: 6px;
 	}
 
-	/* Count chip matching the sidebar's .nav-badge (+layout.svelte). */
+	/* Attention count on a tab: black chip, red count. */
 	.tab-badge {
-		font-size: 10.5px;
-		font-weight: var(--fw-semibold);
-		color: var(--warning-ink, var(--warning));
-		background: var(--warning-soft, rgba(244, 184, 96, 0.14));
-		border: 1px solid var(--warning-line, rgba(244, 184, 96, 0.25));
-		padding: 0 7px;
-		border-radius: var(--radius-full);
-		line-height: 17px;
+		font-size: var(--fs-2xs);
+		font-weight: var(--fw-regular);
+		color: var(--danger-text);
+		background: #000;
+		padding: 0 6px;
+		border-radius: 0;
+		line-height: 18px;
 	}
 
 	@media (max-width: 768px) {

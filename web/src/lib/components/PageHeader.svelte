@@ -1,6 +1,6 @@
 <script>
-	// Editorial page header: mono eyebrow, serif title with an optional
-	// superscript count, one line of context, and right-aligned actions.
+	// Page header: 8px pixel eyebrow (ASCII only), 24px pixel title with an
+	// optional count, one line of context, and right-aligned actions.
 	let { title = '', eyebrow = '', subtitle = '', count = null, children } = $props();
 </script>
 

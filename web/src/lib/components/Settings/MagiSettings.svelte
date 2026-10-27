@@ -301,8 +301,8 @@
 </div>
 
 <style>
-	h3 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
-	p.hint { font-size: 12px; color: var(--text-secondary); margin: 4px 0 12px; }
+	h3 { font-size: var(--fs-base); font-weight: 600; margin: 0 0 4px; }
+	p.hint { font-size: var(--fs-xs); color: var(--text-secondary); margin: 4px 0 12px; }
 
 	.toggle {
 		display: flex;
@@ -317,11 +317,11 @@
 
 	input.input, select.input, textarea.input {
 		font-family: inherit;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		padding: 6px 10px;
 		background: var(--bg-input);
 		border: 1px solid var(--border);
-		border-radius: 6px;
+		border-radius: 0;
 	color: var(--text-primary);
 	outline: none;
 	width: 100%;
@@ -350,14 +350,14 @@ select.input { cursor: pointer; }
 }
 .magi-header h3 {
 	margin: 0;
-	font-size: 14px;
+	font-size: var(--fs-base);
 	font-weight: 600;
 }
 .magi-subsection {
 	margin-top: 16px;
 }
 .magi-subsection h4 {
-	font-size: 13px;
+	font-size: var(--fs-sm);
 	font-weight: 600;
 	margin: 0 0 8px;
 }
@@ -374,7 +374,7 @@ select.input { cursor: pointer; }
 	border-bottom: none;
 }
 .magi-proposer-label {
-	font-size: 12px;
+	font-size: var(--fs-xs);
 	font-weight: 600;
 	min-width: 60px;
 }
@@ -405,27 +405,27 @@ select.input { cursor: pointer; }
 	margin-bottom: 4px;
 }
 .magi-range-value {
-	font-size: 12px;
+	font-size: var(--fs-xs);
 	font-weight: 600;
 	min-width: 40px;
 }
 .magi-banner {
-	border-radius: 6px;
+	border-radius: 0;
 	padding: 8px 12px;
 	margin: 8px 0;
-	font-size: 12px;
+	font-size: var(--fs-xs);
 }
 .magi-banner ul {
 	margin: 4px 0 0;
 	padding-left: 16px;
 }
 .magi-banner-error {
-	background: color-mix(in srgb, var(--danger, #e53e3e) 12%, transparent);
-	border: 1px solid color-mix(in srgb, var(--danger, #e53e3e) 30%, transparent);
+	background: var(--danger-soft);
+	border: 2px solid var(--danger);
 }
 .magi-banner-warning {
-	background: color-mix(in srgb, #f0ad4e 12%, transparent);
-	border: 1px solid color-mix(in srgb, #f0ad4e 30%, transparent);
+	background: var(--warning-soft);
+	border: 2px solid var(--warning);
 }
 .magi-actions {
 	display: flex;
@@ -434,7 +434,7 @@ select.input { cursor: pointer; }
 	margin-top: 16px;
 }
 .magi-save-msg {
-	font-size: 12px;
+	font-size: var(--fs-xs);
 }
 
 .setting-row {
@@ -447,7 +447,7 @@ select.input { cursor: pointer; }
 }
 
 .setting-row > label:not(.toggle) {
-	font-size: 13px;
+	font-size: var(--fs-sm);
 	font-weight: 500;
 	flex: 0 0 180px;
 	color: var(--text-primary);

@@ -44,12 +44,11 @@
 	// Graph computation
 	let graphData = $state([]);
 
-	// Colors for graph lanes — the mainline carries the lantern amber, side
-	// branches take the rest of the Nocturne palette (see app.css tokens).
+	// Colors for graph lanes — the mainline is pink, side branches take the
+	// rest of the PICO palette (app.css tokens; SVG paint accepts var()).
 	const LANE_COLORS = [
-		'#f4b860', '#5fe0c2', '#aea3ff', '#8fc1ff',
-		'#ff9a5c', '#9fd685', '#cbbca3', '#ff8fa3',
-		'#7fd3e6', '#d8c3ff',
+		'var(--p-pink)', 'var(--p-blue)', 'var(--p-green)', 'var(--p-orange)',
+		'var(--p-lav)', 'var(--p-yellow)', 'var(--p-peach)', 'var(--p-red)',
 	];
 
 	const ROW_HEIGHT = 32;
@@ -396,6 +395,7 @@
 								style="height:{ROW_HEIGHT}px;">
 								<!-- Graph SVG -->
 								<svg class="graph-svg" width={gw} height={ROW_HEIGHT}
+									shape-rendering="crispEdges"
 									style="min-width:{gw}px;">
 									<!-- Connections -->
 									{#each row.connections as conn}
@@ -407,7 +407,6 @@
 												y2={ROW_HEIGHT}
 												stroke={LANE_COLORS[conn.to % LANE_COLORS.length]}
 												stroke-width="2"
-												stroke-opacity="0.6"
 											/>
 										{:else if conn.type === 'direct'}
 											<line
@@ -417,7 +416,6 @@
 												y2={ROW_HEIGHT}
 												stroke={LANE_COLORS[conn.to % LANE_COLORS.length]}
 												stroke-width="2"
-												stroke-opacity="0.6"
 											/>
 										{:else if conn.type === 'merge' || conn.type === 'branch'}
 											<path
@@ -428,7 +426,6 @@
 												fill="none"
 												stroke={LANE_COLORS[conn.to % LANE_COLORS.length]}
 												stroke-width="2"
-												stroke-opacity="0.6"
 											/>
 										{/if}
 									{/each}
@@ -444,17 +441,19 @@
 												y2={ROW_HEIGHT / 2}
 												stroke={LANE_COLORS[row.lane % LANE_COLORS.length]}
 												stroke-width="2"
-												stroke-opacity="0.6"
 											/>
 										{/if}
 									{/if}
 
-									<!-- Commit dot -->
-									<circle
-										cx={row.lane * LANE_WIDTH + LANE_WIDTH / 2}
-										cy={ROW_HEIGHT / 2}
-										r={DOT_RADIUS}
+									<!-- Commit node: a square in a black ring -->
+									<rect
+										x={row.lane * LANE_WIDTH + LANE_WIDTH / 2 - DOT_RADIUS}
+										y={ROW_HEIGHT / 2 - DOT_RADIUS}
+										width={DOT_RADIUS * 2}
+										height={DOT_RADIUS * 2}
 										fill={LANE_COLORS[row.lane % LANE_COLORS.length]}
+										stroke="#000"
+										stroke-width="2"
 									/>
 								</svg>
 
@@ -713,7 +712,7 @@
 	.text-muted {
 		color: var(--text-secondary);
 		padding: 16px;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 	}
 
 	.mono {
@@ -734,7 +733,7 @@
 		background: none;
 		border: none;
 		color: var(--text-secondary);
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		padding: 6px 12px;
 		cursor: pointer;
 		border-bottom: 2px solid transparent;
@@ -752,7 +751,7 @@
 
 	.commit-count {
 		margin-left: auto;
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 		padding-right: 8px;
 	}
@@ -811,7 +810,7 @@
 	}
 
 	.commit-hash {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		flex-shrink: 0;
 	}
@@ -829,11 +828,11 @@
 
 	.ref-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--fs-2xs);
 		line-height: 16px;
 		padding: 0 7px;
-		border-radius: var(--radius-full);
-		background: rgba(237, 230, 218, 0.05);
+		border-radius: 0;
+		background: var(--well);
 		color: var(--text-secondary);
 		border: 1px solid var(--border);
 		white-space: nowrap;
@@ -852,7 +851,7 @@
 	}
 
 	.commit-subject {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-primary);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -869,13 +868,13 @@
 	}
 
 	.commit-author {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 		white-space: nowrap;
 	}
 
 	.commit-date {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 		white-space: nowrap;
 	}
@@ -899,7 +898,7 @@
 	}
 
 	.detail-title {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		font-weight: 600;
 		color: var(--text-secondary);
 	}
@@ -909,7 +908,7 @@
 		border: none;
 		color: var(--text-secondary);
 		cursor: pointer;
-		font-size: 14px;
+		font-size: var(--fs-base);
 		padding: 0 4px;
 		line-height: 1;
 	}
@@ -935,18 +934,18 @@
 	}
 
 	.detail-hash {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--accent);
 		font-weight: 600;
 	}
 
 	.detail-author {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 	}
 
 	.detail-date {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 	}
 
@@ -957,7 +956,7 @@
 	}
 
 	.detail-message {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-primary);
 		line-height: 1.5;
 		padding: 8px 0;
@@ -971,7 +970,7 @@
 	}
 
 	.files-header {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-weight: 600;
 		color: var(--text-secondary);
 		margin-bottom: 4px;
@@ -983,13 +982,13 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 2px 0;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 	}
 
 	.file-row.clickable {
 		cursor: pointer;
 		padding: 3px 4px;
-		border-radius: 3px;
+		border-radius: 0;
 		transition: background 0.1s;
 	}
 
@@ -1019,13 +1018,13 @@
 
 	.stat-add {
 		color: var(--success);
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-family: var(--font-mono), monospace;
 	}
 
 	.stat-del {
-		color: var(--danger);
-		font-size: 11px;
+		color: var(--danger-text);
+		font-size: var(--fs-2xs);
 		font-family: var(--font-mono), monospace;
 	}
 
@@ -1065,21 +1064,21 @@
 	}
 
 	.branch-upstream {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 	}
 
 	.branch-upstream-none {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
-		font-style: italic;
+		font-style: normal;
 	}
 
 	.branch-counter {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-family: var(--font-mono), monospace;
 		padding: 1px 6px;
-		border-radius: 3px;
+		border-radius: 0;
 		font-weight: 600;
 	}
 
@@ -1090,16 +1089,16 @@
 
 	.branch-counter.behind {
 		background: var(--danger-soft);
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.push-result {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--success);
 	}
 
 	.push-result.error {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.changes-sections {
@@ -1126,9 +1125,9 @@
 
 	.changes-empty {
 		padding: 4px 12px 8px 36px;
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
-		font-style: italic;
+		font-style: normal;
 	}
 
 	.change-row {
@@ -1136,7 +1135,7 @@
 		align-items: center;
 		gap: 10px;
 		padding: 3px 12px;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 	}
 
 	.change-row:hover {
@@ -1144,7 +1143,7 @@
 	}
 
 	.change-status {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-weight: 700;
 		font-family: var(--font-mono), monospace;
 		width: 18px;
@@ -1154,7 +1153,7 @@
 
 	.change-status.modified { color: var(--warning); }
 	.change-status.added { color: var(--success); }
-	.change-status.deleted { color: var(--danger); }
+	.change-status.deleted { color: var(--danger-text); }
 	.change-status.untracked { color: var(--text-secondary); }
 
 	.change-path {
@@ -1184,8 +1183,8 @@
 		background: var(--bg-primary);
 		color: var(--text-primary);
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		font-size: 12px;
+		border-radius: 0;
+		font-size: var(--fs-xs);
 		line-height: 1.4;
 		font-family: var(--font-mono), monospace;
 		box-sizing: border-box;
@@ -1207,13 +1206,13 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 	}
 
 	.commit-error {
-		font-size: 11px;
-		color: var(--danger);
+		font-size: var(--fs-2xs);
+		color: var(--danger-text);
 		flex: 1;
 		min-width: 0;
 	}
@@ -1222,9 +1221,9 @@
 		background: var(--bg-tertiary);
 		color: var(--text-primary);
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
+		border-radius: 0;
 		padding: 4px 10px;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		cursor: pointer;
 		transition: background 0.1s, color 0.1s;
 		margin-left: auto;
@@ -1232,17 +1231,17 @@
 
 	.btn-action:hover:not(:disabled) {
 		background: var(--accent);
-		color: var(--bg-primary);
+		color: #000;
 	}
 
 	.btn-action.primary {
 		background: var(--accent);
-		color: var(--bg-primary);
+		color: #000;
 		border-color: var(--accent);
 	}
 
 	.btn-action.primary:hover:not(:disabled) {
-		filter: brightness(1.15);
+		background: var(--accent-hover);
 	}
 
 	.btn-action:disabled {
@@ -1254,9 +1253,9 @@
 		background: transparent;
 		color: var(--text-secondary);
 		border: 1px solid var(--border);
-		border-radius: 3px;
+		border-radius: 0;
 		padding: 1px 6px;
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		cursor: pointer;
 		flex-shrink: 0;
 	}
@@ -1301,12 +1300,12 @@
 	}
 
 	.section-label {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-weight: 600;
 		color: var(--text-secondary);
 		text-transform: uppercase;
 		padding: 4px 12px;
-		letter-spacing: 0.5px;
+		letter-spacing: 1px;
 	}
 
 	.branch-row {
@@ -1314,7 +1313,7 @@
 		align-items: center;
 		gap: 8px;
 		padding: 4px 12px;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 	}
 
 	.branch-row:hover {
@@ -1337,7 +1336,7 @@
 	}
 
 	.branch-head {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 		margin-left: auto;
 	}
@@ -1354,7 +1353,7 @@
 
 		.sub-tab {
 			padding: 6px 8px;
-			font-size: 11px;
+			font-size: var(--fs-2xs);
 		}
 	}
 </style>

@@ -235,7 +235,7 @@
 <style>
 	.text-muted { color: var(--text-secondary); }
 	.hint {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		margin: 4px 0 0;
 		line-height: 1.55;
@@ -254,7 +254,7 @@
 	}
 	.mcp-header h3 {
 		margin: 0;
-		font-size: 16px;
+		font-size: var(--fs-md);
 	}
 
 	.mcp-server-list {
@@ -266,7 +266,7 @@
 	.mcp-server-card {
 		background: var(--bg-secondary);
 		border: 1px solid var(--border);
-		border-radius: 8px;
+		border-radius: 0;
 		padding: 12px;
 	}
 	.mcp-server-header {
@@ -282,14 +282,14 @@
 		flex-wrap: wrap;
 	}
 	.mcp-server-id {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		background: var(--bg-input);
 		padding: 1px 6px;
-		border-radius: 4px;
+		border-radius: 0;
 		color: var(--text-secondary);
 	}
 	.mcp-server-desc {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 		margin: 4px 0;
 	}
@@ -300,14 +300,14 @@
 		margin-top: 6px;
 	}
 	.mcp-detail {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		color: var(--text-secondary);
 	}
 	.mcp-detail code {
 		background: var(--bg-input);
 		padding: 1px 4px;
-		border-radius: 3px;
-		font-size: 10px;
+		border-radius: 0;
+		font-size: var(--fs-2xs);
 	}
 	.mcp-label {
 		color: var(--text-muted);
@@ -319,10 +319,10 @@
 	}
 
 	.badge {
-		font-size: 10px;
+		font-size: var(--fs-2xs);
 		font-weight: 600;
 		padding: 1px 6px;
-		border-radius: 8px;
+		border-radius: 0;
 	}
 	.badge-success {
 		background: color-mix(in srgb, var(--success) 15%, transparent);
@@ -340,10 +340,10 @@
 
 	.btn-sm {
 		padding: 4px 10px;
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-weight: 600;
 		border: none;
-		border-radius: 6px;
+		border-radius: 0;
 		cursor: pointer;
 		transition: opacity 0.15s;
 	}
@@ -361,13 +361,13 @@
 	}
 	.btn-danger:hover {
 		border-color: var(--danger);
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.modal-overlay {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
+		background: var(--bg-overlay);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -376,7 +376,7 @@
 	.modal-card {
 		background: var(--bg-2);
 		border: 1px solid var(--border);
-		border-radius: 12px;
+		border-radius: 0;
 		padding: 24px;
 		width: 90%;
 		max-width: 520px;
@@ -386,7 +386,7 @@
 	}
 	.modal-card h3 {
 		margin: 0 0 16px;
-		font-size: 16px;
+		font-size: var(--fs-md);
 	}
 
 	.setting-row {
@@ -401,7 +401,7 @@
 	}
 	.setting-row > label:not(.toggle) {
 		flex: 0 0 100px;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 500;
 	}
 	.setting-row .input {

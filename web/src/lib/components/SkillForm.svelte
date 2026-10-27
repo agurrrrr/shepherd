@@ -111,12 +111,12 @@
 	}
 
 	.form-error {
-		color: var(--danger);
-		background: rgba(248, 81, 73, 0.1);
+		color: var(--danger-text);
+		background: var(--danger-soft);
 		border: 1px solid var(--danger);
-		border-radius: var(--radius);
+		border-radius: 0;
 		padding: 8px 12px;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 	}
 
 	.form-group {
@@ -126,7 +126,7 @@
 	}
 
 	.form-label {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 500;
 		color: var(--text-secondary);
 	}
@@ -147,7 +147,7 @@
 		resize: vertical;
 		min-height: 200px;
 		font-family: var(--font-mono);
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		line-height: 1.5;
 		tab-size: 2;
 	}
@@ -162,9 +162,9 @@
 		border: 1px solid var(--border);
 		background: var(--bg-primary);
 		color: var(--text-secondary);
-		border-radius: var(--radius);
+		border-radius: 0;
 		cursor: pointer;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 	}
 
 	.type-btn.active {

@@ -109,8 +109,8 @@
 		return '';
 	}
 
-	// Instrument Serif draws "1" almost like "l" at this size, so numerals in
-	// the cadence label are set in the UI sans ("Every 1h", "Daily at 11:00").
+	// Numerals in the cadence label are set in the UI sans ("Every 1h",
+	// "Daily at 11:00") so they stay on the Galmuri11 pixel grid.
 	function cadenceParts(text) {
 		return String(text).split(/(\d+(?::\d+)?)/).filter(Boolean).map((t) => ({ t, num: /^\d/.test(t) }));
 	}
@@ -234,7 +234,7 @@
 		gap: 20px;
 		align-items: start;
 		padding: 18px 20px;
-		transition: border-color var(--dur-1) ease, opacity var(--dur-2) ease;
+		transition: border-color var(--dur-1) steps(2), opacity var(--dur-2) steps(2);
 	}
 
 	.schedule-item:hover {
@@ -260,22 +260,22 @@
 
 	.when-main {
 		font-family: var(--font-display);
-		font-size: 22px;
+		font-size: var(--fs-lg);
 		line-height: 1.1;
 		color: var(--text-primary);
 	}
 
 	.when-num {
 		font-family: var(--font-sans);
-		font-size: 0.86em;
+		font-size: var(--fs-lg); /* 24px: on Galmuri11's grid like the display face around it */
 		font-weight: var(--fw-medium);
 		font-variant-numeric: tabular-nums;
-		letter-spacing: -0.02em;
+		letter-spacing: 0;
 	}
 
 	.when-main.raw {
 		font-size: var(--fs-md);
-		letter-spacing: 0.02em;
+		letter-spacing: var(--tracking-caps);
 	}
 
 	.disabled .when-main {
@@ -293,11 +293,11 @@
 	.type {
 		padding: 0 6px;
 		line-height: 16px;
-		border-radius: var(--radius-full);
-		font-size: 9.5px;
-		letter-spacing: 0.08em;
+		border-radius: 0;
+		font-size: var(--fs-2xs);
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
-		background: rgba(237, 230, 218, 0.05);
+		background: var(--well);
 		color: var(--text-secondary);
 	}
 
@@ -323,8 +323,8 @@
 
 	.schedule-name {
 		font-weight: var(--fw-semibold);
-		font-size: 15px;
-		letter-spacing: -0.01em;
+		font-size: var(--fs-md);
+		letter-spacing: 0;
 	}
 
 	a.chip:hover {
@@ -353,8 +353,8 @@
 
 	.k {
 		margin-right: 4px;
-		font-size: 9.5px;
-		letter-spacing: 0.1em;
+		font-size: var(--fs-2xs);
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--text-tertiary);
 	}
@@ -373,7 +373,7 @@
 	}
 
 	.del:hover {
-		color: var(--danger);
+		color: var(--danger-text);
 		background: var(--danger-soft);
 	}
 
@@ -386,7 +386,7 @@
 
 	.modal-header h2 {
 		font-family: var(--font-display);
-		font-size: 30px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
 	}
 

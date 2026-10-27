@@ -103,7 +103,7 @@
 <style>
 	.text-muted { color: var(--text-secondary); }
 	.hint {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-muted);
 		margin: 4px 0 12px;
 	}
@@ -135,20 +135,17 @@
 		justify-content: space-between;
 		padding: 12px 14px;
 		background: var(--bg-secondary);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		box-shadow: var(--sheen);
+		border: 0;
+		border-radius: 0;
+		box-shadow: var(--px-ring), var(--px-bevel);
 		gap: 12px;
-		transition: border-color var(--dur-1) ease, background var(--dur-1) ease;
 	}
 	.mcp-toggle-item:hover {
 		border-color: var(--border-strong);
 	}
 	.mcp-toggle-item.on {
 		border-color: var(--accent-line);
-		background:
-			linear-gradient(90deg, var(--accent-soft), transparent 40%),
-			var(--bg-secondary);
+		background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg-secondary);
 	}
 	.mcp-toggle-info {
 		display: flex;
@@ -163,25 +160,25 @@
 	}
 	.mcp-toggle-id {
 		font-family: var(--font-mono);
-		font-size: 11px;
-		background: rgba(237, 230, 218, 0.04);
+		font-size: var(--fs-2xs);
+		background: var(--well);
 		border: 1px solid var(--border-subtle);
 		padding: 0 7px;
-		border-radius: var(--radius-full);
+		border-radius: 0;
 		color: var(--text-secondary);
 	}
 	.mcp-toggle-desc {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 	}
 	.badge-transport {
 		font-family: var(--font-mono);
-		font-size: 9.5px;
+		font-size: var(--fs-2xs);
 		font-weight: var(--fw-medium);
-		letter-spacing: 0.08em;
+		letter-spacing: var(--tracking-caps);
 		padding: 0 6px;
-		border-radius: var(--radius-full);
-		background: rgba(237, 230, 218, 0.05);
+		border-radius: 0;
+		background: var(--well);
 		color: var(--text-tertiary);
 		text-transform: uppercase;
 	}
@@ -193,9 +190,9 @@
 		flex-shrink: 0;
 	}
 	.mcp-toggle-status {
-		font-size: 10.5px;
+		font-size: var(--fs-2xs);
 		font-weight: var(--fw-medium);
-		letter-spacing: 0.06em;
+		letter-spacing: var(--tracking-caps);
 		color: var(--text-tertiary);
 		min-width: 24px;
 		text-align: center;
@@ -211,7 +208,7 @@
 		margin-top: 16px;
 	}
 	.save-msg {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-secondary);
 	}
 </style>

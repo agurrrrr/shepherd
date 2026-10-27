@@ -323,9 +323,9 @@
 	.issue-header h2 {
 		margin: 0;
 		font-family: var(--font-display);
-		font-size: 30px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
-		letter-spacing: -0.01em;
+		letter-spacing: 0;
 	}
 
 	.issue-filters {
@@ -361,12 +361,11 @@
 	.issue-card {
 		position: relative;
 		padding: 12px 16px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border: 0;
+		border-radius: 0;
 		background: var(--bg-2);
-		box-shadow: var(--sheen);
+		box-shadow: var(--px-ring), var(--px-bevel);
 		cursor: pointer;
-		transition: border-color var(--dur-1) ease, background var(--dur-1) ease;
 	}
 
 	.issue-card:hover {
@@ -387,14 +386,14 @@
 		flex-shrink: 0;
 		width: 26px;
 		height: 26px;
-		border-radius: 8px;
-		background: rgba(237, 230, 218, 0.05);
+		border-radius: 0;
+		background: var(--well);
 		color: var(--text-secondary);
 	}
 
 	.type-icon.feature { background: var(--accent-soft); color: var(--accent); }
-	.type-icon.bug { background: var(--danger-soft); color: var(--danger); }
-	.type-icon.design { background: var(--queued-soft); color: var(--queued); }
+	.type-icon.bug { background: var(--danger-soft); color: var(--danger-text); }
+	.type-icon.design { background: var(--queued-soft); color: var(--queued-text); }
 
 	.issue-id {
 		flex-shrink: 0;
@@ -428,7 +427,7 @@
 		width: 10px;
 		border-left: 1px solid var(--border-strong);
 		border-bottom: 1px solid var(--border-strong);
-		border-bottom-left-radius: 8px;
+		border-bottom-left-radius: 0;
 	}
 
 	.parent-tag {
@@ -453,7 +452,7 @@
 		gap: 6px;
 		padding: 1px 9px;
 		border: 1px solid transparent;
-		border-radius: var(--radius-full);
+		border-radius: 0;
 		font-size: var(--fs-2xs);
 		font-weight: var(--fw-medium);
 		line-height: 1.7;
@@ -464,24 +463,24 @@
 		content: '';
 		width: 6px;
 		height: 6px;
-		border-radius: 50%;
+		border-radius: 0;
 		background: currentColor;
 	}
 
-	.status-badge.todo { background: rgba(237, 230, 218, 0.06); color: var(--text-secondary); border-color: var(--border-subtle); }
+	.status-badge.todo { background: var(--well); color: var(--text-secondary); border-color: var(--border-subtle); }
 	.status-badge.todo::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
 	.status-badge.in_progress { background: var(--live-soft); color: var(--live); border-color: var(--live-line); }
 	.status-badge.in_progress::before { animation: px-blink 1s steps(1) infinite; }
-	.status-badge.testing { background: var(--queued-soft); color: var(--queued); border-color: var(--queued-line); }
-	.status-badge.failed { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-line); }
+	.status-badge.testing { background: var(--queued-soft); color: var(--queued-text); border-color: var(--queued-line); }
+	.status-badge.failed { background: var(--danger-soft); color: var(--danger-text); border-color: var(--danger-line); }
 	.status-badge.done { background: var(--success-soft); color: var(--success); border-color: var(--success-line); }
 
 	.issue-type-label {
 		padding: 0 7px;
 		line-height: 18px;
-		border-radius: var(--radius-full);
+		border-radius: 0;
 		border: 1px solid var(--border-subtle);
-		background: rgba(237, 230, 218, 0.04);
+		background: var(--well);
 		color: var(--text-secondary);
 	}
 
@@ -499,9 +498,7 @@
 		justify-content: center;
 		padding: 24px;
 		background: var(--bg-overlay);
-		backdrop-filter: blur(6px) saturate(120%);
-		-webkit-backdrop-filter: blur(6px) saturate(120%);
-		animation: fade-in var(--dur-2) ease backwards;
+		animation: fade-in var(--dur-1) steps(2) backwards;
 	}
 
 	.modal {
@@ -510,13 +507,11 @@
 		width: 100%;
 		max-width: 600px;
 		max-height: min(86vh, 900px);
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-lg);
-		background:
-			linear-gradient(180deg, rgba(255, 250, 240, 0.03), rgba(255, 250, 240, 0) 160px),
-			var(--bg-2);
-		box-shadow: var(--shadow-3), var(--sheen);
-		animation: modal-in var(--dur-3) var(--ease-out) backwards;
+		border: 0;
+		border-radius: 0;
+		background: var(--bg-2);
+		box-shadow: var(--px-ring), var(--px-bevel), var(--shadow-3);
+		animation: modal-in var(--dur-2) steps(3) backwards;
 	}
 
 	.modal-lg { max-width: 700px; }
@@ -527,11 +522,12 @@
 		justify-content: space-between;
 		gap: 12px;
 		padding: 16px 20px;
-		border-bottom: 1px solid var(--border-subtle);
+		border-bottom: 3px solid var(--lo);
 	}
 
 	.modal-header h3 {
 		margin: 0;
+		color: var(--highlight);
 		font-size: var(--fs-md);
 		font-weight: var(--fw-semibold);
 	}
@@ -606,7 +602,7 @@
 		gap: 8px;
 		padding: 56px 16px;
 		border: 1px dashed var(--border);
-		border-radius: var(--radius-lg);
+		border-radius: 0;
 		text-align: center;
 	}
 
@@ -616,7 +612,7 @@
 		width: 48px;
 		height: 48px;
 		margin-bottom: 4px;
-		border-radius: 14px;
+		border-radius: 0;
 		background: var(--accent-soft);
 		color: var(--accent);
 	}

@@ -69,9 +69,9 @@
 	.text-muted { color: var(--text-secondary); }
 	.section-title {
 		font-family: var(--font-display);
-		font-size: 26px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
-		letter-spacing: -0.01em;
+		letter-spacing: 0;
 		margin-bottom: 12px;
 	}
 	.mcp-providers {
@@ -85,7 +85,7 @@
 		gap: 6px;
 		padding: 12px;
 		background: var(--bg-secondary);
-		border-radius: 8px;
+		border-radius: 0;
 		border: 1px solid var(--border);
 	}
 	.mcp-provider-info {
@@ -94,28 +94,28 @@
 		justify-content: space-between;
 	}
 	.mcp-provider-name {
-		font-size: 14px;
+		font-size: var(--fs-base);
 		font-weight: 600;
 	}
 	.mcp-provider-path {
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 		font-family: monospace;
 	}
 	.mcp-provider-error {
-		font-size: 12px;
-		color: var(--danger);
+		font-size: var(--fs-xs);
+		color: var(--danger-text);
 	}
 	.mcp-error {
 		margin-top: 12px;
-		font-size: 13px;
-		color: var(--danger);
+		font-size: var(--fs-sm);
+		color: var(--danger-text);
 	}
 	.badge {
-		font-size: 11px;
+		font-size: var(--fs-2xs);
 		font-weight: 600;
 		padding: 2px 8px;
-		border-radius: 10px;
+		border-radius: 0;
 	}
 	.badge-success {
 		background: color-mix(in srgb, var(--success) 15%, transparent);

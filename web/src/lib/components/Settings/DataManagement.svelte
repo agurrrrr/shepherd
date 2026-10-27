@@ -232,23 +232,23 @@
 	}
 	.section-title {
 		font-family: var(--font-display);
-		font-size: 26px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
-		letter-spacing: -0.01em;
+		letter-spacing: 0;
 		margin-bottom: 12px;
 	}
 	.sync-desc {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--text-secondary);
 		line-height: 1.5;
 		margin-bottom: 12px;
 		max-width: 70ch;
 	}
 	.sync-desc code {
-		background: var(--bg-tertiary, #2a2a2a);
+		background: var(--bg-tertiary);
 		padding: 1px 5px;
-		border-radius: 3px;
-		font-size: 12px;
+		border-radius: 0;
+		font-size: var(--fs-xs);
 	}
 	.sync-actions {
 		display: flex;
@@ -256,11 +256,11 @@
 		gap: 12px;
 	}
 	.sync-msg {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		color: var(--success);
 	}
 	.sync-msg.error {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.setting-row {
@@ -271,7 +271,7 @@
 		row-gap: 6px;
 	}
 	.setting-row > label:not(.toggle) {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 500;
 		flex: 0 0 180px;
 		color: var(--text-primary);
@@ -290,11 +290,11 @@
 	}
 	.import-preview,
 	.import-result {
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		line-height: 1.6;
 		background: var(--bg-secondary);
 		border: 1px solid var(--border);
-		border-radius: 6px;
+		border-radius: 0;
 		padding: 10px 12px;
 	}
 	.import-preview ul,
@@ -307,20 +307,20 @@
 	}
 	.preview-detail-title {
 		font-weight: 600;
-		font-size: 12px;
+		font-size: var(--fs-xs);
 		color: var(--text-secondary);
 	}
 	.error-text {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 	.btn-restart {
 		padding: 6px 16px;
-		font-size: 13px;
+		font-size: var(--fs-sm);
 		font-weight: 600;
 		background: var(--bg-tertiary);
 		color: var(--text-primary);
 		border: 1px solid var(--border);
-		border-radius: 6px;
+		border-radius: 0;
 		cursor: pointer;
 		transition: background 0.15s, border-color 0.15s;
 	}

@@ -369,7 +369,7 @@
 	.proj-chip {
 		cursor: pointer;
 		border: 1px solid var(--border-subtle);
-		background: rgba(237, 230, 218, 0.04);
+		background: var(--well);
 		color: var(--text-secondary);
 		font-family: inherit;
 	}
@@ -381,7 +381,7 @@
 		align-items: center;
 		gap: 6px;
 		margin-bottom: 10px;
-		color: var(--danger);
+		color: var(--danger-text);
 		font-size: var(--fs-xs);
 	}
 
@@ -402,7 +402,7 @@
 		min-width: 0;
 		min-height: 0;
 		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-md);
+		border-radius: 0;
 		background: var(--bg-2);
 		padding: 10px;
 	}
@@ -418,7 +418,7 @@
 	.col-title {
 		font-family: var(--font-mono);
 		font-size: var(--fs-2xs);
-		letter-spacing: 0.08em;
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--text-secondary);
 	}
@@ -445,12 +445,11 @@
 
 	.board-card {
 		padding: 8px 10px;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius);
+		border: 0;
+		border-radius: 0;
 		background: var(--bg-3);
-		box-shadow: var(--sheen);
+		box-shadow: var(--px-ring), var(--px-bevel);
 		cursor: pointer;
-		transition: border-color var(--dur-1) ease, background var(--dur-1) ease;
 	}
 
 	.board-card:hover,
@@ -480,16 +479,16 @@
 		align-items: center;
 		gap: 4px;
 		padding: 0 7px;
-		border-radius: var(--radius-full);
+		border-radius: 0;
 		font-size: var(--fs-2xs);
 		line-height: 1.8;
-		background: rgba(237, 230, 218, 0.05);
+		background: var(--well);
 		color: var(--text-secondary);
 	}
 
 	.type-badge.feature { background: var(--accent-soft); color: var(--accent); }
-	.type-badge.bug { background: var(--danger-soft); color: var(--danger); }
-	.type-badge.design { background: var(--queued-soft); color: var(--queued); }
+	.type-badge.bug { background: var(--danger-soft); color: var(--danger-text); }
+	.type-badge.design { background: var(--queued-soft); color: var(--queued-text); }
 
 	.watch-flag {
 		display: inline-flex;
@@ -531,7 +530,7 @@
 	}
 
 	.task-state.ok { color: var(--success); }
-	.task-state.bad { color: var(--danger); }
+	.task-state.bad { color: var(--danger-text); }
 
 	.more { align-self: flex-start; }
 
@@ -572,7 +571,7 @@
 			gap: 6px;
 			padding: 5px 10px;
 			border: 1px solid var(--border-subtle);
-			border-radius: var(--radius-full);
+			border-radius: 0;
 			background: none;
 			color: var(--text-secondary);
 			font-family: inherit;

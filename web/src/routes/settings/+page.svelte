@@ -365,7 +365,7 @@
 	.nav-caption {
 		padding: 14px 12px 6px;
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--fs-2xs);
 		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--text-tertiary);
@@ -384,37 +384,37 @@
 		width: 100%;
 		padding: 8px 12px;
 		border: none;
-		border-radius: var(--radius);
+		border-radius: 0;
 		background: transparent;
 		color: var(--text-secondary);
 		text-align: left;
 		cursor: pointer;
-		transition: background var(--dur-1) ease, color var(--dur-1) ease;
+		transition: background var(--dur-1) steps(2), color var(--dur-1) steps(2);
 	}
 
 	.settings-tab:hover {
-		background: var(--bg-hover);
+		background: var(--bg-2);
 		color: var(--text-primary);
 	}
 
+	/* Same "you are here" treatment as the sidebar: card face, yellow
+	   words, outline with a light bevel, blinking square on the left. */
 	.settings-tab.active {
-		background:
-			linear-gradient(90deg, rgba(244, 184, 96, 0.1), rgba(244, 184, 96, 0.02)),
-			rgba(237, 230, 218, 0.03);
-		box-shadow: inset 0 0 0 1px rgba(244, 184, 96, 0.12);
-		color: var(--text-primary);
+		background: var(--bg-2);
+		box-shadow: var(--px-ring), inset 3px 3px 0 0 var(--hi);
+		color: var(--highlight);
 	}
 
 	.settings-tab.active::before {
 		content: '';
 		position: absolute;
-		left: -10px;
-		top: 10px;
-		bottom: 10px;
-		width: 2px;
-		border-radius: 2px;
-		background: var(--accent);
-		box-shadow: 0 0 10px var(--accent-glow);
+		left: -12px;
+		top: calc(50% - 3px);
+		width: 6px;
+		height: 6px;
+		border-radius: 0;
+		background: var(--highlight);
+		animation: px-blink 1s steps(1) infinite;
 	}
 
 	.tab-text {
@@ -442,8 +442,8 @@
 		align-items: center;
 		gap: 5px;
 		font-family: var(--font-mono);
-		font-size: 10px;
-		letter-spacing: 0.06em;
+		font-size: var(--fs-2xs);
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
 		color: var(--text-tertiary);
 	}
@@ -452,8 +452,8 @@
 		content: '';
 		width: 6px;
 		height: 6px;
-		border-radius: 50%;
-		box-shadow: inset 0 0 0 1.5px var(--text-tertiary);
+		border-radius: 0;
+		box-shadow: inset 0 0 0 2px var(--text-tertiary);
 	}
 
 	.tab-state.on {
@@ -462,7 +462,7 @@
 
 	.tab-state.on::before {
 		background: var(--success);
-		box-shadow: 0 0 8px rgba(159, 214, 133, 0.5);
+		box-shadow: none;
 	}
 
 	/* — Form — */
@@ -489,9 +489,9 @@
 
 	.form-head h2 {
 		font-family: var(--font-display);
-		font-size: 32px;
+		font-size: var(--fs-lg);
 		font-weight: 400;
-		letter-spacing: -0.015em;
+		letter-spacing: 0;
 	}
 
 	.form-hint {
@@ -510,11 +510,9 @@
 		gap: 8px;
 		margin: 8px -26px 0;
 		padding: 14px 26px;
-		border-top: 1px solid var(--border);
-		border-radius: 0 0 var(--radius-md) var(--radius-md);
-		background: rgba(20, 20, 22, 0.88);
-		backdrop-filter: blur(12px);
-		-webkit-backdrop-filter: blur(12px);
+		border-top: 3px solid #000;
+		border-radius: 0;
+		background: var(--bg-2);
 	}
 
 	.save-msg {
@@ -528,7 +526,7 @@
 	}
 
 	.save-msg.error {
-		color: var(--danger);
+		color: var(--danger-text);
 	}
 
 	.extra {
@@ -540,10 +538,10 @@
 		align-items: center;
 		gap: 8px;
 		background: var(--danger-soft);
-		box-shadow: inset 0 0 0 1px var(--danger-line);
-		color: var(--danger);
+		box-shadow: inset 0 0 0 2px var(--danger);
+		color: var(--danger-text);
 		padding: 10px 16px;
-		border-radius: var(--radius);
+		border-radius: 0;
 		margin-bottom: 16px;
 		font-size: var(--fs-sm);
 	}
