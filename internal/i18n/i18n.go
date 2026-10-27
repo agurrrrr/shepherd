@@ -159,55 +159,55 @@ type Messages struct {
 
 	// Needs-attention panel items (#665 §2)
 	Attention struct {
-		FailedTaskTitleFmt       string // "작업 #%d 실패"
-		NoFailureRecorded        string // 실패 원인이 기록되지 않았습니다
-		LongRunningTitleFmt      string // "작업 #%d가 %s 넘게 실행 중"
-		NoPrompt                 string // 프롬프트 없음
-		RunningOnSheepFmt        string // "%s 양에서 실행 중 — %s"
-		ManagerLabel             string // 목자
-		CircuitOpenTitleFmt      string // "%s 양의 서킷 브레이커가 켜졌습니다"
-		CircuitOpenMessageFmt    string // 연속 실패 %d회 — ...
-		BacklogTitleFmt          string // "%s 프로젝트에 pending 작업이 %d개"
-		BacklogMessageFmt        string // 가장 오래된 작업 #%d가 %s 넘게 대기를 기다립니다.
-		BacklogDrainingFmt       string // 담당 양 %s이(가) 지금 #%d를 실행 중이므로...
-		BacklogDrainingStartFmt  string // " 실행 시작 시각은 %s입니다."
-		BacklogSheepIdleFmt      string // 담당 양 %s은(는) 지금 대기 상태(idle)이므로...
-		BacklogDeadzoneFmt       string // 목자 배정 shepherd_kind 빈 pending %d개 ...
-		ReviewLimitTitleFmt      string // "이슈 #%d가 검토 회차 상한에 닿았습니다"
-		ReviewLimitMessageFmt    string // "회차 %d/%d — ..."
-		UserStoppedTitleFmt      string // "이슈 #%d의 작업 #%d를 사용자가 중지했습니다"
-		UserStoppedMessage       string // 사용자가 직접 중지한 작업입니다...
-		ProviderDisabledFmt      string // 목자의 프로바이더 '%s'가 설정에서 꺼져 있습니다.
-		WorkspaceInvalid         string // 워크스페이스가 지정되지 않았거나 유효하지 않습니다.
-		ShepherdBlockedTitleFmt  string // "목자 작업 #%d가 pending에 머물러 있습니다"
-		ShepherdBlockedMessage   string // reason suffix: " 설정의 목자 탭을 확인하세요."
-		CostCapTitleFmt          string // "하루 비용 상한에 닿았습니다 ($%.2f/$%.2f)"
-		CostCapMessage           string // 오늘 합산 비용이 상한을 넘었습니다...
-		MinutesFmt               string // "%d분"
-		HoursFmt                 string // "%d시간"
-		DaysFmt                  string // "%d일"
+		FailedTaskTitleFmt      string // "작업 #%d 실패"
+		NoFailureRecorded       string // 실패 원인이 기록되지 않았습니다
+		LongRunningTitleFmt     string // "작업 #%d가 %s 넘게 실행 중"
+		NoPrompt                string // 프롬프트 없음
+		RunningOnSheepFmt       string // "%s 양에서 실행 중 — %s"
+		ManagerLabel            string // 목자
+		CircuitOpenTitleFmt     string // "%s 양의 서킷 브레이커가 켜졌습니다"
+		CircuitOpenMessageFmt   string // 연속 실패 %d회 — ...
+		BacklogTitleFmt         string // "%s 프로젝트에 pending 작업이 %d개"
+		BacklogMessageFmt       string // 가장 오래된 작업 #%d가 %s 넘게 대기를 기다립니다.
+		BacklogDrainingFmt      string // 담당 양 %s이(가) 지금 #%d를 실행 중이므로...
+		BacklogDrainingStartFmt string // " 실행 시작 시각은 %s입니다."
+		BacklogSheepIdleFmt     string // 담당 양 %s은(는) 지금 대기 상태(idle)이므로...
+		BacklogDeadzoneFmt      string // 목자 배정 shepherd_kind 빈 pending %d개 ...
+		ReviewLimitTitleFmt     string // "이슈 #%d가 검토 회차 상한에 닿았습니다"
+		ReviewLimitMessageFmt   string // "회차 %d/%d — ..."
+		UserStoppedTitleFmt     string // "이슈 #%d의 작업 #%d를 사용자가 중지했습니다"
+		UserStoppedMessage      string // 사용자가 직접 중지한 작업입니다...
+		ProviderDisabledFmt     string // 목자의 프로바이더 '%s'가 설정에서 꺼져 있습니다.
+		WorkspaceInvalid        string // 워크스페이스가 지정되지 않았거나 유효하지 않습니다.
+		ShepherdBlockedTitleFmt string // "목자 작업 #%d가 pending에 머물러 있습니다"
+		ShepherdBlockedMessage  string // reason suffix: " 설정의 목자 탭을 확인하세요."
+		CostCapTitleFmt         string // "하루 비용 상한에 닿았습니다 ($%.2f/$%.2f)"
+		CostCapMessage          string // 오늘 합산 비용이 상한을 넘었습니다...
+		MinutesFmt              string // "%d분"
+		HoursFmt                string // "%d시간"
+		DaysFmt                 string // "%d일"
 	}
 
 	// User-confirmation request results (#665 §2). Codes ride in the API
 	// response; these labels render them.
 	Requests struct {
-		RejectedDefault    string // 사용자가 거절했습니다.
-		StopFailedFmt      string // "작업 중지 실패: %v"
-		CancelFailedFmt    string // "작업 대기 취소 실패: %v"
-		CancelDoneFmt      string // "작업 #%d 대기 취소 완료"
-		StopDoneFmt        string // "작업 #%d 중지 완료"
-		ExecuteFailedFmt   string // "이슈 실행 실패: %v"
-		ExecuteDoneFmt     string // "이슈 #%d 실행 적재 완료 (task %v)"
-		DeleteFailedFmt    string // "이슈 삭제 실패: %v"
-		DeleteDoneFmt      string // "이슈 #%d 삭제 완료"
-		OtherApproved      string // 승인 기록만 남겼습니다 (실행할 조치 없음).
-		UnknownKindFmt     string // "알 수 없는 kind %q — 조치 없음"
-		KindStopTask       string // 작업 중지
-		KindExecuteIssue   string // 이슈 실행
-		KindDeleteIssue    string // 이슈 삭제
-		KindOther          string // 기타
-		NoTarget           string // 없음
-		NoReason           string // 사유 없음
+		RejectedDefault  string // 사용자가 거절했습니다.
+		StopFailedFmt    string // "작업 중지 실패: %v"
+		CancelFailedFmt  string // "작업 대기 취소 실패: %v"
+		CancelDoneFmt    string // "작업 #%d 대기 취소 완료"
+		StopDoneFmt      string // "작업 #%d 중지 완료"
+		ExecuteFailedFmt string // "이슈 실행 실패: %v"
+		ExecuteDoneFmt   string // "이슈 #%d 실행 적재 완료 (task %v)"
+		DeleteFailedFmt  string // "이슈 삭제 실패: %v"
+		DeleteDoneFmt    string // "이슈 #%d 삭제 완료"
+		OtherApproved    string // 승인 기록만 남겼습니다 (실행할 조치 없음).
+		UnknownKindFmt   string // "알 수 없는 kind %q — 조치 없음"
+		KindStopTask     string // 작업 중지
+		KindExecuteIssue string // 이슈 실행
+		KindDeleteIssue  string // 이슈 삭제
+		KindOther        string // 기타
+		NoTarget         string // 없음
+		NoReason         string // 사유 없음
 	}
 
 	// Task revert: REST errors and CLI output (#665 §4)
@@ -842,7 +842,7 @@ var en = &Messages{
 		ManagerLabel:            "Shepherd",
 		CircuitOpenTitleFmt:     "%s's circuit breaker tripped",
 		CircuitOpenMessageFmt:   "%d consecutive failures — pending tasks stopped. Reset the circuit before retrying.",
-		BacklogTitleFmt:         "%d pending tasks in project %s",
+		BacklogTitleFmt:         "Project %s has %d pending tasks",
 		BacklogMessageFmt:       "The oldest task #%d has been waiting in pending for over %s.",
 		BacklogDrainingFmt:      " Assigned sheep %s is running task #%d now, so this pending may just be waiting its turn in the serial queue.",
 		BacklogDrainingStartFmt: " Its run started at %s.",
@@ -850,7 +850,7 @@ var en = &Messages{
 		BacklogDeadzoneFmt:      " The same project has %d pending task(s) assigned to the shepherd sheep with an empty shepherd_kind. Daemons before the #629 fix never run those and they stay stuck.",
 		ReviewLimitTitleFmt:     "Issue #%d reached the review-round cap",
 		ReviewLimitMessageFmt:   "Round %d/%d — reset the rounds and re-enqueue, or close the issue.",
-		UserStoppedTitleFmt:     "The user stopped task #%d of issue #%d",
+		UserStoppedTitleFmt:     "Issue #%d: the user stopped task #%d",
 		UserStoppedMessage:      "The user stopped this task directly. The issue stays watched, but the shepherd does not wake.",
 		ProviderDisabledFmt:     "The shepherd's provider '%s' is disabled in settings.",
 		WorkspaceInvalid:        "The workspace is unset or invalid.",
