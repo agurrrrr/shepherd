@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { apiGet, apiPut } from '$lib/api.js';
+	import { translate, t } from '$lib/i18n/index.js';
 
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
 
@@ -21,9 +22,9 @@
 	let magiSaveMsg = '';
 
 	const PERSONAS = [
-		{ value: 'melchior', label: 'melchior (🔬 과학자)' },
-		{ value: 'balthasar', label: 'balthasar (🛡 어머니)' },
-		{ value: 'casper', label: 'casper (🎭 여성)' },
+		{ value: 'melchior', key: 'magiSettings.persona.melchior' },
+		{ value: 'balthasar', key: 'magiSettings.persona.balthasar' },
+		{ value: 'casper', key: 'magiSettings.persona.casper' },
 		{ value: 'custom', label: 'custom' }
 	];
 
@@ -85,13 +86,13 @@
 			}
 			const res = await apiPut('/api/config/magi', magiConfig);
 			if (res?.success) {
-				magiSaveMsg = '✅ 저장됨';
+				magiSaveMsg = translate('magiSettings.saved');
 				await loadMagiConfig();
 			} else if (res?.errors) {
 				magiErrors = res.errors;
-				magiSaveMsg = '❌ 저장 실패';
+				magiSaveMsg = translate('magiSettings.saveFailed');
 			} else {
-				magiSaveMsg = '❌ ' + (res?.message || '저장 실패');
+				magiSaveMsg = '❌ ' + (res?.message || translate('magiSettings.saveError'));
 			}
 		} catch (e) {
 			magiSaveMsg = '❌ ' + e.message;
@@ -108,26 +109,26 @@
 
 <ProviderEnableToggle {providerEnabled} provider="magi" label="🧠 MAGI" />
 
-<p class="hint">3개의 서로 다른 모델이 블라인드로 답안을 제시하고, 판정자가 종합합니다. Embedded 엔드포인트뿐 아니라 Claude CLI, OpenCode CLI, Grok CLI도 심의자로 사용할 수 있습니다.</p>
+<p class="hint">{$t('magiSettings.intro')}</p>
 
 <div class="magi-section">
 	<div class="magi-header">
-		<h3>🧠 MAGI 합의</h3>
+		<h3>{$t('magiSettings.title')}</h3>
 		<label class="toggle">
 			<input type="checkbox" bind:checked={magiConfig.enabled} />
-			<span>{magiConfig?.enabled ? '활성' : '비활성'}</span>
+			<span>{magiConfig?.enabled ? $t('magiSettings.enabled') : $t('magiSettings.disabled')}</span>
 		</label>
 	</div>
 
 	{#if magiErrors.length > 0}
 		<div class="magi-banner magi-banner-error">
-			<strong>⚠️ 설정 오류:</strong>
+			<strong>{$t('magiSettings.errorsLabel')}</strong>
 			<ul>{#each magiErrors as e}<li>{e}</li>{/each}</ul>
 		</div>
 	{/if}
 	{#if magiWarnings.length > 0}
 		<div class="magi-banner magi-banner-warning">
-			<strong>⚠️ 경고:</strong>
+			<strong>{$t('magiSettings.warningsLabel')}</strong>
 			<ul>{#each magiWarnings as w}<li>{w}</li>{/each}</ul>
 		</div>
 	{/if}
@@ -135,10 +136,10 @@
 	{#if magiConfig}
 		<!-- Proposers -->
 		<div class="magi-subsection">
-			<h4>심의자 (Proposers)</h4>
+			<h4>{$t('magiSettings.proposersTitle')}</h4>
 			{#each magiConfig.proposers as proposer, i}
 				<div class="magi-proposer">
-					<span class="magi-proposer-label">심의자 {i + 1}</span>
+					<span class="magi-proposer-label">{$t('magiSettings.proposerN', { n: i + 1 })}</span>
 
 					<!-- Provider selector -->
 					<select class="input magi-input magi-provider-select" bind:value={proposer.provider}>
@@ -150,7 +151,7 @@
 					<!-- Endpoint/Model selector based on provider -->
 					{#if proposer.provider === 'embedded'}
 						<select class="input magi-input" bind:value={proposer.endpoint_id}>
-							<option value="">— 엔드포인트 선택 —</option>
+							<option value="">{$t('magiSettings.endpointOption')}</option>
 							{#each embeddedEndpoints as ep}
 								{#if ep.enabled}
 									<option value={ep.id}>{ep.label || ep.id} ({ep.model})</option>
@@ -171,7 +172,7 @@
 						</select>
 					{:else if proposer.provider === 'grok_cli'}
 						<select class="input magi-input" bind:value={proposer.model_id}>
-							<option value="">기본 모델</option>
+							<option value="">{$t('magiSettings.defaultModelOption')}</option>
 							{#each modelOptions?.grok || [] as m}
 								<option value={m.id}>{m.label}</option>
 							{/each}
@@ -181,7 +182,7 @@
 					<!-- Persona -->
 					<select class="input magi-input" bind:value={proposer.persona}>
 						{#each PERSONAS as p}
-							<option value={p.value}>{p.label}</option>
+							<option value={p.value}>{p.key ? $t(p.key) : p.label}</option>
 						{/each}
 					</select>
 
@@ -190,16 +191,16 @@
 						class="input magi-input magi-display-name"
 						type="text"
 						bind:value={proposer.display_name}
-						placeholder="표시 이름 (선택)"
+						placeholder={$t('magiSettings.displayNamePlaceholder')}
 					/>
 
 					<!-- Per-slot timeout override -->
 					<input
 						class="input magi-input magi-timeout-input"
 						type="number" min="0" max="3600" step="30"
-						placeholder="전역"
+						placeholder={$t('magiSettings.globalTimeoutPlaceholder')}
 						bind:value={proposer.timeout_seconds}
-						title="이 심의자 전용 타임아웃(초). 0 또는 빈 값이면 아래 전역 타임아웃을 사용 — 느린 로컬 모델 슬롯에만 긴 값을 줄 때 사용"
+						title={$t('magiSettings.slotTimeoutTitle')}
 					/>
 
 					{#if proposer.persona === 'custom'}
@@ -207,7 +208,7 @@
 							class="input textarea magi-custom-prompt"
 							bind:value={proposer.custom_prompt}
 							rows="2"
-							placeholder="커스텀 페르소나 프롬프트"
+							placeholder={$t('magiSettings.customPersonaPlaceholder')}
 						></textarea>
 					{/if}
 				</div>
@@ -216,7 +217,7 @@
 
 		<!-- Aggregator -->
 		<div class="magi-subsection">
-			<h4>판정자 (Aggregator)</h4>
+			<h4>{$t('magiSettings.aggregatorTitle')}</h4>
 			<div class="magi-aggregator">
 				<label class="toggle">
 					<input type="radio" name="aggregator-type" value="claude_cli" bind:group={magiConfig.aggregator.type} />
@@ -236,7 +237,7 @@
 				</label>
 				{#if magiConfig.aggregator.type === 'endpoint'}
 					<select class="input magi-input" bind:value={magiConfig.aggregator.endpoint_id}>
-						<option value="">— 엔드포인트 선택 —</option>
+						<option value="">{$t('magiSettings.endpointOption')}</option>
 						{#each embeddedEndpoints as ep}
 							{#if ep.enabled}
 								<option value={ep.id}>{ep.label || ep.id} ({ep.model})</option>
@@ -245,55 +246,55 @@
 					</select>
 				{:else if magiConfig.aggregator.type === 'claude_cli'}
 					<select class="input magi-input" bind:value={magiConfig.aggregator.model_id}>
-						<option value="">기본 모델</option>
+						<option value="">{$t('magiSettings.defaultModelOption')}</option>
 						{#each modelOptions?.claude || [] as m}
 							<option value={m.id}>{m.label}</option>
 						{/each}
 					</select>
 				{:else if magiConfig.aggregator.type === 'opencode_cli'}
 					<select class="input magi-input" bind:value={magiConfig.aggregator.model_id}>
-						<option value="">기본 모델</option>
+						<option value="">{$t('magiSettings.defaultModelOption')}</option>
 						{#each modelOptions?.opencode || [] as m}
 							<option value={m.id}>{m.label}</option>
 						{/each}
 					</select>
 				{:else if magiConfig.aggregator.type === 'grok_cli'}
 					<select class="input magi-input" bind:value={magiConfig.aggregator.model_id}>
-						<option value="">기본 모델</option>
+						<option value="">{$t('magiSettings.defaultModelOption')}</option>
 						{#each modelOptions?.grok || [] as m}
 							<option value={m.id}>{m.label}</option>
 						{/each}
 					</select>
 				{/if}
 			</div>
-			<p class="hint">판정자는 Embedded 엔드포인트, Claude CLI, OpenCode CLI 또는 Grok CLI를 사용할 수 있습니다.</p>
+			<p class="hint">{$t('magiSettings.aggregatorHint')}</p>
 		</div>
 
 		<!-- Escalation -->
 		<div class="magi-subsection">
-			<h4>에스컬레이션</h4>
+			<h4>{$t('magiSettings.escalationTitle')}</h4>
 			<div class="setting-row">
-				<label>신뢰도 임계값</label>
+				<label>{$t('magiSettings.confidenceLabel')}</label>
 				<input type="range" min="0" max="10" bind:value={magiConfig.escalation.confidence_threshold} />
 				<span class="magi-range-value">{magiConfig.escalation.confidence_threshold}/10</span>
 			</div>
 			<div class="setting-row">
-				<label>토론 라운드</label>
+				<label>{$t('magiSettings.debateRoundsLabel')}</label>
 				<select class="input magi-input" bind:value={magiConfig.escalation.max_debate_rounds}>
-					<option value={0}>0 (토론 없음)</option>
-					<option value={1}>1 (기본)</option>
+					<option value={0}>{$t('magiSettings.roundsNone')}</option>
+					<option value={1}>{$t('magiSettings.roundsDefault')}</option>
 				</select>
 			</div>
 			<div class="setting-row">
-				<label>제안자 타임아웃 (초)</label>
+				<label>{$t('magiSettings.timeoutLabel')}</label>
 				<input class="input magi-input" type="number" min="30" max="600" bind:value={magiConfig.proposer_timeout_seconds} />
-				<span class="hint" style="flex: 0 0 auto;">슬롯별 값이 0인 심의자에게 적용</span>
+				<span class="hint" style="flex: 0 0 auto;">{$t('magiSettings.timeoutHint')}</span>
 			</div>
 		</div>
 
 		<div class="magi-actions">
 			<button class="btn btn-primary" onclick={saveMagiConfig} disabled={magiSaving}>
-				{magiSaving ? '저장 중...' : 'MAGI 설정 저장'}
+				{magiSaving ? $t('common.saving') : $t('magiSettings.saveButton')}
 			</button>
 			{#if magiSaveMsg}<span class="magi-save-msg">{magiSaveMsg}</span>{/if}
 		</div>

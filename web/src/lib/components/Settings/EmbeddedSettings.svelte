@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
+import { translate, t } from '$lib/i18n/index.js';
 
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
 	import MCPServerManagement from './MCPServerManagement.svelte';
@@ -198,7 +199,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			scheduleCopilotPoll();
 		} else {
 			copilot.step = 'authorize';
-			copilot.error = res?.message || 'GitHub 인증을 시작하지 못했습니다. 토큰을 직접 입력해 보세요.';
+			copilot.error = res?.message || translate('copilot.authStartFailed');
 		}
 	}
 
@@ -216,7 +217,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		});
 		if (!copilot) return;
 		if (!res?.success) {
-			copilot.error = res?.message || '인증 상태를 확인하지 못했습니다.';
+			copilot.error = res?.message || translate('copilot.statusFailed');
 			scheduleCopilotPoll();
 			return;
 		}
@@ -238,7 +239,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	async function useManualToken() {
 		const token = (copilot?.manualToken || '').trim();
 		if (!token) {
-			copilot.error = 'GitHub 토큰을 입력하세요.';
+			copilot.error = translate('copilot.needToken');
 			return;
 		}
 		if (copilot.pollTimer) clearTimeout(copilot.pollTimer);
@@ -257,7 +258,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		copilot.busy = false;
 		if (!res?.success || !res.data) {
 			copilot.step = 'error';
-			copilot.error = res?.message || '모델 목록을 가져오지 못했습니다.';
+			copilot.error = res?.message || translate('copilot.modelsFailed');
 			return;
 		}
 		const models = (res.data.models || []).slice().sort((a, b) => {
@@ -268,7 +269,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		copilot.apiBase = res.data.api_base || 'https://api.githubcopilot.com';
 		if (!models.length) {
 			copilot.step = 'error';
-			copilot.error = '사용 가능한 Chat Completions 모델이 없습니다. Copilot 구독 상태를 확인하세요.';
+			copilot.error = translate('copilot.noModels');
 			return;
 		}
 		selectCopilotModel(models.find((m) => m.supports_tools) || models[0]);
@@ -286,7 +287,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	async function createCopilotEndpoint() {
 		if (!copilot || !copilot.selected) return;
 		if (!copilot.id.trim()) {
-			copilot.error = '엔드포인트 ID를 입력하세요.';
+			copilot.error = translate('copilot.needEndpointId');
 			return;
 		}
 		copilot.busy = true;
@@ -318,7 +319,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			await loadEndpoints();
 			await reloadEndpoints();
 		} else {
-			copilot.error = res?.message || '엔드포인트를 저장하지 못했습니다.';
+			copilot.error = res?.message || translate('copilot.saveFailed');
 		}
 	}
 
@@ -375,12 +376,12 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 
 <ProviderEnableToggle {providerEnabled} provider="embedded" label="🟣 Embedded" />
 
-<p class="hint">OpenAI 호환 API 서버(llama.cpp, vLLM, Ollama 등)를 직접 연결합니다. 서브프로세스 없이 in-process 에이전트 루프가 실행됩니다.</p>
+<p class="hint">{$t('embeddedSettings.intro')}</p>
 
 <div class="setting-row">
 	<label>Active Endpoint</label>
 	<select class="input" bind:value={configData.embedded_active_id}>
-		<option value="">— 선택 —</option>
+		<option value="">{$t('commonSettings.selectOption')}</option>
 		{#each embeddedEndpoints as ep}
 			<option value={ep.id}>{ep.label || ep.id} ({ep.model})</option>
 		{/each}
@@ -393,7 +394,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		class="input textarea"
 		bind:value={configData.custom_prompt_embedded}
 		rows="6"
-		placeholder="임베디드 프로바이더 실행 시 추가로 전달할 지시문을 입력하세요."
+		placeholder={$t('embeddedSettings.promptPlaceholder')}
 	></textarea>
 </div>
 
@@ -403,9 +404,9 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 		class="input"
 		type="text"
 		bind:value={configData.shell}
-		placeholder="예: C:\Program Files\Git\bin\bash.exe, pwsh, /bin/zsh (비우면 자동 탐지)"
+		placeholder={$t('embeddedSettings.shellPlaceholder')}
 	/>
-	<span class="hint">임베디드 프로바이더의 bash 도구가 명령을 실행할 셸을 명시합니다. 설정하면 시스템 자동 탐지를 건너뛰고 이 셸을 바로 사용합니다. 값은 실행 파일 경로/이름 하나만 — 인자(&quot;-c&quot; 등)는 셸 종류를 보고 자동으로 붙습니다.</span>
+	<span class="hint">{$t('embeddedSettings.shellHint')}</span>
 </div>
 
 <div class="embedded-endpoints">
@@ -474,7 +475,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				<label>Endpoint URL</label>
 				<input class="input" type="text" bind:value={editing.base_url} placeholder="http://127.0.0.1:8080/v1/chat/completions" />
 			</div>
-			<p class="hint">호출할 전체 URL을 그대로 적으세요. 뒤에 경로를 덧붙이지 않으므로 OpenAI 형식이 아닌 게이트웨이도 쓸 수 있습니다. 기존 설정처럼 <code>/v1</code>로 끝나면 <code>/chat/completions</code>를 붙여 호환 처리합니다.</p>
+			<p class="hint">{$t('embeddedSettings.apiBaseHint')}</p>
 			<div class="setting-row">
 				<label>Auth</label>
 				<select class="input" bind:value={editing.auth}>
@@ -485,14 +486,14 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			{#if editing.auth === 'copilot'}
 				<div class="setting-row">
 					<label>GitHub Token</label>
-					<input class="input" type="password" bind:value={editing.github_token} placeholder="ghu_... (비우면 저장된 토큰 유지)" />
+					<input class="input" type="password" bind:value={editing.github_token} placeholder={$t('copilot.tokenPlaceholder')} />
 				</div>
-				<p class="hint">Copilot은 GitHub 토큰을 단기 API 토큰으로 교환해 사용합니다. 저장된 토큰은 GET 응답에서 마스킹되므로, 그대로 두면 기존 토큰이 유지됩니다.</p>
+				<p class="hint">{$t('copilot.tokenHint')}</p>
 				<div class="setting-row">
 					<label>Model</label>
 					<input class="input" type="text" bind:value={editing.model} placeholder="gpt-4o" />
 					<button class="btn btn-sm btn-outline" onclick={refreshEditorModels} disabled={editorModelsBusy}>
-						{editorModelsBusy ? '...' : '모델 불러오기'}
+						{editorModelsBusy ? '...' : $t('embeddedSettings.loadModels')}
 					</button>
 				</div>
 				{#if editorModels.length > 0}
@@ -501,13 +502,13 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 						<select class="input" bind:value={editing.model} onchange={applyEditorModel}>
 							{#each editorModels as m}
 								<option value={m.id}>
-									{m.name} — context {(m.context_tokens || 0).toLocaleString()}{m.supports_tools ? '' : ' (도구 미지원)'}
+									{m.name} — context {(m.context_tokens || 0).toLocaleString()}{m.supports_tools ? '' : $t('embeddedSettings.noTools')}
 								</option>
 							{/each}
 						</select>
 					</div>
 				{/if}
-				<p class="hint">모델을 고르면 Context Tokens가 모델의 최대 입력 컨텍스트로 채워집니다. 핸드오프는 이 값의 75%에서 발동합니다.</p>
+				<p class="hint">{$t('embeddedSettings.modelContextHint')}</p>
 			{:else}
 				<div class="setting-row">
 					<label>API Key</label>
@@ -530,7 +531,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				<label>Max Concurrent</label>
 				<input class="input" type="number" bind:value={editing.max_concurrent} min="0" placeholder="0" />
 			</div>
-			<p class="hint">llama.cpp <code>--parallel</code> 값과 일치시키세요. 0이면 제한 없음.</p>
+			<p class="hint">{$t('embeddedSettings.parallelHint')}</p>
 			<div class="setting-row">
 				<label>Thinking</label>
 				<label class="toggle">
@@ -545,12 +546,12 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 					<span>{editing.vision ? 'On' : 'Off'}</span>
 				</label>
 			</div>
-			<p class="hint">모델이 이미지를 볼 수 있으면 켜세요. 켜면 작업 중 생성한 스크린샷도 read_file로 직접 봅니다.</p>
+			<p class="hint">{$t('embeddedSettings.visionHint')}</p>
 			<div class="setting-row">
 				<label>Reasoning Budget</label>
 				<input class="input" type="number" bind:value={editing.reasoning_budget_tokens} min="0" step="1024" placeholder="0" />
 			</div>
-			<p class="hint">0보다 크면 요청마다 <code>reasoning_budget_tokens</code>를 보냅니다(최대 max_tokens의 절반). 추론만 하다 출력 한도에서 끊기는 것을 막습니다. 이 필드를 지원하는 서버(Strata)에서만 켜세요. 0이면 보내지 않습니다.</p>
+			<p class="hint">{$t('embeddedSettings.reasoningHint')}</p>
 			<div class="setting-row">
 				<label>Handoff No-Thinking</label>
 				<label class="toggle">
@@ -558,7 +559,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 					<span>{editing.handoff_no_thinking ? 'On' : 'Off'}</span>
 				</label>
 			</div>
-			<p class="hint">켜면 컨텍스트 핸드오프 요약 요청에 <code>chat_template_kwargs: {'{'}"enable_thinking": false{'}'}</code>를 보내 추론 없이 요약하게 합니다.</p>
+			<p class="hint">{$t('embeddedSettings.noThinkingHint')}</p>
 			<div class="setting-row">
 				<label>Subagent</label>
 				<label class="toggle">
@@ -566,7 +567,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 					<span>{editing.subagent ? 'On' : 'Off'}</span>
 				</label>
 			</div>
-			<p class="hint">켜면 <code>spawn_subagents</code>의 endpoint_id로 이 엔드포인트를 사용할 수 있습니다. 서브에이전트는 embedded 프로바이더만 지원합니다.</p>
+			<p class="hint">{$t('embeddedSettings.subagentHint')}</p>
 			<div class="setting-row">
 				<label>Enabled</label>
 				<label class="toggle">
@@ -589,33 +590,33 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 			<h3>Add Copilot Endpoint</h3>
 
 			{#if copilot.step === 'starting'}
-				<p class="text-muted">GitHub 인증을 준비하는 중...</p>
+				<p class="text-muted">{$t('copilot.starting')}</p>
 			{/if}
 
 			{#if copilot.step === 'authorize'}
 				{#if copilot.device}
-					<p>GitHub에서 아래 코드를 입력해 Copilot 접근을 승인하세요.</p>
+					<p>{$t('copilot.enterCode')}</p>
 					<div class="copilot-code-row">
 						<code class="copilot-code">{copilot.device.user_code}</code>
-						<button class="btn btn-sm btn-outline" onclick={copyUserCode}>복사</button>
-						<a class="btn btn-sm btn-outline copilot-link" href={copilot.device.verification_uri} target="_blank" rel="noreferrer">GitHub 열기</a>
+						<button class="btn btn-sm btn-outline" onclick={copyUserCode}>{$t('copilot.copy')}</button>
+						<a class="btn btn-sm btn-outline copilot-link" href={copilot.device.verification_uri} target="_blank" rel="noreferrer">{$t('copilot.openGitHub')}</a>
 					</div>
-					<p class="hint">승인하면 자동으로 모델 목록을 불러옵니다. 코드 만료: {Math.round((copilot.device.expires_in || 900) / 60)}분</p>
+					<p class="hint">{$t('copilot.codeExpires', { minutes: Math.round((copilot.device.expires_in || 900) / 60) })}</p>
 				{/if}
 				<div class="copilot-manual">
-					<label class="hint" for="copilot-token">이미 GitHub 토큰이 있다면 직접 입력</label>
+					<label class="hint" for="copilot-token">{$t('copilot.manualTokenLabel')}</label>
 					<div class="copilot-manual-row">
-						<input id="copilot-token" class="input" type="password" bind:value={copilot.manualToken} placeholder="ghu_... 또는 ghp_..." />
-						<button class="btn btn-sm btn-outline" onclick={useManualToken}>토큰으로 불러오기</button>
+						<input id="copilot-token" class="input" type="password" bind:value={copilot.manualToken} placeholder={$t('copilot.manualTokenPlaceholder')} />
+						<button class="btn btn-sm btn-outline" onclick={useManualToken}>{$t('copilot.useToken')}</button>
 					</div>
 				</div>
 			{/if}
 
 			{#if copilot.step === 'models'}
 				{#if copilot.busy}
-					<p class="text-muted">모델 목록을 불러오는 중...</p>
+					<p class="text-muted">{$t('copilot.loadingModels')}</p>
 				{:else}
-					<p class="hint">사용할 모델을 선택하세요. 도구 호출을 지원하는 모델을 권장합니다.</p>
+					<p class="hint">{$t('copilot.pickModelHint')}</p>
 					<div class="copilot-model-list">
 						{#each copilot.models as m}
 							<button class="copilot-model" class:selected={copilot.selected?.id === m.id} onclick={() => selectCopilotModel(m)}>
@@ -644,7 +645,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 							<label>Context Tokens</label>
 							<input class="input" type="number" bind:value={copilot.contextTokens} min="1024" max="2000000" step="1024" />
 						</div>
-						<p class="hint">핸드오프 기준은 Context Tokens의 75%입니다. Copilot 모델의 max_prompt_tokens(없으면 컨텍스트 창)으로 자동 설정됩니다.</p>
+						<p class="hint">{$t('copilot.handoffHint')}</p>
 					{/if}
 				{/if}
 			{/if}
@@ -653,8 +654,8 @@ import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 				<p class="hint error">{copilot.error}</p>
 				{#if copilot.step === 'error'}
 					<div class="embedded-editor-actions">
-						<button class="btn btn-outline" onclick={startCopilotAuth}>다시 인증</button>
-						<button class="btn btn-outline" onclick={closeCopilot}>취소</button>
+						<button class="btn btn-outline" onclick={startCopilotAuth}>{$t('copilot.reauth')}</button>
+						<button class="btn btn-outline" onclick={closeCopilot}>{$t('common.cancel')}</button>
 					</div>
 				{/if}
 			{/if}
