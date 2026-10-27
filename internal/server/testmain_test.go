@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/agurrrrr/shepherd/internal/config"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 )
 
 // TestMain redirects every config write to a throwaway file. Handlers here save
@@ -22,6 +23,10 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	config.UseTempConfigFile(filepath.Join(dir, "config.yaml"))
+
+	// Pin the display language: handlers render stored codes through i18n
+	// (#665), so assertions must not depend on test execution order.
+	i18n.Init("ko")
 
 	code := m.Run()
 

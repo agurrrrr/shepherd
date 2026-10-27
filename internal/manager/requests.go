@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/discord"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/issue"
 	"github.com/agurrrrr/shepherd/internal/push"
 	"github.com/agurrrrr/shepherd/internal/queue"
@@ -33,10 +35,10 @@ import (
 
 // Request kinds (#601 §4). The kind decides what approval does.
 const (
-	RequestStopTask    = "stop_task"
+	RequestStopTask     = "stop_task"
 	RequestExecuteIssue = "execute_issue"
-	RequestDeleteIssue = "delete_issue"
-	RequestOther       = "other"
+	RequestDeleteIssue  = "delete_issue"
+	RequestOther        = "other"
 )
 
 // Request statuses.
@@ -45,6 +47,99 @@ const (
 	RequestApproved = "approved"
 	RequestRejected = "rejected"
 )
+
+// Result codes (#665). The `result` column must never hold a display
+// language: approve/reject store a machine-readable code and every reader
+// (web panel, review prompt) renders it through i18n at response time. The
+// grammar is `req:<code>[:<id>][: <detail>]`; a free-text user note instead
+// rides verbatim behind `note:`.
+const (
+	resultCodePrefix = "req:"
+	noteResultPrefix = "note:"
+
+	RequestResultRejected      = "rejected"
+	RequestResultStopFailed    = "stop_failed"
+	RequestResultCancelFailed  = "cancel_failed"
+	RequestResultCancelDone    = "cancel_done"
+	RequestResultStopDone      = "stop_done"
+	RequestResultExecuteFailed = "execute_failed"
+	RequestResultExecuteDone   = "execute_done"
+	RequestResultDeleteFailed  = "delete_failed"
+	RequestResultDeleteDone    = "delete_done"
+	RequestResultOtherApproved = "other_approved"
+	RequestResultUnknownKind   = "unknown_kind"
+)
+
+// requestCode builds one stored result code. Empty id/detail segments are
+// kept as empty fields so RenderRequestResult can split the string back.
+func requestCode(code string, id int, detail string) string {
+	out := resultCodePrefix + code
+	out += ":"
+	if id > 0 {
+		out += strconv.Itoa(id)
+	}
+	if detail != "" {
+		out += ": " + detail
+	} else {
+		out += ":"
+	}
+	return out
+}
+
+// RenderRequestResult turns a stored result into display text. Unknown or
+// legacy (pre-#665, already localized) values pass through untouched.
+func RenderRequestResult(result string) string {
+	result = strings.TrimSpace(result)
+	if strings.HasPrefix(result, noteResultPrefix) {
+		return strings.TrimSpace(strings.TrimPrefix(result, noteResultPrefix))
+	}
+	if !strings.HasPrefix(result, resultCodePrefix) {
+		return result
+	}
+
+	fields := strings.SplitN(strings.TrimPrefix(result, resultCodePrefix), ":", 3)
+	code := fields[0]
+	id, _ := strconv.Atoi(fields[1])
+	detail := ""
+	if len(fields) > 2 {
+		detail = strings.TrimSpace(fields[2])
+	}
+
+	t := i18n.T().Requests
+	switch code {
+	case RequestResultRejected:
+		return t.RejectedDefault
+	case RequestResultStopFailed:
+		return fmt.Sprintf(t.StopFailedFmt, detail)
+	case RequestResultCancelFailed:
+		return fmt.Sprintf(t.CancelFailedFmt, detail)
+	case RequestResultCancelDone:
+		return fmt.Sprintf(t.CancelDoneFmt, id)
+	case RequestResultStopDone:
+		return fmt.Sprintf(t.StopDoneFmt, id)
+	case RequestResultExecuteFailed:
+		return fmt.Sprintf(t.ExecuteFailedFmt, detail)
+	case RequestResultExecuteDone:
+		return fmt.Sprintf(t.ExecuteDoneFmt, id, detail)
+	case RequestResultDeleteFailed:
+		return fmt.Sprintf(t.DeleteFailedFmt, detail)
+	case RequestResultDeleteDone:
+		return fmt.Sprintf(t.DeleteDoneFmt, id)
+	case RequestResultOtherApproved:
+		return t.OtherApproved
+	case RequestResultUnknownKind:
+		return fmt.Sprintf(t.UnknownKindFmt, detail)
+	default:
+		return result
+	}
+}
+
+// HasRequestResultCode reports whether a stored result is one of this
+// package's codes (used by tests that assert the DB holds no display text).
+func HasRequestResultCode(result string) bool {
+	return strings.HasPrefix(strings.TrimSpace(result), resultCodePrefix) ||
+		strings.HasPrefix(strings.TrimSpace(result), noteResultPrefix)
+}
 
 // ValidRequestKind reports whether kind is one of the four request kinds.
 func ValidRequestKind(kind string) bool {
@@ -60,17 +155,17 @@ func ValidRequestKind(kind string) bool {
 // spec requires showing the requesting task and sheep even for non-shepherd
 // callers.
 type ShepherdRequestRecord struct {
-	ID               int        `json:"id"`
-	Kind             string     `json:"kind"`
-	ProjectName      string     `json:"project_name,omitempty"`
-	TargetID         int        `json:"target_id,omitempty"`
-	Reason           string     `json:"reason,omitempty"`
-	Status           string     `json:"status"`
-	RequestedByTask  int        `json:"requested_by_task_id,omitempty"`
-	RequesterSheep   string     `json:"requester_sheep,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	DecidedAt        *time.Time `json:"decided_at,omitempty"`
-	Result           string     `json:"result,omitempty"`
+	ID              int        `json:"id"`
+	Kind            string     `json:"kind"`
+	ProjectName     string     `json:"project_name,omitempty"`
+	TargetID        int        `json:"target_id,omitempty"`
+	Reason          string     `json:"reason,omitempty"`
+	Status          string     `json:"status"`
+	RequestedByTask int        `json:"requested_by_task_id,omitempty"`
+	RequesterSheep  string     `json:"requester_sheep,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	DecidedAt       *time.Time `json:"decided_at,omitempty"`
+	Result          string     `json:"result,omitempty"`
 }
 
 // requestNotifyHook is the daemon's SSE broadcast seam (registered in
@@ -236,9 +331,14 @@ func RejectShepherdRequest(id int, note string) (*ShepherdRequestRecord, error) 
 		return nil, fmt.Errorf("request #%d is already %s", id, row.Status)
 	}
 
+	// The user's note is free text and rides verbatim behind a `note:` marker;
+	// an empty note stores the language-neutral `rejected` code so the DB never
+	// holds a display language (#665).
 	result := strings.TrimSpace(note)
 	if result == "" {
-		result = "사용자가 거절했습니다."
+		result = requestCode(RequestResultRejected, 0, "")
+	} else {
+		result = noteResultPrefix + result
 	}
 
 	now := time.Now()
@@ -270,18 +370,18 @@ func runRequestAction(row *ent.ShepherdRequest) string {
 		// stop). The UI and the request kind stay unchanged.
 		t, err := queue.GetTask(row.TargetID)
 		if err != nil {
-			return fmt.Sprintf("작업 중지 실패: %v", err)
+			return requestCode(RequestResultStopFailed, 0, err.Error())
 		}
 		if t.Status == entTask.StatusPending {
 			if err := queue.CancelPendingTask(row.TargetID); err != nil {
-				return fmt.Sprintf("작업 대기 취소 실패: %v", err)
+				return requestCode(RequestResultCancelFailed, 0, err.Error())
 			}
-			return fmt.Sprintf("작업 #%d 대기 취소 완료", row.TargetID)
+			return requestCode(RequestResultCancelDone, row.TargetID, "")
 		}
 		if err := queue.StopTaskByID(row.TargetID, "stopped by shepherd request"); err != nil {
-			return fmt.Sprintf("작업 중지 실패: %v", err)
+			return requestCode(RequestResultStopFailed, 0, err.Error())
 		}
-		return fmt.Sprintf("작업 #%d 중지 완료", row.TargetID)
+		return requestCode(RequestResultStopDone, row.TargetID, "")
 
 	case RequestExecuteIssue:
 		res, err := issue.Execute(issue.ExecuteInput{
@@ -290,26 +390,27 @@ func runRequestAction(row *ent.ShepherdRequest) string {
 			Watch:   true, // an approved delegation is watched work (#597)
 		})
 		if err != nil {
-			return fmt.Sprintf("이슈 실행 실패: %v", err)
+			return requestCode(RequestResultExecuteFailed, 0, err.Error())
 		}
 		if wakeProcessor != nil {
 			wakeProcessor.ProcessPendingNow()
 		}
-		return fmt.Sprintf("이슈 #%d 실행 적재 완료 (task %v)", row.TargetID, res.TaskIDs)
+		return requestCode(RequestResultExecuteDone, row.TargetID, fmt.Sprint(res.TaskIDs))
 
 	case RequestDeleteIssue:
 		// Deletion is ONLY reachable through this approved path — no MCP tool
 		// deletes issues at any autonomy tier (#601 §1).
 		if err := issue.Delete(row.ProjectName, row.TargetID); err != nil {
-			return fmt.Sprintf("이슈 삭제 실패: %v", err)
+			return requestCode(RequestResultDeleteFailed, 0, err.Error())
 		}
-		return fmt.Sprintf("이슈 #%d 삭제 완료", row.TargetID)
+		return requestCode(RequestResultDeleteDone, row.TargetID, "")
 
 	case RequestOther:
-		return "승인 기록만 남겼습니다 (실행할 조치 없음)."
+		return requestCode(RequestResultOtherApproved, 0, "")
 
 	default:
-		return fmt.Sprintf("알 수 없는 kind %q — 조치 없음", row.Kind)
+		// The verb in UnknownKindFmt adds the quoting itself.
+		return requestCode(RequestResultUnknownKind, 0, row.Kind)
 	}
 }
 
@@ -320,7 +421,8 @@ The user decided on a request you (or another sheep) raised. Follow up per the r
 // pending review task when one exists (#597 coalescing rule).
 func enqueueDecisionReview(rec *ShepherdRequestRecord, decision string) {
 	block := fmt.Sprintf("- request #%d (%s): %s — target: %s, project: %s\n- reason given: %s\n- user result: %s",
-		rec.ID, kindLabel(rec.Kind), decision, requestTargetLabel(rec), orDash(rec.ProjectName), rec.Reason, rec.Result)
+		rec.ID, kindLabel(rec.Kind), decision, requestTargetLabel(rec), orDash(rec.ProjectName), rec.Reason,
+		RenderRequestResult(rec.Result))
 
 	appendMu.Lock()
 	appended := queue.AppendToPendingReviewTaskPrompt(decisionReviewHeader + "\n\n" + block)
@@ -346,13 +448,13 @@ func enqueueDecisionReview(rec *ShepherdRequestRecord, decision string) {
 func kindLabel(kind string) string {
 	switch kind {
 	case RequestStopTask:
-		return "작업 중지"
+		return i18n.T().Requests.KindStopTask
 	case RequestExecuteIssue:
-		return "이슈 실행"
+		return i18n.T().Requests.KindExecuteIssue
 	case RequestDeleteIssue:
-		return "이슈 삭제"
+		return i18n.T().Requests.KindDeleteIssue
 	default:
-		return "기타"
+		return i18n.T().Requests.KindOther
 	}
 }
 
@@ -366,7 +468,7 @@ func requestTargetLabel(rec *ShepherdRequestRecord) string {
 		if rec.TargetID > 0 {
 			return fmt.Sprintf("#%d", rec.TargetID)
 		}
-		return "없음"
+		return i18n.T().Requests.NoTarget
 	}
 }
 
@@ -384,8 +486,8 @@ func orDash(s string) string {
 // payload is built inline because push.Payload's task-shaped helpers do not
 // fit requests; both channels stay config-gated.
 func notifyRequestCreated(rec *ShepherdRequestRecord) {
-	title := fmt.Sprintf("Shepherd · 목자 요청 #%d", rec.ID)
-	body := fmt.Sprintf("%s 승인/거절 대기 — %s", kindLabel(rec.Kind), firstLine(rec.Reason, "사유 없음"))
+	title := fmt.Sprintf(i18n.T().Push.RequestTitleFmt, rec.ID)
+	body := fmt.Sprintf(i18n.T().Push.RequestAwaitingFmt, kindLabel(rec.Kind), firstLine(rec.Reason, i18n.T().Requests.NoReason))
 
 	if config.GetBool("webpush_enabled") {
 		if _, err := push.SendToAll(push.Payload{

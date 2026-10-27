@@ -38,6 +38,9 @@ func (s *Server) handleListShepherdRequests(c *fiber.Ctx) error {
 	if err != nil {
 		return fail(c, fiber.StatusInternalServerError, err.Error())
 	}
+	for i := range recs {
+		recs[i].Result = manager.RenderRequestResult(recs[i].Result)
+	}
 	return success(c, map[string]interface{}{
 		"requests": recs,
 		"count":    len(recs),
@@ -55,6 +58,7 @@ func (s *Server) handleApproveShepherdRequest(c *fiber.Ctx) error {
 	if err != nil {
 		return requestDecisionFail(c, id, err)
 	}
+	rec.Result = manager.RenderRequestResult(rec.Result)
 	return success(c, map[string]interface{}{"request": rec})
 }
 
@@ -74,6 +78,7 @@ func (s *Server) handleRejectShepherdRequest(c *fiber.Ctx) error {
 	if err != nil {
 		return requestDecisionFail(c, id, err)
 	}
+	rec.Result = manager.RenderRequestResult(rec.Result)
 	return success(c, map[string]interface{}{"request": rec})
 }
 

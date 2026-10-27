@@ -4,21 +4,24 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/gofiber/fiber/v2"
 	entsql "entgo.io/ent/dialect/sql"
+	"github.com/gofiber/fiber/v2"
 	_ "modernc.org/sqlite"
 
 	"github.com/agurrrrr/shepherd/ent"
 	entIssue "github.com/agurrrrr/shepherd/ent/issue"
 	"github.com/agurrrrr/shepherd/ent/sheep"
+	entreq "github.com/agurrrrr/shepherd/ent/shepherdrequest"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/agurrrrr/shepherd/internal/manager"
 	"github.com/agurrrrr/shepherd/internal/names"
 	"github.com/spf13/viper"
@@ -179,7 +182,7 @@ func TestApproveOtherRequestRecordsOnly(t *testing.T) {
 	if row["status"] != manager.RequestApproved {
 		t.Errorf("status = %v, want approved", row["status"])
 	}
-	if row["result"] != "승인 기록만 남겼습니다 (실행할 조치 없음)." {
+	if row["result"] != i18n.T().Requests.OtherApproved {
 		t.Errorf("other must record a no-action result: %v", row["result"])
 	}
 	if row["decided_at"] == nil {
@@ -369,8 +372,22 @@ func TestApproveExecuteIssueEnqueuesWatchedWork(t *testing.T) {
 		t.Fatalf("approve: %d %v", code, out)
 	}
 	row := out["data"].(map[string]any)["request"].(map[string]any)
+	// The DB row keeps the language-neutral code; the response carries the ko
+	// rendering of it (#665).
+	stored, err := db.Client().ShepherdRequest.Query().
+		Where(entreq.ID(rec.ID)).Only(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStored := fmt.Sprintf("req:%s:%d: [", manager.RequestResultExecuteDone, iss.ID)
+	if !strings.HasPrefix(stored.Result, wantStored) {
+		t.Errorf("stored result = %q, want it to start with %q", stored.Result, wantStored)
+	}
+	if row["result"].(string) != manager.RenderRequestResult(stored.Result) {
+		t.Errorf("response must render the stored code: response=%v stored=%q", row["result"], stored.Result)
+	}
 	if !strings.Contains(row["result"].(string), "실행 적재 완료") {
-		t.Fatalf("execute result: %v", row["result"])
+		t.Fatalf("execute result must be rendered in ko: %v", row["result"])
 	}
 
 	// The enqueued task exists AND the issue is watched (approved delegation =
@@ -409,8 +426,15 @@ func TestApproveDeleteIssueRemovesIt(t *testing.T) {
 		t.Fatalf("approve: %d %v", code, out)
 	}
 	row := out["data"].(map[string]any)["request"].(map[string]any)
-	if !strings.Contains(row["result"].(string), "삭제 완료") {
+	if row["result"] != fmt.Sprintf(i18n.T().Requests.DeleteDoneFmt, iss.ID) {
 		t.Fatalf("delete result: %v", row["result"])
+	}
+	stored, err := db.Client().ShepherdRequest.Query().Where(entreq.ID(rec.ID)).Only(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Result != fmt.Sprintf("req:%s:%d:", manager.RequestResultDeleteDone, iss.ID) {
+		t.Errorf("stored delete result must stay a language-free code: %q", stored.Result)
 	}
 
 	if _, err := client.Issue.Get(ctx, iss.ID); err == nil {
@@ -451,7 +475,7 @@ func TestRejectRunsNoActionButWakes(t *testing.T) {
 		t.Fatalf("rejection must wake the shepherd: %v", revs)
 	}
 
-	// Empty note falls back to the default text.
+	// Empty note stores the `rejected` code and renders the ko default.
 	rec2, err := manager.CreateShepherdRequest(manager.RequestOther, "", 0, "물음", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -463,6 +487,117 @@ func TestRejectRunsNoActionButWakes(t *testing.T) {
 	if out["data"].(map[string]any)["request"].(map[string]any)["result"] != "사용자가 거절했습니다." {
 		t.Errorf("default rejection note missing: %v", out)
 	}
+}
+
+// TestRequestResultsStoreNoDisplayLanguage pins #665 §2: nothing a handler
+// later renders goes into the DB as prose. Approvals store `req:<code>` and
+// rejections store either the `rejected` code or the user's verbatim note
+// behind `note:`, so switching the display language re-renders old rows.
+func TestRequestResultsStoreNoDisplayLanguage(t *testing.T) {
+	ctx := context.Background()
+	withRequestTestEnv(t)
+
+	// approve: the `other` kind records a no-action result.
+	other, err := manager.CreateShepherdRequest(manager.RequestOther, "", 0, "확인", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ApproveShepherdRequest(other.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// approve: a vanished stop target fails softly into the code.
+	stop, err := manager.CreateShepherdRequest(manager.RequestStopTask, "", 999999, "멈춤", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ApproveShepherdRequest(stop.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// reject: empty note → code, non-empty note → `note:` + verbatim text.
+	emptyNote, err := manager.CreateShepherdRequest(manager.RequestOther, "", 0, "물음", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RejectShepherdRequest(emptyNote.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	noted, err := manager.CreateShepherdRequest(manager.RequestOther, "", 0, "물음", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RejectShepherdRequest(noted.ID, "지금으로서는 어렵습니다"); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := db.Client().ShepherdRequest.Query().All(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStored := map[int]string{
+		other.ID:     "req:" + manager.RequestResultOtherApproved + "::",
+		stop.ID:      "", // error detail is provider text; only the prefix is pinned
+		emptyNote.ID: "req:" + manager.RequestResultRejected + "::",
+		noted.ID:     "note:지금으로서는 어렵습니다",
+	}
+	for _, r := range rows {
+		stored, ok := wantStored[r.ID]
+		if !ok {
+			continue
+		}
+		if stored != "" && r.Result != stored {
+			t.Errorf("request #%d stored %q, want %q", r.ID, r.Result, stored)
+		}
+		if !manager.HasRequestResultCode(r.Result) {
+			t.Errorf("request #%d stored a display string: %q", r.ID, r.Result)
+		}
+	}
+
+	// The ko rendering is produced at read time, not stored.
+	rendered := manager.RenderRequestResult("req:" + manager.RequestResultOtherApproved + "::")
+	if rendered != i18n.T().Requests.OtherApproved {
+		t.Errorf("ko render = %q", rendered)
+	}
+
+	// A legacy row written before #665 keeps coming back verbatim.
+	legacy := "승인 기록만 남겼습니다 (실행할 조치 없음)."
+	if got := manager.RenderRequestResult(legacy); got != legacy {
+		t.Errorf("legacy result must pass through, got %q", got)
+	}
+
+	// The same stored rows render in English after a language switch — the
+	// whole point of storing codes instead of prose.
+	i18n.Init("en")
+	defer i18n.Init("ko")
+
+	rows, err = db.Client().ShepherdRequest.Query().All(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if strings.HasPrefix(r.Result, "note:") {
+			continue // the user's own words are data, not a label
+		}
+		if got := manager.RenderRequestResult(r.Result); containsHangul(got) {
+			t.Errorf("en render of stored %q is still Korean: %q", r.Result, got)
+		}
+	}
+	if got := manager.RenderRequestResult("req:" + manager.RequestResultDeleteDone + ":42:"); got != "issue #42 deleted" {
+		t.Errorf("en delete render = %q", got)
+	}
+	if got := manager.RenderRequestResult("note:지금으로서는 어렵습니다"); got != "지금으로서는 어렵습니다" {
+		t.Errorf("the user's own note must never be translated: %q", got)
+	}
+}
+
+func containsHangul(s string) bool {
+	for _, r := range s {
+		if r >= 0xAC00 && r <= 0xD7A3 {
+			return true
+		}
+	}
+	return false
 }
 
 // TestDecisionCoalescesIntoPendingReview pins #597's merge rule for request
@@ -655,4 +790,3 @@ func shepherdStatus(t *testing.T, app *fiber.App) map[string]any {
 	}
 	return out["data"].(map[string]any)
 }
-
