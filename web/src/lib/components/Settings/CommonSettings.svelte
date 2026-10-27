@@ -1,6 +1,7 @@
 <script>
 	import PushSettings from './PushSettings.svelte';
 	import SheepNamingSection from './SheepNamingSection.svelte';
+	import { t } from '$lib/i18n/index.js';
 
 	/** @type {{ language: string, default_provider: string, max_sheep: number, max_concurrent_tasks: number, concurrency_limits: Record<string, number>, task_timeout: string, auto_approve: boolean, enable_file_browser: boolean, session_reuse: boolean, include_task_history: boolean, include_mcp_guide: boolean, include_sheep_memory: boolean, sheep_memory_prompt: string, wiki_enabled: boolean, wiki_auto_ingest: boolean, task_checkpoint_enabled: boolean, task_checkpoint_retention_days: number, wiki_max_context_pages: number, wiki_max_page_content_chars: number, discord_notifications_enabled: boolean, discord_webhook_url: string, discord_notify_on_complete: boolean, discord_notify_on_fail: boolean, webpush_enabled: boolean, webpush_notify_on_complete: boolean, webpush_notify_on_fail: boolean, server_host: string, server_port: number, model_claude: string }} */
 	export let configData;
@@ -23,10 +24,10 @@
 		<option value="opencode">OpenCode</option>
 		<option value="pi">Pi</option>
 		<option value="grok">Grok</option>
-		<option value="embedded">Embedded (로컬 LLM)</option>
+		<option value="embedded">{$t('commonSettings.providerEmbeddedOption')}</option>
 		<option value="auto">Auto</option>
 	</select>
-	<span class="hint">각 Provider의 사용유무 · 모델 · Custom Prompt · 동시 실행 제한은 해당 Provider 탭에서 설정합니다.</span>
+	<span class="hint">{$t('commonSettings.providerTabHint')}</span>
 </div>
 
 <!-- Max Sheep -->
@@ -39,7 +40,7 @@
 <div class="setting-row">
 	<label>Max Concurrent Tasks</label>
 	<input class="input" type="number" bind:value={configData.max_concurrent_tasks} min="0" max="50" />
-	<span class="hint">전체 동시 실행 작업 수의 천장(ceiling). 0이면 제한 없음.</span>
+	<span class="hint">{$t('commonSettings.maxConcurrentHint')}</span>
 </div>
 
 <!-- Task Timeout -->
@@ -100,7 +101,7 @@
 		<input type="checkbox" bind:checked={configData.include_sheep_memory} />
 		<span>{configData.include_sheep_memory ? 'Enabled' : 'Disabled'}</span>
 	</label>
-	<span class="hint">양 이름 단위로 <code>~/.shepherd/sheep/&lt;name&gt;/</code> 에 누적되는 개인 기억.</span>
+	<span class="hint">{$t('commonSettings.sheepMemoryHint')}</span>
 </div>
 
 <div class="setting-row column">
@@ -109,9 +110,9 @@
 		class="input textarea"
 		bind:value={configData.sheep_memory_prompt}
 		rows="10"
-		placeholder={`양에게 전달할 메모리 가이드라인. {{.MemoryDir}} 가 실제 디렉토리 경로로 치환됩니다.`}
+		placeholder={$t('commonSettings.sheepMemoryPromptPlaceholder')}
 	></textarea>
-	<span class="hint"><code>{`{{.MemoryDir}}`}</code> 토큰은 작업 시점에 양의 실제 메모리 디렉토리 경로로 치환됩니다.</span>
+	<span class="hint">{$t('commonSettings.memoryDirTokenHint')}</span>
 </div>
 
 <!-- LLM sheep naming (#638) — its own GET/PUT endpoints, not the shared config form -->
@@ -168,7 +169,7 @@
 <div class="setting-row column">
 	<label>Webhook URL</label>
 	<input class="input" type="text" bind:value={configData.discord_webhook_url} placeholder="https://discord.com/api/webhooks/..." />
-	<span class="hint">Discord Incoming Webhook URL을 입력하세요.</span>
+	<span class="hint">{$t('commonSettings.discordWebhookHint')}</span>
 </div>
 <div class="setting-row">
 	<label>Notify on Complete</label>

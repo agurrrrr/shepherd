@@ -1,5 +1,6 @@
 <script>
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
+	import { t } from '$lib/i18n/index.js';
 
 	/** @type {{ model_pi: string, custom_prompt_pi: string, concurrency_limits: Record<string, number> }} */
 	export let configData;
@@ -31,12 +32,12 @@
 		{#each modelOptions as opt}
 			{@const key = opt.id ? `pi/${opt.id}` : 'pi'}
 			<div class="conc-row">
-				<span class="conc-label" title={opt.id ? opt.id : 'Pi 모델 미지정 작업의 기본 그룹'}>🔵 {opt.id ? opt.label : 'Pi (모델 미지정 / 기본)'}</span>
+				<span class="conc-label" title={opt.id ? opt.id : $t('piSettings.defaultGroupTitle')}>🔵 {opt.id ? opt.label : $t('piSettings.defaultGroupLabel')}</span>
 				<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
 			</div>
 		{/each}
 	</div>
-	<span class="hint">provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음.</span>
+	<span class="hint">{$t('piSettings.concurrencyHint')}</span>
 </div>
 <div class="setting-row column">
 	<label>Custom Prompt — Pi</label>
@@ -44,7 +45,7 @@
 		class="input textarea"
 		bind:value={configData.custom_prompt_pi}
 		rows="6"
-		placeholder="Pi 실행 시 추가로 전달할 지시문을 입력하세요."
+		placeholder={$t('piSettings.promptPlaceholder')}
 	></textarea>
 	<span class="hint">Injected only when the task runs on Pi.</span>
 </div>

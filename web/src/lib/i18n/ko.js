@@ -371,5 +371,131 @@ export default {
 	'shepherdSettings.includeHiddenLabel': '숨김 프로젝트 포함',
 	'shepherdSettings.toggleInclude': '포함',
 	'shepherdSettings.toggleExclude': '제외',
-	'shepherdSettings.saveButton': '목자 설정 저장'
+	'shepherdSettings.saveButton': '목자 설정 저장',
+
+	// Shared setting labels used by several settings components
+	'commonSettings.enabledOption': 'Enabled',
+	'commonSettings.disabledOption': 'Disabled',
+	'commonSettings.selectOption': '— 선택 —',
+	'commonSettings.unknownError': '알 수 없는 오류',
+	'commonSettings.saveFailedPrefix': '저장 실패: ',
+
+	// Common settings tab (CommonSettings.svelte)
+	'commonSettings.providerEmbeddedOption': 'Embedded (로컬 LLM)',
+	'commonSettings.providerTabHint': '각 Provider의 사용유무 · 모델 · Custom Prompt · 동시 실행 제한은 해당 Provider 탭에서 설정합니다.',
+	'commonSettings.maxConcurrentHint': '전체 동시 실행 작업 수의 천장(ceiling). 0이면 제한 없음.',
+	'commonSettings.sheepMemoryHint': '양 이름 단위로 ~/.shepherd/sheep/<name>/ 에 누적되는 개인 기억.',
+	'commonSettings.sheepMemoryPromptPlaceholder': '양에게 전달할 메모리 가이드라인. {{.MemoryDir}} 가 실제 디렉토리 경로로 치환됩니다.',
+	'commonSettings.memoryDirTokenHint': '{{.MemoryDir}} 토큰은 작업 시점에 양의 실제 메모리 디렉토리 경로로 치환됩니다.',
+	'commonSettings.discordWebhookHint': 'Discord Incoming Webhook URL을 입력하세요.',
+
+	// PWA push settings (PushSettings.svelte)
+	'pushSettings.sectionTitle': 'PWA 푸시 알림',
+	'pushSettings.intro': '홈 화면에 설치한 Shepherd에서 작업이 끝나거나 실패하면 시스템 알림을 받습니다. 탭이 닫혀 있어도 Web Push로 전달됩니다. HTTPS(또는 localhost)가 필요합니다.',
+	'pushSettings.thisDevice': '이 기기',
+	'pushSettings.pillHttps': 'HTTPS 필요',
+	'pushSettings.pillUnsupported': '이 브라우저는 Push 미지원',
+	'pushSettings.pillInstallFirst': '홈 화면 설치 후 사용',
+	'pushSettings.pillDenied': '알림 권한 거부됨',
+	'pushSettings.pillSubscribed': '구독됨',
+	'pushSettings.pillNotSubscribed': '미구독',
+	'pushSettings.deviceCount': '등록된 기기 {count}대',
+	'pushSettings.disableDevice': '이 기기 끄기',
+	'pushSettings.enableDevice': '이 기기에서 알림 켜기',
+	'pushSettings.testNotification': '테스트 알림',
+	'pushSettings.iosHint': 'Safari 공유 → 홈 화면에 추가한 뒤, 그 아이콘으로 연 다음 버튼을 눌러 주세요. (iOS 16.4+)',
+	'pushSettings.chromeHint': 'Chrome/Android는 HTTPS 또는 localhost에서만 푸시를 허용합니다.',
+	'pushSettings.enabledFlash': '이 기기에서 푸시를 켰습니다.',
+	'pushSettings.disabledFlash': '이 기기 구독을 해제했습니다.',
+	'pushSettings.testSent': '테스트 알림 {count}건을 보냈습니다.',
+	'pushSettings.testNoSubscription': '보낼 구독이 없습니다. 먼저 이 기기에서 푸시를 켜 주세요.',
+
+	// LLM sheep naming section (SheepNamingSection.svelte)
+	'naming.sectionTitle': '양 이름 짓기',
+	'naming.loadError': '설정을 불러오지 못했습니다.',
+	'naming.loading': '설정을 불러오는 중…',
+	'naming.label': 'LLM 작명',
+	'naming.enabledHint': '프로젝트 등록 시 담당 양 이름을 LLM이 짓습니다. 끄면 이름 풀(양동이, 메에롱…)만 씁니다.',
+	'naming.providerHint': 'magi와 auto는 선택할 수 없습니다. 켜려면 프로바이더를 지정해야 합니다.',
+	'naming.modelDefaultOption': '프로바이더 기본값',
+	'naming.modelHint': '비우면 해당 프로바이더의 기본 모델을 씁니다. 프로바이더를 바꾸면 이 값은 초기화됩니다.',
+	'naming.saved': '저장됨',
+	'naming.previewLabel': '미리 보기',
+	'naming.previewNamePlaceholder': '예: tangbisil',
+	'naming.previewDescPlaceholder': '설명 (선택)',
+	'naming.previewNeedName': '미리 볼 프로젝트 이름을 입력하세요.',
+	'naming.previewFailedPrefix': '후보 생성 실패: ',
+	'naming.previewing': '생성 중… (최대 30초)',
+	'naming.showCandidates': '후보 보기',
+
+	// Provider enable toggle (ProviderEnableToggle.svelte)
+	'providerToggle.on': '사용 중',
+	'providerToggle.off': '사용 안 함',
+	'providerToggle.hint': '끄면 프로젝트 화면의 provider 선택지에서 숨겨지고, 이 provider로의 작업 실행이 차단됩니다.',
+
+	// Provider tabs: Claude / Pi / OpenCode (ClaudeSettings, PiSettings, OpenCodeSettings)
+	'claudeSettings.concurrencyHint': '동시 실행 제한. 0이면 제한 없음. auto provider는 Claude 그룹에 포함됩니다.',
+	'claudeSettings.promptPlaceholder': 'Claude Code 실행 시 추가로 전달할 지시문을 입력하세요.',
+	'piSettings.defaultGroupTitle': 'Pi 모델 미지정 작업의 기본 그룹',
+	'piSettings.defaultGroupLabel': 'Pi (모델 미지정 / 기본)',
+	'piSettings.concurrencyHint': 'provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음.',
+	'piSettings.promptPlaceholder': 'Pi 실행 시 추가로 전달할 지시문을 입력하세요.',
+	'opencodeSettings.defaultGroupTitle': 'OpenCode 모델 미지정 작업의 기본 그룹',
+	'opencodeSettings.defaultGroupLabel': 'OpenCode (모델 미지정 / 기본)',
+	'opencodeSettings.concurrencyHint': 'provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음.',
+	'opencodeSettings.promptPlaceholder': 'OpenCode 실행 시 추가로 전달할 지시문을 입력하세요.',
+
+	// MCP server management (MCPServerManagement.svelte)
+	'mcp.hint': '외부 MCP 서버(GitHub, Puppeteer, Filesystem 등)를 등록합니다. 등록된 서버는 각 프로젝트 설정에서 ON/OFF 할 수 있습니다.',
+
+	// System prompt preview (PreviewSection.svelte)
+	'preview.desc': 'Task 실행 시 실제로 전달되는 시스템 프롬프트입니다. MCP 도구 리스트, 최근 작업 히스토리, 프로젝트 스킬 요약, 그리고 Custom Prompt가 포함됩니다. (Sheep별 히스토리·스킬은 Sheep 컨텍스트에서만 채워집니다.)',
+	'preview.shepherdNote': '목자 작업에 들어가는 운영 지침·워크스페이스·관리 범위 표가 이 미리보기에 포함됩니다.',
+
+	// Grok settings tab (GrokSettings.svelte)
+	'grokSettings.sourceLive': '방금 `grok models`에서 읽은 목록',
+	'grokSettings.sourceCli': '데몬 시작 시 `grok models`에서 읽은 목록',
+	'grokSettings.sourceFallback': '대체 목록 (`grok models` 실패: {error})',
+	'grokSettings.sourceNone': '원인 없음',
+	'grokSettings.sourcePending': '아직 읽지 않음 — 다시 읽기를 누르세요',
+	'grokSettings.noResponse': 'grok models 응답이 없습니다.',
+	'grokSettings.refreshed': '{count}개 모델을 grok CLI에서 읽어왔습니다.',
+	'grokSettings.cliFailed': 'grok CLI 실행 실패: {error} — 대체 목록을 표시합니다.',
+	'grokSettings.refreshError': 'grok models 갱신 실패: {error}',
+	'grokSettings.appliedLatest': '{model} 선택했습니다. Save를 눌러 저장하세요.',
+	'grokSettings.binaryHint': '실제 grok 바이너리 경로. 비워두면 PATH와 기본 설치 경로에서 자동 탐지. 엔터를 기다리는 래퍼는 쓰지 마세요.',
+	'grokSettings.backgroundWaitPlaceholder': '60m (비우면 자동)',
+	'grokSettings.backgroundWaitHint': 'grok 헤드리스 실행이 턴 종료 후 백그라운드 작업(빌드·다운로드 등)을 기다리는 최대 시간. grok 자체 기본값은 10분이고, 그 이상이면 grok이 작업을 멈추고 exit 1로 끝나 작업이 실패합니다 (#619). 비우면 60분이되 task_timeout보다는 항상 짧게 적용됩니다. off/0는 첫 턴이 끝나자마자 종료합니다 (--no-wait-for-background). unlimited는 task_timeout 직전까지 기다립니다 (task_timeout도 무제한이면 24h).',
+	'grokSettings.refreshButton': 'grok CLI에서 모델 다시 읽기',
+	'grokSettings.reading': '읽는 중…',
+	'grokSettings.applyLatest': '최신 모델 적용',
+	'grokSettings.modelHint': '모델 목록 출처: {source}. 빈 값이면 grok 계정 기본 모델을 사용합니다. xAI가 새 모델을 내면 다시 읽기한 뒤 적용하고 Save하세요.',
+	'grokSettings.concurrencyHint': '동시 실행 제한. 0이면 제한 없음.',
+	'grokSettings.promptPlaceholder': 'Grok 실행 시 추가로 전달할 지시문을 입력하세요.',
+
+	// Account settings (AccountSettings.svelte)
+	'account.title': '로그인 계정',
+	'account.desc': 'WebUI 로그인 아이디와 비밀번호를 변경합니다. 바꾸지 않을 항목은 비워 두세요. 변경하면 이 브라우저를 제외한 모든 기기의 로그인이 해제됩니다.',
+	'account.currentUsername': '현재 아이디',
+	'account.newUsername': '새 아이디',
+	'account.newPassword': '새 비밀번호',
+	'account.confirmPassword': '새 비밀번호 확인',
+	'account.currentPassword': '현재 비밀번호',
+	'account.submit': '계정 변경',
+	'account.errWhitespace': '아이디에는 공백을 넣을 수 없습니다.',
+	'account.errNothing': '변경할 아이디나 새 비밀번호를 입력해 주세요.',
+	'account.errMismatch': '새 비밀번호와 확인 값이 일치하지 않습니다.',
+	'account.errNeedCurrent': '현재 비밀번호를 입력해 주세요.',
+	'account.changed': '변경했습니다. 다른 기기에서는 새 정보로 다시 로그인해 주세요.',
+	'account.changeFailed': '변경에 실패했습니다.',
+
+	// Settings page shell (routes/settings/+page.svelte)
+	'settings.tab.shepherd': '목자',
+	'settings.tab.common': '공통',
+	'settingsTab.loadError': 'Settings를 불러오는데 실패했습니다',
+
+	// Streaming panels (MagiStreamPanel, SubagentStreamPanel)
+	'stream.idle': '대기 중...',
+	'magiPanel.title': 'MAGI 심의',
+	'subagentPanel.title': '서브에이전트 통합'
 };

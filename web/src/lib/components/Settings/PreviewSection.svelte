@@ -1,5 +1,6 @@
 <script>
 	import { apiGet } from '$lib/api.js';
+	import { t } from '$lib/i18n/index.js';
 
 	/** @type {'claude' | 'opencode' | 'pi' | 'grok' | 'embedded' | 'magi'} */
 	export let provider = 'claude';
@@ -68,8 +69,8 @@
 		</button>
 	</div>
 	<p class="preview-desc">
-		Task 실행 시 실제로 전달되는 시스템 프롬프트입니다. MCP 도구 리스트, 최근 작업 히스토리, 프로젝트 스킬 요약, 그리고 Custom Prompt가 포함됩니다. (Sheep별 히스토리·스킬은 Sheep 컨텍스트에서만 채워집니다.)
-		{#if sheep === 'shepherd'}목자 작업에 들어가는 운영 지침·워크스페이스·관리 범위 표가 이 미리보기에 포함됩니다.{/if}
+		{$t('preview.desc')}
+		{#if sheep === 'shepherd'}{$t('preview.shepherdNote')}{/if}
 	</p>
 	{#if open}
 		{#if loading}

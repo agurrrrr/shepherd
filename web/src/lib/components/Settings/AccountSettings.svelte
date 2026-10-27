@@ -1,6 +1,7 @@
 <script>
 	import { apiPut } from '$lib/api.js';
 	import { accessToken, refreshToken, username } from '$lib/stores.js';
+	import { translate, t } from '$lib/i18n/index.js';
 
 	let newUsername = $state('');
 	let newPassword = $state('');
@@ -11,12 +12,12 @@
 
 	function validate() {
 		const nextName = newUsername.trim();
-		if (/\s/.test(nextName)) return '아이디에는 공백을 넣을 수 없습니다.';
+		if (/\s/.test(nextName)) return translate('account.errWhitespace');
 		if ((!nextName || nextName === $username) && !newPassword) {
-			return '변경할 아이디나 새 비밀번호를 입력해 주세요.';
+			return translate('account.errNothing');
 		}
-		if (newPassword !== confirmPassword) return '새 비밀번호와 확인 값이 일치하지 않습니다.';
-		if (!currentPassword) return '현재 비밀번호를 입력해 주세요.';
+		if (newPassword !== confirmPassword) return translate('account.errMismatch');
+		if (!currentPassword) return translate('account.errNeedCurrent');
 		return '';
 	}
 
@@ -46,12 +47,12 @@
 				newPassword = '';
 				confirmPassword = '';
 				currentPassword = '';
-				msg = '변경했습니다. 다른 기기에서는 새 정보로 다시 로그인해 주세요.';
+				msg = translate('account.changed');
 			} else {
-				msg = 'Error: ' + (res?.message || '변경에 실패했습니다.');
+				msg = 'Error: ' + (res?.message || translate('account.changeFailed'));
 			}
 		} catch (err) {
-			msg = 'Error: ' + (err?.message || '변경에 실패했습니다.');
+			msg = 'Error: ' + (err?.message || translate('account.changeFailed'));
 		} finally {
 			busy = false;
 		}
@@ -59,19 +60,18 @@
 </script>
 
 <div class="card">
-	<h2 class="section-title">로그인 계정</h2>
+	<h2 class="section-title">{$t('account.title')}</h2>
 	<p class="sync-desc">
-		WebUI 로그인 아이디와 비밀번호를 변경합니다. 바꾸지 않을 항목은 비워 두세요.
-		변경하면 이 브라우저를 제외한 모든 기기의 로그인이 해제됩니다.
+		{$t('account.desc')}
 	</p>
 
 	<form class="account-form" onsubmit={submit}>
 		<div class="setting-row readonly">
-			<span class="row-label">현재 아이디</span>
+			<span class="row-label">{$t('account.currentUsername')}</span>
 			<span class="mono">{$username || '(unknown)'}</span>
 		</div>
 		<div class="setting-row">
-			<label for="account-new-username">새 아이디</label>
+			<label for="account-new-username">{$t('account.newUsername')}</label>
 			<input
 				id="account-new-username"
 				class="input"
@@ -82,7 +82,7 @@
 			/>
 		</div>
 		<div class="setting-row">
-			<label for="account-new-password">새 비밀번호</label>
+			<label for="account-new-password">{$t('account.newPassword')}</label>
 			<input
 				id="account-new-password"
 				class="input"
@@ -92,7 +92,7 @@
 			/>
 		</div>
 		<div class="setting-row">
-			<label for="account-confirm-password">새 비밀번호 확인</label>
+			<label for="account-confirm-password">{$t('account.confirmPassword')}</label>
 			<input
 				id="account-confirm-password"
 				class="input"
@@ -102,7 +102,7 @@
 			/>
 		</div>
 		<div class="setting-row">
-			<label for="account-current-password">현재 비밀번호</label>
+			<label for="account-current-password">{$t('account.currentPassword')}</label>
 			<input
 				id="account-current-password"
 				class="input"
@@ -115,7 +115,7 @@
 
 		<div class="sync-actions">
 			<button class="btn btn-sm btn-primary" type="submit" disabled={busy}>
-				{busy ? 'Saving...' : '계정 변경'}
+				{busy ? 'Saving...' : $t('account.submit')}
 			</button>
 			{#if msg}
 				<span class="sync-msg" class:error={msg.startsWith('Error')}>{msg}</span>

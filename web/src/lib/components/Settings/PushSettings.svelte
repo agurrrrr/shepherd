@@ -11,6 +11,7 @@
 		isStandaloneDisplay,
 		sendTestPush
 	} from '$lib/push.js';
+	import { translate, t } from '$lib/i18n/index.js';
 
 	/** @type {{ configData: Record<string, any> }} */
 	let { configData } = $props();
@@ -67,7 +68,7 @@
 		try {
 			await enablePush();
 			await refresh();
-			flash('이 기기에서 푸시를 켰습니다.', 'ok');
+			flash(translate('pushSettings.enabledFlash'), 'ok');
 		} catch (err) {
 			flash(err?.message || String(err), 'error');
 		} finally {
@@ -80,7 +81,7 @@
 		try {
 			await disablePush();
 			await refresh();
-			flash('이 기기 구독을 해제했습니다.', 'ok');
+			flash(translate('pushSettings.disabledFlash'), 'ok');
 		} catch (err) {
 			flash(err?.message || String(err), 'error');
 		} finally {
@@ -93,8 +94,8 @@
 		try {
 			const result = await sendTestPush();
 			const sent = result?.sent ?? 0;
-			if (sent > 0) flash(`테스트 알림 ${sent}건을 보냈습니다.`, 'ok');
-			else flash('보낼 구독이 없습니다. 먼저 이 기기에서 푸시를 켜 주세요.', 'error');
+			if (sent > 0) flash(translate('pushSettings.testSent', { count: sent }), 'ok');
+			else flash(translate('pushSettings.testNoSubscription'), 'error');
 		} catch (err) {
 			flash(err?.message || String(err), 'error');
 		} finally {
@@ -104,10 +105,9 @@
 </script>
 
 <hr class="setting-divider" />
-<div class="setting-section-title">PWA 푸시 알림</div>
+<div class="setting-section-title">{$t('pushSettings.sectionTitle')}</div>
 <p class="hint intro">
-	홈 화면에 설치한 Shepherd에서 작업이 끝나거나 실패하면 시스템 알림을 받습니다.
-	탭이 닫혀 있어도 Web Push로 전달됩니다. HTTPS(또는 localhost)가 필요합니다.
+	{$t('pushSettings.intro')}
 </p>
 
 <div class="setting-row">
@@ -133,38 +133,38 @@
 </div>
 
 <div class="setting-row column">
-	<label>이 기기</label>
+	<label>{$t('pushSettings.thisDevice')}</label>
 	<div class="device-status">
 		{#if !secure}
-			<span class="pill warn">HTTPS 필요</span>
+			<span class="pill warn">{$t('pushSettings.pillHttps')}</span>
 		{:else if !supported}
-			<span class="pill warn">이 브라우저는 Push 미지원</span>
+			<span class="pill warn">{$t('pushSettings.pillUnsupported')}</span>
 		{:else if ios && !standalone}
-			<span class="pill warn">홈 화면 설치 후 사용</span>
+			<span class="pill warn">{$t('pushSettings.pillInstallFirst')}</span>
 		{:else if permission === 'denied'}
-			<span class="pill danger">알림 권한 거부됨</span>
+			<span class="pill danger">{$t('pushSettings.pillDenied')}</span>
 		{:else if subscribed}
-			<span class="pill ok">구독됨</span>
+			<span class="pill ok">{$t('pushSettings.pillSubscribed')}</span>
 		{:else}
-			<span class="pill">미구독</span>
+			<span class="pill">{$t('pushSettings.pillNotSubscribed')}</span>
 		{/if}
-		<span class="hint">등록된 기기 {deviceCount}대</span>
+		<span class="hint">{$t('pushSettings.deviceCount', { count: deviceCount })}</span>
 	</div>
 	<div class="device-actions">
 		{#if subscribed}
-			<button class="btn" type="button" onclick={onDisable} disabled={busy}>이 기기 끄기</button>
+			<button class="btn" type="button" onclick={onDisable} disabled={busy}>{$t('pushSettings.disableDevice')}</button>
 		{:else}
 			<button class="btn btn-primary" type="button" onclick={onEnable} disabled={busy || !supported || (ios && !standalone)}>
-				이 기기에서 알림 켜기
+				{$t('pushSettings.enableDevice')}
 			</button>
 		{/if}
-		<button class="btn" type="button" onclick={onTest} disabled={busy || !subscribed}>테스트 알림</button>
+		<button class="btn" type="button" onclick={onTest} disabled={busy || !subscribed}>{$t('pushSettings.testNotification')}</button>
 	</div>
 	{#if ios && !standalone}
-		<span class="hint">Safari 공유 → 홈 화면에 추가한 뒤, 그 아이콘으로 연 다음 버튼을 눌러 주세요. (iOS 16.4+)</span>
+		<span class="hint">{$t('pushSettings.iosHint')}</span>
 	{/if}
 	{#if !secure}
-		<span class="hint">Chrome/Android는 HTTPS 또는 localhost에서만 푸시를 허용합니다.</span>
+		<span class="hint">{$t('pushSettings.chromeHint')}</span>
 	{/if}
 	{#if msg}
 		<span class="hint" class:error={msgKind === 'error'} class:ok={msgKind === 'ok'}>{msg}</span>

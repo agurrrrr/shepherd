@@ -1,5 +1,6 @@
 <script>
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
+	import { t } from '$lib/i18n/index.js';
 
 	/** @type {{ model_claude: string, custom_prompt_claude: string, concurrency_limits: Record<string, number> }} */
 	export let configData;
@@ -34,7 +35,7 @@
 			<input class="input conc-input" type="number" bind:value={configData.concurrency_limits['claude']} min="0" max="50" placeholder="0" />
 		</div>
 	</div>
-	<span class="hint">동시 실행 제한. 0이면 제한 없음. <code>auto</code> provider는 Claude 그룹에 포함됩니다.</span>
+	<span class="hint">{$t('claudeSettings.concurrencyHint')}</span>
 </div>
 <div class="setting-row column">
 	<label>Custom Prompt — Claude</label>
@@ -42,7 +43,7 @@
 		class="input textarea"
 		bind:value={configData.custom_prompt_claude}
 		rows="6"
-		placeholder="Claude Code 실행 시 추가로 전달할 지시문을 입력하세요."
+		placeholder={$t('claudeSettings.promptPlaceholder')}
 	></textarea>
 	<span class="hint">Injected only when the task runs on Claude Code.</span>
 </div>

@@ -23,5 +23,10 @@
 		"file": "src/lib/components/Settings/CommonSettings.svelte",
 		"text": "한국어",
 		"reason": "Language name in the language picker. A language name is shown in its own language and is not translated (#661)."
+	},
+	{
+		"file": "src/lib/components/MagiStreamPanel.svelte",
+		"text": "응답 실패",
+		"reason": "Parse pattern for the magi proposer status line in server output (the daemon writes it in Korean and old task output in the DB has it). Styling only; the text itself is server output, not UI copy (#661)."
 	}
 ]

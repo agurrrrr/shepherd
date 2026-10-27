@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { apiGet, apiPatch, apiPost } from '$lib/api.js';
-	import { setLocale } from '$lib/i18n/index.js';
+	import { setLocale, t, translate } from '$lib/i18n/index.js';
 
 	import CommonSettings from '$lib/components/Settings/CommonSettings.svelte';
 	import ShepherdSettings from '$lib/components/Settings/ShepherdSettings.svelte';
@@ -49,8 +49,8 @@
 	// endpoint than the shared form below (#593).
 	let activeTab = $state('shepherd');
 	const settingsTabs = [
-		{ value: 'shepherd', label: '목자', hint: 'Workspace, orchestrator' },
-		{ value: 'common', label: '공통', hint: 'Daemon, prompts, wiki, alerts' },
+		{ value: 'shepherd', key: 'settings.tab.shepherd', hint: 'Workspace, orchestrator' },
+		{ value: 'common', key: 'settings.tab.common', hint: 'Daemon, prompts, wiki, alerts' },
 		{ value: 'claude', label: 'Claude', hint: 'Claude Code CLI' },
 		{ value: 'opencode', label: 'OpenCode', hint: 'OpenCode CLI' },
 		{ value: 'pi', label: 'Pi', hint: 'Pi coding agent' },
@@ -65,6 +65,8 @@
 	// 모든 탭을 항상 노출한다. 사용유무 토글이 각 provider 탭 안으로 이동했으므로,
 	// 탭을 숨기면 한 번 끈 provider를 다시 켤 방법이 사라진다. 상태는 ON/OFF 뱃지로 구분.
 	let visibleTabs = $derived(settingsTabs);
+	let activeTabDef = $derived(settingsTabs.find((tab) => tab.value === activeTab));
+	let activeTabTitle = $derived(activeTabDef ? (activeTabDef.key ? translate(activeTabDef.key) : activeTabDef.label) : '');
 
 	// Embedded endpoint sync
 	async function reloadEmbeddedEndpoints() {
@@ -113,7 +115,7 @@
 			loaded = true;
 		} catch (err) {
 			console.error('Failed to load settings:', err);
-			loadError = 'Settings를 불러오는데 실패했습니다: ' + (err?.message || 'Unknown error');
+			loadError = translate('settingsTab.loadError') + ': ' + (err?.message || 'Unknown error');
 			loaded = true; // Show page even with error so user can see the message
 		}
 
@@ -248,7 +250,7 @@
 						onclick={() => activeTab = tab.value}
 					>
 						<span class="tab-text">
-							<span class="tab-label">{tab.label}</span>
+							<span class="tab-label">{tab.key ? $t(tab.key) : tab.label}</span>
 							<span class="tab-hint">{tab.hint}</span>
 						</span>
 						{#if providerTabs.includes(tab.value)}
@@ -266,8 +268,8 @@
 				{#key activeTab}
 					<div class="settings-form card">
 						<header class="form-head">
-							<h2>{settingsTabs.find((t) => t.value === activeTab)?.label}</h2>
-							<span class="form-hint">{settingsTabs.find((t) => t.value === activeTab)?.hint}</span>
+							<h2>{activeTabTitle}</h2>
+							<span class="form-hint">{activeTabDef?.hint}</span>
 						</header>
 
 						{#if activeTab === 'shepherd'}
@@ -330,7 +332,7 @@
 				     포함한 목자 컨텍스트를 렌더링한다. -->
 				{#if activeTab === 'shepherd'}
 					<div class="extra">
-						<PreviewSection provider={shepherdProvider} sheep="shepherd" title="목자" />
+						<PreviewSection provider={shepherdProvider} sheep="shepherd" title={$t('settings.tab.shepherd')} />
 					</div>
 				{/if}
 

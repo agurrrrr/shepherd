@@ -1,4 +1,6 @@
 <script>
+	import { t } from '$lib/i18n/index.js';
+
 	/** @type {{ claude: boolean, opencode: boolean, pi: boolean, grok: boolean, embedded: boolean, magi: boolean }} */
 	export let providerEnabled;
 	/** @type {'claude' | 'opencode' | 'pi' | 'grok' | 'embedded' | 'magi'} */
@@ -11,9 +13,9 @@
 	<label class="toggle">
 		<input type="checkbox" bind:checked={providerEnabled[provider]} />
 		<span class="prov-label">{label}</span>
-		<span class="state">{providerEnabled[provider] ? '사용 중' : '사용 안 함'}</span>
+		<span class="state">{providerEnabled[provider] ? $t('providerToggle.on') : $t('providerToggle.off')}</span>
 	</label>
-	<p class="hint">끄면 프로젝트 화면의 provider 선택지에서 숨겨지고, 이 provider로의 작업 실행이 차단됩니다.</p>
+	<p class="hint">{$t('providerToggle.hint')}</p>
 </div>
 
 <style>

@@ -4,6 +4,7 @@
 	import { assembleMagiPanel } from '$lib/magiPanel.js';
 	import { createMdStreamCache } from '$lib/mdStream.js';
 	import { cartaSoftBreaks } from '$lib/markdown.js';
+	import { t } from '$lib/i18n/index.js';
 
 	let { lines = [], maxHeight = 'none' } = $props();
 
@@ -160,7 +161,7 @@
 					</div>
 					<div class="proposer-content" bind:this={propContainers[i]}>
 						{#if panelData.proposerTexts[i].length === 0}
-							<span class="proposer-idle">대기 중...</span>
+							<span class="proposer-idle">{$t('stream.idle')}</span>
 						{:else}
 							{@const view = viewFor('prop:' + i, panelData.proposerTexts[i])}
 							{#if view.kind === 'exact'}
@@ -191,7 +192,7 @@
 	<div class="unified-panel">
 		<div class="unified-header">
 			<span class="unified-icon">🧠</span>
-			<span class="unified-title">MAGI 심의</span>
+			<span class="unified-title">{$t('magiPanel.title')}</span>
 		</div>
 		<div class="unified-content" bind:this={unifiedContainer} style="max-height: {maxHeight}">
 			{#if panelData.unifiedLines.length === 0 && !hasProposerOutput}

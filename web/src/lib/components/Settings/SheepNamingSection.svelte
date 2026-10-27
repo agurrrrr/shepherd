@@ -5,10 +5,12 @@
 	// because the PUT validates provider/model combinations server-side.
 	import { onMount } from 'svelte';
 	import { apiGet, apiPut, apiPost } from '$lib/api.js';
+	import { translate, t } from '$lib/i18n/index.js';
 
 	let naming = $state(null);
 	let loadError = $state('');
 	let saveMsg = $state('');
+	let saveFailed = $state(false);
 	let savingField = $state('');
 
 	// Preview state: a throwaway project name + the candidates the provider returns.
@@ -24,7 +26,7 @@
 			naming = res.data;
 			loadError = '';
 		} else {
-			loadError = res?.message || '설정을 불러오지 못했습니다.';
+			loadError = res?.message || translate('naming.loadError');
 		}
 	}
 
@@ -38,9 +40,11 @@
 		const res = await apiPut('/api/config/sheep-naming', { [field]: value });
 		if (res?.success && res.data) {
 			naming = res.data;
-			saveMsg = '저장됨';
+			saveMsg = translate('naming.saved');
+			saveFailed = false;
 		} else {
-			saveMsg = '저장 실패: ' + (res?.message || '알 수 없는 오류');
+			saveMsg = translate('commonSettings.saveFailedPrefix') + (res?.message || translate('commonSettings.unknownError'));
+			saveFailed = true;
 			await loadNaming();
 		}
 		savingField = '';
@@ -60,7 +64,7 @@
 		if (!naming) return;
 		const name = previewName.trim();
 		if (!name) {
-			previewMsg = '미리 볼 프로젝트 이름을 입력하세요.';
+			previewMsg = translate('naming.previewNeedName');
 			previewNames = [];
 			return;
 		}
@@ -77,7 +81,7 @@
 			previewNames = res.data.names;
 			previewMsg = '';
 		} else {
-			previewMsg = '후보 생성 실패: ' + (res?.message || '알 수 없는 오류');
+			previewMsg = translate('naming.previewFailedPrefix') + (res?.message || translate('commonSettings.unknownError'));
 		}
 		previewing = false;
 	}
@@ -86,15 +90,15 @@
 </script>
 
 <hr class="setting-divider" />
-<div class="setting-section-title">양 이름 짓기</div>
+<div class="setting-section-title">{$t('naming.sectionTitle')}</div>
 
 {#if loadError}
 	<div class="naming-error">{loadError}</div>
 {:else if !naming}
-	<p class="hint">설정을 불러오는 중…</p>
+	<p class="hint">{$t('naming.loading')}</p>
 {:else}
 	<div class="setting-row">
-		<label>LLM 작명</label>
+		<label>{$t('naming.label')}</label>
 		<label class="toggle">
 			<!-- checkbox bind가 아닌 onchange로 즉시 PUT: PATCH /api/config는 이 키들을 받지 않는다 -->
 			<input
@@ -105,46 +109,46 @@
 			/>
 			<span>{naming.enabled ? 'Enabled' : 'Disabled'}</span>
 		</label>
-		<span class="hint">프로젝트 등록 시 담당 양 이름을 LLM이 짓습니다. 끄면 이름 풀(양동이, 메에롱…)만 씁니다.</span>
+		<span class="hint">{$t('naming.enabledHint')}</span>
 	</div>
 
 	<div class="setting-row">
 		<label>Provider</label>
 		<!-- select는 change로 바인딩되므로 핸들러도 onchange (wiki svelte5-select-bind-change-vs-input) -->
 		<select class="input" value={naming.provider} disabled={savingField !== ''} onchange={onProviderChange}>
-			<option value="">— 선택 —</option>
+			<option value="">{$t('commonSettings.selectOption')}</option>
 			{#each naming.providers || [] as p}
 				<option value={p}>{p}</option>
 			{/each}
 		</select>
-		<span class="hint">magi와 auto는 선택할 수 없습니다. 켜려면 프로바이더를 지정해야 합니다.</span>
+		<span class="hint">{$t('naming.providerHint')}</span>
 	</div>
 
 	{#if naming.model_selectable}
 		<div class="setting-row">
 			<label>Model</label>
 			<select class="input" value={naming.model} disabled={savingField !== ''} onchange={onModelChange}>
-				<option value="">프로바이더 기본값</option>
+				<option value="">{$t('naming.modelDefaultOption')}</option>
 				{#each naming.model_options || [] as m}
 					<option value={m.id}>{m.label}</option>
 				{/each}
 			</select>
-			<span class="hint">비우면 해당 프로바이더의 기본 모델을 씁니다. 프로바이더를 바꾸면 이 값은 초기화됩니다.</span>
+			<span class="hint">{$t('naming.modelHint')}</span>
 		</div>
 	{/if}
 
 	{#if saveMsg}
-		<div class="naming-savemsg" class:error={saveMsg.startsWith('저장 실패')}>{saveMsg}</div>
+		<div class="naming-savemsg" class:error={saveFailed}>{saveMsg}</div>
 	{/if}
 
 	<!-- 미리 보기: 저장된 설정으로 실제 LLM 호출을 한 번 해 본다 (30초 초과 가능) -->
 	<div class="setting-row column">
-		<label>미리 보기</label>
+		<label>{$t('naming.previewLabel')}</label>
 		<div class="naming-preview-row">
-			<input class="input" type="text" bind:value={previewName} placeholder="예: tangbisil" />
-			<input class="input" type="text" bind:value={previewDesc} placeholder="설명 (선택)" />
+			<input class="input" type="text" bind:value={previewName} placeholder={$t('naming.previewNamePlaceholder')} />
+			<input class="input" type="text" bind:value={previewDesc} placeholder={$t('naming.previewDescPlaceholder')} />
 			<button class="btn" onclick={previewSuggest} disabled={previewing || !naming.provider}>
-				{previewing ? '생성 중… (최대 30초)' : '후보 보기'}
+				{previewing ? $t('naming.previewing') : $t('naming.showCandidates')}
 			</button>
 		</div>
 		{#if previewMsg}

@@ -1,6 +1,7 @@
 <script>
 	import { assembleSubagentPanel } from '$lib/subagentPanel.js';
 	import OutputViewer from './OutputViewer.svelte';
+	import { t } from '$lib/i18n/index.js';
 
 	let { lines = [], maxHeight = 'none' } = $props();
 
@@ -69,7 +70,7 @@
 			<div class="general-panel">
 				<div class="general-header">
 					<span class="general-icon">🧠</span>
-					<span class="general-title">서브에이전트 통합</span>
+					<span class="general-title">{$t('subagentPanel.title')}</span>
 				</div>
 				<div class="general-content" bind:this={generalContainer} style="max-height: {maxHeight}">
 					<OutputViewer lines={panelData.generalLines} embedded={true} />
@@ -93,7 +94,7 @@
 						</div>
 						<div class="slot-content" bind:this={slotContainers[slot.name]}>
 							{#if slot.lines.length === 0}
-								<span class="slot-idle">대기 중...</span>
+								<span class="slot-idle">{$t('stream.idle')}</span>
 							{:else}
 								<OutputViewer lines={slot.lines} embedded={true} />
 							{/if}

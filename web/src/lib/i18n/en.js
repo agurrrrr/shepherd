@@ -373,5 +373,131 @@ export default {
 	'shepherdSettings.includeHiddenLabel': 'Include hidden projects',
 	'shepherdSettings.toggleInclude': 'Included',
 	'shepherdSettings.toggleExclude': 'Excluded',
-	'shepherdSettings.saveButton': 'Save shepherd settings'
+	'shepherdSettings.saveButton': 'Save shepherd settings',
+
+	// Shared setting labels used by several settings components
+	'commonSettings.enabledOption': 'Enabled',
+	'commonSettings.disabledOption': 'Disabled',
+	'commonSettings.selectOption': '— select —',
+	'commonSettings.unknownError': 'unknown error',
+	'commonSettings.saveFailedPrefix': 'Save failed: ',
+
+	// Common settings tab (CommonSettings.svelte)
+	'commonSettings.providerEmbeddedOption': 'Embedded (local LLM)',
+	'commonSettings.providerTabHint': 'Per-provider enable state, model, Custom Prompt and concurrency limits are set on that provider\'s tab.',
+	'commonSettings.maxConcurrentHint': 'Ceiling for all concurrently running tasks. 0 means no limit.',
+	'commonSettings.sheepMemoryHint': 'Per-sheep memory accumulated under ~/.shepherd/sheep/<name>/',
+	'commonSettings.sheepMemoryPromptPlaceholder': 'Memory guidelines passed to the sheep. {{.MemoryDir}} is replaced with the actual directory path.',
+	'commonSettings.memoryDirTokenHint': 'The {{.MemoryDir}} token is replaced with the sheep\'s actual memory directory path when a task runs.',
+	'commonSettings.discordWebhookHint': 'Enter the Discord Incoming Webhook URL.',
+
+	// PWA push settings (PushSettings.svelte)
+	'pushSettings.sectionTitle': 'PWA push notifications',
+	'pushSettings.intro': 'Shepherd installed to your home screen sends a system notification when a task completes or fails. Web Push delivers it even when the tab is closed. HTTPS (or localhost) is required.',
+	'pushSettings.thisDevice': 'This device',
+	'pushSettings.pillHttps': 'HTTPS required',
+	'pushSettings.pillUnsupported': 'Push not supported in this browser',
+	'pushSettings.pillInstallFirst': 'Install to home screen first',
+	'pushSettings.pillDenied': 'Notification permission denied',
+	'pushSettings.pillSubscribed': 'Subscribed',
+	'pushSettings.pillNotSubscribed': 'Not subscribed',
+	'pushSettings.deviceCount': '{count} device(s) registered',
+	'pushSettings.disableDevice': 'Turn off for this device',
+	'pushSettings.enableDevice': 'Turn on notifications for this device',
+	'pushSettings.testNotification': 'Test notification',
+	'pushSettings.iosHint': 'Safari Share → Add to Home Screen, then open that icon and press the button. (iOS 16.4+)',
+	'pushSettings.chromeHint': 'Chrome/Android allow push only over HTTPS or localhost.',
+	'pushSettings.enabledFlash': 'Push is on for this device.',
+	'pushSettings.disabledFlash': 'This device\'s subscription was removed.',
+	'pushSettings.testSent': 'Sent {count} test notification(s).',
+	'pushSettings.testNoSubscription': 'No subscription to send to. Turn on push for this device first.',
+
+	// LLM sheep naming section (SheepNamingSection.svelte)
+	'naming.sectionTitle': 'Sheep naming',
+	'naming.loadError': 'Failed to load settings.',
+	'naming.loading': 'Loading settings…',
+	'naming.label': 'LLM naming',
+	'naming.enabledHint': 'When a project is registered, an LLM names its sheep. When off, only the built-in name pool is used.',
+	'naming.providerHint': 'magi and auto cannot be selected. A provider must be set to enable this.',
+	'naming.modelDefaultOption': 'Provider default',
+	'naming.modelHint': 'Empty uses that provider\'s default model. Changing the provider resets this value.',
+	'naming.saved': 'Saved',
+	'naming.previewLabel': 'Preview',
+	'naming.previewNamePlaceholder': 'e.g. tangbisil',
+	'naming.previewDescPlaceholder': 'description (optional)',
+	'naming.previewNeedName': 'Enter the project name to preview.',
+	'naming.previewFailedPrefix': 'Candidate generation failed: ',
+	'naming.previewing': 'Generating… (up to 30s)',
+	'naming.showCandidates': 'Show candidates',
+
+	// Provider enable toggle (ProviderEnableToggle.svelte)
+	'providerToggle.on': 'Enabled',
+	'providerToggle.off': 'Disabled',
+	'providerToggle.hint': 'When off, this provider is hidden from the project screen\'s provider picker and running tasks on it is blocked.',
+
+	// Provider tabs: Claude / Pi / OpenCode (ClaudeSettings, PiSettings, OpenCodeSettings)
+	'claudeSettings.concurrencyHint': 'Concurrency limit. 0 means no limit. The auto provider counts toward the Claude group.',
+	'claudeSettings.promptPlaceholder': 'Enter extra instructions passed when running Claude Code.',
+	'piSettings.defaultGroupTitle': 'Default group for Pi tasks with no model set',
+	'piSettings.defaultGroupLabel': 'Pi (no model / default)',
+	'piSettings.concurrencyHint': 'Concurrency limit per provider+model group. 0 means no limit for that group.',
+	'piSettings.promptPlaceholder': 'Enter extra instructions passed when running Pi.',
+	'opencodeSettings.defaultGroupTitle': 'Default group for OpenCode tasks with no model set',
+	'opencodeSettings.defaultGroupLabel': 'OpenCode (no model / default)',
+	'opencodeSettings.concurrencyHint': 'Concurrency limit per provider+model group. 0 means no limit for that group.',
+	'opencodeSettings.promptPlaceholder': 'Enter extra instructions passed when running OpenCode.',
+
+	// MCP server management (MCPServerManagement.svelte)
+	'mcp.hint': 'Register external MCP servers (GitHub, Puppeteer, Filesystem, etc.). Each project\'s settings can toggle a registered server ON/OFF.',
+
+	// System prompt preview (PreviewSection.svelte)
+	'preview.desc': 'The system prompt actually sent when a Task runs. It includes the MCP tool list, recent task history, a project skill summary, and the Custom Prompt. (Per-sheep history/skills are filled only in the Sheep context.)',
+	'preview.shepherdNote': 'The shepherd operations guide, workspace, and management-scope table that go into shepherd tasks are included in this preview.',
+
+	// Grok settings tab (GrokSettings.svelte)
+	'grokSettings.sourceLive': 'list just read from `grok models`',
+	'grokSettings.sourceCli': 'list read from `grok models` at daemon start',
+	'grokSettings.sourceFallback': 'fallback list (`grok models` failed: {error})',
+	'grokSettings.sourceNone': 'no cause given',
+	'grokSettings.sourcePending': 'not read yet — press re-read',
+	'grokSettings.noResponse': 'No grok models response.',
+	'grokSettings.refreshed': 'Read {count} model(s) from the grok CLI.',
+	'grokSettings.cliFailed': 'grok CLI run failed: {error} — showing the fallback list.',
+	'grokSettings.refreshError': 'grok models refresh failed: {error}',
+	'grokSettings.appliedLatest': 'Selected {model}. Press Save to store it.',
+	'grokSettings.binaryHint': 'Actual grok binary path. Left empty, it is auto-detected from PATH and default install locations. Do not use a wrapper that waits for Enter.',
+	'grokSettings.backgroundWaitPlaceholder': '60m (empty = auto)',
+	'grokSettings.backgroundWaitHint': 'Max time a headless grok run waits for background work (builds, downloads, etc.) after the turn ends. grok\'s own default is 10 minutes; past that grok stops its work and exits 1, failing the task (#619). Empty means 60m, always shorter than task_timeout. off/0 exits as soon as the first turn ends (--no-wait-for-background). unlimited waits until just before task_timeout (24h if task_timeout is also unlimited).',
+	'grokSettings.refreshButton': 'Re-read models from grok CLI',
+	'grokSettings.reading': 'Reading…',
+	'grokSettings.applyLatest': 'Apply latest model',
+	'grokSettings.modelHint': 'Model list source: {source}. An empty value uses the grok account\'s default model. When xAI releases a new model, re-read, apply it, and Save.',
+	'grokSettings.concurrencyHint': 'Concurrency limit. 0 means no limit.',
+	'grokSettings.promptPlaceholder': 'Enter extra instructions passed when running Grok.',
+
+	// Account settings (AccountSettings.svelte)
+	'account.title': 'Login account',
+	'account.desc': 'Change the WebUI login ID and password. Leave a field empty to keep it. Changing them signs out every device except this browser.',
+	'account.currentUsername': 'Current ID',
+	'account.newUsername': 'New ID',
+	'account.newPassword': 'New password',
+	'account.confirmPassword': 'Confirm new password',
+	'account.currentPassword': 'Current password',
+	'account.submit': 'Change account',
+	'account.errWhitespace': 'The ID cannot contain spaces.',
+	'account.errNothing': 'Enter a new ID or a new password.',
+	'account.errMismatch': 'The new password and the confirmation do not match.',
+	'account.errNeedCurrent': 'Enter the current password.',
+	'account.changed': 'Changed. Sign in again with the new credentials on other devices.',
+	'account.changeFailed': 'Failed to change the account.',
+
+	// Settings page shell (routes/settings/+page.svelte)
+	'settings.tab.shepherd': 'Shepherd',
+	'settings.tab.common': 'Common',
+	'settingsTab.loadError': 'Failed to load settings',
+
+	// Streaming panels (MagiStreamPanel, SubagentStreamPanel)
+	'stream.idle': 'Idle...',
+	'magiPanel.title': 'MAGI deliberation',
+	'subagentPanel.title': 'Sub-agents (combined)'
 };

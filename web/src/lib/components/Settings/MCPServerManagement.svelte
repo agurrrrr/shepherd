@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
+	import { t } from '$lib/i18n/index.js';
 
 	let mcpServers = $state([]);
 	let loaded = $state(false);
@@ -116,7 +117,7 @@
 	</div>
 
 	<p class="hint">
-		외부 MCP 서버(GitHub, Puppeteer, Filesystem 등)를 등록합니다. 등록된 서버는 각 프로젝트 설정에서 ON/OFF 할 수 있습니다.
+		{$t('mcp.hint')}
 	</p>
 
 	{#if !loaded}

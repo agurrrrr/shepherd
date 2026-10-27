@@ -1,6 +1,7 @@
 <script>
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
 	import { apiPost } from '$lib/api.js';
+	import { translate, t } from '$lib/i18n/index.js';
 
 	/** @type {{ model_grok: string, custom_prompt_grok: string, concurrency_limits: Record<string, number>, grok_path: string, grok_background_wait: string }} */
 	export let configData;
@@ -29,12 +30,12 @@
 	// failed), "pending" (not read yet).
 	$: grokSourceLabel =
 		liveOptions
-			? '방금 `grok models`에서 읽은 목록'
+			? $t('grokSettings.sourceLive')
 			: grokModelInfo?.source === 'cli'
-				? '데몬 시작 시 `grok models`에서 읽은 목록'
+				? $t('grokSettings.sourceCli')
 				: grokModelInfo?.source === 'fallback'
-					? '대체 목록 (`grok models` 실패: ' + (grokModelInfo.error || '원인 없음') + ')'
-					: '아직 읽지 않음 — 다시 읽기를 누르세요';
+					? $t('grokSettings.sourceFallback', { error: grokModelInfo.error || $t('grokSettings.sourceNone') })
+					: $t('grokSettings.sourcePending');
 	// `grok models` lists the account default first, so it is also the newest
 	// model xAI offers for this account.
 	$: latestModel = currentOptions.find((o) => o.id) || null;
@@ -47,15 +48,15 @@
 			const res = await apiPost('/api/config/grok-models/refresh', {});
 			const data = res?.data;
 			if (!data) {
-				refreshMsg = 'grok models 응답이 없습니다.';
+				refreshMsg = translate('grokSettings.noResponse');
 			} else if (data.source === 'cli' && data.grok?.length) {
 				liveOptions = data.grok;
-				refreshMsg = `${data.grok.length}개 모델을 grok CLI에서 읽어왔습니다.`;
+				refreshMsg = translate('grokSettings.refreshed', { count: data.grok.length });
 			} else {
-				refreshMsg = 'grok CLI 실행 실패: ' + (data.error || '원인 없음') + ' — 대체 목록을 표시합니다.';
+				refreshMsg = translate('grokSettings.cliFailed', { error: data.error || translate('grokSettings.sourceNone') });
 			}
 		} catch (err) {
-			refreshMsg = 'grok models 갱신 실패: ' + (err?.message || err);
+			refreshMsg = translate('grokSettings.refreshError', { error: err?.message || err });
 		} finally {
 			refreshing = false;
 		}
@@ -64,7 +65,7 @@
 	function applyLatest() {
 		if (!latestModel) return;
 		configData.model_grok = latestModel.id;
-		refreshMsg = `${latestModel.id} 선택했습니다. Save를 눌러 저장하세요.`;
+		refreshMsg = translate('grokSettings.appliedLatest', { model: latestModel.id });
 	}
 </script>
 
@@ -73,17 +74,13 @@
 <div class="setting-row">
 	<label>Grok Binary Path</label>
 	<input class="input" type="text" bind:value={configData.grok_path} placeholder="auto-detect" />
-	<span class="hint">실제 grok 바이너리 경로. 비워두면 PATH와 기본 설치 경로에서 자동 탐지. 엔터를 기다리는 래퍼는 쓰지 마세요.</span>
+	<span class="hint">{$t('grokSettings.binaryHint')}</span>
 </div>
 <div class="setting-row">
 	<label>Grok Background Wait</label>
-	<input class="input" type="text" bind:value={configData.grok_background_wait} placeholder="60m (비우면 자동)" />
+	<input class="input" type="text" bind:value={configData.grok_background_wait} placeholder={$t('grokSettings.backgroundWaitPlaceholder')} />
 	<span class="hint">
-		grok 헤드리스 실행이 턴 종료 후 백그라운드 작업(빌드·다운로드 등)을 기다리는 최대 시간.
-		grok 자체 기본값은 10분이고, 그 이상이면 grok이 작업을 멈추고 exit 1로 끝나 작업이 실패합니다 (#619).
-		비우면 60분이되 task_timeout보다는 항상 짧게 적용됩니다.
-		<code>off</code>/<code>0</code>는 첫 턴이 끝나자마자 종료합니다 (--no-wait-for-background).
-		<code>unlimited</code>는 task_timeout 직전까지 기다립니다 (task_timeout도 무제한이면 24h).
+		{$t('grokSettings.backgroundWaitHint')}
 	</span>
 </div>
 <div class="setting-row">
@@ -94,14 +91,13 @@
 		{/each}
 	</select>
 	<button class="btn btn-sm btn-outline" onclick={refreshModels} disabled={refreshing}>
-		{refreshing ? '읽는 중…' : 'grok CLI에서 모델 다시 읽기'}
+		{refreshing ? $t('grokSettings.reading') : $t('grokSettings.refreshButton')}
 	</button>
 	<button class="btn btn-sm btn-outline" onclick={applyLatest} disabled={!latestModel}>
-		최신 모델 적용{latestModel ? ` (${latestModel.id})` : ''}
+		{$t('grokSettings.applyLatest')}{latestModel ? ` (${latestModel.id})` : ''}
 	</button>
 	<span class="hint">
-		모델 목록 출처: {grokSourceLabel}. 빈 값이면 grok 계정 기본 모델을 사용합니다.
-		xAI가 새 모델을 내면 다시 읽기한 뒤 적용하고 Save하세요.
+		{$t('grokSettings.modelHint', { source: grokSourceLabel })}
 		{#if refreshMsg}<span class="refresh-msg">{refreshMsg}</span>{/if}
 	</span>
 </div>
@@ -113,7 +109,7 @@
 			<input class="input conc-input" type="number" bind:value={configData.concurrency_limits['grok']} min="0" max="50" placeholder="0" />
 		</div>
 	</div>
-	<span class="hint">동시 실행 제한. 0이면 제한 없음.</span>
+	<span class="hint">{$t('grokSettings.concurrencyHint')}</span>
 </div>
 <div class="setting-row column">
 	<label>Custom Prompt — Grok</label>
@@ -121,7 +117,7 @@
 		class="input textarea"
 		bind:value={configData.custom_prompt_grok}
 		rows="6"
-		placeholder="Grok 실행 시 추가로 전달할 지시문을 입력하세요."
+		placeholder={$t('grokSettings.promptPlaceholder')}
 	></textarea>
 	<span class="hint">Injected only when the task runs on Grok.</span>
 </div>

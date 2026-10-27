@@ -1,5 +1,6 @@
 <script>
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
+	import { t } from '$lib/i18n/index.js';
 
 	/** @type {{ model_opencode: string, custom_prompt_opencode: string, opencode_compact_prompt: boolean, opencode_thinking_default: boolean, opencode_thinking_proxy_enabled: boolean, opencode_thinking_proxy_port: number, opencode_thinking_proxy_target: string, opencode_thinking_model: string, concurrency_limits: Record<string, number> }} */
 	export let configData;
@@ -31,12 +32,12 @@
 		{#each modelOptions as opt}
 			{@const key = opt.id ? `opencode/${opt.id}` : 'opencode'}
 			<div class="conc-row">
-				<span class="conc-label" title={opt.id ? opt.id : 'OpenCode 모델 미지정 작업의 기본 그룹'}>🟢 {opt.id ? opt.label : 'OpenCode (모델 미지정 / 기본)'}</span>
+				<span class="conc-label" title={opt.id ? opt.id : $t('opencodeSettings.defaultGroupTitle')}>🟢 {opt.id ? opt.label : $t('opencodeSettings.defaultGroupLabel')}</span>
 				<input class="input conc-input" type="number" bind:value={configData.concurrency_limits[key]} min="0" max="50" placeholder="0" />
 			</div>
 		{/each}
 	</div>
-	<span class="hint">provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음.</span>
+	<span class="hint">{$t('opencodeSettings.concurrencyHint')}</span>
 </div>
 <div class="setting-row">
 	<label>Compact Prompt</label>
@@ -84,7 +85,7 @@
 		class="input textarea"
 		bind:value={configData.custom_prompt_opencode}
 		rows="6"
-		placeholder="OpenCode 실행 시 추가로 전달할 지시문을 입력하세요."
+		placeholder={$t('opencodeSettings.promptPlaceholder')}
 	></textarea>
 	<span class="hint">Injected only when the task runs on OpenCode.</span>
 </div>
