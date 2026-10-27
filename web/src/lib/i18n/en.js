@@ -569,5 +569,48 @@ export default {
 	'magiSettings.saved': '✅ Saved',
 	'magiSettings.saveFailed': '❌ Save failed',
 	'magiSettings.saveError': 'Save failed',
-	'magiSettings.saveButton': 'Save MAGI settings'
+	'magiSettings.saveButton': 'Save MAGI settings',
+
+	// Task detail screen (routes/tasks/[id]/+page.svelte)
+	'taskDetail.revertChip': 'reverted · {time}',
+	'taskDetail.shepherdChip': 'shepherd',
+	'taskDetail.changesTitle': 'Changes',
+	'taskDetail.commitsBadge': '{count} commit(s) included',
+	'taskDetail.downloadPatch': 'Download patch',
+	'taskDetail.viewLiveChanges': 'View changes so far',
+	'taskDetail.refreshLiveChanges': 'Refresh changes so far',
+	'taskDetail.revertButton': 'Revert this task',
+	'taskDetail.undoRevertButton': 'Undo revert',
+	'taskDetail.changesNotice': 'It includes every change made in this directory while the task ran.',
+	'taskDetail.noChangedFiles': 'No files changed.',
+	'taskDetail.showMoreFiles': 'Show more ({count} more)',
+	'taskDetail.mismatchSummary': 'Reported but not actually changed ({count})',
+	'taskDetail.reportedFiles': 'Files reported by the agent ({count})',
+	'taskDetail.magiOutputTitle': 'MAGI deliberation Output',
+	'taskDetail.subagentOutputTitle': 'Sub-agent Output',
+
+	// Checkpoint-diff unavailable reasons (task detail + task list)
+	'changes.reason.checkpointDisabled': 'Checkpoints are disabled, so the changes cannot be shown.',
+	'changes.reason.notGitRepo': 'Not a git repository, so the changes cannot be shown.',
+	'changes.reason.tooLarge': 'The changes were too large to snapshot.',
+	'changes.reason.noEndSnapshot': 'There is no end-of-task snapshot, so the changes cannot be shown.',
+	'changes.reason.snapshotPruned': 'The snapshot was pruned, so the changes cannot be shown.',
+	'changes.reason.shepherdTask': 'Shepherd tasks do not keep checkpoints.',
+	'changes.reason.running': 'The task is running. Press "View changes so far" to see the changes up to now.',
+	'changes.reason.unknown': 'The changes cannot be shown.',
+
+	// Revert / undo (task detail)
+	'revert.previewFailed': 'Failed to load the revert preview.',
+	'revert.failed': 'The revert failed.',
+	'revert.undoConfirm': 'Run undo-revert? Changes made after the revert are preserved.',
+	'revert.undoFailed': 'Undo revert failed.',
+	'revert.modalAria': 'Revert',
+	'revert.modalTitle': 'Revert Task #{id}',
+	'revert.checking': 'Checking which files will change...',
+	'revert.conflictError': 'There are conflicts, so the task cannot be reverted. The working tree was not changed.',
+	'revert.notice': 'These files return to their state before this task.',
+	'revert.noFiles': 'No files will change.',
+	'revert.warning': 'The reverted changes stay in the working tree as uncommitted changes. Review them and commit yourself.',
+	'revert.reverting': 'Reverting...',
+	'revert.confirm': 'Revert'
 };

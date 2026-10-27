@@ -11,6 +11,7 @@
 	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
 	import DiffView from '$lib/components/DiffView.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { translate, t } from '$lib/i18n/index.js';
 
 	let task = $state(null);
 	let loading = $state(true);
@@ -118,18 +119,19 @@
 
 	onDestroy(() => unsubs.forEach(fn => fn()));
 
-	const reasonLabels = {
-		'checkpoint disabled': '체크포인트가 비활성화되어 변경 사항을 볼 수 없습니다.',
-		'not a git repository': 'git 저장소가 아니라서 변경 사항을 볼 수 없습니다.',
-		'too large': '변경 사항이 너무 커서 스냅샷을 만들지 못했습니다.',
-		'no end snapshot': '작업 종료 스냅샷이 없어 변경 사항을 볼 수 없습니다.',
-		'snapshot pruned': '스냅샷이 정리되어 변경 사항을 볼 수 없습니다.',
-		'shepherd task': '목자 작업은 체크포인트를 남기지 않습니다.',
-		running: '작업이 실행 중입니다. "현재까지 변경 보기"를 눌러 지금까지의 변경을 확인하세요.',
+	const reasonKeys = {
+		'checkpoint disabled': 'changes.reason.checkpointDisabled',
+		'not a git repository': 'changes.reason.notGitRepo',
+		'too large': 'changes.reason.tooLarge',
+		'no end snapshot': 'changes.reason.noEndSnapshot',
+		'snapshot pruned': 'changes.reason.snapshotPruned',
+		'shepherd task': 'changes.reason.shepherdTask',
+		running: 'changes.reason.running',
 	};
 
 	function reasonText(reason) {
-		return reasonLabels[reason] || reason || '변경 사항을 볼 수 없습니다.';
+		const key = reasonKeys[reason];
+		return key ? translate(key) : (reason || translate('changes.reason.unknown'));
 	}
 
 	async function loadChanges(live = false) {
@@ -213,11 +215,11 @@
 			if (res?.success) {
 				revertPreview = res.data;
 			} else {
-				revertError = res?.message || '되돌리기 미리보기를 불러오지 못했습니다.';
+				revertError = res?.message || translate('revert.previewFailed');
 				revertConflicts = res?.conflicts || [];
 			}
 		} catch (err) {
-			revertError = err?.message || '되돌리기 미리보기를 불러오지 못했습니다.';
+			revertError = err?.message || translate('revert.previewFailed');
 		} finally {
 			revertLoading = false;
 		}
@@ -242,11 +244,11 @@
 				await refreshTask();
 				await loadChanges(false);
 			} else {
-				revertError = res?.message || '되돌리지 못했습니다.';
+				revertError = res?.message || translate('revert.failed');
 				revertConflicts = res?.conflicts || [];
 			}
 		} catch (err) {
-			revertError = err?.message || '되돌리지 못했습니다.';
+			revertError = err?.message || translate('revert.failed');
 		} finally {
 			reverting = false;
 		}
@@ -254,7 +256,7 @@
 
 	async function undoRevert() {
 		if (undoLoading) return;
-		if (!confirm('되돌리기 취소를 실행할까요? 되돌린 뒤 생긴 다른 변경은 보존됩니다.')) return;
+		if (!confirm(translate('revert.undoConfirm'))) return;
 		undoLoading = true;
 		actionError = '';
 		try {
@@ -263,10 +265,10 @@
 				await refreshTask();
 				await loadChanges(false);
 			} else {
-				actionError = res?.message || '되돌리기 취소에 실패했습니다.';
+				actionError = res?.message || translate('revert.undoFailed');
 			}
 		} catch (err) {
-			actionError = err?.message || '되돌리기 취소에 실패했습니다.';
+			actionError = err?.message || translate('revert.undoFailed');
 		} finally {
 			undoLoading = false;
 		}
@@ -349,7 +351,7 @@
 						<h1><span class="hash">#</span>{task.id}</h1>
 						<StatusBadge status={task.status} />
 						{#if task.reverted_at}
-							<span class="chip chip-queued" title={task.reverted_at}>되돌림 · {task.reverted_at}</span>
+							<span class="chip chip-queued" title={task.reverted_at}>{$t('taskDetail.revertChip', { time: task.reverted_at })}</span>
 						{/if}
 					</div>
 				</div>
@@ -371,7 +373,7 @@
 						{#if task.project}
 							<a href="/projects/{encodeURIComponent(task.project)}">{task.project}</a>
 						{:else if task.shepherd_kind}
-							<span class="chip chip-accent">목자</span>
+							<span class="chip chip-accent">{$t('taskDetail.shepherdChip')}</span>
 						{:else}
 							–
 						{/if}
@@ -442,17 +444,17 @@
 			<div class="section card changes-card">
 				<div class="changes-header">
 					<h3 class="section-label ko">
-						변경 사항
+						{$t('taskDetail.changesTitle')}
 						{#if changes?.available}
 							<span class="changes-summary">{changes.files.length} files · +{changes.additions} −{changes.deletions}</span>
 						{/if}
 					</h3>
 					<div class="changes-actions">
 						{#if changes?.commits_during_task?.length}
-							<span class="commit-badge">커밋 {changes.commits_during_task.length}개 포함</span>
+							<span class="commit-badge">{$t('taskDetail.commitsBadge', { count: changes.commits_during_task.length })}</span>
 						{/if}
 						{#if changes?.available}
-							<button type="button" class="link-btn" onclick={downloadPatch}><Icon name="arrow-up-right" size={12} /> 패치 내려받기</button>
+							<button type="button" class="link-btn" onclick={downloadPatch}><Icon name="arrow-up-right" size={12} /> {$t('taskDetail.downloadPatch')}</button>
 						{/if}
 						{#if task.status === 'running'}
 							<button
@@ -461,13 +463,13 @@
 								onclick={() => loadChanges(true)}
 								disabled={changesLoading}
 							>
-								{changesLive ? '현재까지 변경 다시 보기' : '현재까지 변경 보기'}
+								{changesLive ? $t('taskDetail.refreshLiveChanges') : $t('taskDetail.viewLiveChanges')}
 							</button>
 						{/if}
 						{#if canRevert}
 							<button type="button" class="btn btn-sm revert-btn" onclick={openRevertModal}>
 								<Icon name="rotate-ccw" size={12} />
-								이 작업 되돌리기
+								{$t('taskDetail.revertButton')}
 							</button>
 						{/if}
 						{#if isReverted}
@@ -477,7 +479,7 @@
 								onclick={undoRevert}
 								disabled={undoLoading}
 							>
-								{undoLoading ? '...' : '되돌리기 취소'}
+								{undoLoading ? '...' : $t('taskDetail.undoRevertButton')}
 							</button>
 						{/if}
 					</div>
@@ -496,9 +498,9 @@
 					{/if}
 
 					{#if changes.available}
-						<p class="changes-notice">작업이 실행되는 동안 이 디렉터리에서 생긴 모든 변경이 포함됩니다.</p>
+						<p class="changes-notice">{$t('taskDetail.changesNotice')}</p>
 						{#if changes.files.length === 0}
-							<p class="text-muted">변경된 파일이 없습니다.</p>
+							<p class="text-muted">{$t('taskDetail.noChangedFiles')}</p>
 						{:else}
 							<div class="change-list">
 								{#each visibleFiles as f (f.path)}
@@ -531,14 +533,14 @@
 							</div>
 							{#if !showAllFiles && changes.files.length > MAX_VISIBLE_FILES}
 								<button type="button" class="btn btn-sm more-files" onclick={() => showAllFiles = true}>
-									더 보기 ({changes.files.length - MAX_VISIBLE_FILES}개 더)
+									{$t('taskDetail.showMoreFiles', { count: changes.files.length - MAX_VISIBLE_FILES })}
 								</button>
 							{/if}
 						{/if}
 
 						{#if changes.files_modified_mismatch?.length}
 							<details class="mismatch">
-								<summary>보고했지만 실제 변경이 없는 파일 ({changes.files_modified_mismatch.length})</summary>
+								<summary>{$t('taskDetail.mismatchSummary', { count: changes.files_modified_mismatch.length })}</summary>
 								<ul class="files-list mono">
 									{#each changes.files_modified_mismatch as file}
 										<li>{file}</li>
@@ -550,7 +552,7 @@
 						<p class="changes-reason">{reasonText(changes.reason)}</p>
 						{#if task.files_modified?.length}
 							<div class="reported-files">
-								<h4>에이전트가 보고한 파일 ({task.files_modified.length})</h4>
+								<h4>{$t('taskDetail.reportedFiles', { count: task.files_modified.length })}</h4>
 								<ul class="files-list mono">
 									{#each task.files_modified as file}
 										<li>{file}</li>
@@ -564,12 +566,12 @@
 
 			{#if providerIsMagi}
 				<div class="section">
-					<h3 class="section-label ko">MAGI 심의 Output</h3>
+					<h3 class="section-label ko">{$t('taskDetail.magiOutputTitle')}</h3>
 					<MagiStreamPanel lines={liveOutput} maxHeight="600px" />
 				</div>
 			{:else if hasSubagentOutput}
 				<div class="section">
-					<h3 class="section-label ko">서브에이전트 Output</h3>
+					<h3 class="section-label ko">{$t('taskDetail.subagentOutputTitle')}</h3>
 					<SubagentStreamPanel lines={liveOutput} maxHeight="600px" />
 				</div>
 			{:else}
@@ -582,16 +584,16 @@
 
 	{#if revertOpen}
 		<div class="modal-overlay">
-			<div class="modal-content revert-modal card" role="dialog" aria-modal="true" aria-label="되돌리기">
+			<div class="modal-content revert-modal card" role="dialog" aria-modal="true" aria-label={$t('revert.modalAria')}>
 				<div class="modal-header">
-					<h3>Task #{task.id} 되돌리기</h3>
+					<h3>{$t('revert.modalTitle', { id: task.id })}</h3>
 					<button class="btn btn-sm btn-ghost btn-icon" onclick={closeRevertModal} disabled={reverting} aria-label="Close"><Icon name="x" size={15} /></button>
 				</div>
 
 				{#if revertLoading}
-					<p class="text-muted">바뀔 파일을 확인하는 중...</p>
+					<p class="text-muted">{$t('revert.checking')}</p>
 				{:else if revertConflicts.length}
-					<p class="revert-error">충돌이 있어 되돌릴 수 없습니다. 작업 트리는 바뀌지 않았습니다.</p>
+					<p class="revert-error">{$t('revert.conflictError')}</p>
 					<ul class="revert-file-list mono">
 						{#each revertConflicts as path}
 							<li class="conflict-path">{path}</li>
@@ -600,7 +602,7 @@
 				{:else if revertError}
 					<p class="revert-error">{revertError}</p>
 				{:else if revertPreview}
-					<p class="revert-notice">다음 파일이 이 작업 이전 상태로 돌아갑니다.</p>
+					<p class="revert-notice">{$t('revert.notice')}</p>
 					{#if revertPreview.files?.length}
 						<ul class="revert-file-list mono">
 							{#each revertPreview.files as f (f.path)}
@@ -611,17 +613,17 @@
 							{/each}
 						</ul>
 					{:else}
-						<p class="text-muted">바뀔 파일이 없습니다.</p>
+						<p class="text-muted">{$t('revert.noFiles')}</p>
 					{/if}
-					<p class="revert-warning">되돌린 변경은 커밋되지 않은 변경으로 작업 트리에 남습니다. 직접 확인한 뒤 커밋하세요.</p>
+					<p class="revert-warning">{$t('revert.warning')}</p>
 					<div class="modal-actions">
-						<button class="btn" onclick={closeRevertModal} disabled={reverting}>취소</button>
+						<button class="btn" onclick={closeRevertModal} disabled={reverting}>{$t('common.cancel')}</button>
 						<button
 							class="btn btn-danger-solid"
 							onclick={confirmRevert}
 							disabled={reverting || !revertPreview.changed}
 						>
-							{reverting ? '되돌리는 중...' : '되돌리기'}
+							{reverting ? $t('revert.reverting') : $t('revert.confirm')}
 						</button>
 					</div>
 				{/if}

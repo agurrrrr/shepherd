@@ -567,5 +567,48 @@ export default {
 	'magiSettings.saved': '✅ 저장됨',
 	'magiSettings.saveFailed': '❌ 저장 실패',
 	'magiSettings.saveError': '저장 실패',
-	'magiSettings.saveButton': 'MAGI 설정 저장'
+	'magiSettings.saveButton': 'MAGI 설정 저장',
+
+	// Task detail screen (routes/tasks/[id]/+page.svelte)
+	'taskDetail.revertChip': '되돌림 · {time}',
+	'taskDetail.shepherdChip': '목자',
+	'taskDetail.changesTitle': '변경 사항',
+	'taskDetail.commitsBadge': '커밋 {count}개 포함',
+	'taskDetail.downloadPatch': '패치 내려받기',
+	'taskDetail.viewLiveChanges': '현재까지 변경 보기',
+	'taskDetail.refreshLiveChanges': '현재까지 변경 다시 보기',
+	'taskDetail.revertButton': '이 작업 되돌리기',
+	'taskDetail.undoRevertButton': '되돌리기 취소',
+	'taskDetail.changesNotice': '작업이 실행되는 동안 이 디렉터리에서 생긴 모든 변경이 포함됩니다.',
+	'taskDetail.noChangedFiles': '변경된 파일이 없습니다.',
+	'taskDetail.showMoreFiles': '더 보기 ({count}개 더)',
+	'taskDetail.mismatchSummary': '보고했지만 실제 변경이 없는 파일 ({count})',
+	'taskDetail.reportedFiles': '에이전트가 보고한 파일 ({count})',
+	'taskDetail.magiOutputTitle': 'MAGI 심의 Output',
+	'taskDetail.subagentOutputTitle': '서브에이전트 Output',
+
+	// Checkpoint-diff unavailable reasons (task detail + task list)
+	'changes.reason.checkpointDisabled': '체크포인트가 비활성화되어 변경 사항을 볼 수 없습니다.',
+	'changes.reason.notGitRepo': 'git 저장소가 아니라서 변경 사항을 볼 수 없습니다.',
+	'changes.reason.tooLarge': '변경 사항이 너무 커서 스냅샷을 만들지 못했습니다.',
+	'changes.reason.noEndSnapshot': '작업 종료 스냅샷이 없어 변경 사항을 볼 수 없습니다.',
+	'changes.reason.snapshotPruned': '스냅샷이 정리되어 변경 사항을 볼 수 없습니다.',
+	'changes.reason.shepherdTask': '목자 작업은 체크포인트를 남기지 않습니다.',
+	'changes.reason.running': '작업이 실행 중입니다. "현재까지 변경 보기"를 눌러 지금까지의 변경을 확인하세요.',
+	'changes.reason.unknown': '변경 사항을 볼 수 없습니다.',
+
+	// Revert / undo (task detail)
+	'revert.previewFailed': '되돌리기 미리보기를 불러오지 못했습니다.',
+	'revert.failed': '되돌리지 못했습니다.',
+	'revert.undoConfirm': '되돌리기 취소를 실행할까요? 되돌린 뒤 생긴 다른 변경은 보존됩니다.',
+	'revert.undoFailed': '되돌리기 취소에 실패했습니다.',
+	'revert.modalAria': '되돌리기',
+	'revert.modalTitle': 'Task #{id} 되돌리기',
+	'revert.checking': '바뀔 파일을 확인하는 중...',
+	'revert.conflictError': '충돌이 있어 되돌릴 수 없습니다. 작업 트리는 바뀌지 않았습니다.',
+	'revert.notice': '다음 파일이 이 작업 이전 상태로 돌아갑니다.',
+	'revert.noFiles': '바뀔 파일이 없습니다.',
+	'revert.warning': '되돌린 변경은 커밋되지 않은 변경으로 작업 트리에 남습니다. 직접 확인한 뒤 커밋하세요.',
+	'revert.reverting': '되돌리는 중...',
+	'revert.confirm': '되돌리기'
 };
