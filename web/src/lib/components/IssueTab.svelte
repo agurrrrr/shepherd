@@ -147,34 +147,34 @@
 <div class="issue-tab">
 	<!-- Header -->
 	<div class="issue-header">
-		<h2>이슈트래커</h2>
-		<button class="btn btn-primary" onclick={openCreate}><Icon name="plus" size={14} stroke={2.2} /> 이슈 생성</button>
+		<h2>{$t('issue.trackerTitle')}</h2>
+		<button class="btn btn-primary" onclick={openCreate}><Icon name="plus" size={14} stroke={2.2} /> {$t('issue.create')}</button>
 	</div>
 
 	<!-- Filters -->
 	<div class="issue-filters">
 		<input
 			type="text"
-			placeholder="제목 검색..."
+			placeholder={$t('issue.searchPlaceholder')}
 			class="input input-search search-input"
 			bind:value={searchQ}
 			oninput={applyFilters}
 		/>
-		<select class="input" bind:value={filterStatus} onchange={applyFilters} aria-label="상태 필터">
-			<option value="">모든 상태</option>
+		<select class="input" bind:value={filterStatus} onchange={applyFilters} aria-label={$t('issue.statusFilterAria')}>
+			<option value="">{$t('issue.statusAll')}</option>
 			<option value="todo">{$t('issue.status.todo')}</option>
 			<option value="in_progress">{$t('issue.status.in_progress')}</option>
 			<option value="testing">{$t('issue.status.testing')}</option>
 			<option value="failed">{$t('issue.status.failed')}</option>
 			<option value="done">{$t('issue.status.done')}</option>
 		</select>
-		<select class="input" bind:value={filterType} onchange={applyFilters} aria-label="타입 필터">
-			<option value="">모든 타입</option>
+		<select class="input" bind:value={filterType} onchange={applyFilters} aria-label={$t('issue.typeFilterAria')}>
+			<option value="">{$t('issue.typeAll')}</option>
 			<option value="design">{$t('issue.type.design')}</option>
 			<option value="feature">{$t('issue.type.feature')}</option>
 			<option value="bug">{$t('issue.type.bug')}</option>
 		</select>
-		<button class="btn btn-ghost" onclick={resetFilters}><Icon name="rotate-ccw" size={13} /> 초기화</button>
+		<button class="btn btn-ghost" onclick={resetFilters}><Icon name="rotate-ccw" size={13} /> {$t('common.reset')}</button>
 	</div>
 
 	<!-- Create Form Modal — only Cancel/× close (no outside-click dismiss; avoid data loss while typing) -->
@@ -182,17 +182,17 @@
 	<div class="modal-overlay">
 		<div class="modal modal-lg">
 			<div class="modal-header">
-				<h3>새 이슈 생성</h3>
-				<button class="btn btn-ghost btn-icon btn-sm" onclick={closeCreate} aria-label="닫기"><Icon name="x" size={15} /></button>
+				<h3>{$t('issue.createTitle')}</h3>
+				<button class="btn btn-ghost btn-icon btn-sm" onclick={closeCreate} aria-label={$t('common.close')}><Icon name="x" size={15} /></button>
 			</div>
 			<div class="modal-body">
 				<div class="form-group">
-					<label>제목 *</label>
-					<input type="text" bind:value={createForm.title} placeholder="이슈 제목을 입력하세요" />
+					<label>{$t('issue.fieldTitle')}</label>
+					<input type="text" bind:value={createForm.title} placeholder={$t('issue.titlePlaceholder')} />
 				</div>
 				<div class="form-row">
 					<div class="form-group">
-						<label>타입</label>
+						<label>{$t('issue.fieldType')}</label>
 						<select bind:value={createForm.type}>
 							<option value="feature">{$t('issue.type.feature')}</option>
 							<option value="design">{$t('issue.type.design')}</option>
@@ -200,9 +200,9 @@
 						</select>
 					</div>
 					<div class="form-group">
-						<label>상위 이슈 (선택)</label>
+						<label>{$t('issue.fieldParent')}</label>
 						<select bind:value={createForm.parent_id}>
-							<option value="">없음 (루트)</option>
+							<option value="">{$t('issue.parentNone')}</option>
 							{#each parentOptions() as p}
 								<option value={String(p.id)}>#{p.id} {p.title}</option>
 							{/each}
@@ -210,17 +210,17 @@
 					</div>
 				</div>
 				<div class="form-group">
-					<label>본문</label>
-					<textarea bind:value={createForm.body} placeholder="이슈 상세 내용 (마크다운 지원)" rows="6"></textarea>
+					<label>{$t('issue.fieldBody')}</label>
+					<textarea bind:value={createForm.body} placeholder={$t('issue.bodyPlaceholder')} rows="6"></textarea>
 				</div>
 				<div class="form-group">
-					<label>목표 (완료 기준)</label>
-					<textarea bind:value={createForm.goal} placeholder="성공 여부를 판단할 기준을 작성하세요" rows="3"></textarea>
+					<label>{$t('issue.fieldGoal')}</label>
+					<textarea bind:value={createForm.goal} placeholder={$t('issue.goalPlaceholder')} rows="3"></textarea>
 				</div>
 			</div>
 			<div class="modal-footer">
-				<button class="btn" onclick={closeCreate}>취소</button>
-				<button class="btn btn-primary" onclick={createIssue}>생성</button>
+				<button class="btn" onclick={closeCreate}>{$t('common.cancel')}</button>
+				<button class="btn btn-primary" onclick={createIssue}>{$t('common.create')}</button>
 			</div>
 		</div>
 	</div>
@@ -246,9 +246,9 @@
 	{:else if issues.length === 0}
 		<div class="empty-state">
 			<span class="empty-glyph" aria-hidden="true"><Icon name="inbox" size={22} /></span>
-			<p class="empty-title">아직 이슈가 없습니다</p>
-			<p class="empty-sub">설계, 기능, 버그를 이슈로 남기면 양에게 바로 수행을 맡길 수 있습니다.</p>
-			<button class="btn btn-primary" onclick={openCreate}><Icon name="plus" size={14} stroke={2.2} /> 첫 번째 이슈 생성</button>
+			<p class="empty-title">{$t('issue.emptyTitle')}</p>
+			<p class="empty-sub">{$t('issue.emptySub')}</p>
+			<button class="btn btn-primary" onclick={openCreate}><Icon name="plus" size={14} stroke={2.2} /> {$t('issue.createFirst')}</button>
 		</div>
 	{:else}
 		<div class="issue-list">
@@ -270,10 +270,10 @@
 				<div class="issue-card-footer">
 					<span class="issue-type-label">{enumLabel($t, 'issue.type', issue.type)}</span>
 					{#if issue.parent_id}
-						<span class="parent-tag">↳ 상위 #{issue.parent_id}</span>
+						<span class="parent-tag">↳ {$t('issue.parentTag', { id: issue.parent_id })}</span>
 					{/if}
 					{#if issue.task_count > 0}
-						<span class="task-count">작업 {issue.task_count}개</span>
+						<span class="task-count">{$t('issue.taskCount', { count: issue.task_count })}</span>
 					{/if}
 					<span class="issue-date mono">{issue.created_at}</span>
 				</div>
@@ -284,9 +284,9 @@
 		<!-- Pagination -->
 		{#if totalPages > 1}
 		<div class="pagination-bar">
-			<button class="btn btn-sm btn-ghost" disabled={page <= 1} onclick={() => handlePageChange(page - 1)}><Icon name="chevron-left" size={13} /> 이전</button>
+			<button class="btn btn-sm btn-ghost" disabled={page <= 1} onclick={() => handlePageChange(page - 1)}><Icon name="chevron-left" size={13} /> {$t('issue.pagePrev')}</button>
 			<span class="page-info mono">{page} / {totalPages}</span>
-			<button class="btn btn-sm btn-ghost" disabled={page >= totalPages} onclick={() => handlePageChange(page + 1)}>다음 <Icon name="chevron-right" size={13} /></button>
+			<button class="btn btn-sm btn-ghost" disabled={page >= totalPages} onclick={() => handlePageChange(page + 1)}>{$t('issue.pageNext')} <Icon name="chevron-right" size={13} /></button>
 		</div>
 		{/if}
 	{/if}

@@ -2,7 +2,7 @@
 	import { apiGet, apiPost, apiPatch, apiDelete } from '$lib/api.js';
 	import Icon from '$lib/components/Icon.svelte';
 	import MarkdownBody from '$lib/components/MarkdownBody.svelte';
-	import { t, enumLabel } from '$lib/i18n/index.js';
+	import { t, translate, enumLabel } from '$lib/i18n/index.js';
 
 	// Issue detail modal shared by the project Issues tab and the Shepherd
 	// board (#599). The project screen (IssueTab) used to own this markup; it
@@ -60,10 +60,10 @@
 			if (res?.success && res.data) {
 				issue = res.data;
 			} else {
-				loadError = res?.message || '이슈 상세를 불러오지 못했습니다.';
+				loadError = res?.message || translate('issue.loadError');
 			}
 		} catch (e) {
-			if (mySeq === seq) loadError = '이슈 상세를 불러오지 못했습니다.';
+			if (mySeq === seq) loadError = translate('issue.loadError');
 		}
 	}
 
@@ -80,14 +80,14 @@
 				payload
 			);
 			if (!res?.success) {
-				loadError = res?.message || '이슈를 수정하지 못했습니다.';
+				loadError = res?.message || translate('issue.patchError');
 				return;
 			}
 			loadError = '';
 			if (reload) await load();
 			onChanged();
 		} catch (e) {
-			loadError = '이슈를 수정하지 못했습니다: ' + (e?.message || e);
+			loadError = translate('issue.patchErrorWith', { error: e?.message || e });
 		} finally {
 			busy = false;
 		}
@@ -100,7 +100,7 @@
 
 	async function resetRounds() {
 		if (!issue) return;
-		if (!confirm('검토 회차를 0으로 초기화할까요? 목자가 이 이슈를 다시 검토할 수 있습니다.')) return;
+		if (!confirm(translate('issue.resetRoundsConfirm'))) return;
 		await patchIssue({ shepherd_rounds: 0 });
 	}
 
@@ -114,9 +114,9 @@
 		const hasChildren = issue.children?.length > 0;
 		const incomplete = hasChildren ? issue.children.filter((c) => c.status !== 'done').length : 0;
 		let msg = incomplete > 0
-			? `미완료 하위 이슈 ${incomplete}개를 먼저 큐에 넣고, 마지막에 이 이슈를 수행합니다. 계속할까요?`
-			: '이 이슈를 수행하시겠습니까?';
-		if (executeWithWatch) msg += '\n감시(목자 검토)를 켠 상태로 실행합니다.';
+			? translate('issue.executeConfirmWithChildren', { count: incomplete })
+			: translate('issue.executeConfirm');
+		if (executeWithWatch) msg += '\n' + translate('issue.executeWatchNote');
 		if (!confirm(msg)) return;
 		busy = true;
 		try {
@@ -125,16 +125,18 @@
 				{ watch: executeWithWatch }
 			);
 			if (res?.data?.task_ids?.length > 1) {
-				alert(
-					`작업 ${res.data.task_ids.length}개가 큐에 추가되었습니다.\n이슈: ${JSON.stringify(res.data.issue_ids)}\nTask: ${JSON.stringify(res.data.task_ids)}`
-				);
+				alert(translate('issue.enqueuedAlert', {
+					count: res.data.task_ids.length,
+					issues: JSON.stringify(res.data.issue_ids),
+					tasks: JSON.stringify(res.data.task_ids)
+				}));
 			} else if (!res?.success) {
-				loadError = res?.message || '수행 요청 실패';
+				loadError = res?.message || translate('issue.executeFailed');
 			}
 			await load();
 			onChanged();
 		} catch (e) {
-			loadError = '수행 요청 실패: ' + (e?.message || e);
+			loadError = translate('issue.executeFailedWith', { error: e?.message || e });
 		} finally {
 			busy = false;
 		}
@@ -142,14 +144,14 @@
 
 	async function deleteIssue() {
 		if (!issue) return;
-		if (!confirm('이 이슈를 삭제하시겠습니까? 연결된 작업(Task)은 보존됩니다.')) return;
+		if (!confirm(translate('issue.deleteConfirm'))) return;
 		busy = true;
 		try {
 			await apiDelete(`/api/projects/${encodeURIComponent(projectName)}/issues/${issue.id}`);
 			onChanged();
 			onClose();
 		} catch (e) {
-			loadError = '삭제 실패: ' + (e?.message || e);
+			loadError = translate('issue.deleteFailedWith', { error: e?.message || e });
 		} finally {
 			busy = false;
 		}
@@ -193,14 +195,14 @@
 	<div class="modal modal-xl" onclick={(e) => e.stopPropagation()}>
 		{#if loadError}
 			<div class="modal-header">
-				<div class="detail-header-left"><h3>이슈 상세</h3></div>
+				<div class="detail-header-left"><h3>{$t('issue.detailTitle')}</h3></div>
 				<div class="detail-header-right">
-					<button class="btn btn-sm btn-ghost btn-icon" onclick={onClose} aria-label="닫기"><Icon name="x" size={15} /></button>
+					<button class="btn btn-sm btn-ghost btn-icon" onclick={onClose} aria-label={$t('common.close')}><Icon name="x" size={15} /></button>
 				</div>
 			</div>
 			<div class="modal-body">
 				<div class="error-banner" role="alert"><Icon name="alert-triangle" size={15} /> {loadError}</div>
-				<button class="btn btn-sm" onclick={load}>다시 시도</button>
+				<button class="btn btn-sm" onclick={load}>{$t('common.retry')}</button>
 			</div>
 		{:else if !issue}
 			<div class="modal-body" aria-busy="true">
@@ -214,40 +216,40 @@
 					{#if editingField === 'title'}
 						<input type="text" class="edit-input" bind:value={editValue} onkeydown={(e) => e.key === 'Enter' && saveEdit()} />
 					{:else}
-						<h3 onclick={() => startEdit('title')} title="클릭하여 수정">{issue.title}</h3>
+						<h3 onclick={() => startEdit('title')} title={$t('common.editClick')}>{issue.title}</h3>
 					{/if}
 				</div>
 				<div class="detail-header-right">
 					{#if issue.status === 'testing'}
-						<button class="btn btn-sm btn-success" onclick={() => updateIssueStatus('done')}><Icon name="check" size={13} stroke={2.4} /> 성공</button>
-						<button class="btn btn-sm btn-danger" onclick={() => updateIssueStatus('failed')}><Icon name="x" size={13} stroke={2.4} /> 실패</button>
+						<button class="btn btn-sm btn-success" onclick={() => updateIssueStatus('done')}><Icon name="check" size={13} stroke={2.4} /> {$t('issue.markDone')}</button>
+						<button class="btn btn-sm btn-danger" onclick={() => updateIssueStatus('failed')}><Icon name="x" size={13} stroke={2.4} /> {$t('issue.markFailed')}</button>
 					{/if}
 					{#if issue.status === 'todo' || issue.status === 'testing' || issue.status === 'failed'}
-						<button class="btn btn-sm btn-primary" onclick={executeIssue}><Icon name="play" size={11} stroke={2.4} /> 수행</button>
+						<button class="btn btn-sm btn-primary" onclick={executeIssue}><Icon name="play" size={11} stroke={2.4} /> {$t('issue.execute')}</button>
 					{/if}
-					<button class="btn btn-sm btn-ghost btn-icon btn-del" onclick={deleteIssue} title="삭제" aria-label="이슈 삭제"><Icon name="trash" size={14} /></button>
-					<button class="btn btn-sm btn-ghost btn-icon" onclick={onClose} aria-label="닫기"><Icon name="x" size={15} /></button>
+					<button class="btn btn-sm btn-ghost btn-icon btn-del" onclick={deleteIssue} title={$t('issue.deleteTitle')} aria-label={$t('issue.deleteAria')}><Icon name="trash" size={14} /></button>
+					<button class="btn btn-sm btn-ghost btn-icon" onclick={onClose} aria-label={$t('common.close')}><Icon name="x" size={15} /></button>
 				</div>
 			</div>
 			<div class="modal-body detail-body">
 				<div class="detail-status-bar">
-					<span class="status-label">상태:</span>
+					<span class="status-label">{$t('issue.statusLabel')}</span>
 					<span class="status-badge {issue.status}">{enumLabel($t, 'issue.status', issue.status)}</span>
 					{#if issue.parent_id}
 						<span class="detail-meta">
-							상위:
+							{$t('issue.parentLabel')}
 							<button class="linkish" onclick={() => openChild(issue.parent_id)}>
 								#{issue.parent_id}{issue.parent ? ` ${issue.parent.title}` : ''}
 							</button>
 						</span>
 					{/if}
 					{#if issue.started_at}
-						<span class="detail-meta">시작: {issue.started_at}</span>
+						<span class="detail-meta">{$t('issue.startedAt', { time: issue.started_at })}</span>
 					{/if}
 					{#if issue.completed_at}
-						<span class="detail-meta">마감: {issue.completed_at}</span>
+						<span class="detail-meta">{$t('issue.completedAt', { time: issue.completed_at })}</span>
 					{/if}
-					<span class="detail-meta">생성: {issue.created_at}</span>
+					<span class="detail-meta">{$t('issue.createdAt', { time: issue.created_at })}</span>
 				</div>
 
 				<!-- Shepherd (목자) controls (#599) -->
@@ -257,25 +259,25 @@
 						class:on={issue.shepherd_watch}
 						onclick={toggleWatch}
 						disabled={busy}
-						title="목자가 이 이슈의 작업을 검토하도록 감시합니다"
+						title={$t('issue.watchOnTitle')}
 					>
 						<Icon name={issue.shepherd_watch ? 'eye' : 'eye-off'} size={14} />
-						{issue.shepherd_watch ? '목자 감시 중' : '감시 꺼짐'}
+						{issue.shepherd_watch ? $t('issue.watchOn') : $t('issue.watchOff')}
 					</button>
 					{#if issue.shepherd_watch}
-						<span class="rounds mono num" title="검토 회차">회차 {issue.shepherd_rounds ?? 0}</span>
+						<span class="rounds mono num" title={$t('issue.roundsTitle')}>{$t('issue.rounds', { count: issue.shepherd_rounds ?? 0 })}</span>
 						{#if (issue.shepherd_rounds ?? 0) > 0}
 							<button class="btn btn-sm btn-ghost" onclick={resetRounds} disabled={busy}>
-								<Icon name="rotate-ccw" size={12} /> 회차 초기화
+								<Icon name="rotate-ccw" size={12} /> {$t('issue.resetRounds')}
 							</button>
 						{/if}
 					{/if}
 					{#if issue.shepherd_last_review}
-						<span class="last-review" title="목자의 마지막 검토">{issue.shepherd_last_review}</span>
+						<span class="last-review" title={$t('issue.lastReviewTitle')}>{issue.shepherd_last_review}</span>
 					{/if}
 					<span class="shepherd-bar-spacer"></span>
 					<label class="watch-exec">
-						<input type="checkbox" bind:checked={executeWithWatch} /> 감시를 켜고 실행
+						<input type="checkbox" bind:checked={executeWithWatch} /> {$t('issue.execWithWatch')}
 					</label>
 					<a class="btn btn-sm btn-ghost" href="/projects/{encodeURIComponent(projectName)}?tab=issues">
 						<Icon name="folder" size={13} /> {projectName}
@@ -284,18 +286,18 @@
 
 				<!-- Body -->
 				<div class="detail-section">
-					<h4 onclick={() => startEdit('body')} title="클릭하여 수정">이슈 내용</h4>
+					<h4 onclick={() => startEdit('body')} title={$t('common.editClick')}>{$t('issue.bodyHeading')}</h4>
 					{#if editingField === 'body'}
 						<textarea class="edit-textarea" bind:value={editValue} rows="8" onkeydown={(e) => e.key === 'Enter' && e.ctrlKey && saveEdit()}></textarea>
 						<div class="edit-actions">
-							<button class="btn btn-sm btn-primary" onclick={saveEdit}>저장</button>
-							<button class="btn btn-sm" onclick={cancelEdit}>취소</button>
+							<button class="btn btn-sm btn-primary" onclick={saveEdit}>{$t('common.save')}</button>
+							<button class="btn btn-sm" onclick={cancelEdit}>{$t('common.cancel')}</button>
 						</div>
 					{:else}
 						{#if issue.body}
 							<div class="detail-markdown"><MarkdownBody text={issue.body} /></div>
 						{:else}
-							<div class="detail-content empty">내용이 없습니다.</div>
+							<div class="detail-content empty">{$t('issue.bodyEmpty')}</div>
 						{/if}
 					{/if}
 				</div>
@@ -304,10 +306,10 @@
 				{#if issue.children && issue.children.length > 0}
 				<div class="detail-section">
 					<h4>
-						하위 이슈
+						{$t('issue.childrenHeading')}
 						{#if childDoneCount(issue)}
 							<span class="child-progress">
-								({childDoneCount(issue).done}/{childDoneCount(issue).total} 완료)
+								{$t('issue.childrenProgress', { done: childDoneCount(issue).done, total: childDoneCount(issue).total })}
 							</span>
 						{/if}
 					</h4>
@@ -324,32 +326,32 @@
 						</div>
 						{/each}
 					</div>
-					<p class="children-hint">수행하면 미완료 하위 이슈가 먼저 큐에 들어가고, 이 이슈가 마지막에 들어갑니다.</p>
+					<p class="children-hint">{$t('issue.childrenHint')}</p>
 				</div>
 				{/if}
 
 				<!-- Goal -->
 				<div class="detail-section">
-					<h4 onclick={() => startEdit('goal')} title="클릭하여 수정">목표 (완료 기준)</h4>
+					<h4 onclick={() => startEdit('goal')} title={$t('common.editClick')}>{$t('issue.goalHeading')}</h4>
 					{#if editingField === 'goal'}
 						<textarea class="edit-textarea" bind:value={editValue} rows="4" onkeydown={(e) => e.key === 'Enter' && e.ctrlKey && saveEdit()}></textarea>
 						<div class="edit-actions">
-							<button class="btn btn-sm btn-primary" onclick={saveEdit}>저장</button>
-							<button class="btn btn-sm" onclick={cancelEdit}>취소</button>
+							<button class="btn btn-sm btn-primary" onclick={saveEdit}>{$t('common.save')}</button>
+							<button class="btn btn-sm" onclick={cancelEdit}>{$t('common.cancel')}</button>
 						</div>
 					{:else}
-						<div class="detail-content goal-content">{issue.goal || '목표가 설정되지 않았습니다.'}</div>
+						<div class="detail-content goal-content">{issue.goal || $t('issue.goalEmpty')}</div>
 					{/if}
 				</div>
 
 				<!-- Linked Tasks -->
 				{#if issue.tasks && issue.tasks.length > 0}
 				<div class="detail-section">
-					<h4>연결된 작업 ({issue.tasks.length})</h4>
+					<h4>{$t('issue.tasksHeading', { count: issue.tasks.length })}</h4>
 					<div class="linked-tasks">
 						{#each issue.tasks as task}
 						<div class="linked-task">
-							<a href="/tasks/{task.id}" class="task-link">작업 #{task.id}</a>
+							<a href="/tasks/{task.id}" class="task-link">{$t('issue.taskLink', { id: task.id })}</a>
 							<span class="task-status-badge {task.status}">{task.status}</span>
 							{#if task.summary}
 								<span class="task-summary">{task.summary}</span>
@@ -362,7 +364,7 @@
 				{/if}
 			</div>
 			<div class="modal-footer">
-				<button class="btn" onclick={onClose}>닫기</button>
+				<button class="btn" onclick={onClose}>{$t('common.close')}</button>
 			</div>
 		{/if}
 	</div>
