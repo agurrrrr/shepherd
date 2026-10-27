@@ -98,6 +98,7 @@
 	--hi: #46464c;               /* Bevel light edge (top-left) */
 	--lo: #1b1b1e;               /* Bevel dark edge (bottom-right), list rules */
 	--btn-bg: #505057;           /* Default button (PICO dark-grey reads muddy on grey cards) */
+	--btn-hover: #5c5c64;
 
 	/* Four separate shadows leave each corner one step empty: a pixel corner. */
 	--px-ring: 0 -3px 0 0 var(--line), 0 3px 0 0 var(--line), -3px 0 0 0 var(--line), 3px 0 0 0 var(--line);
@@ -424,12 +425,17 @@ code, kbd, samp, pre {
 
 input, select, textarea {
 	font-family: inherit;
-	/* Prevent iOS auto-zoom on focus — inputs must be >= 16px */
-	font-size: 16px;
+	/* 12px keeps Galmuri11 on its pixel grid. iOS does not zoom on focus
+	   because the viewport sets maximum-scale=1. */
+	font-size: var(--fs-base);
 	color: var(--text-primary);
 	color-scheme: dark;
 }
 
+/* Fields: a black well inside a 3px grey ring. The ring is a real border,
+   not a box-shadow: it takes layout space (never clipped by overflow
+   parents, never overlaps neighbours) and survives components that set
+   their own box-shadow. Focus adds the yellow outline from layer 2. */
 input:not([type]),
 input[type="text"],
 input[type="search"],
@@ -443,12 +449,9 @@ input[type="datetime-local"],
 textarea,
 select {
 	background-color: var(--bg-input);
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	transition:
-		border-color var(--dur-1) ease,
-		box-shadow var(--dur-2) ease,
-		background-color var(--dur-1) ease;
+	border: 3px solid var(--hi);
+	border-radius: 0;
+	box-shadow: none;
 }
 
 input:not([type]):hover,
@@ -463,23 +466,7 @@ input[type="date"]:hover,
 input[type="datetime-local"]:hover,
 textarea:hover,
 select:hover {
-	border-color: var(--border-strong);
-}
-
-input:not([type]):focus,
-input[type="text"]:focus,
-input[type="search"]:focus,
-input[type="password"]:focus,
-input[type="email"]:focus,
-input[type="url"]:focus,
-input[type="number"]:focus,
-input[type="time"]:focus,
-input[type="date"]:focus,
-input[type="datetime-local"]:focus,
-textarea:focus,
-select:focus {
-	border-color: rgba(244, 184, 96, 0.6);
-	box-shadow: 0 0 0 3px var(--accent-soft);
+	border-color: var(--btn-bg);
 }
 
 input:disabled,
@@ -495,14 +482,14 @@ textarea::placeholder {
 	opacity: 1;
 }
 
-/* Native select → quiet field with a drawn chevron */
+/* Native select → black field with a yellow pixel chevron */
 select:not([multiple]):not([size]) {
 	appearance: none;
 	-webkit-appearance: none;
 	background-image: var(--chevron-down);
 	background-repeat: no-repeat;
-	background-position: right 10px center;
-	background-size: 12px;
+	background-position: right 9px center;
+	background-size: 10px 6px;
 	padding-right: 30px;
 	cursor: pointer;
 	text-overflow: ellipsis;
@@ -514,108 +501,105 @@ select optgroup {
 	color: var(--text-primary);
 }
 
-/* Checkbox — a small lantern-lit square */
+/* Checkbox — a 12px square in a 2px ring; checked fills pink with a pixel tick */
 input[type="checkbox"] {
 	appearance: none;
 	-webkit-appearance: none;
 	flex-shrink: 0;
-	width: 16px;
-	height: 16px;
-	margin: 0;
-	border: 1.5px solid var(--border-strong);
-	border-radius: 4px;
-	background: var(--bg-input) center / 12px no-repeat;
+	width: 12px;
+	height: 12px;
+	margin: 2px;
+	border: 0;
+	border-radius: 0;
+	background: var(--bg-input) center / 7px 6px no-repeat;
+	box-shadow: 0 0 0 2px var(--hi);
 	cursor: pointer;
 	vertical-align: middle;
-	transition: background-color var(--dur-1) ease, border-color var(--dur-1) ease, box-shadow var(--dur-2) ease, transform var(--dur-1) var(--ease-spring);
 }
 
 input[type="checkbox"]:hover {
-	border-color: rgba(244, 184, 96, 0.55);
+	box-shadow: 0 0 0 2px var(--p-lgray);
 }
 
 input[type="checkbox"]:checked {
 	background-color: var(--accent);
 	background-image: var(--check-mark);
-	border-color: var(--accent);
-	box-shadow: 0 0 10px -2px var(--accent-glow);
+	box-shadow: 0 0 0 2px var(--line);
 }
 
 input[type="checkbox"]:active:not(:disabled) {
-	transform: scale(0.9);
+	transform: translateY(1px);
 }
 
 input[type="checkbox"]:indeterminate {
 	background-color: var(--accent);
-	border-color: var(--accent);
-	background-image: linear-gradient(var(--accent-ink), var(--accent-ink));
-	background-size: 8px 2px;
+	background-image: linear-gradient(#000, #000);
+	background-size: 6px 2px;
+	box-shadow: 0 0 0 2px var(--line);
 }
 
-input[type="checkbox"]:focus-visible {
-	outline-offset: 3px;
-}
-
-/* Checkbox styled as a switch — opt in with class="switch" or role="switch" */
+/* Checkbox styled as a switch — opt in with class="switch" or role="switch".
+   A rectangular track with a square knob. */
 input[type="checkbox"].switch,
 input[type="checkbox"][role="switch"] {
-	width: 30px;
-	height: 18px;
-	border-radius: var(--radius-full);
-	border: 1px solid var(--border-strong);
-	background: var(--bg-3);
+	width: 26px;
+	height: 14px;
+	margin: 2px;
+	border-radius: 0;
+	background: var(--bg-input);
 	position: relative;
-	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+	box-shadow: 0 0 0 2px var(--hi);
 }
 
 input[type="checkbox"].switch::after,
 input[type="checkbox"][role="switch"]::after {
 	content: '';
 	position: absolute;
-	top: 2px;
-	left: 2px;
-	width: 12px;
-	height: 12px;
-	border-radius: 50%;
+	top: 3px;
+	left: 3px;
+	width: 8px;
+	height: 8px;
+	border-radius: 0;
 	background: var(--text-secondary);
-	transition: transform var(--dur-2) var(--ease-spring), background var(--dur-1) ease;
+	transition: transform var(--dur-1) steps(2);
 }
 
 input[type="checkbox"].switch:checked,
 input[type="checkbox"][role="switch"]:checked {
 	background: var(--accent);
-	border-color: var(--accent);
 	background-image: none;
+	box-shadow: 0 0 0 2px var(--line);
 }
 
 input[type="checkbox"].switch:checked::after,
 input[type="checkbox"][role="switch"]:checked::after {
 	transform: translateX(12px);
-	background: var(--accent-ink);
+	background: #000;
 }
 
+/* Radio — same square; checked shows a 4px pink square in the middle */
 input[type="radio"] {
 	appearance: none;
 	-webkit-appearance: none;
 	flex-shrink: 0;
-	width: 16px;
-	height: 16px;
-	margin: 0;
-	border: 1.5px solid var(--border-strong);
-	border-radius: 50%;
+	width: 12px;
+	height: 12px;
+	margin: 2px;
+	border: 0;
+	border-radius: 0;
 	background: var(--bg-input);
+	box-shadow: 0 0 0 2px var(--hi);
 	cursor: pointer;
 	vertical-align: middle;
-	transition: border-color var(--dur-1) ease, box-shadow var(--dur-1) ease;
 }
 
 input[type="radio"]:hover {
-	border-color: rgba(244, 184, 96, 0.55);
+	box-shadow: 0 0 0 2px var(--p-lgray);
 }
 
 input[type="radio"]:checked {
-	border-color: var(--accent);
-	box-shadow: inset 0 0 0 3.5px var(--bg-input), inset 0 0 0 8px var(--accent);
+	background: var(--accent);
+	box-shadow: 0 0 0 2px var(--line), inset 0 0 0 4px var(--bg-input);
 }
 
 input[type="range"] {
@@ -628,63 +612,57 @@ input[type="file"] {
 }
 
 input[type="file"]::file-selector-button {
-	margin-right: 10px;
+	margin: 3px 12px 3px 3px;
 	padding: 6px 12px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	background: var(--bg-3);
+	border: 0;
+	border-radius: 0;
+	background: var(--btn-bg);
+	box-shadow: var(--px-ring), var(--px-bevel-btn);
 	color: var(--text-primary);
 	font: inherit;
-	font-weight: var(--fw-medium);
 	cursor: pointer;
-	transition: background var(--dur-1) ease, border-color var(--dur-1) ease;
 }
 
 input[type="file"]::file-selector-button:hover {
-	background: var(--bg-4);
-	border-color: var(--border-strong);
+	background: var(--btn-hover);
 }
 
 /* .input — explicit field class used across pages */
 .input {
-	padding: 8px 12px;
+	padding: 6px 10px;
 	background: var(--bg-input);
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
+	border: 3px solid var(--hi);
+	border-radius: 0;
 	color: var(--text-primary);
-	font-size: 16px;
-	outline: none;
-	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
-	transition: border-color var(--dur-1) ease, box-shadow var(--dur-2) ease, background var(--dur-1) ease;
+	font-size: var(--fs-base);
+	box-shadow: none;
 }
 
 .input:hover {
-	border-color: var(--border-strong);
-}
-
-.input:focus {
-	border-color: rgba(244, 184, 96, 0.6);
-	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 3px var(--accent-soft);
+	border-color: var(--btn-bg);
 }
 
 select.input {
 	padding-right: 32px;
 }
 
-/* Search field — glyph drawn in the padding box */
+/* Search field — pixel magnifier drawn in the padding box */
 .input-search,
 input[type="search"] {
 	padding-left: 34px;
 	background-image: var(--search-glyph);
 	background-repeat: no-repeat;
-	background-position: 12px center;
+	background-position: 10px center;
+	background-size: 16px 16px;
 }
 
 /* ============================================================
  * 4. Components
  * ============================================================ */
 
-/* --- Buttons --- */
+/* --- Buttons ---
+ * Pixel outline (--px-ring) plus a bevel. The outline sits outside the box,
+ * so rows of buttons need at least 6px between them (see .btn-group). */
 .btn {
 	display: inline-flex;
 	align-items: center;
@@ -692,123 +670,80 @@ input[type="search"] {
 	gap: 6px;
 	min-height: 32px;
 	padding: 6px 14px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	background: var(--bg-3);
-	box-shadow: var(--sheen);
+	border: 0;
+	border-radius: 0;
+	background: var(--btn-bg);
+	box-shadow: var(--px-ring), var(--px-bevel-btn);
 	color: var(--text-primary);
 	font-size: var(--fs-sm);
-	font-weight: var(--fw-medium);
-	line-height: 1.2;
-	letter-spacing: -0.003em;
+	font-weight: var(--fw-regular);
+	line-height: 1.5;
+	letter-spacing: 0;
 	white-space: nowrap;
 	text-decoration: none;
 	user-select: none;
-	transition:
-		background var(--dur-1) ease,
-		border-color var(--dur-1) ease,
-		box-shadow var(--dur-2) ease,
-		color var(--dur-1) ease,
-		transform var(--dur-1) ease;
 }
 
 .btn:hover {
-	background: var(--bg-4);
-	border-color: var(--border-strong);
+	background: var(--btn-hover);
 	text-decoration: none;
 	color: var(--text-primary);
 }
 
 .btn:active:not(:disabled) {
-	transform: translateY(1px);
+	transform: translateY(3px);
 }
 
-.btn-primary {
-	background: linear-gradient(180deg, #ffc977 0%, var(--accent) 100%);
-	border-color: rgba(255, 214, 150, 0.6);
-	color: var(--accent-ink);
-	font-weight: var(--fw-semibold);
-	box-shadow:
-		inset 0 1px 0 rgba(255, 244, 220, 0.55),
-		0 1px 2px rgba(0, 0, 0, 0.4),
-		0 6px 18px -8px var(--accent-glow);
-}
-
+.btn-primary,
 .btn-primary:hover {
-	background: linear-gradient(180deg, #ffd690 0%, var(--accent-hover) 100%);
-	border-color: rgba(255, 224, 170, 0.8);
-	color: var(--accent-ink);
-	box-shadow:
-		inset 0 1px 0 rgba(255, 244, 220, 0.6),
-		0 1px 2px rgba(0, 0, 0, 0.4),
-		0 10px 28px -8px var(--accent-glow);
+	color: #000;
 }
 
-.btn-live {
-	background: var(--live-soft);
-	border-color: var(--live-line);
-	color: var(--live);
-	box-shadow: none;
-}
+.btn-primary { background: var(--accent); }
+.btn-primary:hover { background: var(--accent-hover); }
 
+.btn-live,
 .btn-live:hover {
-	background: rgba(95, 224, 194, 0.2);
-	border-color: var(--live);
-	color: var(--live-hover);
+	color: #000;
 }
 
-.btn-danger {
-	background: transparent;
-	border-color: rgba(255, 107, 97, 0.45);
-	color: var(--danger);
-	box-shadow: none;
-}
+.btn-live { background: var(--live); }
+.btn-live:hover { background: var(--live-hover); }
 
-.btn-danger:hover {
-	background: var(--danger-soft);
-	border-color: var(--danger);
-	color: var(--danger-hover);
-}
-
-.btn-danger-solid {
-	background: var(--danger);
-	border-color: var(--danger);
-	color: #1c0605;
-	font-weight: var(--fw-semibold);
-	box-shadow: inset 0 1px 0 rgba(255, 220, 215, 0.35), 0 6px 18px -8px rgba(255, 107, 97, 0.5);
-}
-
+/* Danger: red with black text (white on red is 3.55:1) */
+.btn-danger,
+.btn-danger:hover,
+.btn-danger-solid,
 .btn-danger-solid:hover {
-	background: var(--danger-hover);
-	border-color: var(--danger-hover);
-	color: #1c0605;
+	color: #000;
 }
+
+.btn-danger,
+.btn-danger-solid { background: var(--danger); }
+.btn-danger:hover,
+.btn-danger-solid:hover { background: var(--danger-hover); }
 
 .btn-ghost {
 	background: transparent;
-	border-color: transparent;
 	box-shadow: none;
-	color: var(--text-secondary);
+	color: var(--highlight);
 }
 
 .btn-ghost:hover {
-	background: var(--bg-hover);
-	border-color: var(--border-subtle);
-	color: var(--text-primary);
+	background: var(--bg-2);
+	color: var(--highlight);
 }
 
 .btn-sm {
 	min-height: 28px;
 	padding: 4px 10px;
 	font-size: var(--fs-xs);
-	border-radius: 7px;
 }
 
 .btn-xs {
 	min-height: 24px;
 	padding: 2px 8px;
 	font-size: var(--fs-2xs);
-	border-radius: 6px;
 	gap: 4px;
 }
 
@@ -816,7 +751,6 @@ input[type="search"] {
 	min-height: 40px;
 	padding: 9px 18px;
 	font-size: var(--fs-base);
-	border-radius: var(--radius-md);
 }
 
 .btn-icon {
@@ -830,25 +764,42 @@ input[type="search"] {
 
 .btn:disabled,
 .btn[aria-disabled="true"] {
-	opacity: 0.45;
+	background: var(--p-dgray);
+	box-shadow: var(--px-ring);
+	color: var(--text-tertiary);
 	cursor: not-allowed;
 	transform: none;
+}
+
+.btn-ghost:disabled,
+.btn-ghost[aria-disabled="true"] {
+	background: transparent;
+	box-shadow: none;
+}
+
+/* Count tucked inside a button (e.g. "Monitor 2") */
+.btn-count {
+	display: inline-flex;
+	align-items: center;
+	padding: 0 5px;
+	background: #000;
+	color: var(--live);
+	font-size: var(--fs-2xs);
+	line-height: 1.5;
 }
 
 .btn-group {
 	display: inline-flex;
 	align-items: center;
-	gap: 4px;
+	gap: 8px;
 }
 
-/* --- Cards / panels --- */
+/* --- Cards / panels: black outline, light top-left, dark bottom-right --- */
 .card {
-	background:
-		linear-gradient(180deg, rgba(255, 250, 240, 0.022), rgba(255, 250, 240, 0) 120px),
-		var(--bg-secondary);
-	border: 1px solid var(--border);
-	border-radius: var(--radius-md);
-	box-shadow: var(--sheen);
+	background: var(--bg-2);
+	border: 0;
+	border-radius: 0;
+	box-shadow: var(--px-ring), var(--px-bevel);
 	padding: 16px;
 }
 
@@ -856,46 +807,45 @@ a.card,
 .card-link {
 	color: inherit;
 	text-decoration: none;
-	transition: border-color var(--dur-1) ease, background var(--dur-1) ease, transform var(--dur-2) var(--ease-out), box-shadow var(--dur-2) ease;
 }
 
 a.card:hover,
 .card-link:hover {
 	color: inherit;
 	text-decoration: none;
-	border-color: var(--border-strong);
-	background:
-		linear-gradient(180deg, rgba(255, 250, 240, 0.035), rgba(255, 250, 240, 0) 120px),
-		var(--bg-secondary);
+	background: var(--bg-3);
 }
 
-/* --- Status badges --- */
+/* --- Status badges: solid fill, black text, 2px ring --- */
 .badge {
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	padding: 2px 9px;
-	border-radius: var(--radius-full);
+	padding: 1px 7px;
+	border: 0;
+	border-radius: 0;
+	background: var(--p-dgray);
+	box-shadow: var(--px-ring-2);
+	color: #000;
 	font-size: var(--fs-2xs);
-	font-weight: var(--fw-medium);
-	line-height: 1.6;
-	letter-spacing: 0.01em;
+	font-weight: var(--fw-regular);
+	line-height: 1.5;
+	letter-spacing: 0;
 	white-space: nowrap;
-	border: 1px solid transparent;
 }
 
-.badge-idle { background: rgba(237, 230, 218, 0.06); color: var(--text-secondary); border-color: var(--border-subtle); }
+.badge-idle { background: var(--p-dgray); color: var(--text-primary); }
 .badge-working,
-.badge-running { background: var(--live-soft); color: var(--live); border-color: rgba(95, 224, 194, 0.22); }
+.badge-running { background: var(--live); }
 .badge-error,
-.badge-failed { background: var(--danger-soft); color: var(--danger); border-color: rgba(255, 107, 97, 0.22); }
-.badge-pending { background: var(--queued-soft); color: var(--queued); border-color: rgba(174, 163, 255, 0.22); }
-.badge-completed { background: var(--success-soft); color: var(--success); border-color: rgba(159, 214, 133, 0.2); }
-.badge-stopped { background: var(--wool-soft); color: var(--wool); border-color: rgba(203, 188, 163, 0.2); }
-.badge-accent { background: var(--accent-soft); color: var(--accent); border-color: rgba(244, 184, 96, 0.22); }
-.badge-info { background: var(--info-soft); color: var(--info); border-color: rgba(143, 193, 255, 0.2); }
+.badge-failed { background: var(--danger); }
+.badge-pending { background: var(--queued); }
+.badge-completed { background: var(--success); }
+.badge-stopped { background: var(--warning); }
+.badge-accent { background: var(--accent); }
+.badge-info { background: var(--info); }
 
-/* Status dot inside state badges */
+/* Status square inside state badges */
 .badge-working::before,
 .badge-running::before,
 .badge-error::before,
@@ -906,35 +856,35 @@ a.card:hover,
 	content: '';
 	width: 6px;
 	height: 6px;
-	border-radius: 50%;
 	background: currentColor;
 	flex-shrink: 0;
 }
 
 .badge-working::before,
 .badge-running::before {
-	box-shadow: 0 0 0 0 var(--live-glow);
 	animation: px-blink 1s steps(1) infinite;
 }
 
 .badge-pending::before {
 	background: transparent;
-	box-shadow: inset 0 0 0 1.5px currentColor;
+	box-shadow: inset 0 0 0 2px currentColor;
 }
 
-/* --- Chips (neutral metadata: project, sheep, model) --- */
+/* --- Chips (neutral metadata: project, sheep, model) ---
+ * A dark well with an inset 2px rule. Tones colour the text only. */
 .chip {
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
 	max-width: 100%;
 	padding: 1px 8px;
-	border: 1px solid var(--border-subtle);
-	border-radius: var(--radius-full);
-	background: rgba(237, 230, 218, 0.04);
+	border: 0;
+	border-radius: 0;
+	background: var(--well);
+	box-shadow: inset 0 0 0 2px #000;
 	color: var(--text-secondary);
 	font-size: var(--fs-2xs);
-	font-weight: var(--fw-medium);
+	font-weight: var(--fw-regular);
 	line-height: 1.7;
 	white-space: nowrap;
 	overflow: hidden;
@@ -944,15 +894,17 @@ a.card:hover,
 .chip-mono {
 	font-family: var(--font-mono);
 	font-weight: var(--fw-regular);
-	letter-spacing: -0.01em;
+	letter-spacing: 0;
 }
 
-.chip-accent { color: var(--accent); background: var(--accent-soft); border-color: rgba(244, 184, 96, 0.18); }
-.chip-live { color: var(--live); background: var(--live-soft); border-color: rgba(95, 224, 194, 0.18); }
-.chip-queued { color: var(--queued); background: var(--queued-soft); border-color: rgba(174, 163, 255, 0.18); }
-.chip-danger { color: var(--danger); background: var(--danger-soft); border-color: rgba(255, 107, 97, 0.18); }
-.chip-success { color: var(--success); background: var(--success-soft); border-color: rgba(159, 214, 133, 0.18); }
-.chip-info { color: var(--info); background: var(--info-soft); border-color: rgba(143, 193, 255, 0.18); }
+.chip-accent { color: var(--accent); }
+.chip-highlight { color: var(--highlight); }
+.chip-live { color: var(--live); }
+.chip-queued { color: var(--queued-text); }
+.chip-danger { color: var(--danger-text); }
+.chip-success { color: var(--success); }
+.chip-warning { color: var(--warning); }
+.chip-info { color: var(--info); }
 
 /* --- Keyboard hint --- */
 .kbd,
@@ -962,14 +914,15 @@ kbd {
 	justify-content: center;
 	min-width: 18px;
 	height: 18px;
-	padding: 0 5px;
-	border: 1px solid var(--border-strong);
-	border-bottom-width: 2px;
-	border-radius: 5px;
-	background: rgba(237, 230, 218, 0.04);
+	margin: 2px;
+	padding: 0 4px;
+	border: 0;
+	border-radius: 0;
+	background: #000;
+	box-shadow: 0 0 0 2px var(--hi);
 	color: var(--text-secondary);
 	font-family: var(--font-mono);
-	font-size: 10.5px;
+	font-size: var(--fs-2xs);
 	line-height: 1;
 }
 
@@ -991,29 +944,39 @@ kbd {
 	min-width: 0;
 }
 
+/* 24px: Press Start 2P (3×) and its Galmuri11 Hangul fallback (2×) are both crisp. */
 .page-head-title {
 	font-family: var(--font-display);
-	font-size: clamp(40px, 4.4vw, 56px);
+	font-size: var(--fs-2xl);
 	font-weight: 400;
-	line-height: 0.95;
-	letter-spacing: -0.02em;
+	line-height: 1.5;
+	letter-spacing: 0;
 	color: var(--text-primary);
+	text-shadow: 4px 4px 0 #000;
+	overflow-wrap: anywhere;
+}
+
+.page-head-title em {
+	font-style: normal;
+	color: var(--highlight);
+	text-shadow: 4px 4px 0 var(--p-plum);
 }
 
 .page-head-count {
 	margin-left: 10px;
 	font-family: var(--font-mono);
-	font-size: 0.26em;
-	font-weight: var(--fw-medium);
+	font-size: var(--fs-xs);
+	font-weight: var(--fw-regular);
 	letter-spacing: 0;
 	color: var(--text-tertiary);
-	vertical-align: super;
+	text-shadow: none;
+	vertical-align: middle;
 }
 
 .page-head-sub {
 	max-width: 62ch;
 	font-size: var(--fs-sm);
-	line-height: var(--lh-snug);
+	line-height: var(--lh-base);
 	color: var(--text-secondary);
 }
 
@@ -1037,11 +1000,12 @@ kbd {
 .page-header h1,
 .page-title {
 	font-family: var(--font-display);
-	font-size: clamp(40px, 4.4vw, 56px);
+	font-size: var(--fs-2xl);
 	font-weight: 400;
-	line-height: 0.95;
-	letter-spacing: -0.02em;
+	line-height: 1.5;
+	letter-spacing: 0;
 	color: var(--text-primary);
+	text-shadow: 4px 4px 0 #000;
 }
 
 /* --- Panel heading (inside a page) --- */
@@ -1051,7 +1015,7 @@ kbd {
 	gap: 10px;
 	font-size: var(--fs-md);
 	font-weight: var(--fw-semibold);
-	letter-spacing: -0.01em;
+	letter-spacing: 0;
 	color: var(--text-primary);
 }
 
@@ -1059,7 +1023,7 @@ kbd {
 	font-size: var(--fs-lg);
 	font-weight: var(--fw-semibold);
 	color: var(--text-primary);
-	letter-spacing: -0.012em;
+	letter-spacing: 0;
 	margin: 0;
 }
 
@@ -1073,9 +1037,7 @@ kbd {
 	justify-content: center;
 	padding: 24px;
 	background: var(--bg-overlay);
-	backdrop-filter: blur(6px) saturate(120%);
-	-webkit-backdrop-filter: blur(6px) saturate(120%);
-	animation: fade-in var(--dur-2) ease backwards;
+	animation: fade-in var(--dur-1) steps(2) backwards;
 }
 
 .modal-content {
@@ -1084,13 +1046,17 @@ kbd {
 	max-height: min(86vh, 900px);
 	overflow-y: auto;
 	padding: 24px;
-	border-color: var(--border-strong);
-	border-radius: var(--radius-lg);
-	background:
-		linear-gradient(180deg, rgba(255, 250, 240, 0.03), rgba(255, 250, 240, 0) 160px),
-		var(--bg-2);
-	box-shadow: var(--shadow-3), var(--sheen);
-	animation: modal-in var(--dur-3) var(--ease-out) backwards;
+	border: 0;
+	border-radius: 0;
+	background: var(--bg-2);
+	box-shadow: var(--px-ring), var(--px-bevel), var(--shadow-3);
+	animation: modal-in var(--dur-2) steps(3) backwards;
+}
+
+.modal-content > h2:first-child,
+.modal-content > h3:first-child,
+.modal-title {
+	color: var(--highlight);
 }
 
 /* ============================================================
@@ -1099,28 +1065,30 @@ kbd {
 
 .mono {
 	font-family: var(--font-mono);
-	font-feature-settings: 'zero', 'ss01';
 }
 
 .num {
 	font-variant-numeric: tabular-nums;
 }
 
+/* 8px Press Start 2P label. ASCII only: Hangul is unreadable at 8px, so
+   eyebrows that may carry a project name use 12px Galmuri11 instead. */
 .eyebrow {
-	font-family: var(--font-mono);
-	font-size: var(--fs-2xs);
-	font-weight: var(--fw-medium);
+	font-family: var(--font-label);
+	font-size: var(--fs-label);
+	font-weight: var(--fw-regular);
+	line-height: 2;
 	color: var(--text-tertiary);
 	text-transform: uppercase;
-	letter-spacing: var(--tracking-caps);
+	letter-spacing: 0;
 }
 
-/* Editorial display type (page titles, hero numerals) */
+/* Display type (page titles, hero numerals). Keep to 24px or 48px. */
 .display {
 	font-family: var(--font-display);
 	font-weight: 400;
-	letter-spacing: -0.01em;
-	line-height: 1;
+	letter-spacing: 0;
+	line-height: 1.25;
 }
 
 .text-muted { color: var(--text-secondary); }
@@ -1145,37 +1113,29 @@ kbd {
 	white-space: nowrap;
 }
 
-/* Live dot — the one signal that means "awake right now" */
+/* Live dot — the one signal that means "awake right now": a blinking blue square */
 .live-dot {
 	display: inline-block;
 	width: 6px;
 	height: 6px;
-	border-radius: 50%;
+	border-radius: 0;
 	background: var(--live);
 	flex-shrink: 0;
 	animation: px-blink 1s steps(1) infinite;
 }
 
-/* Skeleton — placeholder shimmer while data loads */
+/* Skeleton — placeholder that blinks between two greys while data loads */
 .skeleton {
 	position: relative;
 	overflow: hidden;
-	border-radius: var(--radius-sm);
-	background: rgba(237, 230, 218, 0.05);
-}
-
-.skeleton::after {
-	content: '';
-	position: absolute;
-	inset: 0;
-	transform: translateX(-100%);
-	background: linear-gradient(90deg, transparent, rgba(237, 230, 218, 0.06), transparent);
-	animation: skeleton-sweep 1.4s ease-in-out infinite;
+	border-radius: 0;
+	background: var(--card-2);
+	animation: skeleton-blink 1.2s steps(1) infinite;
 }
 
 /* Staggered entrance — set --i on each child */
 .reveal {
-	animation: rise-in 520ms var(--ease-out) backwards;
+	animation: rise-in var(--dur-2) steps(3) backwards;
 	animation-delay: calc(min(var(--i, 0), 14) * 28ms);
 }
 
@@ -1184,62 +1144,136 @@ kbd {
  * ============================================================ */
 
 /*
- * github-markdown-css is loaded by FileBrowser and styles every
- * .markdown-body (Live Output, Thinking, MAGI, Summary). Map its tokens
- * onto Shepherd design tokens so OS light preference cannot force a white
- * canvas under dark-theme text (see web/src/lib/style/github-markdown.css).
+ * github-markdown-css (web/src/lib/style/github-markdown.css) styles every
+ * .markdown-body (Live Output, Thinking, MAGI, Summary) and reads the app
+ * tokens directly. These rules keep it on the pixel type scale.
  */
 .markdown-body {
 	color-scheme: dark;
-	--fgColor-default: var(--text-primary);
-	--fgColor-muted: var(--text-secondary);
-	--fgColor-accent: var(--accent);
-	--fgColor-success: var(--success);
-	--fgColor-attention: var(--warning);
-	--fgColor-danger: var(--danger);
-	--bgColor-default: transparent;
-	--bgColor-muted: var(--bg-secondary);
-	--bgColor-neutral-muted: rgba(237, 230, 218, 0.07);
-	--borderColor-default: var(--border);
-	--borderColor-muted: var(--border);
-	--borderColor-neutral-muted: var(--border);
-	--borderColor-accent-emphasis: var(--accent);
-	--fontStack-monospace: var(--font-mono);
-	--fontStack-sansSerif: var(--font-sans);
 	background-color: transparent;
 	color: var(--text-primary);
 	font-family: var(--font-sans);
 }
 
-.markdown-body code,
-.markdown-body tt {
-	border-radius: 4px;
+.markdown-body em,
+.markdown-body i {
+	font-style: normal;
+	color: var(--info);
 }
 
-/* Scrollbar */
+.markdown-body code,
+.markdown-body tt {
+	border-radius: 0;
+}
+
+/*
+ * highlight.js (FileBrowser, markdown code fences): the PICO palette on a
+ * black well. Comments grey, keywords pink, strings green, numbers and
+ * literals blue, functions and titles yellow, variables orange.
+ */
+.hljs {
+	color: var(--text-primary);
+	background: #000;
+}
+
+.hljs-comment,
+.hljs-quote,
+.hljs-meta {
+	color: var(--text-tertiary);
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag,
+.hljs-template-tag,
+.hljs-type {
+	color: var(--accent);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-symbol,
+.hljs-template-variable,
+.hljs-meta .hljs-string {
+	color: var(--success);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-built_in,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-link,
+.hljs-meta .hljs-keyword {
+	color: var(--live);
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-title.class_,
+.hljs-section,
+.hljs-name,
+.hljs-tag {
+	color: var(--highlight);
+}
+
+.hljs-variable,
+.hljs-attr,
+.hljs-attribute,
+.hljs-params,
+.hljs-property,
+.hljs-selector-attr,
+.hljs-selector-pseudo,
+.hljs-bullet {
+	color: var(--warning);
+}
+
+.hljs-subst,
+.hljs-punctuation,
+.hljs-operator {
+	color: var(--text-secondary);
+}
+
+.hljs-deletion {
+	color: var(--danger-text);
+	background: rgba(255, 0, 77, 0.18);
+}
+
+.hljs-addition {
+	background: rgba(0, 228, 54, 0.16);
+}
+
+.hljs-emphasis {
+	font-style: normal;
+	color: var(--info);
+}
+
+.hljs-strong {
+	font-weight: 700;
+}
+
+/* Scrollbar: a square grey bar on a black track */
 ::-webkit-scrollbar {
 	width: 10px;
 	height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-	background: transparent;
+	background: #000;
 }
 
 ::-webkit-scrollbar-thumb {
-	background: rgba(237, 230, 218, 0.12);
-	border-radius: 10px;
-	border: 2px solid transparent;
-	background-clip: padding-box;
+	background: var(--hi);
+	border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	background: rgba(237, 230, 218, 0.24);
-	background-clip: padding-box;
+	background: var(--p-lgray);
 }
 
 ::-webkit-scrollbar-corner {
-	background: transparent;
+	background: #000;
 }
 
 /* ============================================================
