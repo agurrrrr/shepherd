@@ -11,6 +11,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/spf13/viper"
 )
 
@@ -378,6 +379,11 @@ func TestPatrolSkipsWhenPatrolTaskActive(t *testing.T) {
 	if rec.TaskID != 0 || rec.SkippedReason != SkipPatrolBusy {
 		t.Fatalf("pending patrol task must block the wake: %+v", rec)
 	}
+	// #665: the stored column holds the language-neutral code, not a sentence.
+	row := db.Client().ShepherdPatrol.GetX(context.Background(), rec.ID)
+	if row.SkippedReason != "patrol_busy" {
+		t.Fatalf("stored skipped_reason = %q, want the code patrol_busy", row.SkippedReason)
+	}
 	if n := len(shepherdTasksByKind(t, KindPatrol)); n != 1 {
 		t.Fatalf("no second patrol task may stack, got %d", n)
 	}
@@ -543,6 +549,45 @@ func TestPatrolCollectionErrorRecordsOnly(t *testing.T) {
 	}
 	if n := len(shepherdTasksByKind(t, KindPatrol)); n != 0 {
 		t.Fatalf("collection error must never wake, got %d tasks", n)
+	}
+}
+
+// TestTranslateSkippedReason pins the #665 API rendering: stored codes become
+// current-language labels (detail tail kept), unknown/legacy Korean sentences
+// pass through untouched.
+func TestTranslateSkippedReason(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	i18n.Init("ko")
+	if got := TranslateSkippedReason(SkipDailyCap); got != "하루 깨우기 상한 도달" {
+		t.Errorf("ko daily_cap = %q", got)
+	}
+	if got := TranslateSkippedReason(SkipCollectionFail + ": boom"); got != "점검 실패: boom" {
+		t.Errorf("ko collection_failed detail = %q", got)
+	}
+
+	i18n.Init("en")
+	defer i18n.Init("ko")
+	if got := TranslateSkippedReason(SkipWakeDisabled); got != "wake disabled" {
+		t.Errorf("en wake_disabled = %q", got)
+	}
+	if got := TranslateSkippedReason(SkipEnqueueFailed + ": db down"); got != "shepherd task enqueue failed: db down" {
+		t.Errorf("en enqueue_failed detail = %q", got)
+	}
+	for _, code := range []string{SkipWakeDisabled, SkipPatrolBusy, SkipDailyCap, SkipCostCap, SkipCollectionFail, SkipEnqueueFailed} {
+		if got := TranslateSkippedReason(code); got == code || got == "" {
+			t.Errorf("code %q must render an English label, got %q", code, got)
+		}
+	}
+
+	// Legacy Korean rows (pre-#665) come back verbatim in any language.
+	legacy := "하루 깨우기 상한 도달"
+	if got := TranslateSkippedReason(legacy); got != legacy {
+		t.Errorf("legacy row = %q, want verbatim", got)
+	}
+	if got := TranslateSkippedReason(""); got != "" {
+		t.Errorf("empty stays empty, got %q", got)
 	}
 }
 

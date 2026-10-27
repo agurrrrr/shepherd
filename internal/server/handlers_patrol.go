@@ -44,6 +44,11 @@ func (s *Server) handleListPatrols(c *fiber.Ctx) error {
 	if err != nil {
 		return fail(c, fiber.StatusInternalServerError, err.Error())
 	}
+	// Stored skipped_reason values are language-neutral codes (#665). Render
+	// them in the current language; unrecognized old rows pass through.
+	for i := range records {
+		records[i].SkippedReason = manager.TranslateSkippedReason(records[i].SkippedReason)
+	}
 
 	return success(c, map[string]interface{}{
 		"patrols": records,
@@ -64,5 +69,8 @@ func (s *Server) handleRunPatrol(c *fiber.Ctx) error {
 		s.processor.ProcessPendingNow()
 	}
 
-	return success(c, map[string]interface{}{"patrol": rec})
+	rendered := *rec
+	rendered.SkippedReason = manager.TranslateSkippedReason(rendered.SkippedReason)
+
+	return success(c, map[string]interface{}{"patrol": &rendered})
 }

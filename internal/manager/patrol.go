@@ -36,6 +36,7 @@ import (
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 )
 
 // Patrol defaults and floors (#600).
@@ -46,15 +47,53 @@ const (
 	patrolRetention       = 30 * 24 * time.Hour
 )
 
-// Skipped reasons stored on shepherd_patrols rows. The wording is user-facing
-// (the Shepherd screen prints it verbatim), so it stays Korean.
+// Skipped reasons stored on shepherd_patrols rows. #665: stored values are
+// language-neutral codes. A reason that carries a detail (a collection or
+// enqueue error) stores "<code>: <raw error>" so the code stays parseable.
+// The API renders codes into the current language; old rows that still hold
+// Korean sentences are returned verbatim (no migration).
 const (
-	SkipWakeDisabled   = "깨우기 꺼짐"
-	SkipPatrolBusy     = "순찰 작업 진행 중"
-	SkipDailyCap       = "하루 깨우기 상한 도달"
-	SkipCostCap        = "하루 비용 상한 도달"
-	SkipCollectionFail = "점검 실패"
+	SkipWakeDisabled   = "wake_disabled"
+	SkipPatrolBusy     = "patrol_busy"
+	SkipDailyCap       = "daily_cap"
+	SkipCostCap        = "cost_cap"
+	SkipCollectionFail = "collection_failed"
+	SkipEnqueueFailed  = "enqueue_failed"
 )
+
+// skipReasonDetailSep separates a skip code from its detail text inside the
+// stored skipped_reason column.
+const skipReasonDetailSep = ": "
+
+// TranslateSkippedReason renders one stored skipped_reason for the API in the
+// current language. A known code becomes its label, keeping any ": <detail>"
+// tail (the detail is a raw error string and stays untranslated). Anything
+// not recognized — including the Korean sentences stored before #665 — is
+// returned unchanged.
+func TranslateSkippedReason(raw string) string {
+	code, detail, hasDetail := strings.Cut(raw, skipReasonDetailSep)
+	label := ""
+	switch code {
+	case SkipWakeDisabled:
+		label = i18n.T().Patrol.WakeDisabled
+	case SkipPatrolBusy:
+		label = i18n.T().Patrol.PatrolBusy
+	case SkipDailyCap:
+		label = i18n.T().Patrol.DailyCap
+	case SkipCostCap:
+		label = i18n.T().Patrol.CostCap
+	case SkipCollectionFail:
+		label = i18n.T().Patrol.CollectionFailed
+	case SkipEnqueueFailed:
+		label = i18n.T().Patrol.EnqueueFailed
+	default:
+		return raw
+	}
+	if hasDetail {
+		return label + skipReasonDetailSep + detail
+	}
+	return label
+}
 
 // PatrolFinding is one attention item stored in a patrol record. The
 // fingerprint list of the previous record is what "new" is measured against;
@@ -227,7 +266,7 @@ func RunPatrolPassWithCollect(now time.Time, collect func(time.Time) ([]Attentio
 		// Record the failure but never wake on it — a broken query is not a
 		// finding about the flock, and a shepherd task could do nothing about
 		// it.
-		rec.SkippedReason = SkipCollectionFail + ": " + collectErr.Error()
+		rec.SkippedReason = SkipCollectionFail + skipReasonDetailSep + collectErr.Error()
 	} else if len(newItems) > 0 {
 		switch {
 		case !patrolWakeEnabled():
@@ -241,7 +280,7 @@ func RunPatrolPassWithCollect(now time.Time, collect func(time.Time) ([]Attentio
 		default:
 			t, enqErr := EnqueueShepherdTask(KindPatrol, buildPatrolPrompt(newItems), 0)
 			if enqErr != nil {
-				rec.SkippedReason = "목자 작업 적재 실패: " + enqErr.Error()
+				rec.SkippedReason = SkipEnqueueFailed + skipReasonDetailSep + enqErr.Error()
 			} else {
 				rec.TaskID = t.ID
 				if wakeProcessor != nil {

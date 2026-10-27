@@ -14,9 +14,10 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/agurrrrr/shepherd/ent"
+	entpatrol "github.com/agurrrrr/shepherd/ent/shepherdpatrol"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
 	"github.com/agurrrrr/shepherd/internal/db"
-	"github.com/agurrrrr/shepherd/internal/manager"
+	"github.com/agurrrrr/shepherd/internal/i18n"
 	"github.com/spf13/viper"
 )
 
@@ -254,8 +255,76 @@ func TestPatrolListAttachesWakeSummary(t *testing.T) {
 		t.Fatalf("second run: %d %v", code, out)
 	}
 	rec2 := out["data"].(map[string]any)["patrol"].(map[string]any)
-	if rec2["task_id"] != nil || rec2["skipped_reason"] != manager.SkipDailyCap {
+	// The run response renders the stored code in the current language (#665).
+	if rec2["task_id"] != nil || rec2["skipped_reason"] != i18n.T().Patrol.DailyCap {
 		t.Fatalf("daily cap must skip the second wake: %v", rec2)
+	}
+}
+
+// TestPatrolSkippedReasonStoredAsCodeAndRendered pins the #665 round trip: a
+// new patrol row stores the language-neutral code, the API answers in the
+// current language (ko default, then en), and a legacy Korean row written
+// before the change still comes back verbatim.
+func TestPatrolSkippedReasonStoredAsCodeAndRendered(t *testing.T) {
+	withShepherdTestEnv(t)
+	withPatrolRawDB(t) // the pass runs CollectAttention, which needs the raw handle
+	app, _ := newPatrolApp(t)
+	ctx := context.Background()
+
+	// Wake off: the pass must record the code, not a sentence.
+	viper.Set("shepherd_patrol_wake", false)
+	proj := db.Client().Project.Create().SetName("bori").SetPath("/ws/bori").SaveX(ctx)
+	db.Client().Task.Create().SetPrompt("a").
+		SetStatus(entTask.StatusFailed).SetError("boom").SetProject(proj).
+		SetCompletedAt(time.Now().Add(-time.Hour)).SaveX(ctx)
+
+	code, out := postPatrolRun(t, app)
+	if code != http.StatusOK {
+		t.Fatalf("run: %d %v", code, out)
+	}
+	rec := out["data"].(map[string]any)["patrol"].(map[string]any)
+	row, err := db.Client().ShepherdPatrol.Query().
+		Order(ent.Desc(entpatrol.FieldID)).First(ctx)
+	if err != nil {
+		t.Fatalf("patrol row: %v", err)
+	}
+	if row.SkippedReason != "wake_disabled" {
+		t.Fatalf("stored skipped_reason = %q, want the code wake_disabled", row.SkippedReason)
+	}
+	if rec["skipped_reason"] != "깨우기 꺼짐" {
+		t.Fatalf("ko run response must render the label, got %v", rec["skipped_reason"])
+	}
+
+	// Language=en: the same stored code renders in English through GET.
+	i18n.Init("en")
+	defer i18n.Init("ko")
+
+	// Seed a legacy Korean row (pre-#665 wording) — it must pass through.
+	db.Client().ShepherdPatrol.Create().
+		SetCreatedAt(time.Now()).
+		SetSkippedReason("하루 깨우기 상한 도달").
+		SaveX(ctx)
+
+	code, out = getPatrols(t, app, "")
+	if code != http.StatusOK {
+		t.Fatalf("GET patrols: %d %v", code, out)
+	}
+	patrols := out["data"].(map[string]any)["patrols"].([]any)
+	var rendered, legacy any
+	for _, p := range patrols {
+		m := p.(map[string]any)
+		switch m["skipped_reason"] {
+		case "wake disabled":
+			rendered = m["skipped_reason"]
+		case "하루 깨우기 상한 도달":
+			legacy = m["skipped_reason"]
+		}
+	}
+	if rendered == nil {
+		t.Fatalf("en GET must render the stored code in English: %v", patrols)
+	}
+	if legacy == nil {
+		t.Fatalf("legacy Korean row must come back verbatim: %v", patrols)
 	}
 }
 
