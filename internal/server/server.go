@@ -197,6 +197,7 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	api.Get("/sheep/:name", s.handleGetSheep)
 	api.Delete("/sheep/:name", s.handleDeleteSheep)
 	api.Patch("/sheep/:name/provider", s.handleUpdateSheepProvider)
+	api.Patch("/sheep/:name/name", s.handleRenameSheep)
 
 	// Project management
 	api.Get("/projects", s.handleListProjects)

@@ -2,19 +2,27 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/agurrrrr/shepherd/ent"
 	"github.com/agurrrrr/shepherd/ent/sheep"
+	"github.com/agurrrrr/shepherd/internal/browser"
 	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/names"
 )
 
-const maxSheepNameLength = 32
+// Sentinel errors from Rename so REST handlers can map causes to status codes
+// (404 not found, 409 conflict for taken names and working sheep) without
+// string-matching error text. The CLI keeps printing the wrapped message.
+var (
+	ErrSheepNotFound   = errors.New("sheep not found")
+	ErrSheepNameExists = errors.New("sheep name already exists")
+	ErrSheepWorking    = errors.New("sheep is currently working")
+)
 
 // CreateOptions contains options for sheep creation
 type CreateOptions struct {
@@ -239,19 +247,25 @@ func IsWorking(name string) (bool, error) {
 // Rename changes a sheep's name to a user-chosen name.
 // Unlike Create, this accepts arbitrary names that aren't in the seeded pool —
 // users can give their sheep custom names like "감자" or "쫑쫑이".
+//
+// Guards (issue #638 §6): the new name goes through names.ValidateCustom, the
+// manager sheep is off-limits, and a sheep that is working cannot be renamed.
+// The busy check lives here — not in the REST handler — so the CLI
+// `shepherd rename` gets the same protection: interactive.runningTasks and the
+// browser session map are both keyed by sheep name, so renaming mid-run would
+// disconnect stop, prompt injection, and output piping.
+//
+// Per-sheep directories move with the name: the personal memory directory
+// (~/.shepherd/sheep/<name>/) and the browser profile (~/.shepherd/browser/<name>/,
+// which holds saved login cookies). A failed move rolls the DB name back so the
+// three never drift apart.
 func Rename(oldName, newName string) error {
 	ctx := context.Background()
 	client := db.Client()
 
 	newName = strings.TrimSpace(newName)
-	if newName == "" {
-		return fmt.Errorf("new name must not be empty")
-	}
-	if utf8.RuneCountInString(newName) > maxSheepNameLength {
-		return fmt.Errorf("new name too long (max %d characters)", maxSheepNameLength)
-	}
-	if names.IsReserved(newName) {
-		return fmt.Errorf("'%s' is a reserved name", newName)
+	if err := names.ValidateCustom(newName); err != nil {
+		return fmt.Errorf("invalid sheep name: %w", err)
 	}
 	if names.IsManager(oldName) {
 		return fmt.Errorf("the manager sheep cannot be renamed")
@@ -265,9 +279,13 @@ func Rename(oldName, newName string) error {
 		Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			return fmt.Errorf("'%s' not found", oldName)
+			return fmt.Errorf("'%s': %w", oldName, ErrSheepNotFound)
 		}
 		return fmt.Errorf("failed to query sheep: %w", err)
+	}
+
+	if s.Status == sheep.StatusWorking || IsTaskRunning(oldName) {
+		return fmt.Errorf("'%s' is working — stop its task before renaming: %w", oldName, ErrSheepWorking)
 	}
 
 	exists, err := client.Sheep.Query().
@@ -277,7 +295,7 @@ func Rename(oldName, newName string) error {
 		return fmt.Errorf("failed to query sheep: %w", err)
 	}
 	if exists {
-		return fmt.Errorf("'%s' already exists", newName)
+		return fmt.Errorf("'%s' already exists: %w", newName, ErrSheepNameExists)
 	}
 
 	// Check personal memory directory preconditions before touching DB so we
@@ -294,6 +312,13 @@ func Rename(oldName, newName string) error {
 		}
 	}
 
+	// Browser profile preconditions likewise: an existing profile under the new
+	// name would be silently swallowed by the move, and an open session means a
+	// live chromium is holding the directory.
+	if err := browser.PrepareProfileRename(oldName, newName); err != nil {
+		return err
+	}
+
 	updated, err := client.Sheep.UpdateOne(s).SetName(newName).Save(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to rename sheep: %w", err)
@@ -307,6 +332,17 @@ func Rename(oldName, newName string) error {
 			}
 			return fmt.Errorf("failed to move memory dir from %s to %s: %w", oldDir, newDir, err)
 		}
+	}
+
+	if err := browser.CommitProfileRename(oldName, newName); err != nil {
+		// Undo everything: DB name and the memory directory both go back.
+		if hasOldDir {
+			_ = os.Rename(newDir, oldDir)
+		}
+		if _, rbErr := client.Sheep.UpdateOne(updated).SetName(oldName).Save(ctx); rbErr != nil {
+			return fmt.Errorf("failed to move browser profile (%w); DB rollback also failed: %v", err, rbErr)
+		}
+		return fmt.Errorf("failed to move browser profile: %w", err)
 	}
 
 	return nil
