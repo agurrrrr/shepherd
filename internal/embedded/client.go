@@ -188,6 +188,55 @@ func (c *Client) doRequest(ctx context.Context, kind string, newReq func() (*htt
 	return c.httpClient.Do(req)
 }
 
+// encodeChatRequest renders the wire body of a chat call (Chat Completions or
+// Responses). For Copilot it first removes the images beyond the model's
+// per-request limits, and reports whether images remain: those requests need
+// the Copilot-Vision-Request header. The caller's messages are not modified.
+func (c *Client) encodeChatRequest(ctx context.Context, req *ChatRequest, stream bool) ([]byte, bool, error) {
+	vision := false
+	if c.isCopilot() && countImageParts(req.Messages) > 0 {
+		model := req.Model
+		if model == "" {
+			model = c.model
+		}
+		lim := copilotModelImageLimits(ctx, c.githubToken, model)
+		capped := *req
+		capped.Messages = limitImageParts(req.Messages, lim.maxImages, lim.maxBytes)
+		req = &capped
+		vision = countImageParts(req.Messages) > 0
+	}
+
+	var (
+		body []byte
+		err  error
+	)
+	if c.responsesMode {
+		body, err = json.Marshal(buildResponsesRequest(req, stream))
+	} else {
+		body, err = json.Marshal(req)
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return body, vision, nil
+}
+
+// chatHTTPRequest returns the doRequest builder for a chat POST. vision adds
+// the Copilot-Vision-Request header (see encodeChatRequest).
+func (c *Client) chatHTTPRequest(ctx context.Context, body []byte, vision bool) func() (*http.Request, error) {
+	return func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, "POST", c.chatURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if vision {
+			req.Header.Set(copilotVisionHeader, "true")
+		}
+		return req, nil
+	}
+}
+
 // StreamEvent is a single SSE chunk from streaming response.
 type StreamEvent struct {
 	// Delta contains the incremental content or tool call updates.
@@ -207,27 +256,12 @@ func (c *Client) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 	}
 	req.Stream = false
 
-	var (
-		body []byte
-		err  error
-	)
-	if c.responsesMode {
-		body, err = json.Marshal(buildResponsesRequest(req, false))
-	} else {
-		body, err = json.Marshal(req)
-	}
+	body, vision, err := c.encodeChatRequest(ctx, req, false)
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, err
 	}
 
-	resp, err := c.doRequest(ctx, "chat", func() (*http.Request, error) {
-		req, err := http.NewRequestWithContext(ctx, "POST", c.chatURL, bytes.NewReader(body))
-		if err != nil {
-			return nil, fmt.Errorf("create request: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		return req, nil
-	})
+	resp, err := c.doRequest(ctx, "chat", c.chatHTTPRequest(ctx, body, vision))
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request: %w", err)
 	}
@@ -269,17 +303,9 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 	}
 	req.Stream = true
 
-	var (
-		body []byte
-		err  error
-	)
-	if c.responsesMode {
-		body, err = json.Marshal(buildResponsesRequest(req, true))
-	} else {
-		body, err = json.Marshal(req)
-	}
+	body, vision, err := c.encodeChatRequest(ctx, req, true)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return err
 	}
 
 	// --- B1 fix (task #6955, §4.5): create the cancelable context BEFORE
@@ -290,14 +316,7 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	resp, err := c.doRequest(streamCtx, "chat", func() (*http.Request, error) {
-		req, err := http.NewRequestWithContext(streamCtx, "POST", c.chatURL, bytes.NewReader(body))
-		if err != nil {
-			return nil, fmt.Errorf("create request: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		return req, nil
-	})
+	resp, err := c.doRequest(streamCtx, "chat", c.chatHTTPRequest(streamCtx, body, vision))
 	if err != nil {
 		return fmt.Errorf("HTTP request: %w", err)
 	}
@@ -414,11 +433,20 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 		type sseResponse struct {
 			Choices []sseChoice `json:"choices"`
 			Usage   *ChatUsage  `json:"usage,omitempty"`
+			// Error is set when the server fails after it sent HTTP 200
+			// (`data: {"error": ...}`, used by OpenAI, llama.cpp and Copilot).
+			Error json.RawMessage `json:"error,omitempty"`
 		}
 
 		var sseResp sseResponse
 		if err := json.Unmarshal(rawMsg, &sseResp); err != nil {
 			return nil
+		}
+		// Without this check the failed turn had no content and no tool calls,
+		// and the loop reported "empty response loop detected" instead of the
+		// server's reason.
+		if msg := streamErrorMessage(sseResp.Error); msg != "" {
+			return fmt.Errorf("API stream error: %s", msg)
 		}
 
 		if len(sseResp.Choices) > 0 {
@@ -431,11 +459,19 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 		return cb(&event)
 	}
 
+	// sawData / stray detect an HTTP 200 body that is not an SSE stream (for
+	// example a JSON error object). That body has no data: lines, so it also
+	// looked like an empty turn.
+	sawData := false
+	var stray strings.Builder
+
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		if strings.HasPrefix(line, "data: ") {
-			buf.WriteString(line[6:])
+		if data, ok := strings.CutPrefix(line, "data:"); ok {
+			// SSE allows "data:x" and "data: x"; one leading space is dropped.
+			buf.WriteString(strings.TrimPrefix(data, " "))
+			sawData = true
 		} else if line == "" && buf.Len() > 0 {
 			if err := flushBuffer(buf.String()); err != nil {
 				return fmt.Errorf("stream callback: %w", err)
@@ -443,6 +479,9 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 			buf.Reset()
 			resetIdle() // B1: received a chunk — reset idle timer
 			firstChunkReceived.Store(true)
+		} else if !sawData && strings.TrimSpace(line) != "" && !isSSEFieldLine(line) && stray.Len() < maxStrayBodyBytes {
+			stray.WriteString(line)
+			stray.WriteByte('\n')
 		}
 	}
 
@@ -472,7 +511,46 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 		return fmt.Errorf("stream idle timeout after 5m")
 	}
 
+	if !sawData && stray.Len() > 0 {
+		return fmt.Errorf("response is not an SSE stream: %s",
+			truncate(strings.TrimSpace(stray.String()), maxStrayBodyBytes))
+	}
+
 	return nil
+}
+
+// maxStrayBodyBytes bounds how much of a non-SSE response body is kept for the
+// error message.
+const maxStrayBodyBytes = 2048
+
+// isSSEFieldLine reports whether line is an SSE field other than data: (event,
+// id, retry) or a comment. These lines carry no payload.
+func isSSEFieldLine(line string) bool {
+	return strings.HasPrefix(line, ":") ||
+		strings.HasPrefix(line, "event:") ||
+		strings.HasPrefix(line, "id:") ||
+		strings.HasPrefix(line, "retry:")
+}
+
+// streamErrorMessage returns the message of an SSE "error" field, which
+// servers send as an object ({"message": ...}) or as a string. It returns ""
+// when the field is absent or null.
+func streamErrorMessage(raw json.RawMessage) string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var obj struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(raw, &obj) == nil && obj.Message != "" {
+		return obj.Message
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil && s != "" {
+		return s
+	}
+	return truncate(string(raw), maxStrayBodyBytes)
 }
 
 // AccumulateStream runs ChatStream and accumulates the full response.

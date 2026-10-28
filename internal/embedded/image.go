@@ -201,15 +201,93 @@ func imageDataURLSize(dataURL string) (w, h int, ok bool) {
 	return cfg.Width, cfg.Height, true
 }
 
-// FormatImageSize returns a human-readable size string for logging.
-func FormatImageSize(dataURL string) string {
-	// Strip "data:...;base64," prefix to get just the base64 payload.
+// imageDataURLBytes approximates the decoded byte size of a base64 data URL,
+// or returns -1 when the URL has no "data:...;base64," prefix.
+func imageDataURLBytes(dataURL string) int {
 	idx := strings.Index(dataURL, ",")
 	if idx < 0 {
+		return -1
+	}
+	return (len(dataURL) - idx - 1) * 3 / 4
+}
+
+// countImageParts returns the number of image parts in messages.
+func countImageParts(messages []ChatMessage) int {
+	n := 0
+	for _, m := range messages {
+		for _, p := range m.ContentParts {
+			if p.Type == "image_url" && p.ImageURL != nil {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// limitImageParts returns messages with at most maxImages image parts, keeping
+// the newest ones, and without images larger than maxBytes (decoded). Each
+// removed image becomes a short text part, so the model knows a picture was
+// there. A limit <= 0 is not applied. The input is not modified: only the
+// messages that change are copied.
+//
+// Screenshots stay in the history, so a browser session collects one image per
+// screenshot. A provider with a per-request image limit (GitHub Copilot) can
+// refuse the whole request when the history has more images than the limit.
+func limitImageParts(messages []ChatMessage, maxImages, maxBytes int) []ChatMessage {
+	if maxImages <= 0 && maxBytes <= 0 {
+		return messages
+	}
+	var out []ChatMessage
+	kept := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		parts := messages[i].ContentParts
+		var newParts []ContentPart
+		for j := len(parts) - 1; j >= 0; j-- {
+			p := parts[j]
+			if p.Type != "image_url" || p.ImageURL == nil {
+				continue
+			}
+			var note string
+			switch {
+			case maxBytes > 0 && imageDataURLBytes(p.ImageURL.URL) > maxBytes:
+				note = fmt.Sprintf("[Image omitted: it is larger than the %s per-image limit of this model.]",
+					formatByteSize(maxBytes))
+			case maxImages > 0 && kept >= maxImages:
+				note = fmt.Sprintf("[Earlier image omitted: this model accepts at most %d image(s) per request. "+
+					"Capture it again if you need to see it.]", maxImages)
+			default:
+				kept++
+				continue
+			}
+			if newParts == nil {
+				newParts = append([]ContentPart(nil), parts...)
+			}
+			newParts[j] = ContentPart{Type: "text", Text: note}
+		}
+		if newParts != nil {
+			if out == nil {
+				out = append([]ChatMessage(nil), messages...)
+			}
+			out[i].ContentParts = newParts
+		}
+	}
+	if out == nil {
+		return messages
+	}
+	return out
+}
+
+// FormatImageSize returns a human-readable size string for logging.
+func FormatImageSize(dataURL string) string {
+	rawBytes := imageDataURLBytes(dataURL)
+	if rawBytes < 0 {
 		return "?"
 	}
-	b64Len := len(dataURL) - idx - 1
-	rawBytes := b64Len * 3 / 4 // approximate decoded size
+	return formatByteSize(rawBytes)
+}
+
+// formatByteSize renders a byte count as B, KB or MB.
+func formatByteSize(rawBytes int) string {
 	switch {
 	case rawBytes < 1024:
 		return fmt.Sprintf("%dB", rawBytes)

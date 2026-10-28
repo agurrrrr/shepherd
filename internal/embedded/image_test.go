@@ -354,3 +354,57 @@ func TestOptimizeImageForContext_TinyImageKeepsPNG(t *testing.T) {
 		t.Errorf("tiny flat PNG should stay PNG (JPEG would be larger), got: %s", dataURL[:40])
 	}
 }
+
+func TestLimitImageParts(t *testing.T) {
+	img := func(payload string) ContentPart {
+		return ContentPart{Type: "image_url", ImageURL: &ImageURL{URL: "data:image/png;base64," + payload}}
+	}
+	msgs := []ChatMessage{
+		{Role: ChatRoleUser, Content: "start"},
+		{Role: ChatRoleUser, ContentParts: []ContentPart{{Type: "text", Text: "a"}, img("AAAA"), img("BBBB")}},
+		{Role: ChatRoleTool, Content: "result"},
+		{Role: ChatRoleUser, ContentParts: []ContentPart{{Type: "text", Text: "b"}, img("CCCC")}},
+	}
+
+	t.Run("keeps newest images", func(t *testing.T) {
+		got := limitImageParts(msgs, 2, 0)
+		if n := countImageParts(got); n != 2 {
+			t.Fatalf("images = %d, want 2", n)
+		}
+		if p := got[1].ContentParts[1]; p.Type != "text" || !strings.Contains(p.Text, "at most 2 image(s)") {
+			t.Fatalf("oldest image part = %+v, want omitted note", p)
+		}
+		if p := got[1].ContentParts[2]; p.ImageURL == nil || !strings.HasSuffix(p.ImageURL.URL, "BBBB") {
+			t.Fatalf("second image = %+v, want BBBB kept", p)
+		}
+		if p := got[3].ContentParts[1]; p.ImageURL == nil || !strings.HasSuffix(p.ImageURL.URL, "CCCC") {
+			t.Fatalf("newest image = %+v, want CCCC kept", p)
+		}
+		if n := countImageParts(msgs); n != 3 || msgs[1].ContentParts[1].ImageURL == nil {
+			t.Fatalf("input changed: %d images", n)
+		}
+	})
+
+	t.Run("drops oversized images", func(t *testing.T) {
+		big := []ChatMessage{{Role: ChatRoleUser, ContentParts: []ContentPart{
+			img(strings.Repeat("A", 4000)), img("CCCC"),
+		}}}
+		got := limitImageParts(big, 5, 1000)
+		if p := got[0].ContentParts[0]; p.Type != "text" || !strings.Contains(p.Text, "larger than") {
+			t.Fatalf("oversized image = %+v, want omitted note", p)
+		}
+		if countImageParts(got) != 1 {
+			t.Fatalf("images = %d, want 1", countImageParts(got))
+		}
+	})
+
+	t.Run("no change returns input", func(t *testing.T) {
+		got := limitImageParts(msgs, 3, 0)
+		if &got[0] != &msgs[0] {
+			t.Fatal("within the limit the input slice should be returned as is")
+		}
+		if got := limitImageParts(msgs, 0, 0); &got[0] != &msgs[0] {
+			t.Fatal("no limits should return the input slice")
+		}
+	})
+}

@@ -910,3 +910,58 @@ func TestHealthCheckUnreachable(t *testing.T) {
 		t.Error("HealthCheck should fail when server returns 503")
 	}
 }
+
+// TestChatStreamSurfacesStreamError: an error sent inside the SSE stream after
+// HTTP 200 must fail the call with the server's message. Before, the turn had
+// no content and the loop stopped with "empty response loop detected".
+func TestChatStreamSurfacesStreamError(t *testing.T) {
+	srv := sseServer(t, []string{
+		`data: {"error":{"message":"missing required Copilot-Vision-Request header for vision requests","code":"invalid_request_body"}}`,
+		`data: [DONE]`,
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
+	_, _, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
+	if err == nil || !strings.Contains(err.Error(), "Copilot-Vision-Request") {
+		t.Fatalf("err = %v, want the stream error message", err)
+	}
+	if isTransientLLMError(err) {
+		t.Fatalf("stream error %v must not be retried as transient", err)
+	}
+}
+
+// TestChatStreamNonSSEBody: an HTTP 200 body that is not SSE (a JSON error
+// object) must fail with the body instead of producing an empty turn.
+func TestChatStreamNonSSEBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"error":{"message":"bad image"}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
+	_, _, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
+	if err == nil || !strings.Contains(err.Error(), "not an SSE stream") || !strings.Contains(err.Error(), "bad image") {
+		t.Fatalf("err = %v, want non-SSE body error", err)
+	}
+}
+
+// TestChatStreamDataWithoutSpace: SSE allows "data:{...}" without the space.
+func TestChatStreamDataWithoutSpace(t *testing.T) {
+	srv := sseServer(t, []string{
+		`data:{"choices":[{"index":0,"delta":{"content":"Hello"}}]}`,
+		`data:{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		`data:[DONE]`,
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
+	msg, finish, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Content != "Hello" || finish != "stop" {
+		t.Fatalf("content=%q finish=%q, want Hello/stop", msg.Content, finish)
+	}
+}

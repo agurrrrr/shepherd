@@ -301,6 +301,82 @@ func copilotHeaders() map[string]string {
 	}
 }
 
+// copilotVisionHeader must be "true" on every request whose messages carry an
+// image (the official clients and opencode set it the same way). Without it
+// Copilot does not accept the images, and tasks that read a screenshot stopped
+// with "empty response loop detected" or an API error.
+const copilotVisionHeader = "Copilot-Vision-Request"
+
+// copilotImageLimits is a model's image budget from /models
+// (capabilities.limits.vision). Zero means "not advertised".
+type copilotImageLimits struct {
+	maxImages int // images per request
+	maxBytes  int // decoded bytes per image
+}
+
+const (
+	// copilotDefaultMaxImages applies when /models gives no image count for
+	// the model or cannot be read. One image keeps the newest screenshot.
+	copilotDefaultMaxImages = 1
+	copilotLimitsTTL        = time.Hour
+	// copilotLimitsRetryTTL caches a failed /models lookup briefly, so an
+	// unreachable endpoint does not add a 30s lookup to every request.
+	copilotLimitsRetryTTL = 5 * time.Minute
+)
+
+type copilotLimitsEntry struct {
+	models    map[string]copilotImageLimits
+	expiresAt time.Time
+}
+
+var copilotLimitsCache = struct {
+	sync.Mutex
+	entries map[[32]byte]*copilotLimitsEntry
+}{entries: make(map[[32]byte]*copilotLimitsEntry)}
+
+// copilotModelImageLimits returns the image limits Copilot advertises for
+// model. The /models list is read once per GitHub token and cached. When the
+// list is unavailable or the model gives no count, copilotDefaultMaxImages
+// applies.
+func copilotModelImageLimits(ctx context.Context, githubToken, model string) copilotImageLimits {
+	githubToken = strings.TrimSpace(githubToken)
+	key := copilotCacheKey(githubToken)
+	now := time.Now()
+
+	copilotLimitsCache.Lock()
+	entry := copilotLimitsCache.entries[key]
+	copilotLimitsCache.Unlock()
+	if entry == nil || !now.Before(entry.expiresAt) {
+		entry = &copilotLimitsEntry{
+			models:    make(map[string]copilotImageLimits),
+			expiresAt: now.Add(copilotLimitsRetryTTL),
+		}
+		models, _, err := ListCopilotModels(ctx, githubToken)
+		if err != nil {
+			fmt.Printf("[embedded] copilot image limits unavailable, using %d image(s) per request: %v\n",
+				copilotDefaultMaxImages, err)
+		} else {
+			for _, m := range models {
+				entry.models[m.ID] = copilotImageLimits{maxImages: m.MaxPromptImages, maxBytes: m.MaxPromptImageSize}
+			}
+			entry.expiresAt = now.Add(copilotLimitsTTL)
+		}
+		// A lookup cut short by a cancelled task says nothing about the
+		// endpoint, so only real answers and real failures are cached.
+		if err == nil || ctx.Err() == nil {
+			copilotLimitsCache.Lock()
+			copilotLimitsCache.entries[key] = entry
+			copilotLimitsCache.Unlock()
+		}
+	}
+
+	lim := entry.models[model]
+	if lim.maxImages <= 0 {
+		lim.maxImages = copilotDefaultMaxImages
+	}
+	return lim
+}
+
 // CopilotModel is a chat model advertised by the Copilot /models endpoint,
 // flattened to the fields shepherd cares about.
 type CopilotModel struct {
@@ -317,6 +393,10 @@ type CopilotModel struct {
 	// /chat/completions or "responses" for /responses. Copilot serves some
 	// models (GPT-6.1 Sol) only on the Responses API.
 	API string `json:"api"`
+	// MaxPromptImages / MaxPromptImageSize are the per-request image count and
+	// the per-image byte limit (capabilities.limits.vision); 0 when absent.
+	MaxPromptImages    int `json:"max_prompt_images,omitempty"`
+	MaxPromptImageSize int `json:"max_prompt_image_size,omitempty"`
 }
 
 // ContextTokens returns the input budget to use for trimming/handoff: the
@@ -343,6 +423,10 @@ type copilotCapabilities struct {
 		MaxContextWindowTokens int `json:"max_context_window_tokens"`
 		MaxPromptTokens        int `json:"max_prompt_tokens"`
 		MaxOutputTokens        int `json:"max_output_tokens"`
+		Vision                 struct {
+			MaxPromptImageSize int `json:"max_prompt_image_size"`
+			MaxPromptImages    int `json:"max_prompt_images"`
+		} `json:"vision"`
 	} `json:"limits"`
 	Supports struct {
 		ToolCalls bool `json:"tool_calls"`
@@ -423,6 +507,8 @@ func ListCopilotModels(ctx context.Context, githubToken string) ([]CopilotModel,
 			SupportsVision:      caps.Supports.Vision,
 			SupportedEndpoints:  m.SupportedEndpoints,
 			API:                 copilotModelAPI(m.SupportedEndpoints),
+			MaxPromptImages:     caps.Limits.Vision.MaxPromptImages,
+			MaxPromptImageSize:  caps.Limits.Vision.MaxPromptImageSize,
 		})
 	}
 	return out, apiBase, nil
