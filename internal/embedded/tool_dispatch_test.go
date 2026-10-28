@@ -321,3 +321,100 @@ func TestRunToolCallBatch_ParallelGrepGlob(t *testing.T) {
 		}
 	}
 }
+
+// TestDispatchTool_SheepNameInjection pins which MCP calls get the caller's
+// sheep name. Required sheep_name (browser_*) is the caller's own identity and
+// is always overwritten. Optional sheep_name (issue_execute, task_start) picks
+// the target sheep: injecting the caller's name there assigned everything the
+// shepherd enqueued to the manager sheep instead of the project's sheep.
+func TestDispatchTool_SheepNameInjection(t *testing.T) {
+	defs := []MCPToolDef{
+		{Name: "browser_open", Parameters: map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{"sheep_name": map[string]interface{}{"type": "string"}},
+			"required":   []string{"sheep_name"},
+		}},
+		{Name: "issue_execute", Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"project_name": map[string]interface{}{"type": "string"},
+				"id":           map[string]interface{}{"type": "number"},
+				"sheep_name":   map[string]interface{}{"type": "string"},
+			},
+			"required": []string{"project_name", "id"},
+		}},
+		{Name: "external_tool", Parameters: map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{"q": map[string]interface{}{"type": "string"}},
+			"required":   []string{},
+		}},
+	}
+	var got map[string]interface{}
+	dispatch := func(name string, args map[string]interface{}) (string, []MCPImage, error) {
+		got = args
+		return "ok", nil, nil
+	}
+	tr := NewToolRegistry(t.TempDir(), "shepherd", defs, dispatch)
+	opts := ExecuteOptions{SheepName: "shepherd"}
+
+	cases := []struct {
+		name     string
+		tool     string
+		args     string
+		want     string
+		wantSent bool
+	}{
+		{"browser overwrites model value", "browser_open", `{"sheep_name":"other"}`, "shepherd", true},
+		{"browser fills missing value", "browser_open", `{}`, "shepherd", true},
+		{"issue_execute keeps default", "issue_execute", `{"project_name":"p","id":1}`, "", false},
+		{"issue_execute keeps explicit target", "issue_execute", `{"project_name":"p","id":1,"sheep_name":"햄찌"}`, "햄찌", true},
+		{"undeclared tool gets nothing", "external_tool", `{"q":"x"}`, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got = nil
+			call := ToolCall{ID: "1", Func: ToolCallFunction{Name: tc.tool, Args: tc.args}}
+			if _, err := dispatchTool(context.Background(), tr, call, opts); err != nil {
+				t.Fatalf("dispatchTool: %v", err)
+			}
+			v, sent := got["sheep_name"]
+			if sent != tc.wantSent {
+				t.Fatalf("sheep_name sent=%v (value %v), want sent=%v", sent, v, tc.wantSent)
+			}
+			if sent && v != tc.want {
+				t.Errorf("sheep_name = %v, want %q", v, tc.want)
+			}
+		})
+	}
+}
+
+// TestWantsSheepName_JSONDecodedRequired covers defs whose `required` came
+// from JSON decoding ([]interface{} instead of []string).
+func TestWantsSheepName_JSONDecodedRequired(t *testing.T) {
+	defs := []MCPToolDef{
+		{Name: "required_tool", Parameters: map[string]interface{}{
+			"properties": map[string]interface{}{"sheep_name": map[string]interface{}{}},
+			"required":   []interface{}{"sheep_name"},
+		}},
+		{Name: "optional_tool", Parameters: map[string]interface{}{
+			"properties": map[string]interface{}{"sheep_name": map[string]interface{}{}},
+			"required":   []interface{}{"other"},
+		}},
+		{Name: "no_required", Parameters: map[string]interface{}{
+			"properties": map[string]interface{}{"sheep_name": map[string]interface{}{}},
+		}},
+	}
+	tr := NewToolRegistry(t.TempDir(), "s", defs, nil)
+	if !tr.WantsSheepName("required_tool") {
+		t.Error("required_tool: want true")
+	}
+	if tr.WantsSheepName("optional_tool") {
+		t.Error("optional_tool: want false")
+	}
+	if tr.WantsSheepName("no_required") {
+		t.Error("no_required: want false")
+	}
+	if tr.WantsSheepName("missing") {
+		t.Error("missing: want false")
+	}
+}

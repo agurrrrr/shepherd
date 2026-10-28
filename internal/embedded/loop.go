@@ -1255,9 +1255,11 @@ func dispatchTool(ctx context.Context, tr *ToolRegistry, tc ToolCall, opts Execu
 		)
 	}
 
-	// Inject sheep_name only for MCP tools whose schema declares it (shepherd's
+	// Inject sheep_name only for MCP tools whose schema requires it (shepherd's
 	// own browser_* tools). External MCP servers with strict unmarshaling reject
-	// unknown fields, so blanket injection broke them (task #6142).
+	// unknown fields, so blanket injection broke them (task #6142). Optional
+	// sheep_name (task_start, issue_execute) selects the target sheep and is
+	// left as the model sent it.
 	if tr.WantsSheepName(tc.Func.Name) {
 		args["sheep_name"] = opts.SheepName
 	}

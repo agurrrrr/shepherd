@@ -549,10 +549,16 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 
 // Dispatch executes a tool call by name and arguments. The context is passed
 // through to native tools so cancellation/timeout reaches subprocesses.
-// WantsSheepName reports whether the named MCP tool declares a sheep_name
-// property in its input schema. Only such tools (shepherd's own browser_*
-// etc.) should have sheep_name injected; external MCP servers using strict
-// unmarshaling reject unknown fields (task #6142).
+// WantsSheepName reports whether the named MCP tool needs the caller's own
+// sheep name injected as sheep_name. Only tools that declare sheep_name as a
+// required property qualify (shepherd's browser_*, where it keys the caller's
+// browser session). External MCP servers using strict unmarshaling reject
+// unknown fields (task #6142), so undeclared tools never qualify.
+//
+// Tools that declare sheep_name as optional (task_start, issue_execute) use it
+// to pick the target sheep and default to the project's assigned sheep when it
+// is absent. Injecting the caller's name there assigned every task the
+// shepherd enqueued to the manager sheep instead of the project's sheep.
 func (tr *ToolRegistry) WantsSheepName(name string) bool {
 	for _, def := range tr.mcpDefs {
 		if def.Name != name {
@@ -562,8 +568,30 @@ func (tr *ToolRegistry) WantsSheepName(name string) bool {
 		if !ok {
 			return false
 		}
-		_, has := props["sheep_name"]
-		return has
+		if _, has := props["sheep_name"]; !has {
+			return false
+		}
+		return schemaRequires(def.Parameters["required"], "sheep_name")
+	}
+	return false
+}
+
+// schemaRequires reports whether a JSON Schema `required` value lists field.
+// In-process defs carry []string; defs decoded from JSON carry []interface{}.
+func schemaRequires(required interface{}, field string) bool {
+	switch req := required.(type) {
+	case []string:
+		for _, r := range req {
+			if r == field {
+				return true
+			}
+		}
+	case []interface{}:
+		for _, r := range req {
+			if s, ok := r.(string); ok && s == field {
+				return true
+			}
+		}
 	}
 	return false
 }
