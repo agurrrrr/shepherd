@@ -965,3 +965,66 @@ func TestChatStreamDataWithoutSpace(t *testing.T) {
 		t.Fatalf("content=%q finish=%q, want Hello/stop", msg.Content, finish)
 	}
 }
+
+// TestChatStreamUndecodableChunks: a stream whose chunks all fail to decode
+// must fail with a sample chunk. Before, the turn looked empty and the loop
+// stopped with "empty response loop detected" without the server's reply.
+func TestChatStreamUndecodableChunks(t *testing.T) {
+	srv := sseServer(t, []string{
+		`data: {"choices":[{"index":0,"delta":{"content":[{"type":"text","text":"Hi"}]}}]}`,
+		`data: [DONE]`,
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
+	_, _, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
+	if err == nil || !strings.Contains(err.Error(), "no stream chunk could be decoded") ||
+		!strings.Contains(err.Error(), `"text":"Hi"`) {
+		t.Fatalf("err = %v, want undecodable-stream error with the chunk", err)
+	}
+}
+
+// TestChatStreamReasoningText: GitHub Copilot sends Claude thinking as
+// reasoning_text. It must arrive as ReasoningContent.
+func TestChatStreamReasoningText(t *testing.T) {
+	srv := sseServer(t, []string{
+		`data: {"choices":[{"index":0,"delta":{"reasoning_text":"Look at the screenshot."}}]}`,
+		`data: {"choices":[{"index":0,"delta":{"content":"Done"},"finish_reason":"stop"}]}`,
+		`data: [DONE]`,
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
+	msg, _, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.ReasoningContent != "Look at the screenshot." || msg.Content != "Done" {
+		t.Fatalf("reasoning=%q content=%q", msg.ReasoningContent, msg.Content)
+	}
+	if msg.streamNote != "" {
+		t.Fatalf("streamNote = %q, want empty for a turn with content", msg.streamNote)
+	}
+}
+
+// TestEmptyTurnStreamNote: a turn with no content and no tool calls records
+// the finish reason and the raw chunks for the loop's stop reason.
+func TestEmptyTurnStreamNote(t *testing.T) {
+	srv := sseServer(t, []string{
+		`data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}`,
+		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"content_filter"}],"usage":{"prompt_tokens":42}}`,
+		`data: [DONE]`,
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
+	msg, _, _, err := c.AccumulateStream(context.Background(), &ChatRequest{Model: "test-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`finish_reason="content_filter"`, "2 chunk(s)", `"role":"assistant"`, `"prompt_tokens":42`} {
+		if !strings.Contains(msg.streamNote, want) {
+			t.Errorf("streamNote = %q, missing %q", msg.streamNote, want)
+		}
+	}
+}

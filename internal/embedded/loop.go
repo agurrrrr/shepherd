@@ -1012,6 +1012,11 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 
 		if contentEmpty {
 			consecutiveEmpty++
+			note := msg.streamNote
+			if note == "" {
+				note = fmt.Sprintf("finish_reason=%q, content had no visible answer", finishReason)
+			}
+			fmt.Printf("[embedded] iter=%d empty turn: %s\n", iteration, note)
 
 			// A turn with reasoning_content (model still thinking) or an explicit
 			// finish_reason "stop" deserves more patience than a hard-empty turn,
@@ -1027,7 +1032,7 @@ func Run(ctx context.Context, opts ExecuteOptions) (*ExecuteResult, error) {
 				return &ExecuteResult{
 					Result:           "",
 					Incomplete:       true,
-					IncompleteReason: "empty response loop detected",
+					IncompleteReason: "empty response loop detected (last turn: " + note + ")",
 					PromptTokens:     totalPromptTokens,
 					CompletionTokens: totalCompletionTokens,
 					CostUSD:          totalCostUSD,

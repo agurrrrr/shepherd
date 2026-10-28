@@ -1384,3 +1384,32 @@ func TestInjectedBeforeFirstTurnNoNudge(t *testing.T) {
 		t.Fatalf("expected 1 request (no nudge), got %d", len(*bodies))
 	}
 }
+
+// TestEmptyResponseLoopReasonHasStreamNote: when the loop stops on empty
+// turns, the reason quotes the last turn's stream so the server's reply is
+// visible in the task result.
+func TestEmptyResponseLoopReasonHasStreamNote(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, `data: {"choices":[{"index":0,"delta":{},"finish_reason":"content_filter"}]}`+"\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	result, err := Run(context.Background(), ExecuteOptions{
+		BaseURL:       srv.URL + "/chat/completions",
+		Model:         "test-model",
+		SystemPrompt:  "You are a helpful assistant.",
+		UserPrompt:    "Check the screen.",
+		MaxIterations: 10,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if !result.Incomplete ||
+		!strings.HasPrefix(result.IncompleteReason, "empty response loop detected (last turn: ") ||
+		!strings.Contains(result.IncompleteReason, `finish_reason="content_filter"`) {
+		t.Fatalf("IncompleteReason = %q, want the empty-loop reason with the stream note", result.IncompleteReason)
+	}
+}

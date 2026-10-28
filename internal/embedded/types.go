@@ -69,6 +69,11 @@ type ChatMessage struct {
 	// Used to attach images for vision-capable models. It is never populated by
 	// unmarshaling a response (json:"-"); only the marshaler consults it.
 	ContentParts []ContentPart `json:"-"`
+	// streamNote describes the raw stream of a turn with no visible content
+	// and no tool calls (finish reason, chunk count, first/last chunk). The
+	// loop adds it to "empty response loop detected" so the server's actual
+	// reply is visible. It is never sent (unexported).
+	streamNote string
 }
 
 // ContentPart is one element of a multimodal message content array (OpenAI
@@ -175,6 +180,9 @@ type ChatDelta struct {
 	ToolCalls []DeltaToolCall `json:"tool_calls,omitempty"`
 	// Reasoning models
 	ReasoningContent string `json:"reasoning_content,omitempty"`
+	// ReasoningText is GitHub Copilot's name for the same field (Claude
+	// thinking). The stream parser moves it into ReasoningContent.
+	ReasoningText string `json:"reasoning_text,omitempty"`
 }
 
 // DeltaToolCall is a streaming tool-call fragment. OpenAI-compatible providers

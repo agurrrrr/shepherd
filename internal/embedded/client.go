@@ -399,6 +399,18 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 256*1024)
 
+	// decoded / badChunk: chunks that do not decode are skipped. When no chunk
+	// decodes, the stream has a format shepherd does not read; before, that
+	// turn looked empty and hid the server's reply.
+	decoded := 0
+	badChunk := ""
+	skipChunk := func(data string) error {
+		if badChunk == "" {
+			badChunk = data
+		}
+		return nil
+	}
+
 	flushBuffer := func(data string) error {
 		data = strings.TrimSpace(data)
 		if data == "" || data == "[DONE]" {
@@ -407,10 +419,11 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 
 		var rawMsg json.RawMessage
 		if err := json.Unmarshal([]byte(data), &rawMsg); err != nil {
-			return nil // skip malformed lines
+			return skipChunk(data)
 		}
 
 		if c.responsesMode {
+			decoded++
 			event, err := responsesEventToStream(rawMsg)
 			if err != nil {
 				return err
@@ -440,8 +453,9 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 
 		var sseResp sseResponse
 		if err := json.Unmarshal(rawMsg, &sseResp); err != nil {
-			return nil
+			return skipChunk(data)
 		}
+		decoded++
 		// Without this check the failed turn had no content and no tool calls,
 		// and the loop reported "empty response loop detected" instead of the
 		// server's reason.
@@ -453,6 +467,9 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 			choice := sseResp.Choices[0]
 			event.Delta = choice.Delta
 			event.FinishReason = choice.FinishReason
+			if event.Delta.ReasoningContent == "" {
+				event.Delta.ReasoningContent = event.Delta.ReasoningText
+			}
 		}
 		event.Usage = sseResp.Usage
 
@@ -516,7 +533,32 @@ func (c *Client) ChatStreamWithProgress(ctx context.Context, req *ChatRequest, c
 			truncate(strings.TrimSpace(stray.String()), maxStrayBodyBytes))
 	}
 
+	if badChunk != "" {
+		if decoded == 0 {
+			return fmt.Errorf("no stream chunk could be decoded: %s", truncate(badChunk, maxStreamNoteChars))
+		}
+		fmt.Printf("[embedded] skipped a stream chunk that could not be decoded: %s\n",
+			truncate(badChunk, maxStreamNoteChars))
+	}
+
 	return nil
+}
+
+// maxStreamNoteChars bounds each raw chunk quoted in stream diagnostics.
+const maxStreamNoteChars = 300
+
+// emptyStreamNote summarizes the stream of a turn that gave no visible content
+// and no tool calls, for the "empty response loop detected" reason.
+func emptyStreamNote(finishReason string, chunks int, first, last json.RawMessage) string {
+	if chunks == 0 {
+		return fmt.Sprintf("finish_reason=%q, no stream chunks", finishReason)
+	}
+	note := fmt.Sprintf("finish_reason=%q, %d chunk(s), first chunk: %s",
+		finishReason, chunks, truncate(string(first), maxStreamNoteChars))
+	if chunks > 1 {
+		note += ", last chunk: " + truncate(string(last), maxStreamNoteChars)
+	}
+	return note
 }
 
 // maxStrayBodyBytes bounds how much of a non-SSE response body is kept for the
@@ -596,6 +638,9 @@ func (c *Client) accumulateStreamWithProgress(ctx context.Context, req *ChatRequ
 		order            []int
 		finishReason     string
 		usage            *ChatUsage
+		// chunks / firstRaw / lastRaw feed emptyStreamNote.
+		chunks            int
+		firstRaw, lastRaw json.RawMessage
 	)
 	thought := newReasoningLive(onReasoning)
 	defer thought.Close()
@@ -608,6 +653,12 @@ func (c *Client) accumulateStreamWithProgress(ctx context.Context, req *ChatRequ
 		if event == nil {
 			return nil
 		}
+
+		chunks++
+		if firstRaw == nil {
+			firstRaw = event.Raw
+		}
+		lastRaw = event.Raw
 
 		if event.Usage != nil {
 			usage = event.Usage
@@ -687,6 +738,9 @@ func (c *Client) accumulateStreamWithProgress(ctx context.Context, req *ChatRequ
 		Content:          content,
 		ToolCalls:        toolCalls,
 		ReasoningContent: reasoningBuilder.String(),
+	}
+	if len(toolCalls) == 0 && strings.TrimSpace(content) == "" {
+		msg.streamNote = emptyStreamNote(finishReason, chunks, firstRaw, lastRaw)
 	}
 
 	return msg, finishReason, usage, nil
