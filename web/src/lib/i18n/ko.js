@@ -623,6 +623,9 @@ export default {
 	'command.injected': '💬 주입됨',
 	'command.injectRequestFailed': '주입 요청 실패',
 	'command.injectTitle': '추가 지시 주입',
+	'command.fileTooLarge': '{name}이 10MB 제한을 넘습니다',
+	'command.imageStillTooLarge': '{name}은 압축 후에도 10MB를 넘습니다',
+	'command.compressed': '업로드용 압축: {from} → {to} (JPEG 품질 90)',
 
 	// Sheep card live output (SheepCard.svelte)
 	'sheepCard.injectedEcho': '💬 [주입된 메시지]: {text}',

@@ -625,6 +625,9 @@ export default {
 	'command.injected': '💬 Injected',
 	'command.injectRequestFailed': 'The inject request failed',
 	'command.injectTitle': 'Inject an additional instruction',
+	'command.fileTooLarge': '{name} exceeds the 10MB limit',
+	'command.imageStillTooLarge': '{name} is still over 10MB after compression',
+	'command.compressed': 'Compressed for upload: {from} → {to} (JPEG quality 90)',
 
 	// Sheep card live output (SheepCard.svelte)
 	'sheepCard.injectedEcho': '💬 [Injected message]: {text}',

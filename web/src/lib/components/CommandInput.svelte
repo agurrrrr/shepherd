@@ -1,6 +1,7 @@
 <script>
 	import { apiPost, apiGet, apiUpload } from '$lib/api.js';
 	import { t, translate } from '$lib/i18n/index.js';
+	import { compressImageFile, MAX_UPLOAD_BYTES } from '$lib/imageCompress.js';
 	import Icon from './Icon.svelte';
 
 	// `thinking`: tri-state — true/false override the server default, null means
@@ -46,25 +47,44 @@
 		fileInputEl?.click();
 	}
 
+	let attachSeq = 0;
+
+	/**
+	 * Attach one file. Images are compressed in the browser first (JPEG q90,
+	 * longest side capped) so a big screenshot stays under the server's 10 MB
+	 * limit and costs fewer tokens downstream. The size check runs on the
+	 * compressed result, so only files still too large afterwards are rejected.
+	 */
+	async function attachFile(file) {
+		const isImage = file.type.startsWith('image/');
+		const stored = isImage ? await compressImageFile(file) : file;
+
+		if (stored.size > MAX_UPLOAD_BYTES) {
+			lastResult = {
+				success: false,
+				message: translate(
+					stored !== file ? 'command.imageStillTooLarge' : 'command.fileTooLarge',
+					{ name: stored.name }
+				)
+			};
+			return;
+		}
+
+		const id = ++attachSeq;
+		attachedFiles = [...attachedFiles, { id, file: stored, originalSize: file.size, preview: null }];
+
+		if (isImage) {
+			const reader = new FileReader();
+			reader.onload = (ev) => {
+				attachedFiles = attachedFiles.map((a) => (a.id === id ? { ...a, preview: ev.target.result } : a));
+			};
+			reader.readAsDataURL(stored);
+		}
+	}
+
 	function handleFileSelect(e) {
 		const files = Array.from(e.target.files || []);
-		for (const f of files) {
-			if (f.size > 10 * 1024 * 1024) {
-				lastResult = { success: false, message: `${f.name} exceeds 10MB limit` };
-				continue;
-			}
-			attachedFiles = [...attachedFiles, { file: f, preview: null }];
-			if (f.type.startsWith('image/')) {
-				const idx = attachedFiles.length - 1;
-				const reader = new FileReader();
-				reader.onload = (ev) => {
-					attachedFiles = attachedFiles.map((a, i) =>
-						i === idx ? { ...a, preview: ev.target.result } : a
-					);
-				};
-				reader.readAsDataURL(f);
-			}
-		}
+		for (const f of files) attachFile(f);
 		// Reset input so same file can be re-selected
 		e.target.value = '';
 	}
@@ -81,16 +101,7 @@
 				if (!blob) continue;
 				const ext = blob.type.split('/')[1] || 'png';
 				const file = new File([blob], `clipboard-${Date.now()}.${ext}`, { type: blob.type });
-				const entry = { file, preview: null };
-				attachedFiles = [...attachedFiles, entry];
-				const idx = attachedFiles.length - 1;
-				const reader = new FileReader();
-				reader.onload = (ev) => {
-					attachedFiles = attachedFiles.map((a, i) =>
-						i === idx ? { ...a, preview: ev.target.result } : a
-					);
-				};
-				reader.readAsDataURL(file);
+				attachFile(file);
 				break;
 			}
 		}
@@ -104,6 +115,12 @@
 		if (bytes < 1024) return bytes + 'B';
 		if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB';
 		return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
+	}
+
+	// Tooltip shown when the browser re-compressed an image before upload.
+	function compressedNote(a) {
+		if (!a.originalSize || a.originalSize <= a.file.size) return '';
+		return $t('command.compressed', { from: formatSize(a.originalSize), to: formatSize(a.file.size) });
 	}
 
 	async function handleKeydown(e) {
@@ -246,7 +263,7 @@
 					<span class="attachment-file-icon"><Icon name="file-text" size={14} /></span>
 				{/if}
 				<span class="attachment-name">{a.file.name}</span>
-				<span class="attachment-size mono">{formatSize(a.file.size)}</span>
+				<span class="attachment-size mono" title={compressedNote(a)}>{formatSize(a.file.size)}</span>
 				<button class="attachment-remove" onclick={() => removeFile(i)} title="Remove" aria-label="Remove {a.file.name}">
 					<Icon name="x" size={12} />
 				</button>

@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Multi-provider support: Claude Code, OpenCode, and auto-select
 - CONTRIBUTING.md and CHANGELOG.md for open-source readiness
 - Direct embedded endpoint `POST /api/embedded/run`: `cd <project> && shepherd` or `shepherd "..."` runs the embedded coding agent in the current directory through the daemon (request-scoped SSE, no project/sheep/queue)
+- Task-chat image attachments are compressed in the browser before upload: JPEG quality 90 with the longest side capped at 4096px, then stepwise downscale if a result is still over the server's 10 MB limit. Files that would grow (already-optimized JPEGs, tiny icons) keep their original bytes; the attachment chip shows the before/after sizes
 
 ### Changed
 - All internal error messages and comments converted to English
