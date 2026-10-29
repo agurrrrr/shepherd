@@ -144,6 +144,16 @@ func Init() error {
 	// 경로/이름 하나만 받는다 — 인자("-c" 등)는 셸 종류를 보고 자동으로 붙인다.
 	viper.SetDefault("shell", "")
 
+	// rate limit 핸드오프 (#674). 양이 rate limit에 걸렸을 때 백오프 재시도 대신
+	// 지정 프로바이더·모델로 즉시 이어 실행하는 후속 작업을 만든다.
+	//   limit_handoff_provider : 대상 프로바이더 (claude/opencode/pi/grok/
+	//                            embedded/magi). 빈 문자열이면 기능 꺼짐(기본값).
+	//   limit_handoff_model    : 대상 프로바이더에서 쓸 모델 ID. embedded는
+	//                            endpoint ID. 빈 문자열이면 대상 프로바이더의
+	//                            기본 모델(model_<provider>)을 따른다.
+	viper.SetDefault("limit_handoff_provider", "")
+	viper.SetDefault("limit_handoff_model", "")
+
 	// provider_enabled_*: 프로바이더 사용유무. false면 프로젝트 화면의 provider
 	// 선택지에서 숨겨지고, 해당 프로바이더로의 작업 실행이 차단된다. 기본 모두 켜짐.
 	viper.SetDefault("provider_enabled_claude", true)
@@ -538,6 +548,47 @@ func IsProviderEnabled(provider string) bool {
 	default:
 		return true
 	}
+}
+
+// NormalizeHandoffProvider canonicalizes a rate-limit handoff target provider
+// (#675). It trims surrounding spaces, lowercases, and folds the runtime alias
+// "auto" into "claude" (the same fold ExecuteInteractive performs). Empty input
+// is valid and returns "" — that means the handoff feature is off. Any other
+// value must be one of the six executable providers; unknown names are
+// rejected so a typo cannot silently disable the feature after a save.
+func NormalizeHandoffProvider(raw string) (string, error) {
+	p := strings.ToLower(strings.TrimSpace(raw))
+	if p == "auto" {
+		p = "claude"
+	}
+	if p == "" {
+		return "", nil
+	}
+	switch p {
+	case "claude", "opencode", "pi", "grok", "embedded", "magi":
+		return p, nil
+	default:
+		return "", fmt.Errorf("unknown limit_handoff_provider %q: want one of claude, opencode, pi, grok, embedded, magi (or empty to disable)", raw)
+	}
+}
+
+// NormalizeHandoffModel canonicalizes the model id stored in
+// limit_handoff_model (#675): trim only. Empty means "use the target
+// provider's default model" (embedded: the active endpoint).
+func NormalizeHandoffModel(raw string) string {
+	return strings.TrimSpace(raw)
+}
+
+// LimitHandoffTarget returns the effective rate-limit handoff target (#675):
+// the normalized provider and model from config. An empty provider means the
+// feature is off. A stored value that no longer validates (hand-edited config
+// file) also counts as off, so a bad value can never crash the dispatcher.
+func LimitHandoffTarget() (provider, model string) {
+	provider, err := NormalizeHandoffProvider(GetString("limit_handoff_provider"))
+	if err != nil {
+		return "", ""
+	}
+	return provider, NormalizeHandoffModel(GetString("limit_handoff_model"))
 }
 
 func GetConfigPath() string {

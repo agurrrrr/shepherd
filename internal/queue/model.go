@@ -33,6 +33,35 @@ func GetTaskModel(taskID int) string {
 	return t.Model
 }
 
+// SetTaskProvider persists an explicit per-task provider override on the task
+// row (#675). Rate-limit handoff follow-ups use it so the continuation runs on
+// the configured handoff provider instead of the sheep's own provider.
+// Persisting on the row means the override survives daemon restarts and never
+// touches the sheep record, so concurrent tasks on the same sheep keep their
+// own provider. No-op for an empty provider.
+func SetTaskProvider(taskID int, provider string) {
+	if provider == "" {
+		return
+	}
+	ctx := context.Background()
+	_, _ = db.Client().Task.UpdateOneID(taskID).SetProviderOverride(provider).Save(ctx)
+}
+
+// GetTaskProvider returns the persisted per-task provider override, or empty
+// string when none is set (the worker then falls back to the sheep's provider).
+// Select keeps the query off the huge prompt/output columns.
+func GetTaskProvider(taskID int) string {
+	ctx := context.Background()
+	t, err := db.Client().Task.Query().
+		Where(task.ID(taskID)).
+		Select(task.FieldProviderOverride).
+		Only(ctx)
+	if err != nil {
+		return ""
+	}
+	return t.ProviderOverride
+}
+
 // GetTaskShepherdKind returns the persisted shepherd_kind of a task (#594).
 // Empty string means the task is not a shepherd (목자) task.
 func GetTaskShepherdKind(taskID int) string {
@@ -42,6 +71,23 @@ func GetTaskShepherdKind(taskID int) string {
 		return ""
 	}
 	return t.ShepherdKind
+}
+
+// GetTaskHandoffDepth returns the persisted handoff_depth of a task (#675).
+// Zero means the task is original work, not a handoff continuation. A failed
+// lookup also reads zero; the caller then treats the task as original, which
+// can only ever allow one extra handoff hop — never a chain, because the
+// follow-up itself carries depth > 0.
+func GetTaskHandoffDepth(taskID int) int {
+	ctx := context.Background()
+	t, err := db.Client().Task.Query().
+		Where(task.ID(taskID)).
+		Select(task.FieldHandoffDepth).
+		Only(ctx)
+	if err != nil {
+		return 0
+	}
+	return t.HandoffDepth
 }
 
 // AppendToPendingReviewTaskPrompt coalesces one wake event into the newest

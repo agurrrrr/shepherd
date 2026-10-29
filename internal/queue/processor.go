@@ -384,8 +384,15 @@ func (p *Processor) checkAndExecutePendingTasks() {
 		// blocks execution; fail the task with a clear reason so it surfaces
 		// instead of sitting pending forever (the project UI also hides
 		// disabled providers, so this mainly catches MCP/queued/retry paths).
-		if !config.IsProviderEnabled(string(s.Provider)) {
-			reason := fmt.Sprintf("provider '%s' is disabled in settings", string(s.Provider))
+		// A rate-limit handoff follow-up (#675) runs on its provider_override
+		// instead of the sheep's column, so the gate checks the effective
+		// provider.
+		effectiveProvider := string(s.Provider)
+		if task.ProviderOverride != "" {
+			effectiveProvider = task.ProviderOverride
+		}
+		if !config.IsProviderEnabled(effectiveProvider) {
+			reason := fmt.Sprintf("provider '%s' is disabled in settings", effectiveProvider)
 			_ = FailTask(task.ID, reason)
 			if p.OnTaskFail != nil {
 				p.OnTaskFail(task.ID, s.Name, s.Edges.Project.Name, reason)
@@ -400,9 +407,11 @@ func (p *Processor) checkAndExecutePendingTasks() {
 
 		// Gate 2: per-group limit, keyed by this task's effective (provider+model)
 		// group. Saturating one group only skips that group; other groups' sheep
-		// may still dispatch this tick.
-		gKey := groupKey(string(s.Provider), task.Model)
-		if limit := groupConcurrencyLimit(groupLimits, gKey, string(s.Provider)); limit > 0 {
+		// may still dispatch this tick. The provider part follows the task's
+		// provider_override when present (#675), so a handoff follow-up counts
+		// against its target provider's group, not the sheep's own.
+		gKey := groupKey(effectiveProvider, task.Model)
+		if limit := groupConcurrencyLimit(groupLimits, gKey, effectiveProvider); limit > 0 {
 			if groupRunning[gKey]+dispatchedByGroup[gKey] >= limit {
 				continue
 			}
@@ -748,6 +757,12 @@ func (p *Processor) executeTask(sheepName, projectName, projectPath string, task
 	// model id. Embedded: endpoint ID (or unique label/model). Handoff
 	// follow-ups inherit this so they do not fall back to the provider default.
 	opts.Model = GetTaskModel(taskID)
+	// Per-task provider override (#675). Set when a rate-limit handoff created
+	// this follow-up: ExecuteInteractive then runs the target provider instead
+	// of the sheep's own. Persisted on the task row, so it survives restarts
+	// and never mutates the sheep (concurrent tasks keep their own provider).
+	taskProviderOverride := GetTaskProvider(taskID)
+	opts.Provider = taskProviderOverride
 
 	if isShepherdTask || isManagerProjectTask {
 		// The dispatcher passes the resolved working directory as projectPath;
@@ -781,29 +796,44 @@ func (p *Processor) executeTask(sheepName, projectName, projectPath string, task
 			break
 		}
 
-		// Rate limit: retry with exponential backoff
-		if IsRateLimitError(execErr.Error()) && retryCount < MaxRateLimitRetries {
-			retryCount++
-			delay := calculateBackoff(retryCount)
+		// Rate limit: hand off to the configured provider, or retry with
+		// exponential backoff (#675). The handoff attempt runs before the
+		// backoff branch: when limit_handoff_provider is set to a provider
+		// other than the one that just failed, and this task is not itself a
+		// handoff continuation, we create a priority-1 follow-up on the target
+		// provider immediately (no sleep) and finish this task as completed —
+		// never as an error, so the circuit breaker stays untouched. When any
+		// condition fails (feature off, same provider, already a continuation,
+		// or follow-up creation itself fails), the existing backoff retry path
+		// below runs unchanged.
+		if IsRateLimitError(execErr.Error()) {
+			if p.tryRateLimitHandoff(sheepName, projectName, taskID, prompt, outputLines, coalescer, taskProviderOverride) {
+				return
+			}
 
-			// Notify user of retry. Flush first so the retry notice starts
-			// on its own line instead of merging with a partial line left by
-			// the failed attempt, then route it through the coalescer so byte
-			// accounting, AppendOutput, and OnOutput all see it (otherwise the
-			// notice vanishes from MergeRunningOutput after a live refresh).
-			retryMsg := fmt.Sprintf("⏳ Rate limit hit, retrying in %v (attempt %d/%d)\n", delay, retryCount, MaxRateLimitRetries)
-			coalescer.Flush()
-			coalescer.Append(retryMsg)
+			if retryCount < MaxRateLimitRetries {
+				retryCount++
+				delay := calculateBackoff(retryCount)
 
-			log.Printf("[processor] %s: rate limit, retry %d/%d after %v", sheepName, retryCount, MaxRateLimitRetries, delay)
+				// Notify user of retry. Flush first so the retry notice starts
+				// on its own line instead of merging with a partial line left by
+				// the failed attempt, then route it through the coalescer so byte
+				// accounting, AppendOutput, and OnOutput all see it (otherwise the
+				// notice vanishes from MergeRunningOutput after a live refresh).
+				retryMsg := fmt.Sprintf("⏳ Rate limit hit, retrying in %v (attempt %d/%d)\n", delay, retryCount, MaxRateLimitRetries)
+				coalescer.Flush()
+				coalescer.Append(retryMsg)
 
-			// Wait before retry
-			select {
-			case <-time.After(delay):
-				continue // Retry
-			case <-p.stopCh:
-				execErr = fmt.Errorf("task cancelled during rate limit wait")
-				break
+				log.Printf("[processor] %s: rate limit, retry %d/%d after %v", sheepName, retryCount, MaxRateLimitRetries, delay)
+
+				// Wait before retry
+				select {
+				case <-time.After(delay):
+					continue // Retry
+				case <-p.stopCh:
+					execErr = fmt.Errorf("task cancelled during rate limit wait")
+					break
+				}
 			}
 		}
 

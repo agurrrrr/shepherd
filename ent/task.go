@@ -33,6 +33,8 @@ type Task struct {
 	Error string `json:"error,omitempty"`
 	// 작업별 모델 오버라이드 (provider/model 형식, OpenCode 동시작업 그룹 집계에 사용)
 	Model string `json:"model,omitempty"`
+	// 작업별 프로바이더 오버라이드 (#675). rate limit 핸드오프로 만들어진 후속작업이 양의 기본 프로바이더 대신 다른 프로바이더로 실행되게 한다. 비어 있으면 양의 provider를 그대로 사용
+	ProviderOverride string `json:"provider_override,omitempty"`
 	// 목자 작업의 종류 (command=사용자 지시, review=위임 작업 검토, patrol=순찰). 목자 작업이 아니면 비어 있음 (#594)
 	ShepherdKind string `json:"shepherd_kind,omitempty"`
 	// 작업 출력 로그
@@ -133,7 +135,7 @@ func (*Task) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case task.FieldID, task.FieldPromptTokens, task.FieldCompletionTokens, task.FieldOwnerPid, task.FieldPriority, task.FieldHandoffDepth:
 			values[i] = new(sql.NullInt64)
-		case task.FieldPrompt, task.FieldSummary, task.FieldStatus, task.FieldError, task.FieldModel, task.FieldShepherdKind, task.FieldCheckpointDir, task.FieldCheckpointStart, task.FieldCheckpointEnd, task.FieldCheckpointError, task.FieldRevertPre:
+		case task.FieldPrompt, task.FieldSummary, task.FieldStatus, task.FieldError, task.FieldModel, task.FieldProviderOverride, task.FieldShepherdKind, task.FieldCheckpointDir, task.FieldCheckpointStart, task.FieldCheckpointEnd, task.FieldCheckpointError, task.FieldRevertPre:
 			values[i] = new(sql.NullString)
 		case task.FieldStartedAt, task.FieldCompletedAt, task.FieldRevertedAt, task.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -201,6 +203,12 @@ func (_m *Task) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field model", values[i])
 			} else if value.Valid {
 				_m.Model = value.String
+			}
+		case task.FieldProviderOverride:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field provider_override", values[i])
+			} else if value.Valid {
+				_m.ProviderOverride = value.String
 			}
 		case task.FieldShepherdKind:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -395,6 +403,9 @@ func (_m *Task) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("model=")
 	builder.WriteString(_m.Model)
+	builder.WriteString(", ")
+	builder.WriteString("provider_override=")
+	builder.WriteString(_m.ProviderOverride)
 	builder.WriteString(", ")
 	builder.WriteString("shepherd_kind=")
 	builder.WriteString(_m.ShepherdKind)

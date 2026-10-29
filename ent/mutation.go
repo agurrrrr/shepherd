@@ -9929,6 +9929,7 @@ type TaskMutation struct {
 	status               *task.Status
 	error                *string
 	model                *string
+	provider_override    *string
 	shepherd_kind        *string
 	output               *[]string
 	appendoutput         []string
@@ -10345,6 +10346,55 @@ func (m *TaskMutation) ModelCleared() bool {
 func (m *TaskMutation) ResetModel() {
 	m.model = nil
 	delete(m.clearedFields, task.FieldModel)
+}
+
+// SetProviderOverride sets the "provider_override" field.
+func (m *TaskMutation) SetProviderOverride(s string) {
+	m.provider_override = &s
+}
+
+// ProviderOverride returns the value of the "provider_override" field in the mutation.
+func (m *TaskMutation) ProviderOverride() (r string, exists bool) {
+	v := m.provider_override
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProviderOverride returns the old "provider_override" field's value of the Task entity.
+// If the Task object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TaskMutation) OldProviderOverride(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProviderOverride is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProviderOverride requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProviderOverride: %w", err)
+	}
+	return oldValue.ProviderOverride, nil
+}
+
+// ClearProviderOverride clears the value of the "provider_override" field.
+func (m *TaskMutation) ClearProviderOverride() {
+	m.provider_override = nil
+	m.clearedFields[task.FieldProviderOverride] = struct{}{}
+}
+
+// ProviderOverrideCleared returns if the "provider_override" field was cleared in this mutation.
+func (m *TaskMutation) ProviderOverrideCleared() bool {
+	_, ok := m.clearedFields[task.FieldProviderOverride]
+	return ok
+}
+
+// ResetProviderOverride resets all changes to the "provider_override" field.
+func (m *TaskMutation) ResetProviderOverride() {
+	m.provider_override = nil
+	delete(m.clearedFields, task.FieldProviderOverride)
 }
 
 // SetShepherdKind sets the "shepherd_kind" field.
@@ -11460,7 +11510,7 @@ func (m *TaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *TaskMutation) Fields() []string {
-	fields := make([]string, 0, 23)
+	fields := make([]string, 0, 24)
 	if m.prompt != nil {
 		fields = append(fields, task.FieldPrompt)
 	}
@@ -11478,6 +11528,9 @@ func (m *TaskMutation) Fields() []string {
 	}
 	if m.model != nil {
 		fields = append(fields, task.FieldModel)
+	}
+	if m.provider_override != nil {
+		fields = append(fields, task.FieldProviderOverride)
 	}
 	if m.shepherd_kind != nil {
 		fields = append(fields, task.FieldShepherdKind)
@@ -11550,6 +11603,8 @@ func (m *TaskMutation) Field(name string) (ent.Value, bool) {
 		return m.Error()
 	case task.FieldModel:
 		return m.Model()
+	case task.FieldProviderOverride:
+		return m.ProviderOverride()
 	case task.FieldShepherdKind:
 		return m.ShepherdKind()
 	case task.FieldOutput:
@@ -11605,6 +11660,8 @@ func (m *TaskMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldError(ctx)
 	case task.FieldModel:
 		return m.OldModel(ctx)
+	case task.FieldProviderOverride:
+		return m.OldProviderOverride(ctx)
 	case task.FieldShepherdKind:
 		return m.OldShepherdKind(ctx)
 	case task.FieldOutput:
@@ -11689,6 +11746,13 @@ func (m *TaskMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetModel(v)
+		return nil
+	case task.FieldProviderOverride:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProviderOverride(v)
 		return nil
 	case task.FieldShepherdKind:
 		v, ok := value.(string)
@@ -11926,6 +11990,9 @@ func (m *TaskMutation) ClearedFields() []string {
 	if m.FieldCleared(task.FieldModel) {
 		fields = append(fields, task.FieldModel)
 	}
+	if m.FieldCleared(task.FieldProviderOverride) {
+		fields = append(fields, task.FieldProviderOverride)
+	}
 	if m.FieldCleared(task.FieldShepherdKind) {
 		fields = append(fields, task.FieldShepherdKind)
 	}
@@ -12000,6 +12067,9 @@ func (m *TaskMutation) ClearField(name string) error {
 	case task.FieldModel:
 		m.ClearModel()
 		return nil
+	case task.FieldProviderOverride:
+		m.ClearProviderOverride()
+		return nil
 	case task.FieldShepherdKind:
 		m.ClearShepherdKind()
 		return nil
@@ -12073,6 +12143,9 @@ func (m *TaskMutation) ResetField(name string) error {
 		return nil
 	case task.FieldModel:
 		m.ResetModel()
+		return nil
+	case task.FieldProviderOverride:
+		m.ResetProviderOverride()
 		return nil
 	case task.FieldShepherdKind:
 		m.ResetShepherdKind()

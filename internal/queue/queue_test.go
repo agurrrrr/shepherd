@@ -432,7 +432,7 @@ func TestCreateFollowUpTask_PersistsModelAndPriority(t *testing.T) {
 		SetName("hamzzi").
 		SaveX(ctx)
 
-	got, err := CreateFollowUpTask("continue the work", s.ID, p.ID, 2, "qwen-coder")
+	got, err := CreateFollowUpTask("continue the work", s.ID, p.ID, 2, "qwen-coder", "")
 	if err != nil {
 		t.Fatalf("CreateFollowUpTask: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestCreateFollowUpTask_EmptyModelLeftUnset(t *testing.T) {
 		SetName("hamzzi").
 		SaveX(ctx)
 
-	got, err := CreateFollowUpTask("continue", s.ID, 0, 1, "")
+	got, err := CreateFollowUpTask("continue", s.ID, 0, 1, "", "")
 	if err != nil {
 		t.Fatalf("CreateFollowUpTask: %v", err)
 	}
@@ -473,6 +473,62 @@ func TestCreateFollowUpTask_EmptyModelLeftUnset(t *testing.T) {
 	reloaded := client.Task.GetX(ctx, got.ID)
 	if reloaded.Model != "" {
 		t.Errorf("persisted model = %q, want empty", reloaded.Model)
+	}
+	if got.ProviderOverride != "" || reloaded.ProviderOverride != "" {
+		t.Errorf("provider_override = %q/%q, want empty", got.ProviderOverride, reloaded.ProviderOverride)
+	}
+}
+
+// TestCreateFollowUpTask_PersistsProviderOverride covers the rate-limit
+// handoff path (#675): a follow-up created with a target provider stores it on
+// the task row, so the continuation runs on that provider instead of the
+// sheep's own — and the override survives restarts because it is persisted.
+func TestCreateFollowUpTask_PersistsProviderOverride(t *testing.T) {
+	client := withTestDB(t)
+	ctx := context.Background()
+
+	p := client.Project.Create().
+		SetName("demo").
+		SetPath("/tmp/demo").
+		SaveX(ctx)
+	s := client.Sheep.Create().
+		SetName("hamzzi").
+		SaveX(ctx)
+
+	got, err := CreateFollowUpTask("continue on grok", s.ID, p.ID, 1, "grok-4.5", "grok")
+	if err != nil {
+		t.Fatalf("CreateFollowUpTask: %v", err)
+	}
+	if got.ProviderOverride != "grok" {
+		t.Errorf("provider_override = %q, want grok", got.ProviderOverride)
+	}
+	if got.Priority != 1 {
+		t.Errorf("priority = %d, want 1", got.Priority)
+	}
+	reloaded := client.Task.GetX(ctx, got.ID)
+	if reloaded.ProviderOverride != "grok" {
+		t.Errorf("persisted provider_override = %q, want grok", reloaded.ProviderOverride)
+	}
+	if reloaded.Model != "grok-4.5" {
+		t.Errorf("persisted model = %q, want grok-4.5", reloaded.Model)
+	}
+
+	// SetTaskProvider / GetTaskProvider round-trip on an ordinary task row.
+	plain := client.Task.Create().
+		SetPrompt("plain").
+		SetStatus(task.StatusPending).
+		SaveX(ctx)
+	if GetTaskProvider(plain.ID) != "" {
+		t.Errorf("fresh task provider override should be empty")
+	}
+	SetTaskProvider(plain.ID, "embedded")
+	if got := GetTaskProvider(plain.ID); got != "embedded" {
+		t.Errorf("GetTaskProvider after SetTaskProvider = %q, want embedded", got)
+	}
+	// Empty provider is a no-op — never overwrite with a blank.
+	SetTaskProvider(plain.ID, "")
+	if got := GetTaskProvider(plain.ID); got != "embedded" {
+		t.Errorf("SetTaskProvider('') clobbered the override: %q", got)
 	}
 }
 

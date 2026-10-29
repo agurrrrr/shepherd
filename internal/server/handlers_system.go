@@ -127,6 +127,8 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"webpush_notify_on_fail":          config.GetBool("webpush_notify_on_fail"),
 		"embedded_active_id":              config.GetString("embedded_active_id"),
 		"custom_prompt_embedded":          config.GetString("custom_prompt_embedded"),
+		"limit_handoff_provider":          config.GetString("limit_handoff_provider"),
+		"limit_handoff_model":             config.GetString("limit_handoff_model"),
 	})
 }
 
@@ -334,6 +336,8 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"webpush_notify_on_fail":          true,
 		"embedded_active_id":              true,
 		"custom_prompt_embedded":          true,
+		"limit_handoff_provider":          true,
+		"limit_handoff_model":             true,
 	}
 
 	for key, value := range body {
@@ -358,6 +362,25 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 				return fail(c, fiber.StatusBadRequest, err.Error())
 			}
 			value = normalized
+		}
+
+		// limit_handoff_provider is validated and canonicalized before saving
+		// (#675): trim, lowercase, "auto" folds to "claude", and unknown names
+		// are rejected with 400 so a typo cannot silently disable the feature.
+		if key == "limit_handoff_provider" {
+			raw, _ := value.(string)
+			normalized, err := config.NormalizeHandoffProvider(raw)
+			if err != nil {
+				return fail(c, fiber.StatusBadRequest, err.Error())
+			}
+			value = normalized
+		}
+
+		// limit_handoff_model is a free-form model id (endpoint ID for
+		// embedded); trim only (#675).
+		if key == "limit_handoff_model" {
+			raw, _ := value.(string)
+			value = config.NormalizeHandoffModel(raw)
 		}
 
 		if err := persistConfig(map[string]interface{}{key: value}); err != nil {

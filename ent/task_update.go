@@ -138,6 +138,26 @@ func (_u *TaskUpdate) ClearModel() *TaskUpdate {
 	return _u
 }
 
+// SetProviderOverride sets the "provider_override" field.
+func (_u *TaskUpdate) SetProviderOverride(v string) *TaskUpdate {
+	_u.mutation.SetProviderOverride(v)
+	return _u
+}
+
+// SetNillableProviderOverride sets the "provider_override" field if the given value is not nil.
+func (_u *TaskUpdate) SetNillableProviderOverride(v *string) *TaskUpdate {
+	if v != nil {
+		_u.SetProviderOverride(*v)
+	}
+	return _u
+}
+
+// ClearProviderOverride clears the value of the "provider_override" field.
+func (_u *TaskUpdate) ClearProviderOverride() *TaskUpdate {
+	_u.mutation.ClearProviderOverride()
+	return _u
+}
+
 // SetShepherdKind sets the "shepherd_kind" field.
 func (_u *TaskUpdate) SetShepherdKind(v string) *TaskUpdate {
 	_u.mutation.SetShepherdKind(v)
@@ -667,6 +687,12 @@ func (_u *TaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.ModelCleared() {
 		_spec.ClearField(task.FieldModel, field.TypeString)
 	}
+	if value, ok := _u.mutation.ProviderOverride(); ok {
+		_spec.SetField(task.FieldProviderOverride, field.TypeString, value)
+	}
+	if _u.mutation.ProviderOverrideCleared() {
+		_spec.ClearField(task.FieldProviderOverride, field.TypeString)
+	}
 	if value, ok := _u.mutation.ShepherdKind(); ok {
 		_spec.SetField(task.FieldShepherdKind, field.TypeString, value)
 	}
@@ -996,6 +1022,26 @@ func (_u *TaskUpdateOne) SetNillableModel(v *string) *TaskUpdateOne {
 // ClearModel clears the value of the "model" field.
 func (_u *TaskUpdateOne) ClearModel() *TaskUpdateOne {
 	_u.mutation.ClearModel()
+	return _u
+}
+
+// SetProviderOverride sets the "provider_override" field.
+func (_u *TaskUpdateOne) SetProviderOverride(v string) *TaskUpdateOne {
+	_u.mutation.SetProviderOverride(v)
+	return _u
+}
+
+// SetNillableProviderOverride sets the "provider_override" field if the given value is not nil.
+func (_u *TaskUpdateOne) SetNillableProviderOverride(v *string) *TaskUpdateOne {
+	if v != nil {
+		_u.SetProviderOverride(*v)
+	}
+	return _u
+}
+
+// ClearProviderOverride clears the value of the "provider_override" field.
+func (_u *TaskUpdateOne) ClearProviderOverride() *TaskUpdateOne {
+	_u.mutation.ClearProviderOverride()
 	return _u
 }
 
@@ -1557,6 +1603,12 @@ func (_u *TaskUpdateOne) sqlSave(ctx context.Context) (_node *Task, err error) {
 	}
 	if _u.mutation.ModelCleared() {
 		_spec.ClearField(task.FieldModel, field.TypeString)
+	}
+	if value, ok := _u.mutation.ProviderOverride(); ok {
+		_spec.SetField(task.FieldProviderOverride, field.TypeString, value)
+	}
+	if _u.mutation.ProviderOverrideCleared() {
+		_spec.ClearField(task.FieldProviderOverride, field.TypeString)
 	}
 	if value, ok := _u.mutation.ShepherdKind(); ok {
 		_spec.SetField(task.FieldShepherdKind, field.TypeString, value)

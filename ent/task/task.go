@@ -27,6 +27,8 @@ const (
 	FieldError = "error"
 	// FieldModel holds the string denoting the model field in the database.
 	FieldModel = "model"
+	// FieldProviderOverride holds the string denoting the provider_override field in the database.
+	FieldProviderOverride = "provider_override"
 	// FieldShepherdKind holds the string denoting the shepherd_kind field in the database.
 	FieldShepherdKind = "shepherd_kind"
 	// FieldOutput holds the string denoting the output field in the database.
@@ -101,6 +103,7 @@ var Columns = []string{
 	FieldStatus,
 	FieldError,
 	FieldModel,
+	FieldProviderOverride,
 	FieldShepherdKind,
 	FieldOutput,
 	FieldCostUsd,
@@ -222,6 +225,11 @@ func ByError(opts ...sql.OrderTermOption) OrderOption {
 // ByModel orders the results by the model field.
 func ByModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldModel, opts...).ToFunc()
+}
+
+// ByProviderOverride orders the results by the provider_override field.
+func ByProviderOverride(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldProviderOverride, opts...).ToFunc()
 }
 
 // ByShepherdKind orders the results by the shepherd_kind field.

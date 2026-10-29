@@ -286,6 +286,17 @@ type Messages struct {
 	Worker struct {
 		NoTextResponse string // (작업 완료 - 텍스트 응답 없음)
 	}
+
+	// Rate-limit handoff (#675): when rate limit hits and a handoff provider is
+	// configured, the processor creates a follow-up task on that provider
+	// instead of waiting out a backoff retry. The notice line goes to the task
+	// output log; the header block is prepended to the follow-up prompt.
+	Handoff struct {
+		NoticeFmt         string // 출력 로그 한 줄 안내 (대상, 후속 작업 ID)
+		PromptHeaderFmt   string // 후속 작업 프롬프트 앞 안내 블록 (대상)
+		ProgressTruncated string // 이전 출력 앞부분 잘림 표시
+		StoppedReasonFmt  string // 원 작업 중단 사유 (후속 작업 ID)
+	}
 }
 
 var (
@@ -662,6 +673,18 @@ var ko = &Messages{
 	}{
 		NoTextResponse: "(작업 완료 - 텍스트 응답 없음)",
 	},
+
+	Handoff: struct {
+		NoticeFmt         string
+		PromptHeaderFmt   string
+		ProgressTruncated string
+		StoppedReasonFmt  string
+	}{
+		NoticeFmt:         "🔁 rate limit에 걸려 %s로 핸드오프합니다. 후속 작업 #%d이(가) 곧 실행됩니다.\n",
+		PromptHeaderFmt:   "[rate limit 핸드오프] 이전 시도에서 rate limit에 걸려 %s(으)로 이어 실행합니다. 아래는 이전 작업까지의 진행 내용입니다.\n",
+		ProgressTruncated: "...[이전 출력 앞부분 잘림]...\n",
+		StoppedReasonFmt:  "rate limit 핸드오프: 후속 작업 #%d이(가) 대신 실행됩니다",
+	},
 }
 
 var en = &Messages{
@@ -1032,6 +1055,18 @@ var en = &Messages{
 		NoTextResponse string
 	}{
 		NoTextResponse: "(task complete - no text response)",
+	},
+
+	Handoff: struct {
+		NoticeFmt         string
+		PromptHeaderFmt   string
+		ProgressTruncated string
+		StoppedReasonFmt  string
+	}{
+		NoticeFmt:         "🔁 Rate limit hit — handing off to %s. Follow-up task #%d will run next.\n",
+		PromptHeaderFmt:   "[rate limit handoff] The previous attempt hit a rate limit, so this run continues on %s. Below is the progress from the previous work.\n",
+		ProgressTruncated: "...[earlier output truncated]...\n",
+		StoppedReasonFmt:  "rate limit handoff: follow-up task #%d runs instead",
 	},
 }
 

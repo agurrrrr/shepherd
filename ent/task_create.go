@@ -91,6 +91,20 @@ func (_c *TaskCreate) SetNillableModel(v *string) *TaskCreate {
 	return _c
 }
 
+// SetProviderOverride sets the "provider_override" field.
+func (_c *TaskCreate) SetProviderOverride(v string) *TaskCreate {
+	_c.mutation.SetProviderOverride(v)
+	return _c
+}
+
+// SetNillableProviderOverride sets the "provider_override" field if the given value is not nil.
+func (_c *TaskCreate) SetNillableProviderOverride(v *string) *TaskCreate {
+	if v != nil {
+		_c.SetProviderOverride(*v)
+	}
+	return _c
+}
+
 // SetShepherdKind sets the "shepherd_kind" field.
 func (_c *TaskCreate) SetShepherdKind(v string) *TaskCreate {
 	_c.mutation.SetShepherdKind(v)
@@ -517,6 +531,10 @@ func (_c *TaskCreate) createSpec() (*Task, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Model(); ok {
 		_spec.SetField(task.FieldModel, field.TypeString, value)
 		_node.Model = value
+	}
+	if value, ok := _c.mutation.ProviderOverride(); ok {
+		_spec.SetField(task.FieldProviderOverride, field.TypeString, value)
+		_node.ProviderOverride = value
 	}
 	if value, ok := _c.mutation.ShepherdKind(); ok {
 		_spec.SetField(task.FieldShepherdKind, field.TypeString, value)

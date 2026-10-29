@@ -75,6 +75,11 @@ func Model(v string) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldModel, v))
 }
 
+// ProviderOverride applies equality check predicate on the "provider_override" field. It's identical to ProviderOverrideEQ.
+func ProviderOverride(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldProviderOverride, v))
+}
+
 // ShepherdKind applies equality check predicate on the "shepherd_kind" field. It's identical to ShepherdKindEQ.
 func ShepherdKind(v string) predicate.Task {
 	return predicate.Task(sql.FieldEQ(FieldShepherdKind, v))
@@ -473,6 +478,81 @@ func ModelEqualFold(v string) predicate.Task {
 // ModelContainsFold applies the ContainsFold predicate on the "model" field.
 func ModelContainsFold(v string) predicate.Task {
 	return predicate.Task(sql.FieldContainsFold(FieldModel, v))
+}
+
+// ProviderOverrideEQ applies the EQ predicate on the "provider_override" field.
+func ProviderOverrideEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldEQ(FieldProviderOverride, v))
+}
+
+// ProviderOverrideNEQ applies the NEQ predicate on the "provider_override" field.
+func ProviderOverrideNEQ(v string) predicate.Task {
+	return predicate.Task(sql.FieldNEQ(FieldProviderOverride, v))
+}
+
+// ProviderOverrideIn applies the In predicate on the "provider_override" field.
+func ProviderOverrideIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldIn(FieldProviderOverride, vs...))
+}
+
+// ProviderOverrideNotIn applies the NotIn predicate on the "provider_override" field.
+func ProviderOverrideNotIn(vs ...string) predicate.Task {
+	return predicate.Task(sql.FieldNotIn(FieldProviderOverride, vs...))
+}
+
+// ProviderOverrideGT applies the GT predicate on the "provider_override" field.
+func ProviderOverrideGT(v string) predicate.Task {
+	return predicate.Task(sql.FieldGT(FieldProviderOverride, v))
+}
+
+// ProviderOverrideGTE applies the GTE predicate on the "provider_override" field.
+func ProviderOverrideGTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldGTE(FieldProviderOverride, v))
+}
+
+// ProviderOverrideLT applies the LT predicate on the "provider_override" field.
+func ProviderOverrideLT(v string) predicate.Task {
+	return predicate.Task(sql.FieldLT(FieldProviderOverride, v))
+}
+
+// ProviderOverrideLTE applies the LTE predicate on the "provider_override" field.
+func ProviderOverrideLTE(v string) predicate.Task {
+	return predicate.Task(sql.FieldLTE(FieldProviderOverride, v))
+}
+
+// ProviderOverrideContains applies the Contains predicate on the "provider_override" field.
+func ProviderOverrideContains(v string) predicate.Task {
+	return predicate.Task(sql.FieldContains(FieldProviderOverride, v))
+}
+
+// ProviderOverrideHasPrefix applies the HasPrefix predicate on the "provider_override" field.
+func ProviderOverrideHasPrefix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasPrefix(FieldProviderOverride, v))
+}
+
+// ProviderOverrideHasSuffix applies the HasSuffix predicate on the "provider_override" field.
+func ProviderOverrideHasSuffix(v string) predicate.Task {
+	return predicate.Task(sql.FieldHasSuffix(FieldProviderOverride, v))
+}
+
+// ProviderOverrideIsNil applies the IsNil predicate on the "provider_override" field.
+func ProviderOverrideIsNil() predicate.Task {
+	return predicate.Task(sql.FieldIsNull(FieldProviderOverride))
+}
+
+// ProviderOverrideNotNil applies the NotNil predicate on the "provider_override" field.
+func ProviderOverrideNotNil() predicate.Task {
+	return predicate.Task(sql.FieldNotNull(FieldProviderOverride))
+}
+
+// ProviderOverrideEqualFold applies the EqualFold predicate on the "provider_override" field.
+func ProviderOverrideEqualFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldEqualFold(FieldProviderOverride, v))
+}
+
+// ProviderOverrideContainsFold applies the ContainsFold predicate on the "provider_override" field.
+func ProviderOverrideContainsFold(v string) predicate.Task {
+	return predicate.Task(sql.FieldContainsFold(FieldProviderOverride, v))
 }
 
 // ShepherdKindEQ applies the EQ predicate on the "shepherd_kind" field.

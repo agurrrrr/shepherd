@@ -37,6 +37,9 @@ func (Task) Fields() []ent.Field {
 		field.String("model").
 			Optional().
 			Comment("작업별 모델 오버라이드 (provider/model 형식, OpenCode 동시작업 그룹 집계에 사용)"),
+		field.String("provider_override").
+			Optional().
+			Comment("작업별 프로바이더 오버라이드 (#675). rate limit 핸드오프로 만들어진 후속작업이 양의 기본 프로바이더 대신 다른 프로바이더로 실행되게 한다. 비어 있으면 양의 provider를 그대로 사용"),
 		field.String("shepherd_kind").
 			Optional().
 			Comment("목자 작업의 종류 (command=사용자 지시, review=위임 작업 검토, patrol=순찰). 목자 작업이 아니면 비어 있음 (#594)"),

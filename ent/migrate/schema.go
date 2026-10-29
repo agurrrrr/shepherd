@@ -291,6 +291,7 @@ var (
 		{Name: "status", Type: field.TypeEnum, Enums: []string{"pending", "running", "completed", "failed", "stopped"}, Default: "pending"},
 		{Name: "error", Type: field.TypeString, Nullable: true, Size: 2147483647},
 		{Name: "model", Type: field.TypeString, Nullable: true},
+		{Name: "provider_override", Type: field.TypeString, Nullable: true},
 		{Name: "shepherd_kind", Type: field.TypeString, Nullable: true},
 		{Name: "output", Type: field.TypeJSON, Nullable: true},
 		{Name: "cost_usd", Type: field.TypeFloat64, Nullable: true, Default: 0},
@@ -320,19 +321,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "tasks_issues_tasks",
-				Columns:    []*schema.Column{TasksColumns[24]},
+				Columns:    []*schema.Column{TasksColumns[25]},
 				RefColumns: []*schema.Column{IssuesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "tasks_projects_tasks",
-				Columns:    []*schema.Column{TasksColumns[25]},
+				Columns:    []*schema.Column{TasksColumns[26]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "tasks_sheep_tasks",
-				Columns:    []*schema.Column{TasksColumns[26]},
+				Columns:    []*schema.Column{TasksColumns[27]},
 				RefColumns: []*schema.Column{SheepColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -346,17 +347,17 @@ var (
 			{
 				Name:    "task_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{TasksColumns[23]},
+				Columns: []*schema.Column{TasksColumns[24]},
 			},
 			{
 				Name:    "task_status_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{TasksColumns[4], TasksColumns[23]},
+				Columns: []*schema.Column{TasksColumns[4], TasksColumns[24]},
 			},
 			{
 				Name:    "task_issue_tasks",
 				Unique:  true,
-				Columns: []*schema.Column{TasksColumns[24]},
+				Columns: []*schema.Column{TasksColumns[25]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "status IN ('pending', 'running')",
 				},

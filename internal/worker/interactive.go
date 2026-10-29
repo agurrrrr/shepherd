@@ -87,6 +87,14 @@ type InteractiveOptions struct {
 	// all needed context, and resuming would grow the context with every
 	// review round.
 	FreshSession bool
+	// Provider is an explicit per-task provider override (#675). When
+	// non-empty, ExecuteInteractive dispatches on this value instead of the
+	// sheep's own s.Provider. Rate-limit handoff follow-ups set it so the
+	// continuation runs on the configured handoff provider without mutating
+	// the sheep row (concurrent tasks on the same sheep keep their own
+	// provider). The session is always fresh across a provider switch —
+	// a provider cannot resume another provider's session.
+	Provider string
 }
 
 // RunningTask contains information about a running task
@@ -586,20 +594,32 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 	var result *ExecuteResult
 	var execErr error
 
+	// Effective provider: the sheep's own column unless the task carries an
+	// explicit override (#675). Rate-limit handoff follow-ups run on the
+	// configured handoff provider while keeping everything else (project,
+	// memory, registry key) tied to the same sheep.
+	effectiveProvider := s.Provider
+	if opts.Provider != "" {
+		effectiveProvider = sheep.Provider(opts.Provider)
+	}
+
 	// Use different AI based on provider
 	if opts.OnOutput != nil {
-		emoji := ProviderEmoji(s.Provider)
+		emoji := ProviderEmoji(effectiveProvider)
 		opts.OnOutput(fmt.Sprintf("%s %s\n", emoji, s.Name))
 	}
 
 	// Check session reuse config. FreshSession (#594) forces a new session for
-	// shepherd review/patrol tasks even when session_reuse is enabled.
+	// shepherd review/patrol tasks even when session_reuse is enabled. A
+	// provider override also forces a fresh session: no provider can resume
+	// another provider's session, so the sheep's stored SessionID belongs to
+	// its own provider and must not leak into the handoff run (#675).
 	sessionID := s.SessionID
-	if !config.GetBool("session_reuse") || opts.FreshSession {
+	if !config.GetBool("session_reuse") || opts.FreshSession || opts.Provider != "" {
 		sessionID = ""
 	}
 
-	switch s.Provider {
+	switch effectiveProvider {
 	case sheep.ProviderOpencode:
 		// OpenCode: always start fresh session (local LLMs have small context windows,
 		// reusing sessions causes token count to grow unboundedly)
@@ -648,9 +668,12 @@ func ExecuteInteractive(sheepName, prompt string, opts InteractiveOptions) (*Exe
 		// next task won't retry with the same invalid --resume flag.
 		// Use ClearSessionID (NULL) not SetSessionID("") — empty string and NULL
 		// diverge for WHERE session_id IS NULL queries (#7646 review).
-		if execErr != nil && isStaleSessionError(execErr.Error()) {
+		if execErr != nil && isStaleSessionError(execErr.Error()) && opts.Provider == "" {
 			updateQuery = updateQuery.ClearSessionID()
-		} else if result != nil && result.SessionID != "" {
+		} else if result != nil && result.SessionID != "" && opts.Provider == "" {
+			// Persist the session only for the sheep's own provider. A
+			// handoff run's session belongs to the override provider and would
+			// poison the next ordinary task's --resume (#675).
 			updateQuery = updateQuery.SetSessionID(result.SessionID)
 		}
 

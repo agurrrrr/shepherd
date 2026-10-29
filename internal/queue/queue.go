@@ -256,7 +256,12 @@ func CreateManagerTaskWithKind(prompt string, sheepID, priority int, kind string
 // follow-up runs on the same endpoint/model as the parent instead of falling
 // back to the provider default. For embedded this is the endpoint ID (or the
 // unique label/model the parent was created with).
-func CreateFollowUpTask(prompt string, sheepID, projectID, handoffDepth int, model string) (*ent.Task, error) {
+//
+// provider, when non-empty, is persisted as the per-task provider override
+// (#675). Rate-limit handoff follow-ups set it to the configured handoff
+// provider so the continuation runs there instead of on the sheep's own
+// provider. Context-overflow handoffs pass "" and keep the sheep's provider.
+func CreateFollowUpTask(prompt string, sheepID, projectID, handoffDepth int, model, provider string) (*ent.Task, error) {
 	ctx := context.Background()
 	client := db.Client()
 
@@ -271,6 +276,9 @@ func CreateFollowUpTask(prompt string, sheepID, projectID, handoffDepth int, mod
 	}
 	if model != "" {
 		create = create.SetModel(model)
+	}
+	if provider != "" {
+		create = create.SetProviderOverride(provider)
 	}
 
 	t, err := create.Save(ctx)
@@ -1039,7 +1047,13 @@ func CountRunningByGroup() (map[string]int, error) {
 		if t.Edges.Sheep == nil {
 			continue
 		}
-		result[groupKey(string(t.Edges.Sheep.Provider), t.Model)]++
+		// A rate-limit handoff follow-up (#675) runs on its provider_override,
+		// so it occupies that provider's concurrency group, not the sheep's.
+		provider := string(t.Edges.Sheep.Provider)
+		if t.ProviderOverride != "" {
+			provider = t.ProviderOverride
+		}
+		result[groupKey(provider, t.Model)]++
 	}
 	return result, nil
 }
