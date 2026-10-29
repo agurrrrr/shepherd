@@ -1,19 +1,60 @@
 <script>
 	import ProviderEnableToggle from './ProviderEnableToggle.svelte';
-	import { t } from '$lib/i18n/index.js';
+	import { t, translate } from '$lib/i18n/index.js';
 
-	/** @type {{ model_claude: string, custom_prompt_claude: string, concurrency_limits: Record<string, number> }} */
+	/** @type {{ model_claude: string, custom_prompt_claude: string, concurrency_limits: Record<string, number>, limit_handoff_provider?: string, limit_handoff_model?: string }} */
 	export let configData;
 	/** @type {Array<{id: string, label: string}>} */
 	export let modelOptions;
 	/** @type {{ claude: boolean, opencode: boolean, pi: boolean, embedded: boolean }} */
 	export let providerEnabled;
+	/** Full /api/config/model-options payload. The handoff model select follows the
+	    chosen handoff provider, so it needs every provider's list — including the
+	    `embedded` key that lives beside claude/opencode/pi/grok (#676). */
+	/** @type {{ claude: Array, opencode: Array, pi: Array, grok: Array, embedded: Array }} */
+	export let handoffModelOptions = { claude: [], opencode: [], pi: [], grok: [], embedded: [] };
 
 	// If the configured model is not present in the select's options, append it.
 	function optionsWithCurrent(opts, current) {
 		if (!current) return opts;
 		if (opts.some((o) => o.id === current)) return opts;
 		return [...opts, { id: current, label: current + ' (not in config)' }];
+	}
+
+	// Rate-limit handoff (#676). The empty value turns the feature off; the six
+	// names match config.NormalizeHandoffProvider on the daemon side.
+	const handoffProviders = ['claude', 'opencode', 'pi', 'grok', 'embedded', 'magi'];
+	const handoffProviderNames = { claude: 'Claude', opencode: 'OpenCode', pi: 'Pi', grok: 'Grok', embedded: null, magi: 'MAGI' };
+
+	// A hand-edited config can hold a value outside the list (for example the
+	// legacy alias "auto"). Keep such a value selectable with a "(not in config)"
+	// suffix so the select never shows blank and a save never rewrites it silently.
+	function handoffProviderChoices() {
+		const current = configData.limit_handoff_provider;
+		if (current && !handoffProviders.includes(current)) return [...handoffProviders, current];
+		return handoffProviders;
+	}
+
+	function handoffProviderLabel(p) {
+		if (p === '') return $t('claudeSettings.handoffNone');
+		let label;
+		if (p === 'embedded') label = translate('shepherdSettings.provider.embedded');
+		else label = handoffProviderNames[p] || p;
+		if (!handoffProviders.includes(p)) label = label + ' (not in config)';
+		else if (providerEnabled[p] === false) label += translate('shepherdSettings.providerDisabledSuffix');
+		return label;
+	}
+
+	function handoffModelChoices(provider) {
+		return handoffModelOptions?.[provider] || [];
+	}
+
+	// Switching the handoff provider resets the model choice: a model id from the
+	// previous provider is meaningless for the new one, and MAGI has no model at
+	// all. A value loaded from config (not touched by the user) stays selectable
+	// through optionsWithCurrent instead.
+	function onHandoffProviderChange() {
+		configData.limit_handoff_model = '';
 	}
 </script>
 
@@ -47,6 +88,36 @@
 	></textarea>
 	<span class="hint">Injected only when the task runs on Claude Code.</span>
 </div>
+
+<hr class="setting-divider" />
+<div class="setting-section-title">{$t('claudeSettings.handoffTitle')}</div>
+<p class="hint intro">{$t('claudeSettings.handoffHint')}</p>
+
+<div class="setting-row">
+	<label>{$t('claudeSettings.handoffProvider')}</label>
+	<select class="input" bind:value={configData.limit_handoff_provider} onchange={onHandoffProviderChange}>
+		<option value="">{$t('claudeSettings.handoffNone')}</option>
+		{#each handoffProviderChoices() as p}
+			<option value={p}>{handoffProviderLabel(p)}</option>
+		{/each}
+	</select>
+</div>
+
+{#if configData.limit_handoff_provider && configData.limit_handoff_provider !== 'magi'}
+	<div class="setting-row">
+		<label>{$t('claudeSettings.handoffModel')}</label>
+		<select class="input" bind:value={configData.limit_handoff_model}>
+			{#each optionsWithCurrent(handoffModelChoices(configData.limit_handoff_provider), configData.limit_handoff_model) as opt}
+				<option value={opt.id}>{opt.label}</option>
+			{/each}
+		</select>
+	</div>
+{:else if configData.limit_handoff_provider === 'magi'}
+	<div class="setting-row">
+		<label>{$t('claudeSettings.handoffModel')}</label>
+		<span class="hint magi-note">{$t('claudeSettings.handoffModelMagiHint')}</span>
+	</div>
+{/if}
 
 <style>
 	.setting-row {
@@ -131,6 +202,30 @@
 		font-size: var(--fs-xs);
 		color: var(--text-tertiary);
 		line-height: 1.55;
+	}
+
+	.setting-section-title {
+		font-size: var(--fs-base);
+		font-weight: 600;
+		color: var(--text-primary);
+		padding-top: 12px;
+		margin-bottom: 4px;
+	}
+
+	.setting-divider {
+		border: none;
+		border-top: 1px solid var(--border);
+		margin: 8px 0;
+	}
+
+	.hint.intro {
+		flex: 1 1 100%;
+		margin-bottom: 4px;
+	}
+
+	.magi-note {
+		flex: 1 1 200px;
+		max-width: 340px;
 	}
 
 	@media (max-width: 768px) {

@@ -95,6 +95,9 @@
 				if (configData.webpush_enabled == null) configData.webpush_enabled = true;
 				if (configData.webpush_notify_on_complete == null) configData.webpush_notify_on_complete = true;
 				if (configData.webpush_notify_on_fail == null) configData.webpush_notify_on_fail = true;
+				// Rate-limit handoff (#676). Empty provider means the feature is off.
+				if (configData.limit_handoff_provider == null) configData.limit_handoff_provider = '';
+				if (configData.limit_handoff_model == null) configData.limit_handoff_model = '';
 				providerEnabled = {
 					claude: configRes.data.provider_enabled_claude !== false,
 					opencode: configRes.data.provider_enabled_opencode !== false,
@@ -189,6 +192,8 @@
 			webpush_notify_on_fail: configData.webpush_notify_on_fail !== false,
 			embedded_active_id: configData.embedded_active_id || '',
 			custom_prompt_embedded: configData.custom_prompt_embedded || '',
+			limit_handoff_provider: configData.limit_handoff_provider || '',
+			limit_handoff_model: configData.limit_handoff_model || '',
 			shell: configData.shell || ''
 		});
 		if (res?.success) {
@@ -279,7 +284,7 @@
 							<CommonSettings {configData} />
 						{/if}
 						{#if activeTab === 'claude'}
-							<ClaudeSettings {configData} {providerEnabled} modelOptions={modelOptions.claude} />
+							<ClaudeSettings {configData} {providerEnabled} modelOptions={modelOptions.claude} handoffModelOptions={modelOptions} />
 						{/if}
 						{#if activeTab === 'opencode'}
 							<OpenCodeSettings {configData} {providerEnabled} modelOptions={modelOptions.opencode} />

@@ -438,6 +438,12 @@ export default {
 	// Provider tabs: Claude / Pi / OpenCode (ClaudeSettings, PiSettings, OpenCodeSettings)
 	'claudeSettings.concurrencyHint': 'Concurrency limit. 0 means no limit. The auto provider counts toward the Claude group.',
 	'claudeSettings.promptPlaceholder': 'Enter extra instructions passed when running Claude Code.',
+	'claudeSettings.handoffTitle': 'Rate Limit Handoff',
+	'claudeSettings.handoffHint': 'When a sheep hits a rate limit, the daemon skips the wait-and-retry on the same provider and continues the work right away on the provider and model you pick here. Leave it on "none" to turn this off.',
+	'claudeSettings.handoffProvider': 'Handoff provider',
+	'claudeSettings.handoffModel': 'Handoff model',
+	'claudeSettings.handoffNone': 'None (off)',
+	'claudeSettings.handoffModelMagiHint': 'MAGI runs on a three-model deliberation, so a handoff has no model to pick. It follows the deliberation settings on the MAGI tab.',
 	'piSettings.defaultGroupTitle': 'Default group for Pi tasks with no model set',
 	'piSettings.defaultGroupLabel': 'Pi (no model / default)',
 	'piSettings.concurrencyHint': 'Concurrency limit per provider+model group. 0 means no limit for that group.',

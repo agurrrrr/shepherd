@@ -436,6 +436,12 @@ export default {
 	// Provider tabs: Claude / Pi / OpenCode (ClaudeSettings, PiSettings, OpenCodeSettings)
 	'claudeSettings.concurrencyHint': '동시 실행 제한. 0이면 제한 없음. auto provider는 Claude 그룹에 포함됩니다.',
 	'claudeSettings.promptPlaceholder': 'Claude Code 실행 시 추가로 전달할 지시문을 입력하세요.',
+	'claudeSettings.handoffTitle': 'Rate Limit 핸드오프',
+	'claudeSettings.handoffHint': '양이 rate limit에 걸렸을 때 같은 프로바이더에서 기다려 재시도하는 대신, 여기서 지정한 프로바이더·모델로 즉시 이어 실행합니다. 끄려면 없음으로 두세요.',
+	'claudeSettings.handoffProvider': '핸드오프 프로바이더',
+	'claudeSettings.handoffModel': '핸드오프 모델',
+	'claudeSettings.handoffNone': '없음 (끄기)',
+	'claudeSettings.handoffModelMagiHint': 'MAGI는 세 모델 합의로 동작하므로 핸드오프 모델을 고르지 않습니다. MAGI 탭의 합의 설정을 그대로 따릅니다.',
 	'piSettings.defaultGroupTitle': 'Pi 모델 미지정 작업의 기본 그룹',
 	'piSettings.defaultGroupLabel': 'Pi (모델 미지정 / 기본)',
 	'piSettings.concurrencyHint': 'provider+model 그룹별 동시 실행 제한. 0이면 그 그룹은 제한 없음.',
