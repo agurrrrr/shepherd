@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    name: Build and publish release
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Copy Web UI to embed directory
+        run: |
+          mkdir -p internal/server/web_dist
+          rm -rf internal/server/web_dist/*
+          cp -r web/build/* internal/server/web_dist/
+
+      # The SQLite driver is pure Go (modernc.org/sqlite), so every target
+      # cross-compiles from this one runner with CGO disabled.
+      - name: Build and package binaries
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p dist
+
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            name="shepherd_${version}_${goos}_${goarch}"
+            binary=shepherd
+            [ "$goos" = windows ] && binary=shepherd.exe
+
+            stage="build/$name"
+            mkdir -p "$stage"
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath \
+              -ldflags="-s -w -X main.version=${version} -X main.buildTime=${build_time}" \
+              -o "$stage/$binary" ./cmd/shepherd
+            cp LICENSE README.md "$stage/"
+
+            if [ "$goos" = windows ]; then
+              (cd build && zip -qr "../dist/$name.zip" "$name")
+            else
+              tar -C build -czf "dist/$name.tar.gz" "$name"
+            fi
+          done
+
+          (cd dist && sha256sum * > checksums.txt)
+          ls -l dist
+
+      - name: Write release notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # Take this version's section from CHANGELOG.md, up to the next "## [" heading.
+          awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+
+          if [ ! -s notes.md ]; then
+            echo "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/CHANGELOG.md)." > notes.md
+          fi
+
+          cat >> notes.md <<EOF
+
+          ## Downloads
+
+          | OS | Architecture | File |
+          |----|--------------|------|
+          | Linux | x86_64 | \`shepherd_${version}_linux_amd64.tar.gz\` |
+          | Linux | ARM64 | \`shepherd_${version}_linux_arm64.tar.gz\` |
+          | macOS | Intel | \`shepherd_${version}_darwin_amd64.tar.gz\` |
+          | macOS | Apple Silicon | \`shepherd_${version}_darwin_arm64.tar.gz\` |
+          | Windows | x86_64 | \`shepherd_${version}_windows_amd64.zip\` |
+          | Windows | ARM64 | \`shepherd_${version}_windows_arm64.zip\` |
+
+          Verify a download with \`sha256sum -c checksums.txt --ignore-missing\`.
+
+          The macOS binaries are not signed. If Gatekeeper blocks the binary, run \`xattr -d com.apple.quarantine ./shepherd\`.
+          EOF
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+
+          # A re-run of this workflow replaces the assets of the existing release.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file notes.md \
+              $prerelease
+          fi

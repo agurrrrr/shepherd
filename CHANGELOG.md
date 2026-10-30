@@ -6,7 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-30
+
 ### Added
+- Prebuilt release binaries for Linux, macOS, and Windows (amd64 and arm64), published by the `Release` workflow when a `v*` tag is pushed
+- Rate limit handoff: when a task hits a rate limit, a follow-up task continues on the provider and model set in `limit_handoff_provider` / `limit_handoff_model` (selectable in the Claude settings screen) instead of waiting for the backoff retries. When no target is set, the backoff retry behavior does not change
 - Task checkpoints: hidden git refs capture the working tree before and after each task, with exact per-file diffs, 3-way revert/undo, API/CLI/web support, configurable retention (`task_checkpoint_retention_days`), and ref cleanup on task deletion
 - Skill system: file-based skills with WebUI management, bundled default skills, prompt injection during task execution
 - Scheduling system: cron and interval-based task scheduling
