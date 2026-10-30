@@ -328,6 +328,15 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 		if provider == "" {
 			return fail(c, fiber.StatusBadRequest, "provider is required")
 		}
+		// magi has no single model (modelOptionsFor returns false for it), so it
+		// is not a valid shepherd provider (#686). The settings tab no longer
+		// offers it; the API rejects it too so a direct PATCH cannot sneak it in.
+		// A manager already saved as magi may still save its other fields — the
+		// form sends provider on every save, so re-submitting the current value
+		// must not fail.
+		if provider == "magi" && provider != newProvider {
+			return fail(c, fiber.StatusBadRequest, "magi has no single model; pick a provider with one")
+		}
 		if !config.IsProviderEnabled(provider) {
 			return fail(c, fiber.StatusBadRequest, "provider '"+provider+"' is disabled in settings")
 		}

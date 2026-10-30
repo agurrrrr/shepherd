@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 
 	"github.com/agurrrrr/shepherd/ent/sheep"
 	"github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 	"github.com/agurrrrr/shepherd/internal/names"
 	"github.com/agurrrrr/shepherd/internal/worker"
@@ -27,6 +29,11 @@ func withShepherdTestEnv(t *testing.T) {
 	t.Helper()
 
 	withServerTestDB(t)
+
+	// Point configDir at a temp dir so LoadEmbeddedConfig reads a test-local
+	// embedded.yaml (#686) instead of the operator's ~/.shepherd/embedded.yaml,
+	// and no test can ever write to it.
+	prevCfgDir := config.UseTempConfigDir(t.TempDir())
 
 	viper.Reset()
 	// viper.Reset() also drops the provider_enabled_* defaults set by
@@ -50,6 +57,7 @@ func withShepherdTestEnv(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		persistConfig = orig
+		config.UseTempConfigDir(prevCfgDir)
 		viper.Reset()
 	})
 }
@@ -180,6 +188,131 @@ func TestHandleUpdateShepherdConfigRejectsDisabledProvider(t *testing.T) {
 	got := client.Sheep.Query().Where(sheep.Name(names.ManagerName)).OnlyX(context.Background())
 	if string(got.Provider) != string(sheep.ProviderClaude) {
 		t.Errorf("manager provider = %s, must stay claude", got.Provider)
+	}
+}
+
+// writeTestEmbeddedConfig writes a test embedded.yaml into the temp configDir
+// installed by withShepherdTestEnv, so modelOptionsFor("embedded") returns the
+// endpoints below instead of the operator's real ~/.shepherd/embedded.yaml.
+func writeTestEmbeddedConfig(t *testing.T) {
+	t.Helper()
+	body := "" +
+		"endpoints:\n" +
+		"  - id: shepherd-test-ep\n" +
+		"    label: Test Endpoint\n" +
+		"    base_url: http://127.0.0.1:9999/v1\n" +
+		"    model: test-model\n" +
+		"    enabled: true\n" +
+		"  - id: shepherd-off-ep\n" +
+		"    label: Disabled Endpoint\n" +
+		"    base_url: http://127.0.0.1:9998/v1\n" +
+		"    enabled: false\n"
+	if err := os.WriteFile(config.EmbeddedConfigFile(), []byte(body), 0o600); err != nil {
+		t.Fatalf("write embedded.yaml: %v", err)
+	}
+}
+
+// TestHandleUpdateShepherdConfigAllowsEmbedded (#686): embedded is a full
+// single-model provider on the backend, so saving it must succeed, and GET must
+// then feed the model picker the enabled endpoints from embedded.yaml. The
+// disabled endpoint is dropped; its label falls back to id when empty.
+func TestHandleUpdateShepherdConfigAllowsEmbedded(t *testing.T) {
+	withShepherdTestEnv(t)
+	writeTestEmbeddedConfig(t)
+
+	code, payload := patchShepherdConfig(t, shepherdApp(t), map[string]interface{}{
+		"provider": "embedded",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("status = %d payload=%v, want 200", code, payload)
+	}
+
+	got := db.Client().Sheep.Query().Where(sheep.Name(names.ManagerName)).OnlyX(context.Background())
+	if string(got.Provider) != string(sheep.ProviderEmbedded) {
+		t.Errorf("manager provider = %s, want embedded", got.Provider)
+	}
+
+	code, payload = getShepherdConfig(t, shepherdApp(t))
+	if code != http.StatusOK {
+		t.Fatalf("get: status = %d payload=%v", code, payload)
+	}
+	data := payload["data"].(map[string]any)
+	if data["provider"] != "embedded" {
+		t.Errorf("response provider = %v, want embedded", data["provider"])
+	}
+	if data["model_selectable"] != true {
+		t.Fatalf("embedded must offer a model list: %v", data["model_selectable"])
+	}
+
+	opts := data["model_options"].([]any)
+	var ids []string
+	for _, raw := range opts {
+		o := raw.(map[string]any)
+		ids = append(ids, o["id"].(string))
+		if o["id"] == "shepherd-test-ep" {
+			if o["label"] != "Test Endpoint (test-model)" {
+				t.Errorf("endpoint label = %v, want \"Test Endpoint (test-model)\"", o["label"])
+			}
+		}
+	}
+	// The list starts with the empty-ID "provider default" entry, then only the
+	// enabled endpoint — never the disabled one.
+	if len(ids) != 2 || ids[0] != "" || ids[1] != "shepherd-test-ep" {
+		t.Errorf("model_options ids = %v, want [\"\", shepherd-test-ep]", ids)
+	}
+}
+
+// TestHandleUpdateShepherdConfigRejectsMagi (#686): magi has no single model,
+// so the API must refuse to make it the manager's provider, and the stored value
+// must be untouched.
+func TestHandleUpdateShepherdConfigRejectsMagi(t *testing.T) {
+	withShepherdTestEnv(t)
+
+	code, payload := patchShepherdConfig(t, shepherdApp(t), map[string]interface{}{
+		"provider": "magi",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("status = %d payload=%v, want 400", code, payload)
+	}
+
+	got := db.Client().Sheep.Query().Where(sheep.Name(names.ManagerName)).OnlyX(context.Background())
+	if string(got.Provider) != string(sheep.ProviderClaude) {
+		t.Errorf("manager provider = %s, must stay claude", got.Provider)
+	}
+}
+
+// TestHandleUpdateShepherdConfigMagiSavedKeepsOtherFields (#686): a manager
+// already saved as magi must still be able to save workspace/instructions. The
+// settings form sends provider on every save, so re-submitting the current magi
+// value has to pass; only switching away from (or into) magi is rejected.
+func TestHandleUpdateShepherdConfigMagiSavedKeepsOtherFields(t *testing.T) {
+	withShepherdTestEnv(t)
+	ctx := context.Background()
+
+	// The manager row is created on demand; GET creates it so the magi update below lands.
+	getShepherdConfig(t, shepherdApp(t))
+	db.Client().Sheep.Update().Where(sheep.Name(names.ManagerName)).
+		SetProvider(sheep.ProviderMagi).SaveX(ctx)
+
+	tmp := t.TempDir()
+	code, payload := patchShepherdConfig(t, shepherdApp(t), map[string]interface{}{
+		"provider":       "magi",
+		"workspace_path": tmp,
+		"instructions":   "keep the magi manager",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("status = %d payload=%v, want 200 (same-provider magi save)", code, payload)
+	}
+	if viper.GetString("workspace_path") != tmp {
+		t.Errorf("workspace_path = %q, want it saved", viper.GetString("workspace_path"))
+	}
+	if viper.GetString("shepherd_instructions") != "keep the magi manager" {
+		t.Errorf("shepherd_instructions = %q, want it saved", viper.GetString("shepherd_instructions"))
+	}
+
+	got := db.Client().Sheep.Query().Where(sheep.Name(names.ManagerName)).OnlyX(ctx)
+	if string(got.Provider) != string(sheep.ProviderMagi) {
+		t.Errorf("manager provider = %s, must stay magi", got.Provider)
 	}
 }
 

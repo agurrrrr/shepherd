@@ -67,30 +67,46 @@
 	let msg = $state('');
 	let validationError = $state('');
 
+	// Single-model providers the shepherd may pick (#686). magi is deliberately
+	// absent — it has no single model (modelOptionsFor returns false), so it is
+	// not a selectable choice here. This mirrors the naming providers on the sheep
+	// screen and handlers_sheep_naming.go's sheepNamingProviders list.
 	const providerLabels = {
 		claude: 'Claude',
 		opencode: 'OpenCode',
 		pi: 'Pi',
 		grok: 'Grok',
-		magi: 'MAGI'
+		embedded: 'Embedded'
 	};
 
 	// Only "Embedded" has words to translate; the rest are product names. Called
-	// from the template, so translate() follows the current locale.
+	// from the template, so translate() follows the current locale. magi keeps a
+	// label here only so a manager already saved as magi still renders its name
+	// instead of the raw key — it is never offered as a fresh choice.
 	function providerLabel(p) {
 		if (p === 'embedded') return translate('shepherdSettings.provider.embedded');
+		if (p === 'magi') return 'MAGI';
 		return providerLabels[p] || p;
 	}
 
-	// Enabled providers only, plus the saved one in case it is disabled or is a
-	// legacy value like "auto" — otherwise the select would show nothing and a
+	// Enabled single-model providers, plus the saved one in case it is disabled or
+	// is a legacy value like "auto" — otherwise the select would show nothing and a
 	// save would silently rewrite the manager's provider.
 	let enabledProviders = $derived(
 		Object.keys(providerLabels).filter((p) => providerEnabled[p] !== false || p === savedProvider)
 	);
-	let providerChoices = $derived(
-		enabledProviders.includes(provider) ? enabledProviders : [provider, ...enabledProviders]
-	);
+
+	// magi has no key in providerLabels now (#686), so the savedProvider filter in
+	// enabledProviders cannot bring it back on its own. A manager already saved as
+	// magi must still appear in the list, or loading the tab and saving another
+	// field would silently rewrite its provider (the intent of the comment above).
+	let providerChoices = $derived.by(() => {
+		const list = enabledProviders.includes(provider)
+			? [...enabledProviders]
+			: [provider, ...enabledProviders];
+		if (savedProvider === 'magi' && !list.includes('magi')) list.push('magi');
+		return list;
+	});
 
 	// A provider switch clears the manager session and can reset the model, so the
 	// user must see that before saving (the issue asks for an explicit notice).
