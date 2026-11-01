@@ -615,6 +615,8 @@ func TestIsTransientLLMError(t *testing.T) {
 		{"HTTP 400", fmt.Errorf("API error 400: bad request"), false},
 		{"HTTP 401", fmt.Errorf("API error 401: unauthorized"), false},
 		{"HTTP 404", fmt.Errorf("API error 404: not found"), false},
+		{"engine stopped mid-stream", fmt.Errorf("stream callback: API stream error: the engine stopped unexpectedly (exit code -15); the next request restarts it"), true},
+		{"other stream error", fmt.Errorf("stream callback: API stream error: invalid_request_body"), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -681,6 +683,49 @@ func TestAccumulateStreamWithRetry(t *testing.T) {
 	}
 	if msg.Content != "Hello, world!" {
 		t.Errorf("content = %q, want 'Hello, world!'", msg.Content)
+	}
+}
+
+// TestAccumulateStreamRetriesEngineRestart: a Strata engine that ends mid-answer
+// sends an error event, not a dropped connection. The request is sent again and
+// the partial answer of the first attempt is not kept (#11473).
+func TestAccumulateStreamRetriesEngineRestart(t *testing.T) {
+	var attempt int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		lines := []string{
+			`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Hello, world!"}}]}`,
+			`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+			`data: [DONE]`,
+		}
+		if atomic.AddInt32(&attempt, 1) == 1 {
+			lines = []string{
+				`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}`,
+				`data: {"error":{"type":"server_error","message":"the engine stopped unexpectedly (exit code -15); the next request restarts it"}}`,
+				`data: [DONE]`,
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		for _, l := range lines {
+			_, _ = w.Write([]byte(l + "\n\n"))
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL+"/chat/completions", "", "test-model")
+	msg, finish, _, err := c.AccumulateStreamWithRetry(context.Background(), &ChatRequest{Model: "test-model"}, nil, nil)
+	if err != nil {
+		t.Fatalf("AccumulateStreamWithRetry error: %v", err)
+	}
+	if got := atomic.LoadInt32(&attempt); got != 2 {
+		t.Errorf("attempts = %d, want 2", got)
+	}
+	if finish != "stop" || msg.Content != "Hello, world!" {
+		t.Errorf("finish = %q, content = %q, want stop and 'Hello, world!'", finish, msg.Content)
 	}
 }
 

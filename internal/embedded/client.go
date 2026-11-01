@@ -865,6 +865,10 @@ func tailPhraseRepeating(s string) bool {
 //   - HTTP 5xx (502 overloaded, 503 unavailable, 529 overloaded) — temporary
 //     server overload (#6943: umans 502)
 //   - idle timeout — server stalled but might recover
+//   - a stream error that says "the next request restarts it" — a Strata engine
+//     ended mid-answer and the server starts it again for the next request
+//     (#11473: verify timeout; #11418: OOM kill). Every other stream error is a
+//     verdict on the request itself and stays fatal.
 //
 // Cases classified as fatal (no retry):
 //   - context.Canceled — user stopped the task; must not retry
@@ -896,7 +900,8 @@ func isTransientLLMError(err error) bool {
 		"connection refused",
 		"EOF",
 		"idle timeout",
-		"scan SSE", // scanner errors from connection drops
+		"scan SSE",                     // scanner errors from connection drops
+		"the next request restarts it", // Strata engine ended mid-stream
 	}
 	for _, sub := range transientSubstrings {
 		if strings.Contains(s, sub) {
