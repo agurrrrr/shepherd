@@ -62,7 +62,7 @@ func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sess
 	// newline within the input box and does NOT submit. We have to send the
 	// body, give the TUI a moment to render it, and then submit with \r
 	// (carriage return, which the TUI maps to Enter).
-	if _, err = ptmx.WriteString(buildPromptWithContext(sheepName, prompt)); err != nil {
+	if _, err = ptmx.WriteString(buildPromptWithContext(sheepName, prompt, opts.TaskID)); err != nil {
 		return nil, fmt.Errorf("failed to send prompt body: %w", err)
 	}
 	time.Sleep(300 * time.Millisecond)

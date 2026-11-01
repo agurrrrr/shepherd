@@ -98,7 +98,9 @@ func ExecuteEmbeddedDirect(
 // Composes the same context sections used by other providers.
 // The mcpGuide parameter is the project-specific MCP tool guide (pre-built by the caller).
 // If mcpGuide is empty, the default hardcoded guide is used.
-func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) string {
+// taskID is the queue task of this run (#722): it is stated in the prompt so
+// the sheep passes its own id to task_complete/task_error. 0 omits the line.
+func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string, taskID int) string {
 	var sections []string
 
 	// Agent identity
@@ -151,6 +153,11 @@ func BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide string) strin
 		sections = append(sections, mcpGuide)
 	} else if config.GetBool("include_mcp_guide") {
 		sections = append(sections, embeddedMCPGuide())
+	}
+
+	// Own task id (#722) — task_complete/task_error refuse any other id.
+	if sec := currentTaskSection(taskID); sec != "" {
+		sections = append(sections, sec)
 	}
 
 	// Task history is not injected into the system prompt — the model calls

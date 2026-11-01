@@ -81,7 +81,7 @@ func executeWithPi(ctx context.Context, sheepName, projectPath, sessionID, promp
 	// pi is a Claude-class harness, so feed it the same full system context Claude
 	// gets (MCP guide, task history, skills, wiki, sheep memory) with pi's own
 	// custom-instructions key. In --mode json the prompt is a positional argument.
-	fullPrompt := buildPromptWithContextUsing(sheepName, prompt, "custom_prompt_pi")
+	fullPrompt := buildPromptWithContextUsing(sheepName, prompt, "custom_prompt_pi", opts.TaskID)
 	args = append(args, fullPrompt)
 
 	cmd := exec.CommandContext(ctx, config.GetPiBinary(), args...)

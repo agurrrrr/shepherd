@@ -732,9 +732,9 @@ func executeWithOpenCode(ctx context.Context, sheepName, projectPath, sessionID,
 	// OpenCode gets the same MCP guide, task history, and skill summaries.
 	var fullPrompt string
 	if config.GetBool("opencode_compact_prompt") {
-		fullPrompt = buildPromptCompact(sheepName, prompt)
+		fullPrompt = buildPromptCompact(sheepName, prompt, opts.TaskID)
 	} else {
-		fullPrompt = buildPromptWithContextUsing(sheepName, prompt, "custom_prompt_opencode")
+		fullPrompt = buildPromptWithContextUsing(sheepName, prompt, "custom_prompt_opencode", opts.TaskID)
 	}
 
 	// Pass prompt via stdin instead of command-line argument.
@@ -1244,7 +1244,7 @@ func IsCancelledError(err error) bool {
 
 // buildPromptWithGuide adds MCP tool usage guide and recent task context to the prompt.
 func buildPromptWithGuide(prompt string) string {
-	return buildPromptWithContext("", prompt)
+	return buildPromptWithContext("", prompt, 0)
 }
 
 // claudeModelArgs returns ["--model", "<name>"] for the Claude invocation. An
@@ -1296,9 +1296,9 @@ func opencodeModelArgs(thinking bool, modelOverride string) []string {
 func PreviewSystemPrompt(sheepName string) map[string]string {
 	var opencode string
 	if config.GetBool("opencode_compact_prompt") {
-		opencode = buildPromptCompact(sheepName, "<USER_PROMPT>")
+		opencode = buildPromptCompact(sheepName, "<USER_PROMPT>", 0)
 	} else {
-		opencode = buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_opencode")
+		opencode = buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_opencode", 0)
 	}
 
 	// Embedded/MAGI previews use the workspace as the working directory for the
@@ -1309,13 +1309,13 @@ func PreviewSystemPrompt(sheepName string) map[string]string {
 	}
 
 	return map[string]string{
-		"streaming": buildSystemContext(sheepName, ""),
-		"compact":   buildPromptCompact(sheepName, "<USER_PROMPT>"),
-		"withGuide": buildPromptWithContext(sheepName, "<USER_PROMPT>"),
+		"streaming": buildSystemContext(sheepName, "", 0),
+		"compact":   buildPromptCompact(sheepName, "<USER_PROMPT>", 0),
+		"withGuide": buildPromptWithContext(sheepName, "<USER_PROMPT>", 0),
 		"opencode":  opencode,
-		"pi":        buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_pi"),
-		"grok":      buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_grok"),
-		"embedded":  BuildSystemPromptForEmbedded(sheepName, workdir, ""),
+		"pi":        buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_pi", 0),
+		"grok":      buildPromptWithContextUsing(sheepName, "<USER_PROMPT>", "custom_prompt_grok", 0),
+		"embedded":  BuildSystemPromptForEmbedded(sheepName, workdir, "", 0),
 		"magi":      BuildSystemPromptForMagi(sheepName, workdir, ""),
 	}
 }
@@ -1324,7 +1324,7 @@ func PreviewSystemPrompt(sheepName string) map[string]string {
 // User prompt comes FIRST to ensure the model focuses on the actual request,
 // with MCP tool guide, task history, and project skills appended as context.
 // Compact version: shorter MCP guide, same task history depth, skills included.
-func buildPromptCompact(sheepName, prompt string) string {
+func buildPromptCompact(sheepName, prompt string, taskID int) string {
 	var sb strings.Builder
 
 	// User request first — prevents system instructions from overwhelming the actual request
@@ -1350,6 +1350,12 @@ Browser automation: browser_session_start (sheep_name), browser_open, browser_cl
 For web tasks, use browser tools instead of WebFetch.
 
 `)
+	}
+
+	// Own task id (#722) — task_complete/task_error refuse any other id.
+	if sec := currentTaskSection(taskID); sec != "" {
+		sb.WriteString(sec)
+		sb.WriteString("\n\n")
 	}
 
 	if config.GetBool("include_task_history") {
@@ -1413,7 +1419,7 @@ These tools are already registered via MCP; the full list and parameters live in
 // buildSystemContext returns the system-level context (orchestrator block,
 // MCP guide, task history, skills) separated from the user prompt. Used by
 // streaming mode to pass via --append-system-prompt.
-func buildSystemContext(sheepName, prompt string) string {
+func buildSystemContext(sheepName, prompt string, taskID int) string {
 	var sb strings.Builder
 
 	// The manager's orchestrator block goes FIRST — it defines the role before
@@ -1425,6 +1431,12 @@ func buildSystemContext(sheepName, prompt string) string {
 
 	if config.GetBool("include_mcp_guide") {
 		sb.WriteString(mcpGuideText)
+	}
+
+	// Own task id (#722) — task_complete/task_error refuse any other id.
+	if sec := currentTaskSection(taskID); sec != "" {
+		sb.WriteString(sec)
+		sb.WriteString("\n\n")
 	}
 
 	if config.GetBool("include_task_history") {
@@ -1469,13 +1481,13 @@ func buildSystemContext(sheepName, prompt string) string {
 // Uses the Claude custom-prompt key by default; providers that share this full
 // prompt but need their own custom instructions should call
 // buildPromptWithContextUsing directly.
-func buildPromptWithContext(sheepName, prompt string) string {
-	return buildPromptWithContextUsing(sheepName, prompt, "custom_prompt_claude")
+func buildPromptWithContext(sheepName, prompt string, taskID int) string {
+	return buildPromptWithContextUsing(sheepName, prompt, "custom_prompt_claude", taskID)
 }
 
 // buildPromptWithContextUsing is the generalized form that lets the caller pick
 // which config key holds the user's [User Custom Instructions] block.
-func buildPromptWithContextUsing(sheepName, prompt, customPromptKey string) string {
+func buildPromptWithContextUsing(sheepName, prompt, customPromptKey string, taskID int) string {
 	var sb strings.Builder
 
 	// Manager (목자) orchestrator block first (#595). Empty for ordinary sheep.
@@ -1486,6 +1498,12 @@ func buildPromptWithContextUsing(sheepName, prompt, customPromptKey string) stri
 
 	if config.GetBool("include_mcp_guide") {
 		sb.WriteString(mcpGuideText)
+	}
+
+	// Own task id (#722) — task_complete/task_error refuse any other id.
+	if sec := currentTaskSection(taskID); sec != "" {
+		sb.WriteString(sec)
+		sb.WriteString("\n\n")
 	}
 
 	// Add recent task context
@@ -1918,6 +1936,18 @@ func getProjectWikiContext(sheepName, prompt string) string {
 	return sb.String()
 }
 
+// currentTaskSection states the run's own queue task id (#722). task_complete
+// and task_error refuse any other id, so the sheep must not guess it from
+// get_status or get_history: a guessed id once overwrote another project's
+// finished task. taskID <= 0 (previews, runs outside the queue) returns "".
+func currentTaskSection(taskID int) string {
+	if taskID <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("[Current Task]\nCurrent task id: #%d. task_complete/task_error의 task_id에는 이 값만 쓰십시오. "+
+		"get_status나 get_history로 작업 ID를 찾지 마십시오. 다른 작업의 ID는 거부됩니다.", taskID)
+}
+
 // applyTaskIDEnv appends SHEPHERD_TASK_ID to a provider child's environment
 // (#597). The `shepherd mcp` stdio child inherits it and tags daemon-proxied
 // tool calls with caller_task_id, which lets the daemon recognize calls made
@@ -2019,7 +2049,7 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 
 	// Separate system context from user prompt to prevent
 	// system instructions from overwhelming the user's actual request.
-	if sysCtx := buildSystemContext(sheepName, prompt); sysCtx != "" {
+	if sysCtx := buildSystemContext(sheepName, prompt, opts.TaskID); sysCtx != "" {
 		args = append(args, "--append-system-prompt", sysCtx)
 	}
 

@@ -102,9 +102,50 @@ func handleTaskStart(args map[string]interface{}) (string, error) {
 	return fmt.Sprintf("작업 #%d 큐에 추가됨 (양: %s, 프로젝트: %s)", task.ID, sheepName, projectName), nil
 }
 
+// Completion notifiers, run in a goroutine after the DB write. Package vars
+// so tests can swap them for synchronous recorders: the real ones query the
+// DB after the handler returns, when a test's in-memory client may be gone.
+var (
+	announceTaskComplete = manager.AnnounceTaskComplete
+	announceTaskFail     = sendTaskFailNotice
+)
+
+// checkTaskFinishTarget guards task_complete / task_error (#722). Embedded
+// sheep do not always know their own task id and guess it from get_status or
+// get_history. A wrong guess used to overwrite another project's finished
+// task: its summary, completed_at, the linked issue's shepherd review, and a
+// Discord notice.
+//
+//  1. Caller check: when the call carries the caller task id (embedded
+//     dispatch, SHEPHERD_TASK_ID in a `shepherd mcp` child), task_id must be
+//     that id. Caller 0 (CLI, user, providers that cannot pass the id) skips
+//     this check.
+//  2. Status check: the target must be pending or running. This guard lives
+//     here and NOT in queue.CompleteTaskWithTokens / FailTaskWithOutput: the
+//     processor writes the final output and tokens to its own task after the
+//     sheep already called task_complete (status completed), and that write
+//     must keep working.
+func checkTaskFinishTarget(taskID int, args map[string]interface{}) error {
+	if caller := callerTaskIDOrEnv(args); caller > 0 && caller != taskID {
+		return fmt.Errorf("작업 #%d은 이 호출의 작업(#%d)이 아닙니다. task_id=%d을 쓰십시오", taskID, caller, caller)
+	}
+
+	t, err := queue.GetTask(taskID)
+	if err != nil {
+		return err
+	}
+	if t.Status != task.StatusPending && t.Status != task.StatusRunning {
+		return fmt.Errorf("작업 #%d은 이미 끝난 작업입니다(상태: %s). 끝난 작업의 결과는 바꿀 수 없습니다", taskID, t.Status)
+	}
+	return nil
+}
+
 func handleTaskComplete(args map[string]interface{}) (string, error) {
 	taskID, err := requireTaskID(args)
 	if err != nil {
+		return "", err
+	}
+	if err := checkTaskFinishTarget(taskID, args); err != nil {
 		return "", err
 	}
 
@@ -137,7 +178,7 @@ func handleTaskComplete(args map[string]interface{}) (string, error) {
 			projectName = t.Edges.Project.Name
 		}
 	}
-	go manager.AnnounceTaskComplete(taskID, sheepName, projectName, summary)
+	go announceTaskComplete(taskID, sheepName, projectName, summary)
 
 	return fmt.Sprintf("작업 #%d 완료됨", taskID), nil
 }
@@ -145,6 +186,9 @@ func handleTaskComplete(args map[string]interface{}) (string, error) {
 func handleTaskError(args map[string]interface{}) (string, error) {
 	taskID, err := requireTaskID(args)
 	if err != nil {
+		return "", err
+	}
+	if err := checkTaskFinishTarget(taskID, args); err != nil {
 		return "", err
 	}
 
@@ -157,24 +201,26 @@ func handleTaskError(args map[string]interface{}) (string, error) {
 		return "", err
 	}
 
-	// Discord notification
-	go func() {
-		task, err := queue.GetTask(taskID)
-		if err != nil {
-			return
-		}
-		sheepName := "-"
-		if task.Edges.Sheep != nil {
-			sheepName = task.Edges.Sheep.Name
-		}
-		projectName := "-"
-		if task.Edges.Project != nil {
-			projectName = task.Edges.Project.Name
-		}
-		discord.NewTaskNotifier().SendTaskFail(taskID, sheepName, projectName, errMsg)
-	}()
+	go announceTaskFail(taskID, errMsg)
 
 	return fmt.Sprintf("작업 #%d 실패 기록됨", taskID), nil
+}
+
+// sendTaskFailNotice sends the Discord failure notice for a task_error call.
+func sendTaskFailNotice(taskID int, errMsg string) {
+	t, err := queue.GetTask(taskID)
+	if err != nil {
+		return
+	}
+	sheepName := "-"
+	if t.Edges.Sheep != nil {
+		sheepName = t.Edges.Sheep.Name
+	}
+	projectName := "-"
+	if t.Edges.Project != nil {
+		projectName = t.Edges.Project.Name
+	}
+	discord.NewTaskNotifier().SendTaskFail(taskID, sheepName, projectName, errMsg)
 }
 
 func handleGetHistory(args map[string]interface{}) (string, error) {

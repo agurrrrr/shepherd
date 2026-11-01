@@ -729,7 +729,7 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		mcpGuide := buildMCPGuide(mcpDefs, projectName)
 
 		// Build system prompt with project-specific MCP guide
-		systemPrompt := worker.BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide)
+		systemPrompt := worker.BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide, opts.TaskID)
 
 		// Dispatcher that routes MCP tool calls:
 		// 1. Built-in tools (task_*, get_*, skill_load, wiki_*, browser_*) → mcpServer

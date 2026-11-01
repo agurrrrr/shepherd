@@ -41,16 +41,16 @@ func TestManagerContextEntersEveryBuilder(t *testing.T) {
 	viper.Set("include_sheep_memory", false)
 	viper.Set("wiki_enabled", false)
 
-	embedded := BuildSystemPromptForEmbedded(names.ManagerName, "/home/user/code", "guide")
+	embedded := BuildSystemPromptForEmbedded(names.ManagerName, "/home/user/code", "guide", 0)
 	magi := BuildSystemPromptForMagi(names.ManagerName, "/home/user/code", "guide")
 
 	cases := map[string]string{
-		"claude streaming": buildSystemContext(names.ManagerName, "p"),
-		"claude full":      buildPromptWithContextUsing(names.ManagerName, "p", "custom_prompt_claude"),
-		"opencode compact": buildPromptCompact(names.ManagerName, "p"),
-		"opencode full":    buildPromptWithContextUsing(names.ManagerName, "p", "custom_prompt_opencode"),
-		"pi":               buildPromptWithContextUsing(names.ManagerName, "p", "custom_prompt_pi"),
-		"grok":             buildPromptWithContextUsing(names.ManagerName, "p", "custom_prompt_grok"),
+		"claude streaming": buildSystemContext(names.ManagerName, "p", 0),
+		"claude full":      buildPromptWithContextUsing(names.ManagerName, "p", "custom_prompt_claude", 0),
+		"opencode compact": buildPromptCompact(names.ManagerName, "p", 0),
+		"opencode full":    buildPromptWithContextUsing(names.ManagerName, "p", "custom_prompt_opencode", 0),
+		"pi":               buildPromptWithContextUsing(names.ManagerName, "p", "custom_prompt_pi", 0),
+		"grok":             buildPromptWithContextUsing(names.ManagerName, "p", "custom_prompt_grok", 0),
 		"embedded":         embedded,
 		"magi":             magi,
 	}
@@ -88,12 +88,12 @@ func TestOrdinarySheepPromptsUnchanged(t *testing.T) {
 	client.Sheep.Create().SetName("양순이").SetProject(p).SaveX(ctx)
 
 	out := map[string]string{
-		"claude streaming": buildSystemContext("양순이", "p"),
-		"claude full":      buildPromptWithContextUsing("양순이", "p", "custom_prompt_claude"),
-		"opencode compact": buildPromptCompact("양순이", "p"),
-		"pi":               buildPromptWithContextUsing("양순이", "p", "custom_prompt_pi"),
-		"grok":             buildPromptWithContextUsing("양순이", "p", "custom_prompt_grok"),
-		"embedded":         BuildSystemPromptForEmbedded("양순이", "/ws/bori", "guide"),
+		"claude streaming": buildSystemContext("양순이", "p", 0),
+		"claude full":      buildPromptWithContextUsing("양순이", "p", "custom_prompt_claude", 0),
+		"opencode compact": buildPromptCompact("양순이", "p", 0),
+		"pi":               buildPromptWithContextUsing("양순이", "p", "custom_prompt_pi", 0),
+		"grok":             buildPromptWithContextUsing("양순이", "p", "custom_prompt_grok", 0),
+		"embedded":         BuildSystemPromptForEmbedded("양순이", "/ws/bori", "guide", 0),
 		"magi":             BuildSystemPromptForMagi("양순이", "/ws/bori", "guide"),
 	}
 
@@ -125,7 +125,7 @@ func TestShepherdContextProviderUnset(t *testing.T) {
 	viper.Set("include_sheep_memory", false)
 	viper.Set("wiki_enabled", false)
 
-	out := buildSystemContext(names.ManagerName, "p")
+	out := buildSystemContext(names.ManagerName, "p", 0)
 	if strings.Contains(out, "[Shepherd Orchestrator") {
 		t.Errorf("no context block expected without a provider, got:\n%s", out)
 	}

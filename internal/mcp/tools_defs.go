@@ -20,7 +20,7 @@ func ListCoreToolDefs() []Tool {
 		},
 		{
 			Name:        "task_complete",
-			Description: "작업 완료를 기록합니다",
+			Description: "지금 실행 중인 자기 작업의 완료를 기록합니다. task_id에는 시스템 프롬프트의 Current task id 값을 쓰십시오. 다른 작업이나 이미 끝난 작업의 task_id는 거부됩니다",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -34,7 +34,7 @@ func ListCoreToolDefs() []Tool {
 		},
 		{
 			Name:        "task_error",
-			Description: "작업 에러를 기록합니다",
+			Description: "지금 실행 중인 자기 작업의 에러를 기록합니다. task_id에는 시스템 프롬프트의 Current task id 값을 쓰십시오. 다른 작업이나 이미 끝난 작업의 task_id는 거부됩니다",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{

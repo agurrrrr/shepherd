@@ -64,7 +64,7 @@ func executeWithGrok(ctx context.Context, sheepName, projectPath, sessionID, pro
 	// grok's own custom-instructions key. The execution-limit note is prepended
 	// as its own bracketed section (before the context blocks) so it reads as
 	// harness info, not as part of the user's request.
-	fullPrompt := buildPromptWithContextUsing(sheepName, prompt, "custom_prompt_grok")
+	fullPrompt := buildPromptWithContextUsing(sheepName, prompt, "custom_prompt_grok", opts.TaskID)
 	if note := grokBackgroundWaitNote(); note != "" {
 		fullPrompt = note + "\n\n" + fullPrompt
 	}
