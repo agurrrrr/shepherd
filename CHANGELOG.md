@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-02
+
+### Added
+- PWA icons and favicon redrawn in the Pico Night Gray pixel-art style: night-sky bands, crescent moon, and a lantern staff. `npm run gen:icons` (`web/scripts/gen-icons.mjs`) draws every PNG on integer pixel grids from the sprite in `sprites.js`, with no dependencies beyond `node:zlib`. Adds `apple-touch-icon` (180), a borderless `icon-maskable-512`, and a white `badge-96` notification icon. A `.gitignore` exception (`!web/static/*.png`) fixes icons that were never committed, so CI release builds now ship the favicon and PWA icons
+
+### Changed
+- Settings → Shepherd provider list now offers `Embedded` and no longer lists `magi` (which has no single model to select). A manager sheep already saved on `magi` stays in the list; a save that would switch a provider to `magi` returns 400
+
+### Fixed
+- `task_complete` / `task_error` now guard the target: a call whose `task_id` differs from the caller's own task is rejected, and a target that is not `pending`/`running` is rejected, so a finished task's summary, error, and `completed_at` are no longer overwritten. The embedded and interactive prompts now inject the current task id in a `[Current Task]` section so the sheep no longer guesses it from `get_status`/`get_history` (#722)
+- A stream error whose message says the engine "restarts it on the next request" (Strata `EngineDied`: verify timeout, OOM kill) is now classified as transient and retried, instead of failing the whole task. The retry count stays bounded (at most 6 sends), and the partial answer of a dropped attempt is not kept
+
 ## [0.2.0] - 2026-10-30
 
 ### Added
