@@ -103,7 +103,7 @@ shepherd serve -d       # start the daemon
 
 Open `http://localhost:8585`, sign in, and add your first project from **Projects → Add project**. Shepherd creates a sheep for it, and you can start sending tasks.
 
-Settings are stored in `~/.shepherd/config.yaml`, and the task database is `~/.shepherd/shepherd.db`. You can change almost every option from the **Settings** page. For access from outside your network, put a reverse proxy with HTTPS in front of the daemon.
+Settings are stored in `~/.shepherd/config.yaml`, and the task database is `~/.shepherd/shepherd.db`. You can change almost every option from the **Settings** page. Uploads accept 10 MB per file by default; set a new limit in **Settings → Common → Max Upload Size**. For access from outside your network, put a reverse proxy with HTTPS in front of the daemon, and give that proxy the same body-size limit as the upload setting.
 
 Shepherd also runs as an MCP server (`shepherd mcp`). This gives agents tools for issues, the wiki, task history, skills, and browser automation.
 

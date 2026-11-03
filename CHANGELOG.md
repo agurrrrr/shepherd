@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Upload size is now a setting: `max_upload_mb` (Settings → Common → Max Upload Size, or `shepherd config set max_upload_mb 50`). It replaces the hard-coded 10 MB per-file limit in both upload endpoints (task attachments and the Files tab), and the HTTP body limit is derived from it, so a raised limit works without a rebuild. The daemon re-reads the value on every request — a saved change applies to the next upload, no restart. Range: 1–512 MB (the daemon buffers a whole upload in memory); an invalid value returns 400 and keeps the previous one, and `shepherd config set` validates it too. The browser reads the same number, so its "file too large" message and its image-compression target follow the setting instead of 10 MB. The transport body limit now also clears the 50 MB task-import dump at the default setting, which is what it was before. Behind a reverse proxy or ingress, raise its own body-size limit to match (for example `nginx.ingress.kubernetes.io/proxy-body-size`)
+
 ## [0.3.0] - 2026-11-02
 
 ### Added

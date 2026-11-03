@@ -111,6 +111,7 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"grok_path":                       config.GetString("grok_path"),
 		"grok_background_wait":            config.GetString("grok_background_wait"),
 		"task_timeout":                    config.GetString("task_timeout"),
+		"max_upload_mb":                   config.GetMaxUploadMB(),
 		"shell":                           config.GetString("shell"),
 		"task_checkpoint_enabled":         config.GetBool("task_checkpoint_enabled"),
 		"task_checkpoint_retention_days":  config.GetInt("task_checkpoint_retention_days"),
@@ -320,6 +321,7 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"grok_path":                       true,
 		"grok_background_wait":            true,
 		"task_timeout":                    true,
+		"max_upload_mb":                   true,
 		"shell":                           true,
 		"task_checkpoint_enabled":         true,
 		"task_checkpoint_retention_days":  true,
@@ -381,6 +383,17 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		if key == "limit_handoff_model" {
 			raw, _ := value.(string)
 			value = config.NormalizeHandoffModel(raw)
+		}
+
+		// max_upload_mb is a whole MB count with a hard ceiling. The web form
+		// can send a string, and an invalid number must not silently become
+		// "unlimited" — reject it with 400 instead.
+		if key == "max_upload_mb" {
+			mb, err := config.NormalizeUploadMB(value)
+			if err != nil {
+				return fail(c, fiber.StatusBadRequest, err.Error())
+			}
+			value = mb
 		}
 
 		if err := persistConfig(map[string]interface{}{key: value}); err != nil {

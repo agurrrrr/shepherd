@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { apiGet, apiPatch, apiPost } from '$lib/api.js';
 	import { setLocale, t, translate } from '$lib/i18n/index.js';
+	import { applyUploadLimitMB, normalizeUploadMBInput } from '$lib/uploadLimit.js';
 
 	import CommonSettings from '$lib/components/Settings/CommonSettings.svelte';
 	import ShepherdSettings from '$lib/components/Settings/ShepherdSettings.svelte';
@@ -161,6 +162,7 @@
 			include_sheep_memory: configData.include_sheep_memory,
 			sheep_memory_prompt: configData.sheep_memory_prompt || '',
 			enable_file_browser: configData.enable_file_browser,
+			max_upload_mb: normalizeUploadMBInput(configData.max_upload_mb),
 			custom_prompt_claude: configData.custom_prompt_claude || '',
 			custom_prompt_opencode: configData.custom_prompt_opencode || '',
 			custom_prompt_pi: configData.custom_prompt_pi || '',
@@ -200,6 +202,10 @@
 			saveMsg = 'Saved';
 			// Switch the Web UI language right away, without a reload (#662).
 			setLocale(configData.language);
+			// The upload limit lives in a store the upload call sites read, so a
+			// saved max_upload_mb must land there too — otherwise the Files tab and
+			// task attachments keep rejecting at the old number until a reload.
+			applyUploadLimitMB(configData.max_upload_mb);
 		} else {
 			saveMsg = 'Error: ' + (res?.message || 'Failed to save');
 		}

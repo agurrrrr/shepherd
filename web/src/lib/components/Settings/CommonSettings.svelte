@@ -2,8 +2,10 @@
 	import PushSettings from './PushSettings.svelte';
 	import SheepNamingSection from './SheepNamingSection.svelte';
 	import { t } from '$lib/i18n/index.js';
+	import { uploadLimitBytes } from '$lib/stores.js';
+	import { MAX_UPLOAD_MB_CEIL, formatBytes } from '$lib/uploadLimit.js';
 
-	/** @type {{ language: string, default_provider: string, max_sheep: number, max_concurrent_tasks: number, concurrency_limits: Record<string, number>, task_timeout: string, auto_approve: boolean, enable_file_browser: boolean, session_reuse: boolean, include_task_history: boolean, include_mcp_guide: boolean, include_sheep_memory: boolean, sheep_memory_prompt: string, wiki_enabled: boolean, wiki_auto_ingest: boolean, task_checkpoint_enabled: boolean, task_checkpoint_retention_days: number, wiki_max_context_pages: number, wiki_max_page_content_chars: number, discord_notifications_enabled: boolean, discord_webhook_url: string, discord_notify_on_complete: boolean, discord_notify_on_fail: boolean, webpush_enabled: boolean, webpush_notify_on_complete: boolean, webpush_notify_on_fail: boolean, server_host: string, server_port: number, model_claude: string }} */
+	/** @type {{ language: string, default_provider: string, max_sheep: number, max_concurrent_tasks: number, concurrency_limits: Record<string, number>, task_timeout: string, auto_approve: boolean, enable_file_browser: boolean, max_upload_mb: number, session_reuse: boolean, include_task_history: boolean, include_mcp_guide: boolean, include_sheep_memory: boolean, sheep_memory_prompt: string, wiki_enabled: boolean, wiki_auto_ingest: boolean, task_checkpoint_enabled: boolean, task_checkpoint_retention_days: number, wiki_max_context_pages: number, wiki_max_page_content_chars: number, discord_notifications_enabled: boolean, discord_webhook_url: string, discord_notify_on_complete: boolean, discord_notify_on_fail: boolean, webpush_enabled: boolean, webpush_notify_on_complete: boolean, webpush_notify_on_fail: boolean, server_host: string, server_port: number, model_claude: string }} */
 	export let configData;
 </script>
 
@@ -66,6 +68,23 @@
 		<input type="checkbox" bind:checked={configData.enable_file_browser} />
 		<span>{configData.enable_file_browser ? 'Enabled' : 'Disabled'}</span>
 	</label>
+</div>
+
+<!-- Max Upload Size -->
+<div class="setting-row">
+	<label>{$t('commonSettings.maxUploadLabel')}</label>
+	<div class="upload-size">
+		<input
+			class="input"
+			type="number"
+			bind:value={configData.max_upload_mb}
+			min="1"
+			max={MAX_UPLOAD_MB_CEIL}
+			step="1"
+		/>
+		<span class="hint">MB</span>
+	</div>
+	<span class="hint">{$t('commonSettings.maxUploadHint', { max: MAX_UPLOAD_MB_CEIL, current: formatBytes($uploadLimitBytes) })}</span>
 </div>
 
 <!-- Prompt Injection -->
@@ -291,6 +310,19 @@
 		cursor: pointer;
 		font-weight: 400;
 		min-width: 0;
+	}
+
+	/* Max Upload Size: number field + unit label, so the row keeps the same
+	   label/field layout as the other rows. */
+	.upload-size {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.upload-size .input {
+		max-width: 110px;
+		flex: none;
 	}
 
 	@media (max-width: 768px) {

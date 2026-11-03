@@ -1,7 +1,8 @@
 <script>
 	import { apiPost, apiGet, apiUpload } from '$lib/api.js';
 	import { t, translate } from '$lib/i18n/index.js';
-	import { compressImageFile, MAX_UPLOAD_BYTES } from '$lib/imageCompress.js';
+	import { compressImageFile } from '$lib/imageCompress.js';
+	import { getUploadLimitBytes, formatBytes } from '$lib/uploadLimit.js';
 	import Icon from './Icon.svelte';
 
 	// `thinking`: tri-state — true/false override the server default, null means
@@ -51,20 +52,23 @@
 
 	/**
 	 * Attach one file. Images are compressed in the browser first (JPEG q90,
-	 * longest side capped) so a big screenshot stays under the server's 10 MB
+	 * longest side capped) so a big screenshot stays under the server's per-file
 	 * limit and costs fewer tokens downstream. The size check runs on the
 	 * compressed result, so only files still too large afterwards are rejected.
+	 * The limit comes from the daemon's `max_upload_mb` setting, read per attach,
+	 * so a settings change applies without a reload.
 	 */
 	async function attachFile(file) {
+		const limitBytes = getUploadLimitBytes();
 		const isImage = file.type.startsWith('image/');
-		const stored = isImage ? await compressImageFile(file) : file;
+		const stored = isImage ? await compressImageFile(file, limitBytes) : file;
 
-		if (stored.size > MAX_UPLOAD_BYTES) {
+		if (stored.size > limitBytes) {
 			lastResult = {
 				success: false,
 				message: translate(
 					stored !== file ? 'command.imageStillTooLarge' : 'command.fileTooLarge',
-					{ name: stored.name }
+					{ name: stored.name, size: formatBytes(limitBytes) }
 				)
 			};
 			return;

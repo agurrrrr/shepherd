@@ -43,6 +43,18 @@ export const sheep = writable([]);
 export const projects = writable([]);
 export const systemStatus = writable(null);
 
+// DefaultUploadLimitBytes is the per-file upload limit before /api/config has
+// answered. It matches config.DefaultMaxUploadMB on the server (10 MB), so the
+// browser never lets through a file the daemon would reject.
+export const DEFAULT_UPLOAD_LIMIT_BYTES = 10 * 1024 * 1024;
+
+// Per-file upload limit in bytes, read from the daemon's `max_upload_mb`
+// setting (Settings → Common). The layout writes it once per sign-in from
+// GET /api/config, and the Settings page refreshes it right after a save so a
+// new limit applies without a reload. Upload call sites (task attachments, the
+// Files tab) check against this store instead of a hard-coded 10 MB.
+export const uploadLimitBytes = writable(DEFAULT_UPLOAD_LIMIT_BYTES);
+
 // Needs-attention count (#599) for the sidebar's Shepherd badge. Written by
 // the layout's debounced SSE refresh and by the Shepherd page's AttentionPanel
 // (immediate feedback after ack/actions).

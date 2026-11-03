@@ -54,6 +54,116 @@ func TestGetConcurrencyLimitsEmpty(t *testing.T) {
 	}
 }
 
+// TestNormalizeUploadMB covers what PATCH /api/config accepts for
+// max_upload_mb. The web form can deliver a JSON number (float64) and the CLI a
+// string, so both shapes must land on the same whole MB count. Zero, negative,
+// unparseable, and over-ceiling input is an error: an upload limit that falls
+// back to "unlimited" because of a typo is the failure mode to avoid.
+func TestNormalizeUploadMB(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input interface{}
+		want  int
+	}{
+		{"json number", float64(25), 25},
+		{"plain int", 25, 25},
+		{"string from CLI", "25", 25},
+		{"string with spaces", " 25 ", 25},
+		{"fractional json number truncates", float64(10.9), 10},
+		{"at ceiling", MaxUploadMBHardCeil, MaxUploadMBHardCeil},
+	} {
+		got, err := NormalizeUploadMB(tc.input)
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.name, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("%s: got %d, want %d", tc.name, got, tc.want)
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		input interface{}
+	}{
+		{"zero", 0},
+		{"negative", -5},
+		{"empty string", ""},
+		{"non-numeric string", "big"},
+		{"above ceiling", MaxUploadMBHardCeil + 1},
+		{"nil", nil},
+	} {
+		if got, err := NormalizeUploadMB(tc.input); err == nil {
+			t.Errorf("%s: accepted as %d, want an error", tc.name, got)
+		}
+	}
+}
+
+// TestGetMaxUploadMB checks the read path used by the upload handlers and the
+// HTTP body limit: the configured value wins, and anything unusable falls back
+// to the 10 MB default instead of disabling uploads or lifting the ceiling.
+func TestGetMaxUploadMB(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	// Unset (config.yaml written before this setting existed).
+	if got := GetMaxUploadMB(); got != DefaultMaxUploadMB {
+		t.Errorf("unset: got %d, want default %d", got, DefaultMaxUploadMB)
+	}
+
+	viper.Set("max_upload_mb", 50)
+	if got := GetMaxUploadMB(); got != 50 {
+		t.Errorf("configured: got %d, want 50", got)
+	}
+	if want := int64(50 * 1024 * 1024); GetMaxUploadBytes() != want {
+		t.Errorf("GetMaxUploadBytes: got %d, want %d", GetMaxUploadBytes(), want)
+	}
+
+	// A value written by the CLI stays a string in the YAML; viper.GetInt casts it.
+	viper.Set("max_upload_mb", "25")
+	if got := GetMaxUploadMB(); got != 25 {
+		t.Errorf("string value: got %d, want 25", got)
+	}
+
+	for _, bad := range []interface{}{0, -1, MaxUploadMBHardCeil + 1, "not-a-number"} {
+		viper.Set("max_upload_mb", bad)
+		if got := GetMaxUploadMB(); got != DefaultMaxUploadMB {
+			t.Errorf("bad value %v: got %d, want default %d", bad, got, DefaultMaxUploadMB)
+		}
+	}
+}
+
+// TestGetHTTPBodyLimitBytesCoversEveryUpload checks the transport ceiling
+// against every endpoint that accepts a file. A body limit below a handler's own
+// limit is invisible: fasthttp rejects the request before the handler runs, so
+// the handler's number becomes a lie. That covers both the per-file upload
+// limit (which moves with max_upload_mb) and the fixed task-import dump size.
+func TestGetHTTPBodyLimitBytesCoversEveryUpload(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+
+	for _, mb := range []interface{}{1, DefaultMaxUploadMB, MaxUploadMBHardCeil} {
+		viper.Set("max_upload_mb", mb)
+		body := int64(GetHTTPBodyLimitBytes())
+
+		if body <= GetMaxUploadBytes() {
+			t.Errorf("max_upload_mb=%v: body limit %d must exceed the per-file upload limit %d",
+				mb, body, GetMaxUploadBytes())
+		}
+		if body <= int64(MaxTaskImportBytes) {
+			t.Errorf("max_upload_mb=%v: body limit %d must exceed the task-import limit %d",
+				mb, body, MaxTaskImportBytes)
+		}
+	}
+
+	// The default config keeps the pre-setting transport ceiling (50 MB), so an
+	// existing task-import dump of up to 50 MB still uploads after the upgrade.
+	viper.Set("max_upload_mb", DefaultMaxUploadMB)
+	if body := int64(GetHTTPBodyLimitBytes()); body < MaxTaskImportBytes {
+		t.Errorf("default config: body limit %d is below the 50 MB it used to be", body)
+	}
+}
+
 // TestEmbeddedEndpoint_MaxConcurrent_YAMLRoundTrip verifies that the
 // max_concurrent field survives a YAML marshal/unmarshal round-trip.
 // EmbeddedEndpoint has mapstructure tags only (no yaml tags), so yaml.v3

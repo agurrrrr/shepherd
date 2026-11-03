@@ -7,6 +7,7 @@
 	import { connectSSE, disconnectSSE, onSSE } from '$lib/sse.js';
 	import { syncPushSubscription } from '$lib/push.js';
 	import { setLocale, t } from '$lib/i18n/index.js';
+	import { applyUploadLimitMB } from '$lib/uploadLimit.js';
 	import { goto, onNavigate } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
 	import BrandMark from '$lib/components/BrandMark.svelte';
@@ -47,7 +48,10 @@
 		if (localeSynced) return;
 		localeSynced = true;
 		apiGet('/api/config')
-			.then((res) => setLocale(res?.data?.language))
+			.then((res) => {
+				setLocale(res?.data?.language);
+				applyUploadLimitMB(res?.data?.max_upload_mb);
+			})
 			.catch(() => {});
 	});
 

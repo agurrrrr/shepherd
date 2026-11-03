@@ -16,6 +16,7 @@ import (
 	"github.com/agurrrrr/shepherd/ent"
 	entProject "github.com/agurrrrr/shepherd/ent/project"
 	entTask "github.com/agurrrrr/shepherd/ent/task"
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 )
 
@@ -174,8 +175,8 @@ func parseImportFile(c *fiber.Ctx) ([]taskRecord, map[string]any, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("file is required")
 	}
-	if fh.Size > 50*1024*1024 {
-		return nil, nil, fmt.Errorf("file too large (max 50MB)")
+	if fh.Size > config.MaxTaskImportBytes {
+		return nil, nil, fmt.Errorf("file too large (max %dMB)", config.MaxTaskImportBytes/(1024*1024))
 	}
 	f, err := fh.Open()
 	if err != nil {

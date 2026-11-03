@@ -1,16 +1,18 @@
 // Image compression for task-chat attachments (CommandInput.svelte).
 //
 // Uploads go to POST /api/upload, which stores files under the project's
-// .shepherd-uploads directory and rejects anything over 10 MB. A phone photo
-// or a full-desktop screenshot can easily be 5-15 MB, so the browser
-// compresses before upload: re-encode as JPEG at quality 0.90 and cap the
-// longest side at MAX_DIM pixels. The result is only used when it is smaller
-// than the original — an already-optimized JPEG or a tiny icon keeps its
-// original bytes, so compression never inflates a payload.
+// .shepherd-uploads directory and rejects anything over the configured per-file
+// limit (`max_upload_mb`, 10 MB by default). A phone photo or a full-desktop
+// screenshot can easily be 5-15 MB, so the browser compresses before upload:
+// re-encode as JPEG at quality 0.90 and cap the longest side at MAX_DIM pixels.
+// The result is only used when it is smaller than the original — an
+// already-optimized JPEG or a tiny icon keeps its original bytes, so compression
+// never inflates a payload.
 //
-// Server side keeps its own 10 MB guard in internal/server/handlers_upload.go;
-// this module runs before that check, so a big PNG screenshot that compresses
-// below 10 MB uploads fine.
+// The server keeps its own guard in internal/server/handlers_upload.go and reads
+// the same setting, so a big PNG screenshot that compresses below the limit
+// uploads fine. Callers pass the live limit from `$lib/uploadLimit.js`; the
+// default below is only the pre-config-fetch fallback.
 
 /** JPEG re-encode quality: 90 %, visually lossless for screenshots and photos. */
 export const JPEG_QUALITY = 0.9;
@@ -18,8 +20,8 @@ export const JPEG_QUALITY = 0.9;
 /** Longest side in pixels after compression. Larger images are downscaled. */
 export const MAX_DIM = 4096;
 
-/** Server limit in internal/server/handlers_upload.go — stay at or under it. */
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/** Fallback byte cap, used when the caller passes none (config.DefaultMaxUploadMB). */
+export const DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 /** How many extra downscale rounds to try when q90 still exceeds the limit. */
 const MAX_SIZE_ROUNDS = 4;
@@ -66,7 +68,7 @@ export function scaleDimensions(w, h, maxDim = MAX_DIM) {
  * @param {number} [maxBytes]
  * @returns {Promise<File>} the JPEG File when it is smaller, otherwise the original
  */
-export async function compressImageFile(file, maxBytes = MAX_UPLOAD_BYTES) {
+export async function compressImageFile(file, maxBytes = DEFAULT_MAX_UPLOAD_BYTES) {
 	if (!isCompressibleImage(file.type)) return file;
 
 	let bitmap;

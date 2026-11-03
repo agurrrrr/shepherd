@@ -14,10 +14,17 @@ import (
 	"github.com/agurrrrr/shepherd/internal/project"
 )
 
-const (
-	maxFileViewSize   = 1 << 20  // 1MB
-	maxFileUploadSize = 10 << 20 // 10MB per file
-)
+const maxFileViewSize = 1 << 20 // 1MB
+
+// uploadLimitMessage is the text both upload handlers return for an oversized
+// file. The limit is not a constant: it comes from config (max_upload_mb), so
+// the Settings page can change it without a rebuild. The limit is read per
+// request, which means a settings change takes effect on the next upload, and
+// the message names the current number rather than a hard-coded "10MB".
+func uploadLimitMessage(filename string) string {
+	return fmt.Sprintf("file %s exceeds the %d MB upload limit (Settings → Common → Max Upload Size)",
+		filename, config.GetMaxUploadMB())
+}
 
 // Directories always excluded from file listing.
 var excludedDirs = map[string]bool{
@@ -184,8 +191,8 @@ func (s *Server) handleUploadFile(c *fiber.Ctx) error {
 
 	result := make([]uploadedFile, 0, len(files))
 	for _, fh := range files {
-		if fh.Size > maxFileUploadSize {
-			return fail(c, fiber.StatusBadRequest, fmt.Sprintf("file %s exceeds 10MB limit", fh.Filename))
+		if fh.Size > config.GetMaxUploadBytes() {
+			return fail(c, fiber.StatusBadRequest, uploadLimitMessage(fh.Filename))
 		}
 
 		base := filepath.Base(filepath.FromSlash(fh.Filename))

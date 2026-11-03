@@ -384,6 +384,8 @@ export default {
 	'commonSettings.providerEmbeddedOption': 'Embedded (로컬 LLM)',
 	'commonSettings.providerTabHint': '각 Provider의 사용유무 · 모델 · Custom Prompt · 동시 실행 제한은 해당 Provider 탭에서 설정합니다.',
 	'commonSettings.maxConcurrentHint': '전체 동시 실행 작업 수의 천장(ceiling). 0이면 제한 없음.',
+	'commonSettings.maxUploadLabel': 'Max Upload Size (MB)',
+	'commonSettings.maxUploadHint': '파일 업로드 한 개 크기 제한. 현재 적용값 {current}. 최고 {max}까지 지정할 수 있습니다.',
 	'commonSettings.sheepMemoryHint': '양 이름 단위로 ~/.shepherd/sheep/<name>/ 에 누적되는 개인 기억.',
 	'commonSettings.sheepMemoryPromptPlaceholder': '양에게 전달할 메모리 가이드라인. {{.MemoryDir}} 가 실제 디렉토리 경로로 치환됩니다.',
 	'commonSettings.memoryDirTokenHint': '{{.MemoryDir}} 토큰은 작업 시점에 양의 실제 메모리 디렉토리 경로로 치환됩니다.',
@@ -629,8 +631,8 @@ export default {
 	'command.injected': '💬 주입됨',
 	'command.injectRequestFailed': '주입 요청 실패',
 	'command.injectTitle': '추가 지시 주입',
-	'command.fileTooLarge': '{name}이 10MB 제한을 넘습니다',
-	'command.imageStillTooLarge': '{name}은 압축 후에도 10MB를 넘습니다',
+	'command.fileTooLarge': '{name}이 {size} 제한을 넘습니다',
+	'command.imageStillTooLarge': '{name}은 압축 후에도 {size}를 넘습니다',
 	'command.compressed': '업로드용 압축: {from} → {to} (JPEG 품질 90)',
 
 	// Sheep card live output (SheepCard.svelte)
@@ -682,6 +684,7 @@ export default {
 	'files.uploadedMany': '{count}개 파일 업로드 완료',
 	'files.uploadedOne': '{name} 업로드 완료',
 	'files.dropHere': '업로드할 파일을 놓으세요',
+	'files.fileTooLarge': '{name}이 {size} 제한을 넘습니다',
 
 	// Wiki sidebar toggle (routes/projects/[name]/+page.svelte)
 	'wiki.expandNav': '페이지 목록 펼치기',

@@ -10,11 +10,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/spf13/viper"
 
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/db"
 )
 
@@ -29,6 +31,23 @@ func newUploadApp(t *testing.T) *fiber.App {
 	app := fiber.New()
 	app.Post("/api/projects/:name/files/upload", s.handleUploadFile)
 	return app
+}
+
+func multipartBytes(t *testing.T, filename string, content []byte) (*bytes.Buffer, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	fw, err := w.CreateFormFile("files", filename)
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := fw.Write(content); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	return &buf, w.FormDataContentType()
 }
 
 func multipartBody(t *testing.T, filename, content string) (*bytes.Buffer, string) {
@@ -120,6 +139,49 @@ func TestHandleUploadFile_RejectsPathEscape(t *testing.T) {
 
 	if code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", code)
+	}
+}
+
+// TestHandleUploadFile_FollowsMaxUploadMB is the point of the setting: the limit
+// is read per request from max_upload_mb, so raising it in Settings accepts a
+// bigger file on the very next upload, with no daemon restart. It also checks
+// that the rejection message names the current number instead of a hard-coded
+// "10MB", which is what tells the user which knob to turn.
+func TestHandleUploadFile_FollowsMaxUploadMB(t *testing.T) {
+	withServerTestDB(t)
+	root := t.TempDir()
+	db.Client().Project.Create().SetName("demo").SetPath(root).SaveX(context.Background())
+
+	// 2 MiB body, comfortably above the 1 MB limit set below and below the
+	// default 10 MB — so a pass/fail here can only come from the setting.
+	payload := bytes.Repeat([]byte("x"), 2*1024*1024)
+
+	viper.Set("max_upload_mb", 1)
+	t.Cleanup(func() { viper.Set("max_upload_mb", config.DefaultMaxUploadMB) })
+
+	body, ct := multipartBytes(t, "big.bin", payload)
+	code, rejected := postUpload(t, newUploadApp(t), "", ct, body)
+	if code != http.StatusBadRequest {
+		t.Fatalf("1 MB limit, 2 MiB file: status = %d, want 400", code)
+	}
+	msg, _ := rejected["message"].(string)
+	if msg == "" || !strings.Contains(msg, "1 MB") {
+		t.Errorf("rejection message = %q, want it to name the 1 MB limit", msg)
+	}
+	if _, err := os.Stat(filepath.Join(root, "big.bin")); err == nil {
+		t.Errorf("oversized file was saved anyway")
+	}
+
+	// Same app instance, same connection path: only the setting changed. The
+	// first request consumed its buffer, so build a fresh one.
+	viper.Set("max_upload_mb", 5)
+	body, ct = multipartBytes(t, "big.bin", payload)
+	code, _ = postUpload(t, newUploadApp(t), "", ct, body)
+	if code != http.StatusOK {
+		t.Fatalf("5 MB limit, 2 MiB file: status = %d, want 200", code)
+	}
+	if _, err := os.Stat(filepath.Join(root, "big.bin")); err != nil {
+		t.Errorf("file within the raised limit was not saved: %v", err)
 	}
 }
 

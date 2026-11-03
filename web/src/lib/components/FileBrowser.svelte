@@ -4,6 +4,7 @@
 	import { apiGet, apiUpload } from '$lib/api.js';
 	import { t, translate } from '$lib/i18n/index.js';
 	import { accessToken } from '$lib/stores.js';
+	import { getUploadLimitBytes, formatBytes } from '$lib/uploadLimit.js';
 	import { get } from 'svelte/store';
 	import { Carta } from 'carta-md';
 	import DOMPurify from 'isomorphic-dompurify';
@@ -146,9 +147,12 @@
 		const files = Array.from(fileList || []);
 		if (files.length === 0 || uploading) return;
 
-		const tooBig = files.find((f) => f.size > 10 * 1024 * 1024);
+		// Per-file limit comes from the daemon's max_upload_mb setting, so a
+		// change in Settings applies without a reload.
+		const limitBytes = getUploadLimitBytes();
+		const tooBig = files.find((f) => f.size > limitBytes);
 		if (tooBig) {
-			uploadMsg = { type: 'err', text: `${tooBig.name} exceeds 10MB limit` };
+			uploadMsg = { type: 'err', text: translate('files.fileTooLarge', { name: tooBig.name, size: formatBytes(limitBytes) }) };
 			return;
 		}
 

@@ -17,6 +17,17 @@ import (
 // DefaultTaskTimeout is the fallback when task_timeout is unset or invalid.
 const DefaultTaskTimeout = 4 * time.Hour
 
+// DefaultMaxUploadMB is the fallback for max_upload_mb (an unset or invalid
+// value). 10 MB matches the limit Shepherd shipped with before the setting
+// existed, so a config file without the key keeps the old behavior.
+const DefaultMaxUploadMB = 10
+
+// MaxUploadMBHardCeil caps max_upload_mb. The daemon reads a whole upload into
+// memory (fasthttp buffers the request body), so an unbounded setting invites
+// an easy memory-exhaustion mistake. The HTTP body limit is derived from this
+// value, so the ceiling also bounds what a client can push at one request.
+const MaxUploadMBHardCeil = 512
+
 type Config struct {
 	MaxSheep           int    `mapstructure:"max_sheep"`
 	MaxConcurrentTasks int    `mapstructure:"max_concurrent_tasks"`
@@ -230,6 +241,11 @@ func Init() error {
 	// 무제한으로 두려면 "0", "-1", "unlimited", "none", "off" 중 하나로 지정.
 	viper.SetDefault("task_timeout", "4h")
 
+	// 파일 업로드 제한. 업로드 핸들러 두 곳(/api/upload, 프로젝트 Files 탭의
+	// /files/upload)과 브라우저가 함께 이 값을 쓴다. 단위는 MB — 큰 바이트 수를
+	// 설정 파일에 적게 하면 오타가 잘 잡히지 않는다.
+	viper.SetDefault("max_upload_mb", DefaultMaxUploadMB)
+
 	// grok 헤드리스(-p) 실행이 턴 종료 후 백그라운드 작업(bash/monitor, 백그라운드
 	// subagent)을 기다리는 최대 시간. grok 자체 기본값은 10분이고, 시간이 다 되면
 	// grok이 백그라운드 작업을 멈추고 exit 1로 끝나 long-running 작업이 실패한다 (#619).
@@ -385,6 +401,81 @@ func GetTaskTimeout() time.Duration {
 	}
 	return d
 }
+
+// NormalizeUploadMB coerces a client-supplied max_upload_mb into a usable MB
+// count. The web form and `shepherd config set` can both deliver a string, so
+// numbers written as "25" are accepted. 0, negative, unparseable, and
+// above-ceiling values are rejected with an error — a typo in an upload limit
+// must not silently become "no limit" or "no uploads".
+func NormalizeUploadMB(value interface{}) (int, error) {
+	mb := 0
+	switch t := value.(type) {
+	case float64:
+		mb = int(t)
+	case int:
+		mb = t
+	case int64:
+		mb = int(t)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(t))
+		if err != nil {
+			return 0, fmt.Errorf("max_upload_mb must be a whole number of MB, got %q", strings.TrimSpace(t))
+		}
+		mb = parsed
+	default:
+		return 0, fmt.Errorf("max_upload_mb must be a number of MB")
+	}
+	if mb <= 0 {
+		return 0, fmt.Errorf("max_upload_mb must be at least 1 MB")
+	}
+	if mb > MaxUploadMBHardCeil {
+		return 0, fmt.Errorf("max_upload_mb cannot exceed %d MB", MaxUploadMBHardCeil)
+	}
+	return mb, nil
+}
+
+// GetMaxUploadMB returns the per-file upload limit in MB. Unset, zero,
+// negative, or above-ceiling values fall back to DefaultMaxUploadMB, so a bad
+// value written straight into config.yaml still leaves a working limit.
+func GetMaxUploadMB() int {
+	mb := viper.GetInt("max_upload_mb")
+	if mb <= 0 || mb > MaxUploadMBHardCeil {
+		return DefaultMaxUploadMB
+	}
+	return mb
+}
+
+// GetMaxUploadBytes is GetMaxUploadMB in bytes — what the upload handlers and
+// the HTTP body limit compare against.
+func GetMaxUploadBytes() int64 {
+	return int64(GetMaxUploadMB()) * 1024 * 1024
+}
+
+// GetHTTPBodyLimitBytes is the request-body ceiling for the whole daemon. It
+// must clear every endpoint that accepts a body, or a handler's own limit becomes
+// unreachable: a 30 MB task-import file would be refused by the transport before
+// handleImportTasks could read it. So the ceiling is the largest accepted file
+// across upload endpoints (per-file uploads vs. the task-import dump) plus
+// HTTPBodyMarginBytes for multipart framing, form fields, and headers. It stays
+// derived from max_upload_mb, so raising that setting cannot produce a handler
+// that accepts files the server refuses to read.
+func GetHTTPBodyLimitBytes() int {
+	largest := GetMaxUploadBytes()
+	if MaxTaskImportBytes > largest {
+		largest = MaxTaskImportBytes
+	}
+	return int(largest + HTTPBodyMarginBytes)
+}
+
+// MaxTaskImportBytes is the ceiling for a task-export JSONL uploaded to
+// POST /api/settings/tasks-import(-preview). It is not user-configurable — the
+// setting exists for uploads a sheep sends into a workspace — but the transport
+// ceiling has to know about it.
+const MaxTaskImportBytes = 50 * 1024 * 1024
+
+// HTTPBodyMarginBytes is the room a request body gets above the file it
+// carries: multipart boundaries, form fields, and headers.
+const HTTPBodyMarginBytes = 8 * 1024 * 1024
 
 // DefaultGrokBackgroundWait is the fallback for grok_background_wait when the
 // key is empty or unparseable. grok's own built-in limit is only 10 minutes,

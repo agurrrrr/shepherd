@@ -386,6 +386,8 @@ export default {
 	'commonSettings.providerEmbeddedOption': 'Embedded (local LLM)',
 	'commonSettings.providerTabHint': 'Per-provider enable state, model, Custom Prompt and concurrency limits are set on that provider\'s tab.',
 	'commonSettings.maxConcurrentHint': 'Ceiling for all concurrently running tasks. 0 means no limit.',
+	'commonSettings.maxUploadLabel': 'Max Upload Size (MB)',
+	'commonSettings.maxUploadHint': 'Per-file upload limit. Currently in effect: {current}. You may set up to {max} MB.',
 	'commonSettings.sheepMemoryHint': 'Per-sheep memory accumulated under ~/.shepherd/sheep/<name>/',
 	'commonSettings.sheepMemoryPromptPlaceholder': 'Memory guidelines passed to the sheep. {{.MemoryDir}} is replaced with the actual directory path.',
 	'commonSettings.memoryDirTokenHint': 'The {{.MemoryDir}} token is replaced with the sheep\'s actual memory directory path when a task runs.',
@@ -631,8 +633,8 @@ export default {
 	'command.injected': '💬 Injected',
 	'command.injectRequestFailed': 'The inject request failed',
 	'command.injectTitle': 'Inject an additional instruction',
-	'command.fileTooLarge': '{name} exceeds the 10MB limit',
-	'command.imageStillTooLarge': '{name} is still over 10MB after compression',
+	'command.fileTooLarge': '{name} exceeds the {size} limit',
+	'command.imageStillTooLarge': '{name} is still over {size} after compression',
 	'command.compressed': 'Compressed for upload: {from} → {to} (JPEG quality 90)',
 
 	// Sheep card live output (SheepCard.svelte)
@@ -684,6 +686,7 @@ export default {
 	'files.uploadedMany': 'Uploaded {count} files',
 	'files.uploadedOne': 'Uploaded {name}',
 	'files.dropHere': 'Drop the files to upload',
+	'files.fileTooLarge': '{name} exceeds the {size} limit',
 
 	// Wiki sidebar toggle (routes/projects/[name]/+page.svelte)
 	'wiki.expandNav': 'Expand the page list',

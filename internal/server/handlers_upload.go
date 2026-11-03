@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/project"
 )
 
@@ -49,8 +50,8 @@ func (s *Server) handleUpload(c *fiber.Ctx) error {
 	ts := time.Now().Unix()
 
 	for _, fh := range files {
-		if fh.Size > 10*1024*1024 {
-			return fail(c, fiber.StatusBadRequest, fmt.Sprintf("file %s exceeds 10MB limit", fh.Filename))
+		if fh.Size > config.GetMaxUploadBytes() {
+			return fail(c, fiber.StatusBadRequest, uploadLimitMessage(fh.Filename))
 		}
 
 		saveName := fmt.Sprintf("%d_%s", ts, fh.Filename)

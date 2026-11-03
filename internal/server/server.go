@@ -18,6 +18,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
+	"github.com/valyala/fasthttp"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/agurrrrr/shepherd/internal/config"
@@ -52,17 +53,37 @@ type Server struct {
 	mcpToken string
 }
 
+// fiberConfig builds the Fiber config for the daemon. BodyLimit comes from
+// config.GetHTTPBodyLimitBytes, so it follows max_upload_mb (plus the margin for
+// multipart framing) instead of a fixed 50 MB.
+func fiberConfig() fiber.Config {
+	return fiber.Config{
+		AppName:               "Shepherd API",
+		DisableStartupMessage: true,
+		UnescapePath:          true, // URL-decode path params (한글 등 비ASCII 문자 지원)
+		BodyLimit:             config.GetHTTPBodyLimitBytes(),
+		ReadBufferSize:        16384, // 16KB — fasthttp default 4KB causes 431 on browsers with large headers
+	}
+}
+
+// watchBodyLimit installs the per-request body ceiling. fasthttp snapshots
+// Server.MaxRequestBodySize once per connection, so a BodyLimit set at startup
+// would keep rejecting uploads until the daemon restarts after a max_upload_mb
+// change. HeaderReceived runs on every request — after the headers arrive and
+// before the body is read — and a non-zero RequestConfig.MaxRequestBodySize
+// overrides that snapshot, so a saved limit applies to the very next upload.
+func watchBodyLimit(app *fiber.App) {
+	app.Server().HeaderReceived = func(header *fasthttp.RequestHeader) fasthttp.RequestConfig {
+		return fasthttp.RequestConfig{MaxRequestBodySize: config.GetHTTPBodyLimitBytes()}
+	}
+}
+
 // New creates a new Server with routes configured.
 // webFS is an optional embedded filesystem for serving the Svelte SPA (can be nil for dev mode).
 // corsOrigin controls CORS allowed origins (comma-separated, or "*" for all, or "" to use env/default).
 func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, corsOrigin string) *Server {
-	app := fiber.New(fiber.Config{
-		AppName:               "Shepherd API",
-		DisableStartupMessage: true,
-		UnescapePath:          true,             // URL-decode path params (한글 등 비ASCII 문자 지원)
-		BodyLimit:             50 * 1024 * 1024, // 50MB for file uploads
-		ReadBufferSize:        16384,            // 16KB — fasthttp default 4KB causes 431 on browsers with large headers
-	})
+	app := fiber.New(fiberConfig())
+	watchBodyLimit(app)
 
 	hub := NewSSEHub()
 	mcpServer := mcp.NewServer(false) // full mode — browser handlers live here

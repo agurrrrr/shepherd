@@ -117,7 +117,22 @@ var configSetCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		key := args[0]
 		value := args[1]
-		if err := config.Set(key, value); err != nil {
+
+		// max_upload_mb is a whole MB count with a ceiling. Validate it here so a
+		// typo on the command line is reported now instead of showing up later as
+		// an upload that mysteriously fails at the default limit. Store it as a
+		// number, not the quoted string the shell handed us.
+		var stored interface{} = value
+		if key == "max_upload_mb" {
+			mb, err := config.NormalizeUploadMB(value)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Invalid value: %v\n", err)
+				os.Exit(1)
+			}
+			stored = mb
+		}
+
+		if err := config.Set(key, stored); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to save configuration: %v\n", err)
 			os.Exit(1)
 		}
