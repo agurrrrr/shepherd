@@ -688,6 +688,13 @@ export default {
 	'files.dropHere': 'Drop the files to upload',
 	'files.fileTooLarge': '{name} exceeds the {size} limit',
 
+	// Non-JSON API replies (lib/apiResponse.js). The daemon always answers with
+	// JSON, so anything else came from something in front of it — a proxy or
+	// ingress. 413 names both limits because the user has to raise both.
+	'api.bodyTooLarge': 'The server refused the file because it is too large. Raise Max Upload Size in Settings → Common, and raise the body-size limit of any reverse proxy or ingress in front of the daemon.',
+	'api.gatewayError': 'The server returned an error (HTTP {status}).',
+	'api.notJSON': 'The server returned an unreadable reply (HTTP {status}).',
+
 	// Wiki sidebar toggle (routes/projects/[name]/+page.svelte)
 	'wiki.expandNav': 'Expand the page list',
 	'wiki.collapseNav': 'Collapse the page list'

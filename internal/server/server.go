@@ -63,7 +63,41 @@ func fiberConfig() fiber.Config {
 		UnescapePath:          true, // URL-decode path params (한글 등 비ASCII 문자 지원)
 		BodyLimit:             config.GetHTTPBodyLimitBytes(),
 		ReadBufferSize:        16384, // 16KB — fasthttp default 4KB causes 431 on browsers with large headers
+		ErrorHandler:          jsonErrorHandler,
 	}
+}
+
+// jsonErrorHandler answers every request-level failure with the same JSON
+// envelope the handlers use. Fiber's default writes these as text/plain, and
+// fasthttp's own oversized-body rejection (ErrBodyTooLarge, raised before any
+// handler runs) lands here too. The Web UI parses every /api reply as JSON, so
+// a plain-text or HTML body surfaces in the browser as
+// `Unexpected token '<', "<html> <h"... is not valid JSON` — which is what an
+// upload rejected by the transport looked like, and it named neither the limit
+// nor where to change it. 413 gets the current max_upload_mb plus the reminder
+// that a reverse proxy in front of the daemon enforces its own body-size limit,
+// which is usually the one that actually fired.
+func jsonErrorHandler(c *fiber.Ctx, err error) error {
+	status := fiber.StatusInternalServerError
+	var fiberErr *fiber.Error
+	if errors.As(err, &fiberErr) {
+		status = fiberErr.Code
+	}
+
+	message := err.Error()
+	switch status {
+	case fiber.StatusRequestEntityTooLarge:
+		message = fmt.Sprintf(
+			"request body is larger than the server accepts (%d MB per file, Settings → Common → Max Upload Size). "+
+				"A reverse proxy or ingress in front of the daemon has its own body-size limit — raise that too.",
+			config.GetMaxUploadMB())
+	case fiber.StatusRequestHeaderFieldsTooLarge:
+		message = "request headers are too large"
+	case fiber.StatusNotFound:
+		message = "endpoint not found"
+	}
+
+	return c.Status(status).JSON(fiber.Map{"success": false, "message": message})
 }
 
 // watchBodyLimit installs the per-request body ceiling. fasthttp snapshots

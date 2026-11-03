@@ -680,13 +680,20 @@ export default {
 	'dashboard.monitorTitle': '실행 중인 양 모니터링',
 	'dashboard.monitor': '모니터링',
 
-	// File browser uploads (FileBrowser.svelte)
+	// 파일 브라우저 업로드 (FileBrowser.svelte)
 	'files.uploadedMany': '{count}개 파일 업로드 완료',
 	'files.uploadedOne': '{name} 업로드 완료',
 	'files.dropHere': '업로드할 파일을 놓으세요',
 	'files.fileTooLarge': '{name}이 {size} 제한을 넘습니다',
 
-	// Wiki sidebar toggle (routes/projects/[name]/+page.svelte)
+	// JSON이 아닌 API 응답 (lib/apiResponse.js). 데몬은 항상 JSON으로 답하므로,
+	// 다른 형식은 데몬 앞의 프록시나 ingress가 만든 응답입니다. 413은 두 제한을
+	// 모두 올려야 해결되므로 두 제한을 모두 적습니다.
+	'api.bodyTooLarge': '서버가 파일이 너무 커서 거부했습니다. 설정 → 공통 → Max Upload Size를 올리고, 데몬 앞에 있는 리버스 프록시나 ingress의 본문 크기 제한도 함께 올리세요.',
+	'api.gatewayError': '서버가 오류를 반환했습니다 (HTTP {status}).',
+	'api.notJSON': '서버가 읽을 수 없는 형식으로 응답했습니다 (HTTP {status}).',
+
+	// 위키 사이드바 토글 (routes/projects/[name]/+page.svelte)
 	'wiki.expandNav': '페이지 목록 펼치기',
 	'wiki.collapseNav': '페이지 목록 접기'
 };

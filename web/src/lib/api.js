@@ -1,7 +1,21 @@
 import { get } from 'svelte/store';
 import { accessToken, refreshToken, username, isAuthenticated } from './stores.js';
+import { parseApiResponse } from './apiResponse.js';
 
 const BASE = '';
+
+/**
+ * Read a reply body and parse it as the daemon's JSON envelope. A non-JSON body
+ * (an nginx 413 page from a proxy in front of the daemon, an old daemon's plain
+ * text) becomes `{success: false, message}` instead of throwing inside
+ * `res.json()`. See `$lib/apiResponse.js`.
+ * @param {Response} res
+ * @returns {Promise<any>}
+ */
+async function readJSON(res) {
+	const text = await res.text();
+	return parseApiResponse(text, { status: res.status, statusText: res.statusText });
+}
 
 /**
  * @param {string} url
@@ -25,24 +39,13 @@ async function request(url, opts = {}) {
 			const newToken = get(accessToken);
 			headers.Authorization = `Bearer ${newToken}`;
 			const retry = await fetch(BASE + url, { ...opts, headers });
-			return parseJSON(retry);
+			return readJSON(retry);
 		}
 		logout();
 		return null;
 	}
 
-	return parseJSON(res);
-}
-
-/** Fiber 404s can be plain text; never let JSON.parse throw into the UI. */
-async function parseJSON(res) {
-	const text = await res.text();
-	if (!text) return null;
-	try {
-		return JSON.parse(text);
-	} catch {
-		return { success: false, message: text };
-	}
+	return readJSON(res);
 }
 
 /** @param {string} url */
@@ -104,13 +107,13 @@ export async function apiUpload(url, formData) {
 				headers: { Authorization: `Bearer ${newToken}` },
 				body: formData
 			});
-			return retry.json();
+			return readJSON(retry);
 		}
 		logout();
 		return null;
 	}
 
-	return res.json();
+	return readJSON(res);
 }
 
 /**
@@ -152,10 +155,14 @@ async function tryRefresh() {
 		});
 
 		if (res.ok) {
-			const data = await res.json();
-			accessToken.set(data.access_token);
-			refreshToken.set(data.refresh_token);
-			return true;
+			const data = await readJSON(res);
+			// A proxy error page can arrive with a 2xx status, so check the fields
+			// before writing them into the token stores.
+			if (data?.access_token && data?.refresh_token) {
+				accessToken.set(data.access_token);
+				refreshToken.set(data.refresh_token);
+				return true;
+			}
 		}
 	} catch {
 		// ignore
@@ -186,9 +193,9 @@ export async function login(id, password) {
 			body: JSON.stringify({ username: id, password })
 		});
 
-		const data = await res.json();
+		const data = await readJSON(res);
 
-		if (res.ok && data.access_token) {
+		if (res.ok && data?.access_token) {
 			accessToken.set(data.access_token);
 			refreshToken.set(data.refresh_token);
 			username.set(data.username);
@@ -196,7 +203,7 @@ export async function login(id, password) {
 			return { success: true };
 		}
 
-		return { success: false, error: data.message || 'Login failed' };
+		return { success: false, error: data?.message || 'Login failed' };
 	} catch (err) {
 		return { success: false, error: 'Connection failed' };
 	}
