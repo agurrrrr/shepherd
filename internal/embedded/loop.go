@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/agurrrrr/shepherd/internal/config"
 )
 
 // DefaultTemperature is the default sampling temperature for the embedded agent.
@@ -1287,20 +1289,37 @@ func dispatchTool(ctx context.Context, tr *ToolRegistry, tc ToolCall, opts Execu
 		done <- toolResult{result, err}
 	}()
 
+	// The watchdog has to be at least as long as the shell tool's own deadline.
+	// A model may pass a per-call `timeout` larger than the configured default,
+	// and execBash honours it (clamped to the hard ceiling), so the loop must
+	// size its wait from that same number — otherwise the loop reports a generic
+	// tool timeout while the command was still inside its own budget.
+	watchdog := toolDispatchTimeout()
+	if IsShellTool(tc.Func.Name) {
+		if requested, ok := argInt(args, "timeout"); ok && requested > 0 {
+			watchdog = config.ShellDispatchWatchdog(config.ClampBashTimeoutSeconds(requested))
+		}
+	}
+
 	select {
 	case r := <-done:
 		return r.result, r.err
 	case <-ctx.Done():
 		return "", fmt.Errorf("tool %s aborted: %w", tc.Func.Name, ctx.Err())
-	case <-time.After(toolDispatchTimeout):
-		return "", fmt.Errorf("tool %s timed out after %s", tc.Func.Name, toolDispatchTimeout)
+	case <-time.After(watchdog):
+		return "", fmt.Errorf("tool %s timed out after %s", tc.Func.Name, watchdog)
 	}
 }
 
 // toolDispatchTimeout is the hard upper bound for a single tool call. Browser
 // CDP calls are bounded tighter inside internal/browser; this is the backstop
 // for anything that slips through (external MCP servers, long shell commands).
-const toolDispatchTimeout = 5 * time.Minute
+// It reads config so it can never be shorter than the shell tool's own
+// bash_timeout cap — otherwise a legitimately long build would die here with a
+// generic error instead of the shell path's readable timeout message.
+func toolDispatchTimeout() time.Duration {
+	return config.GetToolDispatchTimeout()
+}
 
 // sanitizeToolCallArgs ensures every tool call in the message carries valid JSON
 // arguments. If the args are truncated/malformed (a Qwen3 streaming artifact),

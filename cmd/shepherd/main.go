@@ -132,6 +132,19 @@ var configSetCmd = &cobra.Command{
 			stored = mb
 		}
 
+		// bash_timeout takes whole seconds ("300") or a duration ("5m"/"10m"), and
+		// is stored as normalized seconds. Validate here so `shepherd config set
+		// bash_timeout 1Om` (letter O) fails now instead of silently keeping the
+		// default while the operator believes they raised it.
+		if key == "bash_timeout" {
+			secs, err := config.NormalizeBashTimeoutSeconds(value)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Invalid value: %v\n", err)
+				os.Exit(1)
+			}
+			stored = secs
+		}
+
 		if err := config.Set(key, stored); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to save configuration: %v\n", err)
 			os.Exit(1)

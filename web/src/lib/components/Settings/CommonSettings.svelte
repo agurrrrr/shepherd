@@ -4,8 +4,9 @@
 	import { t } from '$lib/i18n/index.js';
 	import { uploadLimitBytes } from '$lib/stores.js';
 	import { MAX_UPLOAD_MB_CEIL, formatBytes } from '$lib/uploadLimit.js';
+	import { BASH_TIMEOUT_CEIL_SECONDS, BASH_TIMEOUT_DEFAULT_SECONDS } from '$lib/bashTimeout.js';
 
-	/** @type {{ language: string, default_provider: string, max_sheep: number, max_concurrent_tasks: number, concurrency_limits: Record<string, number>, task_timeout: string, auto_approve: boolean, enable_file_browser: boolean, max_upload_mb: number, session_reuse: boolean, include_task_history: boolean, include_mcp_guide: boolean, include_sheep_memory: boolean, sheep_memory_prompt: string, wiki_enabled: boolean, wiki_auto_ingest: boolean, task_checkpoint_enabled: boolean, task_checkpoint_retention_days: number, wiki_max_context_pages: number, wiki_max_page_content_chars: number, discord_notifications_enabled: boolean, discord_webhook_url: string, discord_notify_on_complete: boolean, discord_notify_on_fail: boolean, webpush_enabled: boolean, webpush_notify_on_complete: boolean, webpush_notify_on_fail: boolean, server_host: string, server_port: number, model_claude: string }} */
+	/** @type {{ language: string, default_provider: string, max_sheep: number, max_concurrent_tasks: number, concurrency_limits: Record<string, number>, task_timeout: string, bash_timeout: number, auto_approve: boolean, enable_file_browser: boolean, max_upload_mb: number, session_reuse: boolean, include_task_history: boolean, include_mcp_guide: boolean, include_sheep_memory: boolean, sheep_memory_prompt: string, wiki_enabled: boolean, wiki_auto_ingest: boolean, task_checkpoint_enabled: boolean, task_checkpoint_retention_days: number, wiki_max_context_pages: number, wiki_max_page_content_chars: number, discord_notifications_enabled: boolean, discord_webhook_url: string, discord_notify_on_complete: boolean, discord_notify_on_fail: boolean, webpush_enabled: boolean, webpush_notify_on_complete: boolean, webpush_notify_on_fail: boolean, server_host: string, server_port: number, model_claude: string }} */
 	export let configData;
 </script>
 
@@ -85,6 +86,21 @@
 		<span class="hint">MB</span>
 	</div>
 	<span class="hint">{$t('commonSettings.maxUploadHint', { max: MAX_UPLOAD_MB_CEIL, current: formatBytes($uploadLimitBytes) })}</span>
+</div>
+
+<!-- Bash Tool Timeout -->
+<div class="setting-row">
+	<label>{$t('commonSettings.bashTimeoutLabel')}</label>
+	<div class="upload-size">
+		<input
+			class="input"
+			type="text"
+			bind:value={configData.bash_timeout}
+			placeholder={BASH_TIMEOUT_DEFAULT_SECONDS}
+		/>
+		<span class="hint">s</span>
+	</div>
+	<span class="hint">{$t('commonSettings.bashTimeoutHint', { max: BASH_TIMEOUT_CEIL_SECONDS, def: BASH_TIMEOUT_DEFAULT_SECONDS })}</span>
 </div>
 
 <!-- Prompt Injection -->

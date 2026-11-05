@@ -320,6 +320,19 @@ func shellToolDescription() string {
 		"For file search prefer native grep/glob tools."
 }
 
+// bashTimeoutParamDescription is the schema description for the shell tool's
+// `timeout` argument. It names the *effective* default rather than a constant:
+// the default is a setting (bash_timeout), and a model that sees "default 120"
+// while the daemon is configured for 600 will cut its own commands short.
+func bashTimeoutParamDescription() string {
+	return fmt.Sprintf(
+		"Timeout in seconds (optional, default %d). A value above %d is clamped to %d.",
+		config.GetBashTimeoutSeconds(),
+		config.BashTimeoutHardCeilSeconds,
+		config.BashTimeoutHardCeilSeconds,
+	)
+}
+
 // shellCommandFromArgs pulls the command string from tool args, accepting
 // common aliases local models invent (cmd/script) when they forget "command".
 func shellCommandFromArgs(args map[string]interface{}) string {

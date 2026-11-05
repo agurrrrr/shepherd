@@ -388,6 +388,8 @@ export default {
 	'commonSettings.maxConcurrentHint': 'Ceiling for all concurrently running tasks. 0 means no limit.',
 	'commonSettings.maxUploadLabel': 'Max Upload Size (MB)',
 	'commonSettings.maxUploadHint': 'Per-file upload limit. Currently in effect: {current}. You may set up to {max} MB.',
+	'commonSettings.bashTimeoutLabel': 'Bash Tool Timeout (seconds)',
+	'commonSettings.bashTimeoutHint': 'Default time one shell (bash) command may run before it is killed, when the model does not pass its own timeout. Accepts seconds or a duration like 5m. Up to {max}s. Default: {def}s.',
 	'commonSettings.sheepMemoryHint': 'Per-sheep memory accumulated under ~/.shepherd/sheep/<name>/',
 	'commonSettings.sheepMemoryPromptPlaceholder': 'Memory guidelines passed to the sheep. {{.MemoryDir}} is replaced with the actual directory path.',
 	'commonSettings.memoryDirTokenHint': 'The {{.MemoryDir}} token is replaced with the sheep\'s actual memory directory path when a task runs.',

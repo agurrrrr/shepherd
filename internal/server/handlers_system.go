@@ -112,6 +112,7 @@ func (s *Server) handleGetConfig(c *fiber.Ctx) error {
 		"grok_background_wait":            config.GetString("grok_background_wait"),
 		"task_timeout":                    config.GetString("task_timeout"),
 		"max_upload_mb":                   config.GetMaxUploadMB(),
+		"bash_timeout":                    config.GetBashTimeoutSeconds(),
 		"shell":                           config.GetString("shell"),
 		"task_checkpoint_enabled":         config.GetBool("task_checkpoint_enabled"),
 		"task_checkpoint_retention_days":  config.GetInt("task_checkpoint_retention_days"),
@@ -322,6 +323,7 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		"grok_background_wait":            true,
 		"task_timeout":                    true,
 		"max_upload_mb":                   true,
+		"bash_timeout":                    true,
 		"shell":                           true,
 		"task_checkpoint_enabled":         true,
 		"task_checkpoint_retention_days":  true,
@@ -394,6 +396,18 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 				return fail(c, fiber.StatusBadRequest, err.Error())
 			}
 			value = mb
+		}
+
+		// bash_timeout accepts whole seconds ("300") or a duration ("5m") and is
+		// stored as normalized seconds, so the config file keeps one number format
+		// no matter which the form or CLI sent. An invalid value is rejected with
+		// 400 — a timeout typo must not silently mean "no timeout".
+		if key == "bash_timeout" {
+			secs, err := config.NormalizeBashTimeoutSeconds(value)
+			if err != nil {
+				return fail(c, fiber.StatusBadRequest, err.Error())
+			}
+			value = secs
 		}
 
 		if err := persistConfig(map[string]interface{}{key: value}); err != nil {

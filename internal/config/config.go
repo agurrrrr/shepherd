@@ -28,6 +28,32 @@ const DefaultMaxUploadMB = 10
 // value, so the ceiling also bounds what a client can push at one request.
 const MaxUploadMBHardCeil = 512
 
+// DefaultBashTimeoutSeconds is the fallback for bash_timeout — the default time
+// a single shell (bash/shell/powershell/pwsh) tool call may run before the
+// daemon kills its process group. It was 120 seconds until this setting raised it
+// to 600 (10 minutes): a full build or test suite routinely needs more, and a
+// model that forgets to pass `timeout` lost its work at two minutes.
+const DefaultBashTimeoutSeconds = 600
+
+// BashTimeoutHardCeilSeconds caps bash_timeout AND the per-call `timeout`
+// argument a model may pass. Without a ceiling, a typo in config.yaml or a
+// hallucinated argument could park a hung subprocess (and the agent turn that
+// waits on it) for hours. One hour is far past any legitimate build and still
+// bounded enough to fail a runaway command on its own.
+const BashTimeoutHardCeilSeconds = 3600
+
+// ToolDispatchBackstopSeconds is the floor for the per-tool-call watchdog in
+// the embedded agent loop (see embedded.dispatchTool). It bounds tools that
+// carry no timeout of their own — external MCP servers, browser calls. The
+// shell tool's own cap is layered on top of this (GetToolDispatchTimeout), so
+// raising bash_timeout never means a shell command is killed early by the loop.
+const ToolDispatchBackstopSeconds = 300
+
+// ShellDispatchMarginSeconds is the slack the loop watchdog keeps over the
+// shell tool's own timeout, so the shell path always reports its own readable
+// "command timed out after Ns" instead of a generic tool-watchdog error.
+const ShellDispatchMarginSeconds = 30
+
 type Config struct {
 	MaxSheep           int    `mapstructure:"max_sheep"`
 	MaxConcurrentTasks int    `mapstructure:"max_concurrent_tasks"`
@@ -246,6 +272,13 @@ func Init() error {
 	// 설정 파일에 적게 하면 오타가 잘 잡히지 않는다.
 	viper.SetDefault("max_upload_mb", DefaultMaxUploadMB)
 
+	// 셸(bash) 도구 한 번 실행의 기본 타임아웃 (초). 모델이 timeout 인자를 생략할
+	// 때 이 값을 쓴다. 인자를 넘기면 그 값이 우선하지만 BashTimeoutHardCeilSeconds
+	// 이내로 잘린다. 이 값은 agent loop의 도구 워치독에도 영향을 준다 —
+	// GetToolDispatchTimeout이 셸 한도 위에 여유를 더해 얹기 때문에, bash_timeout을
+	// 올려도 loop가 먼저 셸 프로세스를 죽이지 않는다.
+	viper.SetDefault("bash_timeout", DefaultBashTimeoutSeconds)
+
 	// grok 헤드리스(-p) 실행이 턴 종료 후 백그라운드 작업(bash/monitor, 백그라운드
 	// subagent)을 기다리는 최대 시간. grok 자체 기본값은 10분이고, 시간이 다 되면
 	// grok이 백그라운드 작업을 멈추고 exit 1로 끝나 long-running 작업이 실패한다 (#619).
@@ -449,6 +482,104 @@ func GetMaxUploadMB() int {
 // the HTTP body limit compare against.
 func GetMaxUploadBytes() int64 {
 	return int64(GetMaxUploadMB()) * 1024 * 1024
+}
+
+// NormalizeBashTimeoutSeconds coerces a client-supplied bash_timeout into a
+// usable number of seconds. The web form and `shepherd config set` can both
+// deliver a string, so "300" is accepted, and a duration form ("5m", "1h") is
+// accepted too because every other timeout knob in Shepherd is written that way.
+// Zero, negative, unparseable, and above-ceiling values are rejected with an
+// error — a typo in a timeout must not silently become "no timeout".
+func NormalizeBashTimeoutSeconds(value interface{}) (int, error) {
+	raw := ""
+	switch t := value.(type) {
+	case float64:
+		raw = strconv.Itoa(int(t))
+	case int:
+		raw = strconv.Itoa(t)
+	case int64:
+		raw = strconv.Itoa(int(t))
+	case string:
+		raw = strings.TrimSpace(t)
+	default:
+		return 0, fmt.Errorf("bash_timeout must be a number of seconds or a duration such as \"5m\"")
+	}
+	if raw == "" {
+		return 0, fmt.Errorf("bash_timeout must not be empty")
+	}
+	// Plain integer seconds first: viper stores the value as a number, so the
+	// common path must not depend on duration parsing quirks.
+	if n, err := strconv.Atoi(raw); err == nil {
+		if n <= 0 {
+			return 0, fmt.Errorf("bash_timeout must be at least 1 second")
+		}
+		if n > BashTimeoutHardCeilSeconds {
+			return 0, fmt.Errorf("bash_timeout cannot exceed %d seconds", BashTimeoutHardCeilSeconds)
+		}
+		return n, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("bash_timeout must be a number of seconds or a duration such as \"5m\", got %q", raw)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("bash_timeout must be at least 1 second")
+	}
+	if int(d.Seconds()) > BashTimeoutHardCeilSeconds {
+		return 0, fmt.Errorf("bash_timeout cannot exceed %d seconds", BashTimeoutHardCeilSeconds)
+	}
+	return int(d.Seconds()), nil
+}
+
+// GetBashTimeoutSeconds is the default shell-tool timeout in seconds. Unset,
+// zero, negative, or above-ceiling values fall back to DefaultBashTimeoutSeconds,
+// so a bad value written straight into config.yaml still leaves a working cap.
+func GetBashTimeoutSeconds() int {
+	s := viper.GetInt("bash_timeout")
+	if s <= 0 || s > BashTimeoutHardCeilSeconds {
+		return DefaultBashTimeoutSeconds
+	}
+	return s
+}
+
+// ClampBashTimeoutSeconds bounds a model-supplied per-call `timeout` argument.
+// A non-positive value falls back to the configured default; a value over the
+// ceiling is clamped to the ceiling rather than rejected, so the command still
+// runs — just for at most BashTimeoutHardCeilSeconds. execBash reports the
+// effective number in its timeout message so the model is not misled about how
+// long it had.
+func ClampBashTimeoutSeconds(seconds int) int {
+	if seconds <= 0 {
+		return GetBashTimeoutSeconds()
+	}
+	if seconds > BashTimeoutHardCeilSeconds {
+		return BashTimeoutHardCeilSeconds
+	}
+	return seconds
+}
+
+// GetToolDispatchTimeout is the watchdog the embedded agent loop puts around a
+// single tool call. It must never be shorter than the shell tool's own cap, or
+// the loop would kill a legitimate long build and report a generic error instead
+// of the shell path's readable "command timed out after Ns". So it is the
+// backstop for tools without their own timeout, raised to bash_timeout plus a
+// margin when that is larger.
+func GetToolDispatchTimeout() time.Duration {
+	return ShellDispatchWatchdog(GetBashTimeoutSeconds())
+}
+
+// ShellDispatchWatchdog is GetToolDispatchTimeout for one specific shell call,
+// sized to the `timeout` that call asked for. A model may request more than the
+// configured default (up to BashTimeoutHardCeilSeconds); execBash honours it, so
+// the loop watchdog has to follow it, or the loop would cut the command short
+// before its own deadline fires.
+func ShellDispatchWatchdog(shellTimeoutSeconds int) time.Duration {
+	backstop := time.Duration(ToolDispatchBackstopSeconds) * time.Second
+	shellCap := time.Duration(shellTimeoutSeconds+ShellDispatchMarginSeconds) * time.Second
+	if shellCap > backstop {
+		return shellCap
+	}
+	return backstop
 }
 
 // GetHTTPBodyLimitBytes is the request-body ceiling for the whole daemon. It

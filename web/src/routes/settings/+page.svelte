@@ -3,6 +3,7 @@
 	import { apiGet, apiPatch, apiPost } from '$lib/api.js';
 	import { setLocale, t, translate } from '$lib/i18n/index.js';
 	import { applyUploadLimitMB, normalizeUploadMBInput } from '$lib/uploadLimit.js';
+	import { normalizeBashTimeoutInput } from '$lib/bashTimeout.js';
 
 	import CommonSettings from '$lib/components/Settings/CommonSettings.svelte';
 	import ShepherdSettings from '$lib/components/Settings/ShepherdSettings.svelte';
@@ -163,6 +164,7 @@
 			sheep_memory_prompt: configData.sheep_memory_prompt || '',
 			enable_file_browser: configData.enable_file_browser,
 			max_upload_mb: normalizeUploadMBInput(configData.max_upload_mb),
+			bash_timeout: normalizeBashTimeoutInput(configData.bash_timeout),
 			custom_prompt_claude: configData.custom_prompt_claude || '',
 			custom_prompt_opencode: configData.custom_prompt_opencode || '',
 			custom_prompt_pi: configData.custom_prompt_pi || '',

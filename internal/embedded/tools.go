@@ -18,6 +18,7 @@ import (
 
 	"golang.org/x/text/encoding/korean"
 
+	"github.com/agurrrrr/shepherd/internal/config"
 	"github.com/agurrrrr/shepherd/internal/procutil"
 )
 
@@ -356,7 +357,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 					"type": "object",
 					"properties": map[string]interface{}{
 						"command": map[string]interface{}{"type": "string", "description": "Shell command to execute (aliases: cmd, script)"},
-						"timeout": map[string]interface{}{"type": "number", "description": "Timeout in seconds (optional, default 120)"},
+						"timeout": map[string]interface{}{"type": "number", "description": bashTimeoutParamDescription()},
 					},
 					"required": []string{"command"},
 				},
@@ -409,7 +410,7 @@ func (tr *ToolRegistry) OpenAIToolDefs() []OpenAIToolDef {
 					"type": "object",
 					"properties": map[string]interface{}{
 						"command": map[string]interface{}{"type": "string", "description": "PowerShell command to execute (aliases: cmd, script)"},
-						"timeout": map[string]interface{}{"type": "number", "description": "Timeout in seconds (optional, default 120)"},
+						"timeout": map[string]interface{}{"type": "number", "description": bashTimeoutParamDescription()},
 					},
 					"required": []string{"command"},
 				},
@@ -1275,9 +1276,12 @@ func (tr *ToolRegistry) execBash(ctx context.Context, args map[string]interface{
 		return "", fmt.Errorf("command is required (also accepts cmd/script aliases)")
 	}
 
-	timeout := 120 // default 2 minutes
+	// Default comes from config (bash_timeout, 10 minutes when unset); an
+	// explicit per-call `timeout` argument wins but is clamped to the hard
+	// ceiling so a hallucinated huge value cannot park the turn for hours.
+	timeout := config.GetBashTimeoutSeconds()
 	if timeoutVal, ok := argInt(args, "timeout"); ok && timeoutVal > 0 {
-		timeout = timeoutVal
+		timeout = config.ClampBashTimeoutSeconds(timeoutVal)
 	}
 
 	// Derive a child context from the parent (loop ctx) so that task stop (ctx

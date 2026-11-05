@@ -386,6 +386,8 @@ export default {
 	'commonSettings.maxConcurrentHint': '전체 동시 실행 작업 수의 천장(ceiling). 0이면 제한 없음.',
 	'commonSettings.maxUploadLabel': 'Max Upload Size (MB)',
 	'commonSettings.maxUploadHint': '파일 업로드 한 개 크기 제한. 현재 적용값 {current}. 최고 {max}까지 지정할 수 있습니다.',
+	'commonSettings.bashTimeoutLabel': 'Bash 도구 타임아웃 (초)',
+	'commonSettings.bashTimeoutHint': '모델이 timeout을 직접 지정하지 않을 때 셸(bash) 명령 하나가 실행될 수 있는 기본 시간입니다. 이 시간을 넘으면 명령을 종료시킵니다. 초 단위 숫자나 5m 같은 지속 시간 형식을 받습니다. 최고 {max}초까지 지정할 수 있습니다. 기본값은 {def}초입니다.',
 	'commonSettings.sheepMemoryHint': '양 이름 단위로 ~/.shepherd/sheep/<name>/ 에 누적되는 개인 기억.',
 	'commonSettings.sheepMemoryPromptPlaceholder': '양에게 전달할 메모리 가이드라인. {{.MemoryDir}} 가 실제 디렉토리 경로로 치환됩니다.',
 	'commonSettings.memoryDirTokenHint': '{{.MemoryDir}} 토큰은 작업 시점에 양의 실제 메모리 디렉토리 경로로 치환됩니다.',
