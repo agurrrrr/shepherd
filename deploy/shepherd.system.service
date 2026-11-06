@@ -1,0 +1,41 @@
+# Shepherd systemd SYSTEM unit (optional example).
+#
+# Use this only when you want the daemon to run as a system service that starts
+# at boot for everyone, or when it must survive without a lingering user
+# session. For a single desktop user, prefer the user unit in
+# deploy/shepherd.service (no sudo required).
+#
+# Install:
+#   sudo cp deploy/shepherd.system.service /etc/systemd/system/shepherd.service
+#   # Edit User= and the PATH below to match your account first.
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now shepherd
+#
+# PATH must include the install dir and ~/.local/bin. A system unit does not
+# read the user's shell login profile, so without this the daemon cannot find
+# `claude`, `grok`, and other CLIs (see wiki: daemon-path-claude-not-found).
+
+[Unit]
+Description=Shepherd AI Orchestration Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME
+ExecStart=/home/YOUR_USERNAME/.local/bin/shepherd serve-foreground
+Restart=on-failure
+RestartSec=5
+Environment=PATH=/home/YOUR_USERNAME/.local/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin
+
+# 로그
+StandardOutput=journal
+StandardError=journal
+
+# 프로세스 관리
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -107,6 +107,45 @@ Settings are stored in `~/.shepherd/config.yaml`, and the task database is `~/.s
 
 Shepherd also runs as an MCP server (`shepherd mcp`). This gives agents tools for issues, the wiki, task history, skills, and browser automation.
 
+## Run as a service (systemd)
+
+The recommended way to keep the daemon running is a **systemd user unit**. It needs no `sudo`, and it keeps running after logout when lingering is on. The repo ships `deploy/shepherd.service` for this:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/shepherd.service ~/.config/systemd/user/shepherd.service
+systemctl --user daemon-reload
+systemctl --user enable --now shepherd
+loginctl enable-linger $USER   # keep the daemon running after logout (optional)
+```
+
+`deploy/shepherd.system.service` is an optional **system** unit. It starts at boot for one named user. Use it only when you want that behavior, and edit `User=` and `PATH` in it first. It needs `sudo`.
+
+Both units run `serve-foreground`, not `serve -d`. Under systemd the process must stay in the foreground so `Restart=` works. `serve -d` forks a detached child, and systemd cannot track that child.
+
+### PATH and the install directory
+
+Set the install directory to `$HOME/.local/bin`, which is where `make install` and `install.sh` install, and put it **first in your PATH**:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Put it first so your shell and systemd resolve the binary you just installed, instead of an older copy that lives elsewhere (for example a stale `/usr/local/bin/shepherd`). A systemd unit does **not** read your shell login profile, so the unit file itself must also set `PATH` to include `~/.local/bin`. Without that, the daemon cannot find provider CLIs such as `claude` and `grok` installed under `~/.local/bin`, and tasks fail with `exec: "claude": executable file not found in $PATH`. The shipped units already set this PATH.
+
+### Confirm which binary is running
+
+Before you restart the daemon after an install, check that the running process is the binary you just built. An old daemon keeps serving even after a new binary is installed.
+
+```bash
+shepherd --version                     # version and build time of the binary on PATH
+readlink -f "$(command -v shepherd)"   # absolute path of that binary
+# For a systemd-managed daemon, see what the unit actually runs:
+systemctl --user cat shepherd 2>/dev/null || systemctl cat shepherd
+```
+
+If `shepherd --version` shows an old build time, or the resolved path is not `$HOME/.local/bin/shepherd`, a different copy is running. Restart the daemon only when no tasks are in progress. The daemon is the parent of every agent session, so restarting it ends running tasks.
+
 ## Development
 
 ```bash

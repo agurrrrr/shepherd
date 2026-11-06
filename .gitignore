@@ -21,6 +21,9 @@ vendor/
 *.swp
 *.swo
 
+# Editor / manual backups (e.g. client.go.bak) — never commit
+*.bak
+
 # Claude Code context (personal per-developer)
 CLAUDE.md
 .claude/

@@ -1,13 +1,33 @@
+# Shepherd systemd USER unit (recommended default).
+#
+# Install as a user service (no sudo needed):
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/shepherd.service ~/.config/systemd/user/shepherd.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now shepherd
+#
+# Run the daemon so the session keeps it after logout (optional):
+#   loginctl enable-linger $USER
+#
+# Use `serve-foreground` (not `serve`). `serve -d` would fork a detached child,
+# which confuses systemd's process tracking. Under systemd we want the process
+# to stay in the foreground so Restart= works.
+#
+# PATH must include ~/.local/bin: systemd user services do NOT read your shell
+# login profile, so without this the daemon cannot find `claude`, `grok`, and
+# other CLIs installed under ~/.local/bin (see wiki: daemon-path-claude-not-found).
+
 [Unit]
 Description=Shepherd AI Orchestration Daemon
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/shepherd serve
+ExecStart=%h/.local/bin/shepherd serve-foreground
 Restart=on-failure
 RestartSec=5
 Environment=HOME=%h
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin
 
 # 로그
 StandardOutput=journal

@@ -107,6 +107,45 @@ shepherd serve -d       # 데몬 시작
 
 Shepherd는 MCP 서버(`shepherd mcp`)로도 동작합니다. 이 서버는 에이전트에게 이슈, 위키, 작업 기록, 스킬, 브라우저 자동화 도구를 제공합니다.
 
+## 서비스로 실행하기 (systemd)
+
+데몬을 계속 실행하는 권장 방법은 **systemd 사용자 유닛**입니다. 이 방법은 `sudo`가 필요 없고, 잔류(linger)를 켜면 로그아웃 뒤에도 데몬이 유지됩니다. 저장소의 `deploy/shepherd.service`가 이 방법용입니다.
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/shepherd.service ~/.config/systemd/user/shepherd.service
+systemctl --user daemon-reload
+systemctl --user enable --now shepherd
+loginctl enable-linger $USER   # 로그아웃 뒤에도 데몬 유지 (선택)
+```
+
+`deploy/shepherd.system.service`는 선택용 **시스템 유닛**입니다. 이 유닛은 지정한 한 사용자로 부팅 시에 시작합니다. 이런 동작이 필요할 때만 쓰고, 먼저 유닛 안의 `User=`와 `PATH`를 본인 계정에 맞게 고치십시오. 이 방법에는 `sudo`가 필요합니다.
+
+두 유닛 모두 `serve -d`가 아니라 `serve-foreground`를 실행합니다. systemd 아래에서는 프로세스가 포그라운드에 남아야 `Restart=`가 동작합니다. `serve -d`는 분리된 자식 프로세스를 만들기 때문에, systemd가 그 자식을 추적할 수 없습니다.
+
+### PATH와 설치 디렉터리
+
+설치 디렉터리는 `make install`과 `install.sh`가 설치하는 `$HOME/.local/bin`으로 정하고, 이 디렉터리를 PATH **앞에** 두십시오.
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+앞에 두는 이유는 셸과 systemd가 방금 설치한 바이너리를 해석하게 하기 위해서입니다. 이렇게 하지 않으면 다른 위치에 남아 있던 오래된 사본(예: 낡은 `/usr/local/bin/shepherd`)이 해석됩니다. systemd 유닛은 셸 로그인 프로필을 읽지 않으므로, 유닛 파일 자체에도 `~/.local/bin`을 포함하는 `PATH`를 지정해야 합니다. 이 값이 없으면 데몬이 `~/.local/bin`에 설치된 `claude`, `grok` 같은 프로바이더 CLI를 찾지 못해서, 작업이 `exec: "claude": executable file not found in $PATH` 오류로 실패합니다. 동봉된 유닛에는 이미 이 PATH가 들어 있습니다.
+
+### 실행 중인 바이너리 확인하기
+
+설치 뒤에 데몬을 재시작하기 전에, 실행 중인 프로세스가 방금 빌드한 바이너리인지 확인하십시오. 새 바이너리를 설치해도 오래된 데몬은 계속 서비스됩니다.
+
+```bash
+shepherd --version                     # PATH에 있는 바이너리의 버전과 빌드 시각
+readlink -f "$(command -v shepherd)"   # 그 바이너리의 절대 경로
+# systemd가 관리하는 데몬이면, 유닛이 실제로 무엇을 실행하는지 확인합니다:
+systemctl --user cat shepherd 2>/dev/null || systemctl cat shepherd
+```
+
+`shepherd --version`이 오래된 빌드 시각을 보이거나, 해석된 경로가 `$HOME/.local/bin/shepherd`가 아니면, 다른 사본이 실행 중인 것입니다. 데몬은 모든 에이전트 세션의 부모이므로, 재시작하면 진행 중인 작업이 종료됩니다. 진행 중인 작업이 없을 때만 데몬을 재시작하십시오.
+
 ## 개발
 
 ```bash
