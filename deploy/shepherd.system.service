@@ -14,6 +14,8 @@
 # PATH must include the install dir and ~/.local/bin. A system unit does not
 # read the user's shell login profile, so without this the daemon cannot find
 # `claude`, `grok`, and other CLIs (see wiki: daemon-path-claude-not-found).
+# If you use mise/asdf/nvm, add your shim directory (e.g.
+# ~/.local/share/mise/shims) to the PATH below as well.
 
 [Unit]
 Description=Shepherd AI Orchestration Daemon

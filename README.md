@@ -133,6 +133,16 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Put it first so your shell and systemd resolve the binary you just installed, instead of an older copy that lives elsewhere (for example a stale `/usr/local/bin/shepherd`). A systemd unit does **not** read your shell login profile, so the unit file itself must also set `PATH` to include `~/.local/bin`. Without that, the daemon cannot find provider CLIs such as `claude` and `grok` installed under `~/.local/bin`, and tasks fail with `exec: "claude": executable file not found in $PATH`. The shipped units already set this PATH.
 
+If you install provider CLIs with a version manager such as mise, asdf, or nvm, the CLI may live in a shim directory (for example `~/.local/share/mise/shims`) instead of `~/.local/bin`. The PATH baked into the shipped units does not include that directory, so the daemon would still fail to find `claude`. Add your shim directory to `Environment=PATH=` in the unit you installed. To check what PATH the running unit actually uses and what your shell resolves, run:
+
+```bash
+systemctl --user cat shepherd              # the unit file in effect (check Environment=PATH=)
+systemctl --user show-environment          # environment systemd managers pass to services
+command -v claude                          # where YOUR shell resolves the CLI (compare with the PATH above)
+```
+
+If `command -v claude` points to a directory that is not in the unit's `Environment=PATH=`, add that directory to the unit and run `systemctl --user daemon-reload && systemctl --user restart shepherd` (restart only when no tasks are in progress).
+
 ### Confirm which binary is running
 
 Before you restart the daemon after an install, check that the running process is the binary you just built. An old daemon keeps serving even after a new binary is installed.

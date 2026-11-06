@@ -133,6 +133,16 @@ export PATH="$HOME/.local/bin:$PATH"
 
 앞에 두는 이유는 셸과 systemd가 방금 설치한 바이너리를 해석하게 하기 위해서입니다. 이렇게 하지 않으면 다른 위치에 남아 있던 오래된 사본(예: 낡은 `/usr/local/bin/shepherd`)이 해석됩니다. systemd 유닛은 셸 로그인 프로필을 읽지 않으므로, 유닛 파일 자체에도 `~/.local/bin`을 포함하는 `PATH`를 지정해야 합니다. 이 값이 없으면 데몬이 `~/.local/bin`에 설치된 `claude`, `grok` 같은 프로바이더 CLI를 찾지 못해서, 작업이 `exec: "claude": executable file not found in $PATH` 오류로 실패합니다. 동봉된 유닛에는 이미 이 PATH가 들어 있습니다.
 
+mise, asdf, nvm 같은 버전 관리 도구로 프로바이더 CLI를 설치한 경우, CLI가 `~/.local/bin`이 아니라 shim 디렉터리(예: `~/.local/share/mise/shims`)에 놓일 수 있습니다. 동봉된 유닛의 PATH에는 그 shim 디렉터리가 들어 있지 않으므로, 데몬은 여전히 `claude`를 찾지 못합니다. 설치한 유닛의 `Environment=PATH=`에 자기 shim 디렉터리를 추가하십시오. 실행 중인 유닛이 실제로 쓰는 PATH와 자기 셸의 해석 위치를 비교하려면 다음을 실행합니다:
+
+```bash
+systemctl --user cat shepherd              # 적용된 유닛 파일 (Environment=PATH= 확인)
+systemctl --user show-environment          # systemd 매니저가 서비스에 전달하는 환경
+command -v claude                          # 내 셸이 CLI를 해석하는 위치 (위 PATH와 비교)
+```
+
+`command -v claude`가 가리키는 디렉터리가 유닛의 `Environment=PATH=`에 없으면, 그 디렉터리를 유닛에 추가하고 `systemctl --user daemon-reload && systemctl --user restart shepherd`를 실행하십시오(진행 중인 작업이 없을 때만 재시작합니다).
+
 ### 실행 중인 바이너리 확인하기
 
 설치 뒤에 데몬을 재시작하기 전에, 실행 중인 프로세스가 방금 빌드한 바이너리인지 확인하십시오. 새 바이너리를 설치해도 오래된 데몬은 계속 서비스됩니다.

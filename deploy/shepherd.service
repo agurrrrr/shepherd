@@ -16,6 +16,9 @@
 # PATH must include ~/.local/bin: systemd user services do NOT read your shell
 # login profile, so without this the daemon cannot find `claude`, `grok`, and
 # other CLIs installed under ~/.local/bin (see wiki: daemon-path-claude-not-found).
+# If you use mise/asdf/nvm, your CLIs may live in a shim directory such as
+# ~/.local/share/mise/shims — add that directory to the PATH below. See README
+# ("PATH and the install directory") for how to check with `systemctl --user cat`.
 
 [Unit]
 Description=Shepherd AI Orchestration Daemon

@@ -11,36 +11,54 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 cd "$PROJECT_DIR"
 
+# DAEMON_PATTERN은 명령줄 시작을 기준으로 데몬 프로세스만 매칭한다.
+# `^[^ ]*shepherd`은 바이너리 경로(절대경로 또는 PATH로 실행된 이름)만 받고,
+# `(serve|serve-foreground)( |$)`가 하위 명령을 확인한다. 이렇게 하면
+# `bash -c '... shepherd serve ...'`처럼 명령줄 중간에 같은 문자열을 담은
+# 무관한 셸 프로세스는 매칭되지 않는다. `pgrep -x shepherd`는
+# `shepherd issue list` 같은 일반 CLI 호출까지 잡으므로 쓰지 않는다.
+DAEMON_PATTERN='^[^ ]*shepherd (serve|serve-foreground)( |$)'
+
 # 실행 중인 데몬을 관리하는 방식을 감지한다. 우선순위는 다음과 같다:
 #   1) systemd 사용자 유닛   2) systemd 시스템 유닛(쿼리만 sudo 불필요)
-#   3) PID 파일             4) pgrep 폴백(유닛·PID 없이 실행된 경우)
+#   3) PID 파일(실제 생존 확인) 4) pgrep 폴백(유닛·PID 없이 실행된 경우)
+# PID 파일이 존재하나 비어 있거나 죽은 PID를 가리키면 pgrep 폴백으로 떨어져서,
+# PID 파일 유무와 무관하게 실행 중인 데몬을 반드시 감지한다.
 detect_manager() {
     if systemctl --user is-active --quiet shepherd 2>/dev/null; then
         echo "user"
-    elif systemctl is-active --quiet shepherd 2>/dev/null; then
+        return
+    fi
+    if systemctl is-active --quiet shepherd 2>/dev/null; then
         echo "system"
-    elif [ -f "$PID_FILE" ]; then
-        # PID 파일이 있어도 프로세스가 죽었을 수 있으므로 실제 생존을 확인한다.
+        return
+    fi
+    if [ -f "$PID_FILE" ]; then
         local pid
         pid="$(cat "$PID_FILE" 2>/dev/null || echo)"
-        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        # 살아 있는 PID라도 커맨드라인이 데몬 형태인지 확인한다. PID가 재사용되어
+        # PID 파일이 무관한 프로세스를 가리킬 때, 그 프로세스에 SIGTERM을 보내면
+        # 안 된다. 확인에 실패하면 아래 pgrep 폴백으로 떨어져 실제 데몬을 찾는다.
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null &&
+            tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -Eq "$DAEMON_PATTERN"; then
             echo "pid"
-        else
-            echo ""
+            return
         fi
-    elif pgrep -f '[s]hepherd serve' >/dev/null 2>&1; then
-        echo "pgrep"
-    else
-        echo ""
     fi
+    if pgrep -f "$DAEMON_PATTERN" >/dev/null 2>&1; then
+        echo "pgrep"
+        return
+    fi
+    echo ""
 }
 
 # 데몬이 실제로 멈출 때까지 최대 30초 대기한다. SIGTERM 후 데몬은 PID 파일을
 # 정리하며 정상 종료하므로, 이 대기가 끝나면 바이너리 교체가 안전하다.
+# 종료 판정은 detect_manager의 pgrep 폴백과 같은 DAEMON_PATTERN으로 한다.
 wait_for_stop() {
     local waited=0
     while [ "$waited" -lt 30 ]; do
-        if ! pgrep -f '[s]hepherd serve' >/dev/null 2>&1; then
+        if ! pgrep -f "$DAEMON_PATTERN" >/dev/null 2>&1; then
             return 0
         fi
         sleep 1
@@ -53,22 +71,18 @@ wait_for_stop() {
 # 1. 데몬 중지 (감지한 방식으로만 중지한다. PID 파일 유무와 무관하게 실행 중이면 중지한다.)
 echo "🛑 데몬 중지 중..."
 MANAGE="$(detect_manager)"
-WAS_RUNNING=0
 case "$MANAGE" in
     user)
-        WAS_RUNNING=1
         echo "   systemd 사용자 유닛으로 실행 중 → systemctl --user stop shepherd"
         systemctl --user stop shepherd || true
         wait_for_stop || true
         ;;
     system)
-        WAS_RUNNING=1
         echo "   systemd 시스템 유닛으로 실행 중 → sudo systemctl stop shepherd"
         sudo systemctl stop shepherd || true
         wait_for_stop || true
         ;;
     pid)
-        WAS_RUNNING=1
         PID="$(cat "$PID_FILE")"
         echo "   PID 파일($PID)으로 실행 중 → SIGTERM $PID"
         kill "$PID" 2>/dev/null || true
@@ -76,9 +90,8 @@ case "$MANAGE" in
         rm -f "$PID_FILE"
         ;;
     pgrep)
-        WAS_RUNNING=1
-        echo "   systemd 유닛·PID 파일 없이 실행 중 → pkill shepherd serve"
-        pkill -TERM -f '[s]hepherd serve' || true
+        echo "   systemd 유닛·PID 파일 없이 실행 중 → pkill -f '$DAEMON_PATTERN'"
+        pkill -TERM -f "$DAEMON_PATTERN" || true
         wait_for_stop || true
         ;;
     *)
