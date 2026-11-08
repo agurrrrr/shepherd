@@ -2270,9 +2270,19 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 }
 
 // parseStreamLine parses a single line of stream-json output for real-time display.
+//
+// Discrete events (assistant text/tool_use, tool results, result, system init)
+// must return text terminated with '\n'. The processor's LineCoalescer treats a
+// chunk without a trailing newline as an "open" line and concatenates the next
+// chunk onto it. Without the terminator, each event glued onto the previous one
+// ("🚀 Claude session starting...🔧 Bash", "🔧 Bash → ls   out.txt"), so the
+// interim narration between tool calls vanished from Live Output (task #11771).
+//
+// Token deltas (content_block_delta) are deliberately returned without a
+// newline: they are fragments of one line and must keep accumulating.
 func parseStreamLine(line string) string {
 	if !strings.HasPrefix(line, "{") {
-		return line
+		return line + "\n"
 	}
 
 	var msg struct {
@@ -2364,7 +2374,7 @@ func parseStreamLine(line string) string {
 			}
 		}
 		if len(outputs) > 0 {
-			return strings.Join(outputs, "\n")
+			return strings.Join(outputs, "\n") + "\n"
 		}
 	case "user":
 		// Tool execution result
@@ -2386,7 +2396,7 @@ func parseStreamLine(line string) string {
 			}
 		}
 		if len(outputs) > 0 {
-			return strings.Join(outputs, "\n")
+			return strings.Join(outputs, "\n") + "\n"
 		}
 	case "content_block_delta":
 		// Streaming text delta
@@ -2404,11 +2414,11 @@ func parseStreamLine(line string) string {
 	case "result":
 		// Final result text was already output in assistant message
 		// Only show completion indicator
-		return "✅ Task complete"
+		return "✅ Task complete\n"
 	case "system":
 		// System messages (init, etc.)
 		if msg.Subtype == "init" {
-			return "🚀 Claude session starting..."
+			return "🚀 Claude session starting...\n"
 		}
 	}
 
