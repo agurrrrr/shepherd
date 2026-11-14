@@ -415,15 +415,23 @@ func TestPatrolDailyCap(t *testing.T) {
 	patrolConfig(t, "30m", nil, 2)
 	ctx := context.Background()
 	now := time.Now()
+	// wakeupsToday() counts wakes created since local midnight (time.Now()).
+	// Anchor the seeded rows to that same midnight so the count window is
+	// deterministic no matter when this test runs. At 00:00-01:01 local,
+	// `now.Add(-time.Hour)` falls on yesterday, the count drops to 0, and the
+	// cap never fires — the timezone flake reported in issue #841.
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	// Two automatic wakes already used today: one review, one patrol. Both
-	// completed, so the pending-patrol guard does not interfere.
+	// completed, so the pending-patrol guard does not interfere. CreatedAt sits
+	// just after local midnight so wakeupsToday always sees them as "today".
+	todayWake := midnight.Add(time.Second)
 	client.Task.Create().SetPrompt("r").SetShepherdKind(KindReview).
-		SetStatus(entTask.StatusCompleted).SetCreatedAt(now.Add(-time.Hour)).SaveX(ctx)
+		SetStatus(entTask.StatusCompleted).SetCreatedAt(todayWake).SaveX(ctx)
 	client.Task.Create().SetPrompt("p").SetShepherdKind(KindPatrol).
-		SetStatus(entTask.StatusCompleted).SetCreatedAt(now.Add(-time.Hour)).SaveX(ctx)
-	// Yesterday's wake must not count.
-	yesterday := now.Add(-36 * time.Hour)
+		SetStatus(entTask.StatusCompleted).SetCreatedAt(todayWake).SaveX(ctx)
+	// Yesterday's wake must not count: it sits before today's midnight.
+	yesterday := midnight.Add(-time.Hour)
 	client.Task.Create().SetPrompt("old").SetShepherdKind(KindReview).
 		SetStatus(entTask.StatusCompleted).SetCreatedAt(yesterday).SaveX(ctx)
 
