@@ -17,11 +17,14 @@ Thank you for your interest in contributing to Shepherd! This guide will help yo
 git clone https://github.com/agurrrrr/shepherd.git
 cd shepherd
 
-# Build the CLI
-go build -o shepherd ./cmd/shepherd
+# Build the Web UI first if you want the embedded frontend.
+# `make build` runs both steps in the right order.
+make build
 
-# Build the Web UI (required for embedded frontend)
-cd web && npm install && npm run build && cd ..
+# Or build only the Go binary. This works on a fresh clone and serves the
+# API without a frontend; internal/server/web_dist holds a tracked placeholder
+# so the go:embed directive still compiles.
+go build -o shepherd ./cmd/shepherd
 
 # Run tests
 go test ./...
