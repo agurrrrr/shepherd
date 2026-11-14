@@ -35,6 +35,8 @@ clean:
 	rm -f shepherd
 	# .gitkeep은 남긴다: //go:embed all:web_dist는 이 디렉터리에 파일이 하나도
 	# 없으면 컴파일 자체가 실패한다 (#840). 빌드 산출물만 지운다.
+	mkdir -p internal/server/web_dist
+	touch internal/server/web_dist/.gitkeep
 	find internal/server/web_dist -mindepth 1 ! -name .gitkeep -delete
 	rm -rf web/build
 	rm -rf web/node_modules
