@@ -1,0 +1,3 @@
+# Placeholder: keeps //go:embed all:web_dist matching on a clean clone.
+# web_dist holds Svelte build output and is gitignored (see .gitignore).
+# Without this file, "go build ./..." fails with "pattern all:web_dist: no matching files found".

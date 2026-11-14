@@ -79,5 +79,9 @@ web/build/
 web/node_modules/
 web/.svelte-kit/
 internal/server/web_dist/*
+# Keep this placeholder tracked: internal/server/static.go does
+# `//go:embed all:web_dist`, and go:embed fails to compile ("no matching files
+# found") when the directory is absent or empty. Do not delete .gitkeep — a clean
+# clone would no longer build. See issue #840.
 !internal/server/web_dist/.gitkeep
 mcp-server.log
