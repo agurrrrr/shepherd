@@ -17,6 +17,11 @@ import (
 // Commit c2952a8 deleted that placeholder and broke every clean clone. This test
 // fails loudly if it disappears again, instead of leaving the failure to be found
 // by someone cloning the repository.
+//
+// The compile error alone is not enough of a guard: CI and `make build` copy
+// web/build into web_dist first, so in those environments the embed always has
+// files and a deleted .gitkeep stays invisible. The test runs against the tree as
+// checked out, which is the only place the clean-clone case is observable.
 func TestWebDistEmbedPlaceholder(t *testing.T) {
 	const placeholder = "web_dist/.gitkeep"
 
