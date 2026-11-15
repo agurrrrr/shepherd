@@ -351,6 +351,16 @@ func (s *Server) handleUpdateShepherdConfig(c *fiber.Ctx) error {
 	model := config.GetString("shepherd_model")
 	if body.Model != nil {
 		model = strings.TrimSpace(*body.Model)
+		// A model saved here is passed to the provider as-is at dispatch, so an
+		// id the CLI cannot accept would only fail later, inside a task. Claude
+		// ids never contain a dot, so reject the dotted shape on save.
+		if newProvider == "claude" || newProvider == "auto" {
+			normalized, err := config.ValidateClaudeModelID(model)
+			if err != nil {
+				return fail(c, fiber.StatusBadRequest, err.Error())
+			}
+			model = normalized
+		}
 		values["shepherd_model"] = model
 	}
 

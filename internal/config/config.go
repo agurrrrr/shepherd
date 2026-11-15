@@ -801,6 +801,27 @@ func NormalizeHandoffModel(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
+// ValidateClaudeModelID canonicalizes a Claude model id and rejects ids this
+// Claude CLI cannot accept. An empty id is valid ("let the CLI choose"). A value
+// that is not offered in the settings list is still allowed, because Anthropic
+// ships new ids on a rolling basis and a hand-written one may be newer than the
+// list. What must never be stored is an id in an impossible shape: every real
+// Claude id joins its parts with hyphens, so a dotted form such as
+// "claude-opus-5.5" — which the settings list itself used to offer — is rejected
+// by the CLI with "There's an issue with the selected model". The queue then ran
+// the task and recorded it as completed with that sentence as its summary, so
+// the bad id has to fail at save time instead.
+func ValidateClaudeModelID(raw string) (string, error) {
+	id := strings.TrimSpace(raw)
+	if id == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(id, ". ") {
+		return "", fmt.Errorf("claude model id %q is not valid: Claude ids use hyphens (for example claude-opus-5-5), not dots or spaces", id)
+	}
+	return id, nil
+}
+
 // LimitHandoffTarget returns the effective rate-limit handoff target (#675):
 // the normalized provider and model from config. An empty provider means the
 // feature is off. A stored value that no longer validates (hand-edited config

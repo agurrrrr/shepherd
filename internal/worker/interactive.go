@@ -2228,20 +2228,18 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("execution timeout (%v)", opts.Timeout)
 		}
-		// Check for rate limit in output or error
-		errStr := strings.ToLower(fullOutput + " " + err.Error())
-		if strings.Contains(errStr, "rate limit") ||
-			strings.Contains(errStr, "you've hit your limit") ||
-			strings.Contains(errStr, "hit your limit") ||
-			strings.Contains(errStr, "hit your session limit") ||
-			strings.Contains(errStr, "session limit") ||
-			strings.Contains(errStr, "429") ||
-			strings.Contains(errStr, "too many requests") ||
-			strings.Contains(errStr, "limit exceeded") {
+		// The result event carries claude's own verdict. A rejected --model id
+		// exits 1 and puts the CLI's error sentence in "result", so a non-empty
+		// Result must not be treated as a usable answer. Prefer the structured
+		// classification (api_error_status) over grepping output text.
+		result := parseStreamOutput(fullOutput)
+		if result != nil && result.Incomplete {
+			return nil, fmt.Errorf("%s", classifyClaudeFailure(result, fullOutput+" "+err.Error()))
+		}
+		// No structured verdict: fall back to scanning the raw text.
+		if claudeSuggestsRateLimit(fullOutput + " " + err.Error()) {
 			return nil, fmt.Errorf("rate limit: %w", err)
 		}
-		// Other errors: return error with output context
-		result := parseStreamOutput(fullOutput)
 		if result != nil && result.Result != "" {
 			// Got valid result despite exit code, return it
 			return result, nil
@@ -2252,13 +2250,18 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 	// Parse result
 	result := parseStreamOutput(fullOutput)
 
+	// Claude exits 0 even when the turn itself was an API error (a rejected
+	// model id, a quota stop). Surface that as a failure so the task is recorded
+	// as failed instead of completed with the CLI's error sentence as its
+	// summary.
+	if result != nil && result.Incomplete {
+		return nil, fmt.Errorf("%s", classifyClaudeFailure(result, fullOutput))
+	}
+
 	// Validate result is not empty
 	if result == nil || result.Result == "" {
 		// Check if output contains rate limit indicators
-		outputLower := strings.ToLower(fullOutput)
-		if strings.Contains(outputLower, "hit your limit") ||
-			strings.Contains(outputLower, "rate limit") ||
-			strings.Contains(outputLower, "too many requests") {
+		if claudeSuggestsRateLimit(fullOutput) {
 			return nil, fmt.Errorf("rate limit: claude CLI hit rate limit")
 		}
 		if strings.TrimSpace(fullOutput) == "" {
@@ -2267,6 +2270,29 @@ func executeWithStreaming(ctx context.Context, sheepName, projectPath, sessionID
 	}
 
 	return result, nil
+}
+
+// classifyClaudeFailure builds the error a Claude run returns when its terminal
+// result event reported a failed turn. The wording matters: the queue matches on
+// "rate limit" to trigger provider handoff (#675), so a 429 must keep that
+// prefix, while every other API error (a rejected model id is the common one)
+// must say what actually went wrong.
+//
+// The structured status decides whenever the CLI reported one. Raw output is only
+// scanned when it did not, because a stream-json dump can contain "429" anywhere
+// (a session id, a token count) and a model-id mistake must not be mistaken for
+// a quota stop and retried or handed off.
+func classifyClaudeFailure(result *ExecuteResult, rawOutput string) string {
+	if result.APIErrorStatus != 0 {
+		if result.APIErrorStatus == 429 {
+			return "rate limit: " + result.IncompleteReason
+		}
+		return "claude reported an error: " + result.IncompleteReason
+	}
+	if claudeSuggestsRateLimit(rawOutput) || strings.Contains(strings.ToLower(result.IncompleteReason), "rate limit") {
+		return "rate limit: " + result.IncompleteReason
+	}
+	return "claude reported an error: " + result.IncompleteReason
 }
 
 // parseStreamLine parses a single line of stream-json output for real-time display.
@@ -2500,6 +2526,17 @@ func parseStreamOutput(output string) *ExecuteResult {
 			OutputTokens     int64   `json:"output_tokens"`
 			CacheReadTokens  int64   `json:"cache_read_input_tokens"`
 			CacheWriteTokens int64   `json:"cache_creation_input_tokens"`
+			// The terminal "result" event's own failure classification. Claude
+			// exits 0 for a normal turn but the turn itself can still be an API
+			// error: is_error:true + terminal_reason:"api_error" +
+			// api_error_status/api_error_type. A rejected --model value reports
+			// 404/not_found_error here, and a quota stop reports 429. Without
+			// these fields shepherd read the error text as a normal answer and
+			// recorded the task as completed.
+			IsError        bool   `json:"is_error"`
+			TerminalReason string `json:"terminal_reason"`
+			APIErrorStatus int    `json:"api_error_status"`
+			APIErrorType   string `json:"api_error_type"`
 			// The final "result" event carries token totals in a TOP-LEVEL
 			// "usage" object (sibling of total_cost_usd), NOT under "message".
 			// Without this field the result event's tokens were never read and
@@ -2538,6 +2575,20 @@ func parseStreamOutput(output string) *ExecuteResult {
 			}
 			if msg.TotalCostUSD > 0 {
 				result.CostUSD = msg.TotalCostUSD
+			}
+			// The turn itself failed even though claude may have exited 0. Carry
+			// the classification into Incomplete so callers fail the task instead
+			// of treating the CLI's error sentence as the assistant's answer.
+			// Only is_error / api_error_status are used for the verdict: a normal
+			// turn also carries a non-empty terminal_reason ("completed"), so
+			// judging on that field alone would fail every successful run.
+			result.TerminalReason = msg.TerminalReason
+			result.APIErrorStatus = msg.APIErrorStatus
+			result.APIErrorType = msg.APIErrorType
+			if msg.IsError || msg.APIErrorStatus != 0 {
+				result.Incomplete = true
+				result.IncompleteReason = describeResultEventFailure(
+					msg.Result, msg.TerminalReason, msg.APIErrorType, msg.APIErrorStatus)
 			}
 			// Top-level "usage" object on the result event (the canonical
 			// place Claude Code reports cumulative session token totals).
@@ -2580,6 +2631,74 @@ func parseStreamOutput(output string) *ExecuteResult {
 	}
 
 	return result
+}
+
+// claudeSuggestsRateLimit reports whether raw CLI output carries a quota/limit
+// stop. It exists so the structured path (result event's api_error_status==429)
+// and the old text-scanning path agree, and so a limit stop keeps the wording
+// queue.IsRateLimitError routes on for provider handoff (#675).
+func claudeSuggestsRateLimit(output string) bool {
+	lower := strings.ToLower(output)
+	for _, s := range []string{
+		"rate limit", "you've hit your limit", "hit your limit",
+		"hit your session limit", "session limit", "429",
+		"too many requests", "limit exceeded",
+	} {
+		if strings.Contains(lower, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// claudeSuggestsQuotaStop is the narrow form for PTY (TUI) output. A TUI dump
+// shows token counts and cost, so a bare "429" can appear in a number that has
+// nothing to do with a quota. Only the phrases the CLI prints for a limit stop
+// count here.
+func claudeSuggestsQuotaStop(output string) bool {
+	lower := strings.ToLower(output)
+	for _, s := range []string{
+		"rate limit", "you've hit your limit", "hit your limit",
+		"hit your session limit", "session limit",
+		"too many requests", "limit exceeded",
+	} {
+		if strings.Contains(lower, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// describeResultEventFailure turns the result event's error fields into a
+// reason string for ExecuteResult.IncompleteReason. It names the status, the
+// type, and the CLI's own sentence. Routing decisions (rate limit vs. other)
+// belong to classifyClaudeFailure, which prefixes the reason, so this function
+// must not add "rate limit" wording itself or the prefix would double up.
+func describeResultEventFailure(resultText, terminalReason, apiErrorType string, apiErrorStatus int) string {
+	var parts []string
+	if apiErrorStatus != 0 {
+		parts = append(parts, fmt.Sprintf("api error %d", apiErrorStatus))
+	}
+	if apiErrorType != "" {
+		parts = append(parts, apiErrorType)
+	}
+	if terminalReason != "" && terminalReason != "completed" {
+		parts = append(parts, "terminal_reason="+terminalReason)
+	}
+	if resultText != "" {
+		parts = append(parts, truncateStr(strings.TrimSpace(resultText), 300))
+	}
+	reason := strings.Join(parts, ": ")
+
+	if reason == "" {
+		reason = "claude reported an error result"
+	}
+	// A rejected --model id is a configuration mistake, not a runtime fault. Name
+	// the setting to fix so the task error is actionable on its own.
+	if strings.Contains(strings.ToLower(resultText), "selected model") {
+		reason += " — the provider model setting (model_claude / shepherd_model) holds an id this Claude CLI does not accept; pick one from the settings list"
+	}
+	return reason
 }
 
 // streamJSONUserMessage encodes a user prompt as a stream-json input line for

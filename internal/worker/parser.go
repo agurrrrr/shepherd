@@ -19,8 +19,21 @@ type ExecuteResult struct {
 	// reasoning/answer channel as plain text, or the turn was length-truncated).
 	// The caller turns this into an error so the task is recorded as failed
 	// instead of silently completed. See #5468.
+	//
+	// Claude's stream-json terminal "result" event uses the same channel for a
+	// different failure: `is_error:true` with `terminal_reason:"api_error"`. A
+	// rejected model id ("There's an issue with the selected model") puts its
+	// whole explanation in Result, so a non-empty Result is NOT proof of
+	// success — without this flag the task was recorded as completed.
 	Incomplete       bool
 	IncompleteReason string
+
+	// APIErrorStatus / APIErrorType / TerminalReason carry the Claude result
+	// event's own error classification (404 not_found_error, 429 rate limit).
+	// Callers route on these instead of grepping free-form output text.
+	APIErrorStatus int
+	APIErrorType   string
+	TerminalReason string
 }
 
 // claudeOutput represents the JSON output from Claude Code CLI.

@@ -161,10 +161,12 @@ func modelOptionsFor(provider, defaultLabel string) ([]modelOption, bool) {
 			{ID: "opus", Label: "opus (alias — latest Opus)"},
 			{ID: "sonnet", Label: "sonnet (alias — latest Sonnet)"},
 			{ID: "haiku", Label: "haiku (alias — latest Haiku)"},
-			{ID: "claude-sonnet-5.5", Label: "claude-sonnet-5.5"},
-			{ID: "claude-opus-5.5", Label: "claude-opus-5.5"},
+			{ID: "fable", Label: "fable (alias — latest Fable)"},
+			{ID: "claude-sonnet-5-5", Label: "claude-sonnet-5-5"},
+			{ID: "claude-opus-5-5", Label: "claude-opus-5-5"},
 			{ID: "claude-opus-5", Label: "claude-opus-5"},
 			{ID: "claude-fable-5", Label: "claude-fable-5"},
+			{ID: "claude-fable-5-2", Label: "claude-fable-5-2"},
 			{ID: "claude-opus-4-8", Label: "claude-opus-4-8"},
 			{ID: "claude-opus-4-7", Label: "claude-opus-4-7"},
 			{ID: "claude-sonnet-4-6", Label: "claude-sonnet-4-6"},
@@ -385,6 +387,19 @@ func (s *Server) handleUpdateConfig(c *fiber.Ctx) error {
 		if key == "limit_handoff_model" {
 			raw, _ := value.(string)
 			value = config.NormalizeHandoffModel(raw)
+		}
+
+		// model_claude goes straight to `claude --model`. The settings list used
+		// to offer a dotted id ("claude-opus-5.5") that the CLI rejects, and the
+		// run was still recorded as completed with the CLI's error sentence as
+		// its summary. Reject an impossible shape here so it never gets stored.
+		if key == "model_claude" {
+			raw, _ := value.(string)
+			normalized, err := config.ValidateClaudeModelID(raw)
+			if err != nil {
+				return fail(c, fiber.StatusBadRequest, err.Error())
+			}
+			value = normalized
 		}
 
 		// max_upload_mb is a whole MB count with a hard ceiling. The web form

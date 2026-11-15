@@ -182,12 +182,27 @@ func executeInteractiveWithPty(ctx context.Context, sheepName, projectPath, sess
 		return nil, fmt.Errorf("execution timeout")
 	}
 
-	// Wait for process to exit
-	cmd.Wait()
+	// Wait for process exit. The exit code matters: in PTY mode there is no
+	// stream-json result event to read a verdict from, so the code is the only
+	// structured signal that the run failed at all.
+	waitErr := cmd.Wait()
 
 	mu.Lock()
 	fullOutput := outputBuilder.String()
 	mu.Unlock()
+
+	// A rejected --model id makes the TUI print "There's an issue with the
+	// selected model" and exit non-zero. Without this check that sentence became
+	// the task summary and the task was recorded as completed, exactly like the
+	// streaming path did before it learned to read the result event. Requiring a
+	// non-zero exit keeps a model that merely quotes the phrase from failing a
+	// healthy run.
+	if waitErr != nil && strings.Contains(fullOutput, "issue with the selected model") {
+		return nil, fmt.Errorf("claude reported an error: the configured Claude model was rejected by the CLI (%v) — pick a model id from the settings list (model_claude / shepherd_model)", waitErr)
+	}
+	if waitErr != nil && claudeSuggestsQuotaStop(fullOutput) {
+		return nil, fmt.Errorf("rate limit: claude CLI hit rate limit (%v)", waitErr)
+	}
 
 	// Parse result from PTY output
 	promptTokens, completionTokens, costUSD := extractTokensFromOutput(fullOutput)
