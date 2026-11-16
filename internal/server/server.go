@@ -36,7 +36,7 @@ import (
 )
 
 // Version can be set by the caller to reflect in /api/health.
-var Version = "0.3.0"
+var Version = "0.4.0"
 
 // Server is the Fiber HTTP server with SSE hub.
 type Server struct {
