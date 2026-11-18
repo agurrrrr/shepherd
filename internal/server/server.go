@@ -753,42 +753,24 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 		// Each external server is spawned as a stdio child process and communicated
 		// with via JSON-RPC. We cache connections in the global MCPClientManager so
 		// repeated tasks reuse the same process instead of re-spawning every time.
-		var externalServers map[string]*mcp.ExternalMCPServer
-		var externalToolNames map[string]bool // for dispatch routing
-		if projectName != "" {
-			activeServers, activeErr := getProjectActiveMCPServers(projectName)
-			if activeErr == nil && len(activeServers) > 0 {
-				manager := mcp.GetMCPManager()
-				externalServers = make(map[string]*mcp.ExternalMCPServer)
-				externalToolNames = make(map[string]bool)
-
-				for _, srv := range activeServers {
-					ext, spawnErr := manager.GetOrCreate(srv)
-					if spawnErr != nil {
-						// Log but don't fail the whole task — some servers may not be installed
-						fmt.Printf("[embedded] warning: failed to spawn MCP server %q: %v\n", srv.Name, spawnErr)
-						continue
-					}
-					externalServers[srv.Name] = ext
-					for _, t := range ext.Tools() {
-						mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
-						externalToolNames[t.Name] = true
-					}
-				}
-			}
+		external := connectProjectExternalMCP(projectName, mcpDefs, "[embedded]")
+		mcpDefs = append(mcpDefs, external.defs...)
+		// Show in the task log which project-enabled servers reached the session.
+		if line := external.summaryLine(); line != "" && opts.OnOutput != nil {
+			opts.OnOutput(line)
 		}
 
 		// Build project-specific MCP guide for the system prompt.
-		// This includes both built-in tools AND any external MCP server tools
-		// that are enabled for this project.
-		mcpGuide := buildMCPGuide(mcpDefs, projectName)
+		// It names each external MCP server enabled for this project, so the
+		// model knows those servers are registered in its session.
+		mcpGuide := buildMCPGuide(mcpDefs, projectName, external.status)
 
 		// Build system prompt with project-specific MCP guide
 		systemPrompt := worker.BuildSystemPromptForEmbedded(sheepName, projectPath, mcpGuide, opts.TaskID)
 
 		// Dispatcher that routes MCP tool calls:
-		// 1. Built-in tools (task_*, get_*, skill_load, wiki_*, browser_*) → mcpServer
-		// 2. External MCP server tools → respective ExternalMCPServer
+		// 1. External MCP server tools → respective ExternalMCPServer
+		// 2. Built-in tools (task_*, get_*, skill_load, wiki_*, browser_*) → mcpServer
 		mcpDispatch := func(name string, args map[string]interface{}) (resultText string, images []embedded.MCPImage, err error) {
 			// Recover from panics in MCP tool handlers so a single bad tool call
 			// cannot crash the entire shepherd process. Without this, a nil-pointer
@@ -800,21 +782,9 @@ func initEmbeddedExecutor(mcpServer *mcp.Server) {
 				}
 			}()
 
-			// Check if this is an external MCP tool
-			if externalToolNames[name] {
-				// Find which server provides this tool
-				for _, ext := range externalServers {
-					for _, t := range ext.Tools() {
-						if t.Name == name {
-							// Use the multimodal call so image results (e.g.
-							// mobile_take_screenshot) reach the vision model
-							// instead of being dropped (task #6684).
-							text, imgs, err := ext.CallToolMultimodal(name, args)
-							return text, toEmbeddedMCPImages(imgs), err
-						}
-					}
-				}
-				return "", nil, fmt.Errorf("external tool %q not found", name)
+			// External MCP tool: route to the server that offers it.
+			if external.owns(name) {
+				return external.call(name, args)
 			}
 			// Fall back to built-in shepherd MCP server (text-only result).
 			// Caller identity (#597): tag built-in tool calls with the running
@@ -1310,29 +1280,8 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 		}
 
 		// Collect external MCP server tools enabled for this project.
-		var externalServers map[string]*mcp.ExternalMCPServer
-		var externalToolNames map[string]bool
-		if projectName != "" {
-			activeServers, activeErr := getProjectActiveMCPServers(projectName)
-			if activeErr == nil && len(activeServers) > 0 {
-				manager := mcp.GetMCPManager()
-				externalServers = make(map[string]*mcp.ExternalMCPServer)
-				externalToolNames = make(map[string]bool)
-
-				for _, srv := range activeServers {
-					ext, spawnErr := manager.GetOrCreate(srv)
-					if spawnErr != nil {
-						fmt.Printf("[magi] warning: failed to spawn MCP server %q: %v\n", srv.Name, spawnErr)
-						continue
-					}
-					externalServers[srv.Name] = ext
-					for _, t := range ext.Tools() {
-						mcpDefs = append(mcpDefs, toEmbeddedMCPDef(t))
-						externalToolNames[t.Name] = true
-					}
-				}
-			}
-		}
+		external := connectProjectExternalMCP(projectName, mcpDefs, "[magi]")
+		mcpDefs = append(mcpDefs, external.defs...)
 
 		// 5c. Filter to the proposer-permitted tool set (Phase 1.5): read/query
 		// tools plus the full browser tool set; shared-state mutations dropped.
@@ -1344,7 +1293,7 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 		}
 
 		// 5d. Build MCP guide from the proposer-permitted tool set.
-		mcpGuide := buildMCPGuide(proposerMCPDefs, projectName)
+		mcpGuide := buildMCPGuide(proposerMCPDefs, projectName, external.status)
 
 		// 5e. Build the system prompt with MAGI identity + permitted tools.
 		baseSystem := worker.BuildSystemPromptForMagi(sheepName, projectPath, mcpGuide)
@@ -1357,17 +1306,9 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 				}
 			}()
 
-			// Check if this is an external MCP tool.
-			if externalToolNames[name] {
-				for _, ext := range externalServers {
-					for _, t := range ext.Tools() {
-						if t.Name == name {
-							text, imgs, err := ext.CallToolMultimodal(name, args)
-							return text, toEmbeddedMCPImages(imgs), err
-						}
-					}
-				}
-				return "", nil, fmt.Errorf("external tool %q not found", name)
+			// External MCP tool: route to the server that offers it.
+			if external.owns(name) {
+				return external.call(name, args)
 			}
 			// Fall back to built-in shepherd MCP server.
 			// Caller identity (#597): same reserved-key injection as the
@@ -1533,96 +1474,6 @@ func initMagiExecutor(mcpServer *mcp.Server) {
 			IncompleteReason: result.IncompleteReason,
 		}, nil
 	})
-}
-
-// buildMCPGuide constructs the [Available Shepherd MCP Tools] section of the
-// system prompt, listing all tool definitions that will be available to the
-// embedded agent — both built-in and external (project-specific).
-func buildMCPGuide(defs []embedded.MCPToolDef, projectName string) string {
-	var sb strings.Builder
-	sb.WriteString("[Available Shepherd MCP Tools]\n\n")
-
-	// Group tools by category for readability
-	categories := map[string][]embedded.MCPToolDef{}
-	categoryOrder := []string{"Task management", "Skills", "Wiki", "Browser automation", "External MCP"}
-
-	// Categorize each tool
-	for _, d := range defs {
-		switch {
-		case strings.HasPrefix(d.Name, "task_") || strings.HasPrefix(d.Name, "get_") || d.Name == "get_status":
-			categories["Task management"] = append(categories["Task management"], d)
-		case d.Name == "skill_load":
-			categories["Skills"] = append(categories["Skills"], d)
-		case strings.HasPrefix(d.Name, "wiki_"):
-			categories["Wiki"] = append(categories["Wiki"], d)
-		case strings.HasPrefix(d.Name, "browser_"):
-			categories["Browser automation"] = append(categories["Browser automation"], d)
-		default:
-			categories["External MCP"] = append(categories["External MCP"], d)
-		}
-	}
-
-	for _, cat := range categoryOrder {
-		tools, ok := categories[cat]
-		if !ok || len(tools) == 0 {
-			continue
-		}
-		sb.WriteString(cat + ":\n")
-		for _, t := range tools {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", t.Name, t.Description))
-		}
-		sb.WriteString("\n")
-	}
-
-	// Add any remaining uncategorized tools
-	for catName, tools := range categories {
-		if catName == "Task management" || catName == "Skills" || catName == "Wiki" || catName == "Browser automation" {
-			continue // already printed above
-		}
-		if len(tools) == 0 {
-			continue
-		}
-		sb.WriteString(catName + ":\n")
-		for _, t := range tools {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", t.Name, t.Description))
-		}
-		sb.WriteString("\n")
-	}
-
-	if projectName != "" {
-		sb.WriteString(fmt.Sprintf("Project: %s\n", projectName))
-	}
-
-	return sb.String()
-}
-
-// toEmbeddedMCPDef converts an mcp.Tool to embedded.MCPToolDef.
-func toEmbeddedMCPDef(t mcp.Tool) embedded.MCPToolDef {
-	properties := make(map[string]interface{})
-	for k, v := range t.InputSchema.Properties {
-		properties[k] = map[string]interface{}{
-			"type":        v.Type,
-			"description": v.Description,
-		}
-	}
-	// JSON Schema requires `required` to be an array. A nil slice marshals to
-	// `null`, which strict tool-template parsers (e.g. llama.cpp) reject with a
-	// 400 ("type must be array, but is null"), aborting the whole request before
-	// any inference runs. Tools with no required params (e.g. get_status) hit
-	// this, so always emit an empty array instead of null.
-	required := t.InputSchema.Required
-	if required == nil {
-		required = []string{}
-	}
-	return embedded.MCPToolDef{
-		Name:        t.Name,
-		Description: t.Description,
-		Parameters: map[string]interface{}{
-			"type":       t.InputSchema.Type,
-			"properties": properties,
-			"required":   required,
-		},
-	}
 }
 
 // toEmbeddedMCPImages converts MCP image content blocks into the embedded

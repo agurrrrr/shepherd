@@ -71,6 +71,80 @@ type Property struct {
 	Type        string   `json:"type"`
 	Description string   `json:"description,omitempty"`
 	Enum        []string `json:"enum,omitempty"` // #7797: mode/status/type 환각 감소
+	// Items is the raw JSON Schema of array elements. External MCP servers
+	// send it for array parameters; OpenAI-style validators (GitHub Copilot)
+	// reject an array schema without items.
+	Items json.RawMessage `json:"items,omitempty"`
+}
+
+// UnmarshalJSON decodes a property schema from an external MCP server
+// leniently. Real servers send JSON Schema forms that a plain struct decode
+// rejects: "type": ["string","null"] (Python Optional fields), a type only
+// inside anyOf/oneOf, or a non-string enum. A decode error here used to fail
+// the whole tools/list, so the server was silently dropped from the session.
+func (p *Property) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Type        json.RawMessage   `json:"type"`
+		Description string            `json:"description"`
+		Enum        []json.RawMessage `json:"enum"`
+		Items       json.RawMessage   `json:"items"`
+		AnyOf       []json.RawMessage `json:"anyOf"`
+		OneOf       []json.RawMessage `json:"oneOf"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*p = Property{Description: raw.Description, Items: raw.Items}
+	p.Type = schemaTypeName(raw.Type)
+	if p.Type == "" {
+		for _, alt := range append(raw.AnyOf, raw.OneOf...) {
+			var sub struct {
+				Type  json.RawMessage `json:"type"`
+				Items json.RawMessage `json:"items"`
+			}
+			if json.Unmarshal(alt, &sub) != nil {
+				continue
+			}
+			if t := schemaTypeName(sub.Type); t != "" && t != "null" {
+				p.Type = t
+				if p.Items == nil {
+					p.Items = sub.Items
+				}
+				break
+			}
+		}
+	}
+	// Keep enum only when every value is a string; Enum is []string.
+	for _, e := range raw.Enum {
+		var s string
+		if json.Unmarshal(e, &s) != nil {
+			p.Enum = nil
+			break
+		}
+		p.Enum = append(p.Enum, s)
+	}
+	return nil
+}
+
+// schemaTypeName returns the first non-"null" JSON Schema type from a "type"
+// value that is either a string or an array of strings.
+func schemaTypeName(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var list []string
+	if json.Unmarshal(raw, &list) == nil {
+		for _, t := range list {
+			if t != "null" {
+				return t
+			}
+		}
+	}
+	return ""
 }
 
 type ToolsListResult struct {

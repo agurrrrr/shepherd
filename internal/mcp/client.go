@@ -309,10 +309,12 @@ func (s *ExternalMCPServer) initialize() error {
 		return fmt.Errorf("initialize error %d: %s", resp.Error.Code, resp.Error.Message)
 	}
 
-	// Send initialized notification (no response expected)
+	// Send the initialized notification (no response expected). The spec
+	// method is "notifications/initialized"; strict servers (e.g. the Python
+	// SDK) reject the bare "initialized" with a validation error.
 	notify := Request{
 		JSONRPC: "2.0",
-		Method:  "initialized",
+		Method:  "notifications/initialized",
 	}
 	_ = s.sendRequest(notify) // ignore error, notification
 
