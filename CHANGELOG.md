@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-18
+
+### Fixed
+- An embedded (Copilot-style) or MAGI session called external MCP tools but the model answered "that MCP is not registered in this session". The system prompt listed every tool under one flat `[Available Shepherd MCP Tools]` heading: external tools carried no server name, and `get_*` external tools were filed under Shepherd's own Task management group. The model received the tool definitions but could not tell which servers were connected. Now a new `[Connected External MCP Servers]` section names each ON server with its label, description, and per-server tool list, and lists a failed ON server together with its error. The task log prints one line: `[MCP] external servers for this session: ...`. Duplicate tool names (same as a built-in or another server's tool) are skipped, because the OpenAI-family API rejects duplicate function names. Tool-schema decoding is now tolerant of `type` arrays, `anyOf`, and non-string enums — one bad property used to fail the whole `tools/list` response and drop the server silently; array properties now send `items` and enums are preserved. The post-initialize notification method is corrected to the spec's `notifications/initialized`. A shared `connectProjectExternalMCP` helper replaces the duplicated connection code in the embedded and MAGI paths, and records each server's tool list and connection error
+
 ## [0.4.0] - 2026-11-16
 
 ### Added
