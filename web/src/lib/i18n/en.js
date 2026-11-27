@@ -459,6 +459,10 @@ export default {
 
 	// MCP server management (MCPServerManagement.svelte)
 	'mcp.hint': 'Register external MCP servers (GitHub, Puppeteer, Filesystem, etc.). Each project\'s settings can toggle a registered server ON/OFF.',
+	'mcp.stdioTimeoutLabel': 'External MCP Stdio Response Timeout (seconds)',
+	'mcp.stdioTimeoutHint': 'How long one external MCP server may take to answer a single request. Increase this when a slow server fails with "read response timeout". Accepts seconds or a duration like 5m. Up to {max}s. Default: {def}s.',
+	'mcp.save': 'Save',
+	'mcp.saved': 'Saved',
 
 	// System prompt preview (PreviewSection.svelte)
 	'preview.desc': 'The system prompt actually sent when a Task runs. It includes the MCP tool list, recent task history, a project skill summary, and the Custom Prompt. (Per-sheep history/skills are filled only in the Sheep context.)',

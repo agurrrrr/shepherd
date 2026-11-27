@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-19
+
+### Added
+- The external MCP server's stdio response wait is now a setting: `mcp.stdio_timeout_seconds` (Settings → Embedded → MCP Servers → External MCP Stdio Response Timeout, or by editing the `mcp:` section of `~/.shepherd/embedded.yaml`). It replaces the hard-coded 10 seconds in the JSON-RPC read of every external stdio server (`initialize`, `tools/list`, `tools/call`), and the default is now **600 seconds (10 minutes)** — a slow first call (an `npx` cold start, browser automation, a large tool result) used to fail with "read response timeout" before the server had a chance to answer. Accepts whole seconds (`300`) or a duration (`5m`); the ceiling is 3600 seconds, an invalid value returns 400 from `PUT /api/config/mcp`, and an unusable value in `embedded.yaml` falls back to 600. A save is read-modify-write, so it never clobbers the endpoint list or the magi section. The embedded agent loop's per-tool watchdog now also follows this setting (plus a 30-second margin), so a long MCP call reports its own readable timeout instead of the loop's generic one
+
 ## [0.4.1] - 2026-11-18
 
 ### Fixed

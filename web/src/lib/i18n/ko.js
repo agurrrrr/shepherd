@@ -457,6 +457,10 @@ export default {
 
 	// MCP server management (MCPServerManagement.svelte)
 	'mcp.hint': '외부 MCP 서버(GitHub, Puppeteer, Filesystem 등)를 등록합니다. 등록된 서버는 각 프로젝트 설정에서 ON/OFF 할 수 있습니다.',
+	'mcp.stdioTimeoutLabel': '외부 MCP stdio 응답 대기 시간 (초)',
+	'mcp.stdioTimeoutHint': '외부 MCP 서버 하나가 하나의 요청에 응답할 수 있는 최대 시간입니다. 느린 서버가 "read response timeout"으로 실패하면 이 값을 늘리세요. 초 단위 숫자나 5m 같은 지속 시간 형식을 받습니다. 최고 {max}초까지 지정할 수 있습니다. 기본값은 {def}초입니다.',
+	'mcp.save': '저장',
+	'mcp.saved': '저장되었습니다',
 
 	// System prompt preview (PreviewSection.svelte)
 	'preview.desc': 'Task 실행 시 실제로 전달되는 시스템 프롬프트입니다. MCP 도구 리스트, 최근 작업 히스토리, 프로젝트 스킬 요약, 그리고 Custom Prompt가 포함됩니다. (Sheep별 히스토리·스킬은 Sheep 컨텍스트에서만 채워집니다.)',

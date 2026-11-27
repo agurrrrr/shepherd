@@ -109,23 +109,35 @@ func TestClampBashTimeoutSeconds(t *testing.T) {
 // the loop watchdog to bash_timeout. With the old fixed 5-minute watchdog, raising
 // the shell timeout to 10 minutes would have made the agent loop kill a legitimate
 // build first and report a generic tool error instead of the shell path's own
-// readable timeout message.
+// readable timeout message. The watchdog also follows the external MCP stdio read
+// timeout (mcp.stdio_timeout_seconds, default 600s) for the same reason: a slow
+// MCP server must report its own "read response timeout", not a generic one.
 func TestGetToolDispatchTimeoutIsNeverShorterThanTheShellCap(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
+	// Pin embedded.yaml to an empty temp dir so the MCP stdio timeout is the
+	// deterministic 600s default, not whatever the operator has configured.
+	prev := UseTempConfigDir(t.TempDir())
+	defer UseTempConfigDir(prev)
 
-	// Default: 10 minutes plus the margin beats the 5-minute backstop.
+	// Default: bash 10 minutes plus the margin, and MCP 10 minutes plus the
+	// margin — both beat the 5-minute backstop.
 	want := time.Duration(DefaultBashTimeoutSeconds+ShellDispatchMarginSeconds) * time.Second
 	if got := GetToolDispatchTimeout(); got != want {
 		t.Errorf("default: watchdog = %s, want %s", got, want)
 	}
 
-	// A short bash_timeout keeps the backstop, so tools with no timeout of their
-	// own (external MCP servers, browser calls) stay bounded as before.
+	// A short bash_timeout keeps the shell watchdog at the backstop, but the
+	// whole-loop watchdog now rises to the MCP stdio read timeout plus a margin,
+	// so an external MCP call inside its own budget is never cut short here.
 	viper.Set("bash_timeout", 30)
 	wantBackstop := time.Duration(ToolDispatchBackstopSeconds) * time.Second
-	if got := GetToolDispatchTimeout(); got != wantBackstop {
-		t.Errorf("short bash_timeout: watchdog = %s, want backstop %s", got, wantBackstop)
+	if got := ShellDispatchWatchdog(30); got != wantBackstop {
+		t.Errorf("short bash shell watchdog = %s, want backstop %s", got, wantBackstop)
+	}
+	wantMCP := time.Duration(DefaultMCPStdioTimeoutSeconds+ShellDispatchMarginSeconds) * time.Second
+	if got := GetToolDispatchTimeout(); got != wantMCP {
+		t.Errorf("short bash_timeout: watchdog = %s, want MCP-driven %s", got, wantMCP)
 	}
 
 	// A per-call request above the configured default must stretch the watchdog

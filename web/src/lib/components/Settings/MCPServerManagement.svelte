@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api.js';
 	import { t } from '$lib/i18n/index.js';
+	import { MCP_STDIO_TIMEOUT_CEIL_SECONDS, MCP_STDIO_TIMEOUT_DEFAULT_SECONDS } from '$lib/mcpStdioTimeout.js';
 
 	let mcpServers = $state([]);
 	let loaded = $state(false);
@@ -107,7 +108,45 @@
 		}
 	}
 
-	onMount(loadServers);
+	// External MCP transport settings (embedded.yaml `mcp:` section). The stdio
+	// read timeout used to be a hard-coded 10 seconds; it is now a setting whose
+	// default is 600 seconds. The daemon normalizes seconds or a duration ("5m")
+	// and returns 400 on an out-of-range value.
+	let stdioTimeout = $state('');
+	let stdioTimeoutBusy = $state(false);
+	let stdioTimeoutMsg = $state('');
+
+	async function loadMCPConfig() {
+		const res = await apiGet('/api/config/mcp');
+		if (res?.data?.mcp) {
+			stdioTimeout = String(res.data.mcp.stdio_timeout_seconds ?? '');
+		}
+	}
+
+	async function saveMCPConfig() {
+		stdioTimeoutBusy = true;
+		stdioTimeoutMsg = '';
+		try {
+			const res = await apiPut('/api/config/mcp', {
+				stdio_timeout_seconds: stdioTimeout.trim() === '' ? MCP_STDIO_TIMEOUT_DEFAULT_SECONDS : stdioTimeout.trim()
+			});
+			if (res?.success || res?.data?.ok) {
+				stdioTimeoutMsg = '✅ ' + $t('mcp.saved');
+				await loadMCPConfig();
+			} else {
+				stdioTimeoutMsg = '❌ ' + (res?.message || 'Failed to save');
+			}
+		} catch (e) {
+			stdioTimeoutMsg = '❌ ' + e.message;
+		}
+		stdioTimeoutBusy = false;
+		setTimeout(() => { stdioTimeoutMsg = ''; }, 5000);
+	}
+
+	onMount(() => {
+		loadServers();
+		loadMCPConfig();
+	});
 </script>
 
 <div class="mcp-section">
@@ -119,6 +158,27 @@
 	<p class="hint">
 		{$t('mcp.hint')}
 	</p>
+
+	<!-- External MCP transport settings -->
+	<div class="mcp-config-row">
+		<label>{$t('mcp.stdioTimeoutLabel')}</label>
+		<div class="mcp-config-input">
+			<input
+				class="input"
+				type="text"
+				bind:value={stdioTimeout}
+				placeholder={MCP_STDIO_TIMEOUT_DEFAULT_SECONDS}
+			/>
+			<span class="hint">s</span>
+			<button class="btn btn-sm btn-primary" onclick={saveMCPConfig} disabled={stdioTimeoutBusy}>
+				{$t('mcp.save')}
+			</button>
+		</div>
+		<span class="hint">{$t('mcp.stdioTimeoutHint', { max: MCP_STDIO_TIMEOUT_CEIL_SECONDS, def: MCP_STDIO_TIMEOUT_DEFAULT_SECONDS })}</span>
+		{#if stdioTimeoutMsg}
+			<span class="hint mcp-config-msg">{stdioTimeoutMsg}</span>
+		{/if}
+	</div>
 
 	{#if !loaded}
 		<p class="text-muted">Loading...</p>
@@ -256,6 +316,27 @@
 	.mcp-header h3 {
 		margin: 0;
 		font-size: var(--fs-md);
+	}
+
+	.mcp-config-row {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		margin: 12px 0 4px;
+		padding: 12px;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+	}
+	.mcp-config-input {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.mcp-config-input .input {
+		max-width: 160px;
+	}
+	.mcp-config-msg {
+		font-weight: 600;
 	}
 
 	.mcp-server-list {

@@ -919,3 +919,38 @@ func (s *Server) handleUpdateMagiConfig(c *fiber.Ctx) error {
 		"warnings": warnings,
 	})
 }
+
+// GET /api/config/mcp
+// Returns the mcp section of embedded.yaml (external MCP transport settings)
+// with defaults applied. The section is never null: a missing section still
+// has meaningful values (the stdio read timeout default).
+func (s *Server) handleGetMCPConfig(c *fiber.Ctx) error {
+	m, err := config.GetMCPConfig()
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to load embedded config: "+err.Error())
+	}
+	return success(c, fiber.Map{"mcp": m})
+}
+
+// PUT /api/config/mcp
+// Updates the mcp section of embedded.yaml. An invalid stdio timeout blocks
+// the save with 400 (same contract as bash_timeout on /api/config).
+func (s *Server) handleUpdateMCPConfig(c *fiber.Ctx) error {
+	var body struct {
+		StdioTimeoutSeconds interface{} `json:"stdio_timeout_seconds"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid request body")
+	}
+
+	secs, err := config.NormalizeMCPStdioTimeoutSeconds(body.StdioTimeoutSeconds)
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	if err := config.SaveMCPConfig(&config.MCPStdioConfig{StdioTimeoutSeconds: secs}); err != nil {
+		return fail(c, fiber.StatusInternalServerError, "failed to save mcp config: "+err.Error())
+	}
+
+	return success(c, fiber.Map{"ok": true, "stdio_timeout_seconds": secs})
+}

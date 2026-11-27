@@ -54,6 +54,18 @@ const ToolDispatchBackstopSeconds = 300
 // "command timed out after Ns" instead of a generic tool-watchdog error.
 const ShellDispatchMarginSeconds = 30
 
+// DefaultMCPStdioTimeoutSeconds is the fallback for mcp.stdio_timeout_seconds —
+// how long an external MCP server (stdio transport) may take to answer one
+// JSON-RPC request. It was a hard-coded 10 seconds until this setting raised
+// the default to 600 (10 minutes): slow first calls (npx cold start, browser
+// automation, large tool results) used to fail with "read response timeout".
+const DefaultMCPStdioTimeoutSeconds = 600
+
+// MCPStdioTimeoutHardCeilSeconds caps mcp.stdio_timeout_seconds. One hour is
+// far past any legitimate MCP tool call and still bounded enough that a typo
+// in embedded.yaml cannot park an agent turn indefinitely.
+const MCPStdioTimeoutHardCeilSeconds = 3600
+
 type Config struct {
 	MaxSheep           int    `mapstructure:"max_sheep"`
 	MaxConcurrentTasks int    `mapstructure:"max_concurrent_tasks"`
@@ -559,13 +571,18 @@ func ClampBashTimeoutSeconds(seconds int) int {
 }
 
 // GetToolDispatchTimeout is the watchdog the embedded agent loop puts around a
-// single tool call. It must never be shorter than the shell tool's own cap, or
-// the loop would kill a legitimate long build and report a generic error instead
-// of the shell path's readable "command timed out after Ns". So it is the
-// backstop for tools without their own timeout, raised to bash_timeout plus a
-// margin when that is larger.
+// single tool call. It must never be shorter than a tool's own internal wait, or
+// the loop would kill legitimate work and report a generic error instead of the
+// tool path's readable timeout message. So it is the backstop for tools without
+// their own timeout, raised to bash_timeout plus a margin when that is larger,
+// and raised again to the external MCP stdio read timeout plus a margin so a
+// long MCP tool call (mcp.stdio_timeout_seconds, default 600s) can report its
+// own "read response timeout" instead of dying at the loop watchdog.
 func GetToolDispatchTimeout() time.Duration {
-	return ShellDispatchWatchdog(GetBashTimeoutSeconds())
+	return max(
+		ShellDispatchWatchdog(GetBashTimeoutSeconds()),
+		time.Duration(GetMCPStdioTimeoutSeconds()+ShellDispatchMarginSeconds)*time.Second,
+	)
 }
 
 // ShellDispatchWatchdog is GetToolDispatchTimeout for one specific shell call,
@@ -1245,6 +1262,9 @@ const (
 type EmbeddedConfig struct {
 	Endpoints []EmbeddedEndpoint `mapstructure:"endpoints"`
 	Magi      *MagiConfig        `mapstructure:"magi" yaml:"magi,omitempty"`
+	// MCP holds transport knobs for external MCP servers (stdio read timeout).
+	// Absent in older files → GetMCPConfig applies defaults.
+	MCP *MCPStdioConfig `mapstructure:"mcp" yaml:"mcp,omitempty"`
 }
 
 // UnmarshalEmbeddedYAML parses embedded config from YAML data.

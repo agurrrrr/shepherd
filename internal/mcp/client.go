@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/agurrrrr/shepherd/ent"
+	"github.com/agurrrrr/shepherd/internal/config"
 )
 
 // ExternalMCPServer manages a single external MCP server process (stdio transport).
@@ -366,6 +367,11 @@ func (s *ExternalMCPServer) sendRequest(req Request) error {
 }
 
 // readResponse reads a JSON-RPC response from the server's stdout with a timeout.
+// The wait is the `mcp.stdio_timeout_seconds` setting from embedded.yaml
+// (default 600s), read per request so a saved change applies without a restart.
+// It used to be a hard-coded 10 seconds, which killed slow legitimate calls —
+// an npx cold start, browser automation, or a large tool result — with
+// "read response timeout" before the server had a chance to answer.
 func (s *ExternalMCPServer) readResponse() (*Response, error) {
 	// Read with timeout
 	done := make(chan struct{})
@@ -382,11 +388,12 @@ func (s *ExternalMCPServer) readResponse() (*Response, error) {
 		err = json.Unmarshal([]byte(strings.TrimSpace(line)), &resp)
 	}()
 
+	wait := config.GetMCPStdioTimeoutSeconds()
 	select {
 	case <-done:
 		return &resp, err
-	case <-time.After(10 * time.Second):
-		return nil, fmt.Errorf("read response timeout after 10s")
+	case <-time.After(time.Duration(wait) * time.Second):
+		return nil, fmt.Errorf("read response timeout after %ds (raise mcp.stdio_timeout_seconds in embedded.yaml if this server is legitimately slow)", wait)
 	}
 }
 

@@ -36,7 +36,7 @@ import (
 )
 
 // Version can be set by the caller to reflect in /api/health.
-var Version = "0.4.1"
+var Version = "0.4.2"
 
 // Server is the Fiber HTTP server with SSE hub.
 type Server struct {
@@ -219,6 +219,10 @@ func New(processor *queue.Processor, sched *scheduler.Scheduler, webFS fs.FS, co
 	// MAGI consensus config (stored in embedded.yaml magi section)
 	api.Get("/config/magi", s.handleGetMagiConfig)
 	api.Put("/config/magi", s.handleUpdateMagiConfig)
+
+	// External MCP transport config (stored in embedded.yaml mcp section).
+	api.Get("/config/mcp", s.handleGetMCPConfig)
+	api.Put("/config/mcp", s.handleUpdateMCPConfig)
 
 	// LLM sheep naming (#638): dedicated endpoints because the PUT validates
 	// provider/model combinations (not fit for the generic PATCH /api allowlist).

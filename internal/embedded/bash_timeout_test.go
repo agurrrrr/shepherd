@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -121,15 +122,24 @@ func TestExecBashClampsRidiculousPerCallTimeout(t *testing.T) {
 
 // TestToolDispatchTimeoutFollowsBashTimeout is the loop-side half of the fix: the
 // watchdog around a tool call must stretch with bash_timeout, or a 10-minute build
-// dies at five minutes with a generic error.
+// dies at five minutes with a generic error. It also never drops below the external
+// MCP stdio read timeout plus a margin (mcp.stdio_timeout_seconds, default 600s),
+// so a slow MCP server reports its own timeout instead of the loop's generic one.
 func TestToolDispatchTimeoutFollowsBashTimeout(t *testing.T) {
+	// Pin embedded.yaml to an empty temp dir so the MCP stdio timeout is the
+	// deterministic 600s default, not whatever the operator has configured.
+	prev := config.UseTempConfigDir(t.TempDir())
+	defer config.UseTempConfigDir(prev)
+
 	setBashTimeout(t, 600)
 	if got := toolDispatchTimeout().String(); got != "10m30s" {
 		t.Errorf("toolDispatchTimeout() = %s, want 10m30s", got)
 	}
 
+	// A short bash_timeout no longer pulls the loop watchdog down to the 5m
+	// backstop: the MCP stdio default (600s + 30s margin) keeps it at 10m30s.
 	setBashTimeout(t, 30)
-	if got := toolDispatchTimeout(); got.Minutes() != 5 {
-		t.Errorf("short bash_timeout: toolDispatchTimeout() = %s, want the 5m backstop", got)
+	if got := toolDispatchTimeout(); got != 10*time.Minute+30*time.Second {
+		t.Errorf("short bash_timeout: toolDispatchTimeout() = %s, want the MCP-driven 10m30s", got)
 	}
 }
